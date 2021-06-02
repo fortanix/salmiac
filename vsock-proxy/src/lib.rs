@@ -1,4 +1,3 @@
-use log::info;
 use nix::sys::socket::{SockAddr};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, TcpListener};
@@ -13,7 +12,7 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn new_simple(local_port: u32, remote_addr: IpAddr, remote_port: u16) -> Self {
+    pub fn new(local_port: u32, remote_addr: IpAddr, remote_port: u16) -> Self {
         Proxy {
             local_port,
             remote_addr,
@@ -23,19 +22,14 @@ impl Proxy {
 
     pub fn listen_enclave(&self) -> Result<VsockListener, String> {
         let sockaddr = SockAddr::new_vsock(VSOCK_PROXY_CID, self.local_port);
-        let listener = VsockListener::bind(&sockaddr)
-            .map_err(|_| format!("Could not bind to {:?}", sockaddr))?;
-        info!("Bound to {:?}", sockaddr);
 
-        Ok(listener)
+        VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
     }
 
     pub fn connect_enclave(&self, cid: u32) -> Result<VsockStream, String> {
         let sockaddr = SockAddr::new_vsock(cid, self.local_port);
-        let connected = VsockStream::connect(&sockaddr)
-            .map_err(|err| format!("Failed to connect to enclave: {:?}", err));
 
-        connected
+        VsockStream::connect(&sockaddr).map_err(|err| format!("Failed to connect to enclave: {:?}", err))
     }
 
     pub fn listen_remote(&self) -> Result<TcpListener, String> {
@@ -53,7 +47,7 @@ impl Proxy {
 
 pub fn transfer_to_enclave(vsock : &mut VsockStream, listener : &mut TcpListener) -> Result<(), String> {
     loop {
-        let (mut incoming, _) = listener.accept().map_err(|err| format!("Accept failed: {:?}", err))?;
+        let (mut incoming, _) = listener.accept().map_err(|err| format!("Accept from external socket failed: {:?}", err))?;
 
         let received = receive_string(&mut incoming);
 
@@ -83,7 +77,6 @@ fn receive_bytes(tcp: &mut TcpStream, buf: &mut [u8], len: u64) -> Result<(), St
     while recv_bytes < len {
         let size = match tcp.read(&mut buf[recv_bytes..len]) {
             Ok(size) => size,
-            //Err(std::io::Error(_)) => 0,
             Err(err) => return Err(format!("{:?}", err)),
         };
         recv_bytes += size;

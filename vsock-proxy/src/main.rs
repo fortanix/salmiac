@@ -39,7 +39,7 @@ fn main() -> Result<(), String> {
                 .expect("cid must be specified")
                 .map_err(|err| format!("Cannot parse int {:?}", err))?;
 
-            let proxy = Proxy::new_simple(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
+            let proxy = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
 
             let mut vsock_stream = proxy.connect_enclave(cid)?;
 
@@ -64,7 +64,7 @@ fn main() -> Result<(), String> {
                 .expect("remote-port must be specified")
                 .map_err(|err| format!("Cannot parse int {:?}", err))?;
 
-            let client = Proxy::new_simple(0, address_vec[0], remote_port);
+            let client = Proxy::new(0, address_vec[0], remote_port);
 
             let mut ec2_connect = client.connect_remote()?;
 
@@ -73,7 +73,7 @@ fn main() -> Result<(), String> {
             let data = "Hello, world from client!".to_string();
             send_string(&mut ec2_connect, data)?;
         }
-        (_, _) => {
+        _ => {
             info!("Program must be either 'proxy' or 'client'");
             exit(1);
         }
