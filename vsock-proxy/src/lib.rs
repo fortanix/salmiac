@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, TcpListener};
 use vsock::{VsockListener, VsockStream};
 
-pub const VSOCK_PROXY_CID: u32 = 3;
+pub const VSOCK_PROXY_CID: u32 = 3; // from AWS Nitro documentation
 
 pub struct Proxy {
     local_port: u32,

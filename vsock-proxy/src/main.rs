@@ -12,6 +12,7 @@ use vsock_proxy::{
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::process::exit;
+use dns_lookup::lookup_host;
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -51,13 +52,19 @@ fn main() -> Result<(), String> {
             transfer_to_enclave(&mut vsock_stream, &mut remote_listener)?;
         }
         ("client", Some(args)) => {
+            let address_vec = args
+                .value_of("address")
+                .map(|e| lookup_host(&e))
+                .expect("address must be specified")
+                .map_err(|err| format!("Cannot parse address {:?}", err))?;
+
             let remote_port = args
                 .value_of("remote-port")
                 .map(|e| e.parse::<u16>())
                 .expect("remote-port must be specified")
                 .map_err(|err| format!("Cannot parse int {:?}", err))?;
 
-            let client = Proxy::new_simple(0, IpAddr::V4(Ipv4Addr::new(63,35,162,90)), remote_port);
+            let client = Proxy::new_simple(0, address_vec[0], remote_port);
 
             let mut ec2_connect = client.connect_remote()?;
 
@@ -67,7 +74,7 @@ fn main() -> Result<(), String> {
             send_string(&mut ec2_connect, data)?;
         }
         (_, _) => {
-            info!("Program mus be either 'proxy' or 'client'");
+            info!("Program must be either 'proxy' or 'client'");
             exit(1);
         }
     }
@@ -107,6 +114,13 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("client")
                 .about("Connect to EC2")
+                .arg(
+                    Arg::with_name("address")
+                        .long("address")
+                        .help("EC2 address")
+                        .takes_value(true)
+                        .required(true),
+                )
                 .arg(
                     Arg::with_name("remote-port")
                         .long("remote-port")
