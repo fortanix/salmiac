@@ -5,6 +5,8 @@ use vsock::{VsockListener, VsockStream};
 
 pub const VSOCK_PROXY_CID: u32 = 3; // from AWS Nitro documentation
 
+pub const VSOCK_ANY_CID : u32 = 0xFFFFFFFF;
+
 pub struct Proxy {
     local_port: u32,
     remote_addr: IpAddr,
@@ -21,7 +23,7 @@ impl Proxy {
     }
 
     pub fn listen_enclave(&self) -> Result<VsockListener, String> {
-        let sockaddr = SockAddr::new_vsock(VSOCK_PROXY_CID, self.local_port);
+        let sockaddr = SockAddr::new_vsock(VSOCK_ANY_CID, self.local_port);
 
         VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
     }
@@ -60,7 +62,15 @@ pub fn transfer_to_enclave(vsock : &mut VsockStream, listener : &mut TcpListener
     }
 }
 
-fn receive_string(tcp :&mut TcpStream) -> Result<String, String> {
+pub fn accept_string(listener : &mut VsockListener) -> Result<String, String> {
+    loop {
+        let (mut incoming, _) = listener.accept().map_err(|err| format!("Accept from enclave socket failed: {:?}", err))?;
+
+        return receive_string(&mut incoming);
+    }
+}
+
+fn receive_string(tcp :&mut dyn Read) -> Result<String, String> {
     let len = receive_u64(tcp)?;
     let mut buf = [0u8; 8192];
     receive_bytes(tcp, &mut buf, len)?;
@@ -70,7 +80,7 @@ fn receive_string(tcp :&mut TcpStream) -> Result<String, String> {
     received
 }
 
-fn receive_bytes(tcp: &mut TcpStream, buf: &mut [u8], len: u64) -> Result<(), String> {
+fn receive_bytes(tcp: &mut dyn Read, buf: &mut [u8], len: u64) -> Result<(), String> {
     let len = len as usize;
     let mut recv_bytes = 0;
 
@@ -85,7 +95,7 @@ fn receive_bytes(tcp: &mut TcpStream, buf: &mut [u8], len: u64) -> Result<(), St
     Ok(())
 }
 
-fn receive_u64(tcp: &mut TcpStream) -> Result<u64, String> {
+fn receive_u64(tcp: &mut dyn Read) -> Result<u64, String> {
     use std::mem::size_of;
     use byteorder::LittleEndian;
     use byteorder::ByteOrder;

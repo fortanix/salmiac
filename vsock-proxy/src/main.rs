@@ -7,7 +7,8 @@ use log::info;
 use vsock_proxy::{
     Proxy,
     transfer_to_enclave,
-    send_string
+    send_string,
+    accept_string
 };
 
 use std::net::{IpAddr, Ipv4Addr};
@@ -72,9 +73,26 @@ fn main() -> Result<(), String> {
 
             let data = "Hello, world from client!".to_string();
             send_string(&mut ec2_connect, data)?;
+        },
+        ("server", Some(args)) => {
+            let port = args
+                .value_of("port")
+                .map(|e| e.parse::<u32>())
+                .expect("port must be specified")
+                .map_err(|err| format!("Cannot parse int {:?}", err))?;
+
+            let server = Proxy::new(port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+
+            let mut enclave_listener = server.listen_enclave()?;
+
+            info!("Listening to incoming traffic in enclave!");
+
+            let result = accept_string(&mut enclave_listener)?;
+
+            println!("{}", result);
         }
         _ => {
-            info!("Program must be either 'proxy' or 'client'");
+            info!("Program must be either 'proxy' or 'client' or 'server'");
             exit(1);
         }
     }
@@ -125,6 +143,17 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                     Arg::with_name("remote-port")
                         .long("remote-port")
                         .help("remote port")
+                        .takes_value(true)
+                        .required(true),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("server")
+                .about("Listens for incoming connections")
+                .arg(
+                    Arg::with_name("port")
+                        .long("port")
+                        .help("port")
                         .takes_value(true)
                         .required(true),
                 )
