@@ -1,0 +1,16 @@
+[package]
+name = "vsock-proxy"
+version = "0.1.0"
+authors = ["NikitaShyrei <nikita.shyrei@fortanix.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = "2.33"
+env_logger = "0.7"
+log = "0.4"
+dns-lookup = "1.0.1"
+nix = "0.15.0"
+vsock = "0.1.5"
+byteorder = "1.3"
