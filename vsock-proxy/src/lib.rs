@@ -1,11 +1,43 @@
 use nix::sys::socket::{SockAddr};
+use std::io;
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream, TcpListener};
+use std::net::{IpAddr, SocketAddr, TcpStream, TcpListener, Ipv4Addr};
 use vsock::{VsockListener, VsockStream};
+use pcap::{Device, Capture, Active, Packet};
+use tun::platform::linux::Device as TunDevice;
 
 pub const VSOCK_PROXY_CID: u32 = 3; // from AWS Nitro documentation
 
 pub const VSOCK_ANY_CID : u32 = 0xFFFFFFFF;
+
+pub const ETH_P_ALL	: u16 = 0x0003;
+
+pub fn open_capture() -> Result<Capture<Active>, String> {
+    let main_device = Device::lookup().map_err(|err| format!("Cannot packet capture device {:?}", err));
+
+    let capture = main_device.and_then(|device| {
+        Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))
+    });
+
+    capture.and_then(|capture| {
+        let result = capture.promisc(true)
+            .snaplen(5000)
+            .open();
+
+        result.map_err(|err| format!("Cannot open capture {:?}", err))
+    })
+}
+
+pub fn create_tap_device() -> Result<TunDevice, String> {
+    let mut config = tun::Configuration::default();
+    config.address((10, 0, 0, 1))
+        .netmask((255, 255, 255, 0))
+        .layer(tun::Layer::L2)
+        .up();
+
+    tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
+}
+
 
 pub struct Proxy {
     local_port: u32,
@@ -60,6 +92,34 @@ pub fn transfer_to_enclave(vsock : &mut VsockStream, listener : &mut TcpListener
 
         return r;
     }
+}
+
+pub fn receive_packet_from_vsock(vsock : &mut VsockListener) -> Result<Vec<u8>, String> {
+    loop {
+        let (mut incoming, _) = vsock.accept().map_err(|err| format!("Accept from enclave socket failed: {:?}", err))?;
+
+        return receive_packet(&mut incoming)
+    }
+}
+
+pub fn send_packet(device:&mut dyn Write, packet : Packet) -> Result<(), String> {
+    let send_length = send_u64(device, packet.header.caplen as u64)
+        .map_err(|err| format!("Failure to send captured packet to vsock: {:?}", err));
+
+    send_length.and_then(|_| {
+        device.write_all(packet.data).map_err(|err| format!("Failure to send captured packet to vsock: {:?}", err))
+    })
+}
+
+pub fn receive_packet(incoming: &mut dyn Read) -> Result<Vec<u8>, String> {
+    let mut buf = [0u8; 8192];
+    let len = receive_u64(incoming).map_err(|err| format!("Failed to receive packet len {:?}", err));
+
+    let packet_raw = len.and_then(|len| {
+        receive_bytes(incoming, &mut buf, len)
+    }).map_err(|err| format!("Failed to receive packet {:?}", err));
+
+    return packet_raw.map(|_| buf.to_vec());
 }
 
 pub fn accept_string(listener : &mut VsockListener) -> Result<String, String> {

@@ -8,12 +8,18 @@ use vsock_proxy::{
     Proxy,
     transfer_to_enclave,
     send_string,
-    accept_string
+    accept_string,
+    open_capture,
+    create_tap_device,
+    send_packet,
+    receive_packet,
+    receive_packet_from_vsock
 };
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::process::exit;
 use dns_lookup::lookup_host;
+use tun;
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -22,16 +28,11 @@ fn main() -> Result<(), String> {
 
     match matches.subcommand() {
         ("proxy", Some(args)) => {
+
             let local_port = args
                 .value_of("vsock-port")
                 .map(|e| e.parse::<u32>())
                 .expect("vsock-port must be specified")
-                .map_err(|err| format!("Cannot parse int {:?}", err))?;
-
-            let remote_port = args
-                .value_of("remote-port")
-                .map(|e| e.parse::<u16>())
-                .expect("remote-port must be specified")
                 .map_err(|err| format!("Cannot parse int {:?}", err))?;
 
             let cid = args
@@ -40,17 +41,22 @@ fn main() -> Result<(), String> {
                 .expect("cid must be specified")
                 .map_err(|err| format!("Cannot parse int {:?}", err))?;
 
-            let proxy = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
+            let proxy = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
 
             let mut vsock_stream = proxy.connect_enclave(cid)?;
 
-            info!("Connected to enclave!");
+            println!("Connected to enclave!");
 
-            let mut remote_listener = proxy.listen_remote()?;
+            let mut capture = open_capture()?;
 
-            info!("Listening to external socket!");
+            println!("Listening to packets!");
+            loop {
+                while let Ok(packet) = capture.next() {
+                    println!("received packet! {:?}", packet);
+                    send_packet(&mut vsock_stream, packet);
+                }
+            }
 
-            transfer_to_enclave(&mut vsock_stream, &mut remote_listener)?;
         }
         ("client", Some(args)) => {
             let address_vec = args
@@ -69,30 +75,41 @@ fn main() -> Result<(), String> {
 
             let mut ec2_connect = client.connect_remote()?;
 
-            info!("Connected to EC2!");
+            println!("Connected to EC2!");
 
             let data = "Hello, world from client!".to_string();
             send_string(&mut ec2_connect, data)?;
+
+            println!("Sent string to EC2!");
         },
         ("server", Some(args)) => {
-            let port = args
-                .value_of("port")
+            let local_port = args
+                .value_of("vsock-port")
                 .map(|e| e.parse::<u32>())
-                .expect("port must be specified")
+                .expect("vsock port must be specified")
                 .map_err(|err| format!("Cannot parse int {:?}", err))?;
 
-            let server = Proxy::new(port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+
+            let server = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
 
             let mut enclave_listener = server.listen_enclave()?;
 
-            info!("Listening to incoming traffic in enclave!");
+            println!("Listening to vsock in enclave!");
+
+            let mut tap_device = create_tap_device()?;
+
+            println!("Created tap device!");
 
             let result = accept_string(&mut enclave_listener)?;
 
-            println!("{}", result);
+            println!("Accepted data from vsock: {}", result);
+
+            send_string(&mut tap_device, result);
+
+            println!("Sent data to tap!");
         }
         _ => {
-            info!("Program must be either 'proxy' or 'client' or 'server'");
+            println!("Program must be either 'proxy' or 'client' or 'server'");
             exit(1);
         }
     }
@@ -107,13 +124,6 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("proxy")
                 .about("Transfer traffic from/to enclave")
-                .arg(
-                    Arg::with_name("remote-port")
-                        .long("remote-port")
-                        .help("remote port")
-                        .takes_value(true)
-                        .required(true),
-                )
                 .arg(
                     Arg::with_name("cid")
                         .long("cid")
@@ -151,9 +161,9 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             SubCommand::with_name("server")
                 .about("Listens for incoming connections")
                 .arg(
-                    Arg::with_name("port")
-                        .long("port")
-                        .help("port")
+                    Arg::with_name("vsock-port")
+                        .long("vsock-port")
+                        .help("vsock port")
                         .takes_value(true)
                         .required(true),
                 )
