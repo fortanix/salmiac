@@ -1,11 +1,7 @@
 use std::net::{TcpListener, UdpSocket};
 use vsock::{VsockListener, VsockStream};
 use pcap::Packet;
-use crate::net::{
-    receive_packet,
-    receive_string,
-    send_packet
-};
+use crate::net::{receive_packet, receive_string, send_packet, BUF_SIZE};
 
 pub trait RichListener {
     fn accept_packet(&mut self) -> Result<Vec<u8>, String>;
@@ -47,7 +43,7 @@ impl RichListener for UdpSocket {
 
     fn accept_string(&mut self) -> Result<String, String> {
         loop {
-            let mut buf = [0; 4096];
+            let mut buf = [0; BUF_SIZE];
 
             let (amt, _) = self.recv_from(&mut buf).map_err(|err| format!("Cannot read from udp {:?}", err))?;
 

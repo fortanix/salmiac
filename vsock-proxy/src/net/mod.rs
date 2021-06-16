@@ -18,7 +18,7 @@ use byteorder::{
 };
 use tun::platform::linux::Device as TunDevice;
 
-const BUF_SIZE : usize = 4096;
+pub const BUF_SIZE : usize = 4096;
 
 const PARENT_NETWORK_DEVICE: &str = "ens5";
 
