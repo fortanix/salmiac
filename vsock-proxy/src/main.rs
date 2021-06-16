@@ -1,33 +1,20 @@
 use clap::{App, AppSettings, Arg, SubCommand, ArgMatches};
 
 use env_logger;
-use log::info;
-//use std::env;
 
-use vsock_proxy::{
-    Proxy,
-    send_string,
-    accept_string,
-    accept_string1,
-    open_capture,
-    create_tap_device,
-    send_packet,
-    receive_packet,
-    accept_packet,
-    accept_packets,
-    receive_string,
-    get_connection,
-    add_tap_gateway,
+use vsock_proxy::{Proxy, open_packet_capture, create_tap_device, add_tap_gateway};
+
+use vsock_proxy::net::socket_extensions::{
+    RichListener,
+    RichSender
 };
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::process::exit;
 use dns_lookup::lookup_host;
-use tun;
-use threadpool::ThreadPool;
 use std::str::FromStr;
 use std::fmt::Display;
-use std::io::{Write, Read};
+use std::io::{Write};
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -43,22 +30,18 @@ fn main() -> Result<(), String> {
 
             let proxy = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
 
-            let mut vsock_stream = proxy.connect_enclave(cid)?;
+            let mut vsock_stream = proxy.connect_to_enclave(cid)?;
 
             println!("Connected to enclave!");
 
-            let mut _listener = proxy.listen_remote()?;
-
-            println!("Listening remote!");
-
-            let mut capture = open_capture()?;
+            let mut capture = open_packet_capture()?;
             capture.filter("port 5007");
 
             println!("Listening to packets!");
             loop {
                 while let Ok(packet) = capture.next() {
                     println!("received packet! {:?}", packet);
-                    send_packet(&mut vsock_stream, packet);
+                    vsock_stream.send_packet(packet);
                 }
             }
         }
@@ -67,32 +50,27 @@ fn main() -> Result<(), String> {
 
             let proxy = Proxy::new(0, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
 
-            let mut _listener = proxy.listen_remote()?;
+            let mut _listener = proxy.connect_remote_forget()?;
 
             println!("Listening remote as a test program!");
 
             loop {
-                let reesult = accept_string1(&mut _listener)?;
+                let reesult = _listener.accept_string()?;
                 println!("Received string from tap into test program! {}", reesult);
             }
         }
         ("client", Some(args)) => {
-            let address_vec = args
-                .value_of("address")
-                .map(|e| lookup_host(&e))
-                .expect("address must be specified")
-                .map_err(|err| format!("Cannot parse address {:?}", err))?;
-
+            let address_vec = address_argument(args)?;
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
 
             let client = Proxy::new(0, address_vec[0], remote_port);
 
-            let mut ec2_connect = client.connect_remote()?;
+            let mut ec2_connect = client.connect_remote_forget()?;
 
             println!("Connected to EC2!");
 
             let data = "Hello, world from client!".to_string();
-            send_string(&mut ec2_connect, data)?;
+            ec2_connect.send_string(data)?;
 
             println!("Sent string to EC2!");
         },
@@ -113,26 +91,13 @@ fn main() -> Result<(), String> {
 
             println!("Added gateway to tap");
 
-            //let tap_server = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-
-            let mut vsock_connection = get_connection(&mut parent_listener)?;
-
             loop {
-                let packet = receive_packet(&mut vsock_connection)?;
+                let packet = parent_listener.accept_packet()?;
                 println!("Accepted data from parent: {:?}", packet);
 
                 tap_device.write_all(&packet);
 
                 println!("Sent data to tap!");
-
-                /*let mut result = [0u8;1500];
-                tap_device.read(&mut result).map_err(|err| format!("Failed to read from tap {:?}", err))?;
-
-                println!("Data from tap {:?}", &result[0..packet.len()]);
-
-                for i in 0..packet.len() {
-                    assert_eq!(packet[i], result[i], "Data written to tap doesnt match");
-                }*/
             }
         }
         _ => {
@@ -149,6 +114,13 @@ fn parse_console_argument<T : FromStr + Display>(args: &ArgMatches, name: &str) 
         .map(|e| e.parse::<T>())
         .expect(format!("{} must be specified", name).as_str())
         .map_err(|_err| format!("Cannot parse console argument {}", name))
+}
+
+fn address_argument(args: &ArgMatches) -> Result<Vec<IpAddr>, String> {
+    args.value_of("address")
+        .map(|e| lookup_host(&e))
+        .expect("address must be specified")
+        .map_err(|err| format!("Cannot parse address {:?}", err))
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {
