@@ -1,4 +1,5 @@
 pub mod socket_extensions;
+pub mod netlink;
 
 use std::io::{
     Read,
@@ -7,13 +8,65 @@ use std::io::{
 use std::mem;
 
 use pcap;
+use pcap::{
+    Active,
+    Error
+};
 use byteorder::{
     LittleEndian,
     ByteOrder
 };
+use tun::platform::linux::Device as TunDevice;
 
 const BUF_SIZE : usize = 4096;
 
+const PARENT_NETWORK_DEVICE: &str = "ens5";
+
+pub fn create_tap_device() -> Result<TunDevice, String> {
+    let mut config = tun::Configuration::default();
+
+    // address and netmask settings come from parent routing settings
+    // this will be set using netlink in the future.
+    config.address((172,31,46,106))
+        .netmask((255,255,240,0))
+        .layer(tun::Layer::L2)
+        .up();
+
+    tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
+}
+
+pub fn open_packet_capture(port : u32) -> Result<pcap::Capture<Active>, String> {
+    fn find_device(devices: Vec<pcap::Device>) -> Result<pcap::Device, Error> {
+        devices.into_iter()
+            .find(|e| e.name == PARENT_NETWORK_DEVICE)
+            .ok_or(Error::PcapError(format!("Can't find {:?} device", PARENT_NETWORK_DEVICE)))
+    }
+
+    fn add_port_filter(mut capture : pcap::Capture<Active>, port : u32) -> pcap::Capture<Active> {
+        capture.filter(&*format!("port {}", port));
+        capture
+    }
+
+    let main_device = pcap::Device::list()
+        .and_then(|devices|{ find_device(devices) })
+        .map_err(|err| format!("Failed to create device {:?}", err));
+
+    let capture = main_device.and_then(|device| {
+        println!("Capturing with device: {}", device.name);
+        pcap::Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))
+    });
+
+    capture.and_then(|capture| {
+
+        let result = capture.promisc(true)
+            .immediate_mode(true)
+            .snaplen(5000)
+            .open();
+
+        result.map(|c| add_port_filter(c, port))
+            .map_err(|err| format!("Cannot open capture {:?}", err))
+    })
+}
 
 pub fn send_pcap_packet(writer: &mut dyn Write, packet : pcap::Packet) -> Result<(), String> {
     send_packet(writer, packet.data, packet.header.caplen as usize)

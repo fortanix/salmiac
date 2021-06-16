@@ -1,4 +1,4 @@
-use std::net::{SocketAddr, TcpListener, UdpSocket};
+use std::net::{TcpListener, UdpSocket};
 use vsock::{VsockListener, VsockStream};
 use pcap::Packet;
 use crate::net::{
@@ -55,19 +55,6 @@ impl RichListener for UdpSocket {
 
             return String::from_utf8(filled_buf.to_vec()).map_err(|err| format!("Cannot parse str {:?}", err))
         }
-    }
-}
-
-impl RichSender for UdpSocket {
-    fn send_packet(&mut self, _packet: Packet) -> Result<(), String> {
-        unimplemented!()
-    }
-
-    fn send_string(&mut self, data: String) -> Result<(), String> {
-        let mut buf = data.as_bytes();
-
-        let address = SocketAddr::from(([34,242,35,100], 5007));
-        self.send_to(&mut buf, address).map(|_e| ()).map_err(|err| format!("cannot send udp! {:?}", err))
     }
 }
 

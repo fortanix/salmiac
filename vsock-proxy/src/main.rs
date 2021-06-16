@@ -1,20 +1,35 @@
-use clap::{App, AppSettings, Arg, SubCommand, ArgMatches};
+use clap::{
+    App,
+    AppSettings,
+    Arg,
+    SubCommand,
+    ArgMatches
+};
 
 use env_logger;
 
-use vsock_proxy::{Proxy, open_packet_capture, create_tap_device, add_tap_gateway};
+use vsock_proxy::{
+    Proxy,
+    bind_udp
+};
 
 use vsock_proxy::net::socket_extensions::{
     RichListener,
     RichSender
 };
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::process::exit;
-use dns_lookup::lookup_host;
+use vsock_proxy::net::create_tap_device;
+
+use std::net::{
+    IpAddr,
+    SocketAddr
+};
+use std::process;
 use std::str::FromStr;
 use std::fmt::Display;
 use std::io::{Write};
+
+const VSOCK_ANY_CID : u32 = 0xFFFFFFFF;
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -28,14 +43,13 @@ fn main() -> Result<(), String> {
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
             let cid         = parse_console_argument::<u32>(args, "cid")?;
 
-            let proxy = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
+            let proxy = Proxy::new(local_port, cid, remote_port);
 
-            let mut vsock_stream = proxy.connect_to_enclave(cid)?;
+            let mut vsock_stream = proxy.connect_to_enclave()?;
 
             println!("Connected to enclave!");
 
-            let mut capture = open_packet_capture()?;
-            capture.filter("port 5007");
+            let mut capture = proxy.open_packet_capture()?;
 
             println!("Listening to packets!");
             loop {
@@ -48,36 +62,34 @@ fn main() -> Result<(), String> {
         ("test", Some(args)) => {
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
 
-            let proxy = Proxy::new(0, IpAddr::V4(Ipv4Addr::UNSPECIFIED), remote_port);
+            let mut udp_listener = bind_udp(remote_port)?;
 
-            let mut _listener = proxy.connect_remote_forget()?;
-
-            println!("Listening remote as a test program!");
+            println!("Listening to tap device as a test client program!");
 
             loop {
-                let reesult = _listener.accept_string()?;
-                println!("Received string from tap into test program! {}", reesult);
+                let result = udp_listener.accept_string()?;
+                println!("Received string from tap as a test program! {}", result);
             }
         }
         ("client", Some(args)) => {
             let address_vec = address_argument(args)?;
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
 
-            let client = Proxy::new(0, address_vec[0], remote_port);
-
-            let mut ec2_connect = client.connect_remote_forget()?;
+            let ec2_connect = bind_udp(remote_port)?;
 
             println!("Connected to EC2!");
 
-            let data = "Hello, world from client!".to_string();
-            ec2_connect.send_string(data)?;
+            let address = SocketAddr::from((address_vec[0], remote_port));
+            let message = "Hello world from outside EC2!".to_string();
+
+            ec2_connect.send_to(message.as_bytes(), address).map_err(|err| format!("cannot send udp! {:?}", err));
 
             println!("Sent string to EC2!");
         },
         ("server", Some(args)) => {
             let local_port  = parse_console_argument::<u32>(args, "vsock-port")?;
 
-            let server = Proxy::new(local_port, IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+            let server = Proxy::new(local_port, VSOCK_ANY_CID, 0);
 
             let mut parent_listener = server.listen_parent()?;
 
@@ -86,10 +98,6 @@ fn main() -> Result<(), String> {
             let mut tap_device = create_tap_device()?;
 
             println!("Created tap device!");
-
-            add_tap_gateway()?;
-
-            println!("Added gateway to tap");
 
             loop {
                 let packet = parent_listener.accept_packet()?;
@@ -101,12 +109,12 @@ fn main() -> Result<(), String> {
             }
         }
         _ => {
-            println!("Program must be either 'proxy' or 'client' or 'server'");
-            exit(1);
+            println!("Program must be either 'proxy', 'client', 'server' or 'test'");
+            process::exit(1);
         }
     }
 
-    exit(0);
+    process::exit(0);
 }
 
 fn parse_console_argument<T : FromStr + Display>(args: &ArgMatches, name: &str) -> Result<T, String> {
@@ -118,7 +126,7 @@ fn parse_console_argument<T : FromStr + Display>(args: &ArgMatches, name: &str) 
 
 fn address_argument(args: &ArgMatches) -> Result<Vec<IpAddr>, String> {
     args.value_of("address")
-        .map(|e| lookup_host(&e))
+        .map(|e| dns_lookup::lookup_host(&e))
         .expect("address must be specified")
         .map_err(|err| format!("Cannot parse address {:?}", err))
 }
@@ -129,11 +137,11 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .setting(AppSettings::DisableVersion)
         .subcommand(
             SubCommand::with_name("proxy")
-                .about("Transfer traffic from/to enclave")
+                .about("Vsock proxy that runs inside the parent")
                 .arg(
                     Arg::with_name("cid")
                         .long("cid")
-                        .help("cid")
+                        .help("cid (enclave id)")
                         .takes_value(true)
                         .required(true),
                 )
@@ -154,7 +162,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         )
         .subcommand(
             SubCommand::with_name("client")
-                .about("Connect to EC2")
+                .about("Client that sends messages to to EC2")
                 .arg(
                     Arg::with_name("address")
                         .long("address")
@@ -172,7 +180,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         )
         .subcommand(
             SubCommand::with_name("server")
-                .about("Listens for incoming connections")
+                .about("Vsock-proxy that runs inside the enclave")
                 .arg(
                     Arg::with_name("vsock-port")
                         .long("vsock-port")
@@ -183,7 +191,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         )
         .subcommand(
             SubCommand::with_name("test")
-                .about("Listens for tap device")
+                .about("Test program that represents the client running inside the enclave")
                 .arg(
                     Arg::with_name("remote-port")
                         .long("remote-port")
