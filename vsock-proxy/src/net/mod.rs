@@ -1,0 +1,144 @@
+pub mod socket_extensions;
+pub mod netlink;
+
+use std::io::{
+    Read,
+    Write
+};
+use std::mem;
+
+use pcap;
+use pcap::{
+    Active,
+    Error
+};
+use byteorder::{
+    LittleEndian,
+    ByteOrder
+};
+use tun::platform::linux::Device as TunDevice;
+
+pub const BUF_SIZE : usize = 4096;
+
+const PARENT_NETWORK_DEVICE: &str = "ens5";
+
+pub fn create_tap_device() -> Result<TunDevice, String> {
+    let mut config = tun::Configuration::default();
+
+    // address and netmask settings come from parent routing settings
+    // this will be set using netlink in the future.
+    config.address((172,31,46,106))
+        .netmask((255,255,240,0))
+        .layer(tun::Layer::L2)
+        .up();
+
+    tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
+}
+
+pub fn open_packet_capture(port : u32) -> Result<pcap::Capture<Active>, String> {
+    fn find_device(devices: Vec<pcap::Device>) -> Result<pcap::Device, Error> {
+        devices.into_iter()
+            .find(|e| e.name == PARENT_NETWORK_DEVICE)
+            .ok_or(Error::PcapError(format!("Can't find {:?} device", PARENT_NETWORK_DEVICE)))
+    }
+
+    fn add_port_filter(mut capture : pcap::Capture<Active>, port : u32) -> pcap::Capture<Active> {
+        capture.filter(&*format!("port {}", port));
+        capture
+    }
+
+    let main_device = pcap::Device::list()
+        .and_then(|devices|{ find_device(devices) })
+        .map_err(|err| format!("Failed to create device {:?}", err));
+
+    let capture = main_device.and_then(|device| {
+        println!("Capturing with device: {}", device.name);
+        pcap::Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))
+    });
+
+    capture.and_then(|capture| {
+
+        let result = capture.promisc(true)
+            .immediate_mode(true)
+            .snaplen(5000)
+            .open();
+
+        result.map(|c| add_port_filter(c, port))
+            .map_err(|err| format!("Cannot open capture {:?}", err))
+    })
+}
+
+pub fn send_pcap_packet(writer: &mut dyn Write, packet : pcap::Packet) -> Result<(), String> {
+    send_packet(writer, packet.data, packet.header.caplen as usize)
+}
+
+pub fn send_whole_packet(writer: &mut dyn Write, packet : &[u8]) -> Result<(), String> {
+    send_packet(writer, packet, packet.len())
+}
+
+pub fn send_packet(writer: &mut dyn Write, data : &[u8], len : usize) -> Result<(), String> {
+    let send_length = send_u64(writer, len as u64)
+        .map_err(|err| format!("Failure to send captured packet to vsock: {:?}", err));
+
+    send_length.and_then(|_| {
+        send_all_bytes(writer, data).map_err(|err| format!("Failure to send captured packet to vsock: {:?}", err))
+    })
+}
+
+pub fn receive_packet(reader: &mut dyn Read) -> Result<Vec<u8>, String> {
+    let mut buf = [0u8; BUF_SIZE];
+    let len = receive_u64(reader).map_err(|err| format!("Failed to receive packet len {:?}", err));
+
+    let packet_raw = len.and_then(|len| {
+        println!("Received packet len of {}", len);
+        receive_bytes0(reader, &mut buf, len).map(|_| len as usize)
+    }).map_err(|err| format!("Failed to receive packet {:?}", err));
+
+    return packet_raw.map(|len| buf[0..len].to_vec());
+}
+
+pub fn send_string(tcp: &mut dyn Write, data : String) -> Result<(), String> {
+    let buf = data.as_bytes();
+    let len = buf.len() as u64;
+
+    send_u64(tcp, len).and_then(|_e| send_all_bytes(tcp, &buf))
+}
+
+pub fn receive_string(reader:&mut dyn Read) -> Result<String, String> {
+    receive_packet(reader).and_then(|packet| {
+        String::from_utf8(packet).map_err(|err| format!("The received bytes are not UTF-8: {:?}", err))
+    })
+}
+
+fn receive_u64(reader: &mut dyn Read) -> Result<u64, String> {
+    let mut buf = [0u8; mem::size_of::<u64>()];
+    let size = mem::size_of::<u64>() as u64;
+
+    receive_bytes0(reader, &mut buf, size).map(|_e| LittleEndian::read_u64(&buf))
+}
+
+fn receive_bytes0(reader: &mut dyn Read, buf: &mut [u8], len: u64) -> Result<(), String> {
+    let len = len as usize;
+    let mut recv_bytes = 0;
+
+    while recv_bytes < len {
+        let size = match reader.read(&mut buf[recv_bytes..len]) {
+            Ok(size) => size,
+            Err(err) => return Err(format!("{:?}", err)),
+        };
+        recv_bytes += size;
+    }
+
+    Ok(())
+}
+
+fn send_u64(writer: &mut dyn Write, val: u64) -> Result<(), String> {
+    let mut buf = [0u8; mem::size_of::<u64>()];
+    LittleEndian::write_u64(&mut buf, val);
+
+    send_all_bytes(writer, &mut buf)
+}
+
+fn send_all_bytes(writer: &mut dyn Write, buf: &[u8]) -> Result<(), String> {
+    writer.write_all(buf).map_err(|err| format!("Failed to write bytes to external socket {:?}", err))
+}
