@@ -51,7 +51,6 @@ pub fn receive_packet(reader: &mut dyn Read) -> Result<Vec<u8>, String> {
     let len = receive_u64(reader).map_err(|err| format!("Failed to receive packet len {:?}", err));
 
     let packet_raw = len.and_then(|len| {
-        println!("Received packet len of {}", len);
         receive_bytes0(reader, &mut buf, len).map(|_| len as usize)
     }).map_err(|err| format!("Failed to receive packet {:?}", err));
 

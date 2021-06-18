@@ -17,7 +17,8 @@ use vsock_proxy::{
 
 use vsock_proxy::net::socket_extensions::{
     RichListener,
-    RichSender
+    RichSender,
+    accept_vsock
 };
 
 use vsock_proxy::net::create_tap_device;
@@ -31,83 +32,28 @@ use threadpool::ThreadPool;
 use std::net::{IpAddr, SocketAddr, Ipv4Addr};
 use std::{
     process,
-    thread,
-    time
+    sync
 };
 use std::str::FromStr;
 use std::fmt::Display;
-use std::io::{Write};
+use std::io::{Write, Read};
+use vsock::VsockStream;
+use tun::platform::linux::Device;
+use pcap::{Capture, Active};
 
 fn main() -> Result<(), String> {
     env_logger::init();
 
     let matches = console_arguments();
 
-    let thread_pool = ThreadPool::new(2);
-
     match matches.subcommand() {
         ("proxy", Some(args)) => {
 
             let local_port  = parse_console_argument::<u32>(args, "vsock-port")?;
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
-            //let cid         = parse_console_argument::<u32>(args, "cid")?;
+            let thread_pool = ThreadPool::new(2);
 
-            let proxy = Proxy::new(local_port, 4, remote_port);
-
-            let mut enclave_listener = proxy.listen_parent()?;
-
-            println!("Awaiting confirmation from enclave!");
-            {
-                loop {
-                    let acc = enclave_listener.accept_u64();
-
-                    if acc.is_ok() && acc.unwrap() == 1 {
-                        println!("Got confirmation from enclave!");
-                        break;
-                    }
-                }
-            }
-
-            let mut enclave_stream = proxy.connect_to_enclave()?;
-
-            println!("Connected to enclave!");
-
-            let mut capture = open_parent_capture(remote_port as u32)?;
-            let mut capture2 = open_parent_capture(remote_port as u32)?;
-
-            println!("Listening to packets!");
-
-            thread_pool.execute(move || {
-                loop {
-                    while let Ok(packet) = capture.next() {
-                        println!("received packet in parent! {:?}", packet);
-                        enclave_stream.send_packet(packet);
-                    }
-                }
-            });
-
-            thread_pool.execute(move || {
-                loop {
-                    let packet = match enclave_listener.accept_packet() {
-                        Ok(packet) => {
-                            println!("Received packet from enclave!");
-                            packet
-                        }
-                        Err(err) => {
-                            println!("Failed to accept packet from enclave: {:?}", err);
-                            break;
-                        }
-                    };
-
-                    println!("Accepted data from enclave: {:?}", packet);
-
-                    capture2.sendpacket(packet);
-
-                    println!("Sent data to interface!");
-                }
-            });
-
-            loop {}
+            run_proxy(local_port, remote_port, thread_pool);
         }
         ("test", Some(args)) => {
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
@@ -143,61 +89,9 @@ fn main() -> Result<(), String> {
         ("server", Some(args)) => {
             let local_port  = parse_console_argument::<u32>(args, "vsock-port")?;
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
+            let thread_pool = ThreadPool::new(2);
 
-            let mut tap_device = create_tap_device()?;
-
-            println!("Created tap device in enclave!");
-
-            let mut packet_capture = open_enclave_capture(remote_port as u32)?;
-
-            println!("Listening to packets in enclave!");
-
-            let server = Proxy::new(local_port, 4, remote_port);
-
-            let mut self_listener = server.listen_enclave()?;
-
-            println!("Listening to self!");
-
-            let server2 = Proxy::new(local_port, 3, remote_port);
-
-            let mut parent_connection = server2.connect_to_enclave()?;
-
-            println!("Connected to parent!");
-
-            parent_connection.send_u64(1);
-
-            thread_pool.execute(move || {
-                loop {
-                    let packet = match self_listener.accept_packet() {
-                        Ok(packet) => {
-                            packet
-                        }
-                        Err(err) => {
-                            println!("Failed to accept packet from parent: {:?}", err);
-                            break
-                        }
-                    };
-
-                    println!("Accepted data from parent: {:?}", packet);
-
-                    tap_device.write_all(&packet);
-
-                    println!("Sent data to tap!");
-                }
-            });
-
-            thread_pool.execute(move || {
-                loop {
-                    while let Ok(packet) = packet_capture.next() {
-                        println!("Captured packet in enclave! {:?}", packet);
-                        parent_connection.send_packet(packet);
-
-                        println!("Sent packet to parent!");
-                    }
-                }
-            });
-
-            loop {}
+            run_server(local_port, remote_port, thread_pool);
         }
         _ => {
             println!("Program must be either 'proxy', 'client', 'server' or 'test'");
@@ -206,6 +100,186 @@ fn main() -> Result<(), String> {
     }
 
     process::exit(0);
+}
+
+fn await_confirmation_from_enclave(from_enclave : &mut VsockStream) -> Result<(), String> {
+    loop {
+        let acc = from_enclave.accept_u64()?;
+
+        if acc == 1 {
+            return Ok(());
+        }
+    }
+}
+
+fn read_from_device(mut capture : Capture<Active>, mut enclave_stream : VsockStream) -> Result<(), String> {
+    loop {
+        {
+            /*println!("TRY device read lock!");
+
+            let mut capture = capture_lock.lock().map_err(|err| format!("Failed to acquire pcap lock {:?}", err))?;
+
+            println!("acquired device read lock!");*/
+
+            let packet = capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err))?;
+
+            println!("Captured packet from network device in parent! {:?}", packet);
+
+            enclave_stream.send_packet(packet.data)?;
+
+            println!("Sent network packet to enclave!");
+
+            /*match capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err)) {
+                Ok(packet) => {
+
+                }
+                _ => {}
+            }*/
+        }
+    }
+
+    Ok(())
+}
+
+fn write_to_device(mut capture : Capture<Active>, mut from_enclave : VsockStream) -> Result<(), String> {
+    loop {
+        let packet  = from_enclave.accept_packet().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+
+        println!("Received packet from enclave! {:?}", packet);
+
+        {
+            /*println!("TRY device write lock!");
+
+            let mut capture = capture_lock.lock().map_err(|err| format!("Failed to acquire pcap lock {:?}", err))?;
+
+            println!("acquired device write lock!");*/
+
+            capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
+
+            println!("Sent raw packet to network device!");
+        }
+    }
+
+    Ok(())
+}
+
+fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
+    let proxy = Proxy::new(local_port, 4, remote_port);
+
+    let mut enclave_listener = proxy.listen_parent()?;
+
+    println!("Awaiting confirmation from enclave id = {}!", proxy.cid);
+
+    let mut from_enclave = accept_vsock(&mut enclave_listener)?;
+
+    await_confirmation_from_enclave(&mut from_enclave);
+
+    println!("Got confirmation from enclave id = {}!", proxy.cid);
+
+    let mut to_enclave = proxy.connect_to_enclave()?;
+
+    println!("Connected to enclave id = {}!", proxy.cid);
+
+    let mut capture = open_parent_capture(remote_port as u32)?;
+    let mut write_capture = open_parent_capture(remote_port as u32)?;
+
+    println!("Listening to packets from network device!");
+
+    /*let sync_capture = sync::Arc::new(sync::Mutex::new(capture));
+    let capture_read = sync_capture.clone();
+    let capture_write = sync_capture.clone();*/
+
+    thread_pool.execute(move || {
+        read_from_device(capture, to_enclave);
+    });
+
+    thread_pool.execute(move || {
+        write_to_device(write_capture, from_enclave);
+    });
+
+    loop {}
+
+    Ok(())
+}
+
+fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
+    let mut tap_device = create_tap_device()?;
+
+    println!("Created tap device in enclave!");
+
+    //let mut packet_capture = open_enclave_capture(remote_port as u32)?;
+
+    //println!("Listening to packets in enclave!");
+
+    let server = Proxy::new(local_port, 4, remote_port);
+
+    let mut to_parent = server.connect_to_parent()?;
+
+    println!("Connected to parent!");
+
+    // send 'enclave ready' messsage
+    to_parent.send_u64(1);
+
+    let mut self_listener = server.listen_enclave()?;
+
+    println!("Listening to self!");
+
+    let mut from_parent = accept_vsock(&mut self_listener)?;
+
+    let sync_tap = sync::Arc::new(sync::Mutex::new(tap_device));
+
+    let tap_write = sync_tap.clone();
+    let tap_read = sync_tap.clone();
+
+    thread_pool.execute(move || {
+        read_from_tap(tap_read, to_parent);
+    });
+
+    thread_pool.execute(move || {
+        write_to_tap(tap_write, from_parent);
+    });
+
+    loop {}
+
+    Ok(())
+}
+
+fn write_to_tap(tap_lock : sync::Arc<sync::Mutex<Device>>, mut from_parent : VsockStream) -> Result<(), String> {
+    loop {
+        let packet = from_parent.accept_packet()?;
+
+        println!("Received packet from parent! {:?}", packet);
+        {
+            let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
+
+            println!("acquired tap write lock!");
+
+            tap_device.write_all(&packet).map_err(|err| format!("Cannot write to tap {:?}", err))?;
+
+            println!("Sent data to tap!");
+        }
+    }
+}
+
+fn read_from_tap(tap_lock : sync::Arc<sync::Mutex<Device>>, mut parent_connection : VsockStream) -> Result<(), String> {
+    loop {
+        let mut buf = [0u8;4096];
+        {
+            let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
+
+            println!("acquired tap read lock!");
+
+            let amount = tap_device.read(&mut buf).map_err(|err| format!("Cannot read from tap {:?}", err))?;
+
+            let packet = &buf[0..amount];
+
+            println!("Read packet from tap! {:?}", packet);
+
+            parent_connection.send_packet(packet)?;
+
+            println!("Sent packet to parent!");
+        }
+    }
 }
 
 fn parse_console_argument<T : FromStr + Display>(args: &ArgMatches, name: &str) -> Result<T, String> {
