@@ -54,7 +54,7 @@ pub fn receive_packet(reader: &mut dyn Read) -> Result<Vec<u8>, String> {
         receive_bytes0(reader, &mut buf, len).map(|_| len as usize)
     }).map_err(|err| format!("Failed to receive packet {:?}", err));
 
-    return packet_raw.map(|len| buf[0..len].to_vec());
+    packet_raw.map(|len| buf[0..len].to_vec())
 }
 
 pub fn send_string(tcp: &mut dyn Write, data : String) -> Result<(), String> {

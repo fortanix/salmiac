@@ -69,7 +69,7 @@ impl RichListener for UdpSocket {
     }
 }
 
-impl RichListener for TcpListener {
+impl RichListener for TcpStream {
     fn accept_u64(&mut self) -> Result<u64, String> {
         unimplemented!()
     }
@@ -79,11 +79,7 @@ impl RichListener for TcpListener {
     }
 
     fn accept_string(&mut self) -> Result<String, String> {
-        let incoming = self.accept()
-            .map(|r| r.0)
-            .map_err(|err| format!("Accept from enclave socket failed: {:?}", err));
-
-        incoming.and_then(|mut e| receive_string(&mut e))
+        receive_string(self)
     }
 }
 

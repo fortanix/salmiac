@@ -32,7 +32,8 @@ use threadpool::ThreadPool;
 use std::net::{IpAddr, SocketAddr, Ipv4Addr};
 use std::{
     process,
-    sync
+    sync,
+    thread
 };
 use std::str::FromStr;
 use std::fmt::Display;
@@ -64,7 +65,13 @@ fn main() -> Result<(), String> {
             println!("Listening to tap device as a test client program!");
 
             loop {
-                let result = tcp_listener.accept_string()?;
+                let mut incoming = tcp_listener.accept()
+                    .map(|r| r.0)
+                    .map_err(|err| format!("Accept from enclave socket failed: {:?}", err))?;
+
+                println!("Accepted connection outside EC!");
+
+                let result = incoming.accept_string()?;
                 //let result = udp_listener.accept_string()?;
                 println!("Received string from tap as a test program! {}", result);
             }
@@ -172,7 +179,7 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     let mut from_enclave = accept_vsock(&mut enclave_listener)?;
 
-    await_confirmation_from_enclave(&mut from_enclave);
+    await_confirmation_from_enclave(&mut from_enclave)?;
 
     println!("Got confirmation from enclave id = {}!", proxy.cid);
 
@@ -204,7 +211,7 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
 fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
     let mut tap_device = create_tap_device()?;
-
+    tap_device.set_nonblock().map_err(|err| "Cannot set nonblock".to_string())?;
     println!("Created tap device in enclave!");
 
     //let mut packet_capture = open_enclave_capture(remote_port as u32)?;
@@ -269,7 +276,19 @@ fn read_from_tap(tap_lock : sync::Arc<sync::Mutex<Device>>, mut parent_connectio
 
             println!("acquired tap read lock!");
 
-            let amount = tap_device.read(&mut buf).map_err(|err| format!("Cannot read from tap {:?}", err))?;
+            let amount = match tap_device.read(&mut buf).map_err(|err| format!("Cannot read from tap {:?}", err)) {
+                Ok(amount) => {
+                    amount
+                }
+                Err(_) => {
+                    0
+                }
+            };
+
+            if(amount == 0) {
+                thread::sleep_ms(1000);
+                continue
+            }
 
             let packet = &buf[0..amount];
 
