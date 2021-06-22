@@ -159,6 +159,7 @@ fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream
 }
 
 fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
+    // for simplicity sake we work only with one enclave with id = 4
     let proxy = Proxy::new(local_port, 4, remote_port);
 
     let mut enclave_listener = proxy.listen_parent()?;
@@ -177,6 +178,8 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     const PARENT_NETWORK_DEVICE: &str = "ens5";
 
+    // `capture` should be properly locked when shared among threads (like tap device),
+    // however copying captures is good enough for prototype and it just works.
     let mut capture = proxy.open_packet_capture(PARENT_NETWORK_DEVICE)?;
     let mut write_capture = proxy.open_packet_capture(PARENT_NETWORK_DEVICE)?;
 
