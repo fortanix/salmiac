@@ -4,18 +4,6 @@ use pcap::{
     Error
 };
 
-const PARENT_NETWORK_DEVICE: &str = "ens5";
-
-const ENCLAVE_NETWORK_DEVICE : &str = "tap0";
-
-pub fn open_parent_capture(port : u32) -> Result<pcap::Capture<Active>, String> {
-    open_packet_capture(port, PARENT_NETWORK_DEVICE)//.and_then(|c| c.setnonblock().map_err(|_err| "Failed to set nonblock".to_string()))
-}
-
-pub fn open_enclave_capture(port : u32) -> Result<pcap::Capture<Active>, String> {
-    open_packet_capture(port, ENCLAVE_NETWORK_DEVICE)
-}
-
 pub fn open_packet_capture(port : u32, device_name : &str) -> Result<pcap::Capture<Active>, String> {
     let main_device = pcap::Device::list()
         .and_then(|devices|{ find_device(devices, device_name) })
@@ -45,6 +33,6 @@ fn find_device(devices: Vec<pcap::Device>, device_name : &str) -> Result<pcap::D
 }
 
 fn add_port_filter(mut capture : pcap::Capture<Active>, port : u32) -> pcap::Capture<Active> {
-    capture.filter(&*format!("port {}", port));
+    capture.filter(&*format!("port {}", port)).expect("Cannot set pcap port filter.");
     capture
 }

@@ -29,10 +29,6 @@ pub fn create_tap_device() -> Result<TunDevice, String> {
     tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
 }
 
-pub fn send_pcap_packet(writer: &mut dyn Write, packet : pcap::Packet) -> Result<(), String> {
-    send_packet(writer, packet.data, packet.header.caplen as usize)
-}
-
 pub fn send_whole_packet(writer: &mut dyn Write, packet : &[u8]) -> Result<(), String> {
     send_packet(writer, packet, packet.len())
 }

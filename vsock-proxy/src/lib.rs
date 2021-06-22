@@ -1,21 +1,26 @@
 pub mod net;
 
-use std::net::{Ipv4Addr, UdpSocket, SocketAddr, TcpListener, TcpStream, IpAddr};
+use std::net::{
+    Ipv4Addr,
+    UdpSocket,
+    SocketAddr,
+    TcpListener,
+    TcpStream,
+    IpAddr
+};
 
 use nix::sys::socket::SockAddr;
 use vsock::{
     VsockListener,
     VsockStream
 };
-use pcap::Active;
-
 
 const VSOCK_PARENT_CID: u32 = 3; // from AWS Nitro documentation
 
 const VSOCK_ANY_CID : u32 = 0xFFFFFFFF;
 
 pub struct Proxy {
-    pub local_port: u32,
+    local_port: u32,
     pub cid : u32,
     remote_port: u16,
 }
@@ -29,9 +34,9 @@ impl Proxy {
         }
     }
 
-    /*pub fn open_packet_capture(&self) -> Result<pcap::Capture<Active>, String> {
-        net::open_packet_capture(self.remote_port as u32)
-    }*/
+    pub fn open_packet_capture(&self, device_name : &str) -> Result<pcap::Capture<pcap::Active>, String> {
+        net::packet_capture::open_packet_capture(self.remote_port as u32, device_name)
+    }
 
     pub fn listen_parent(&self) -> Result<VsockListener, String> {
         let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, self.local_port);

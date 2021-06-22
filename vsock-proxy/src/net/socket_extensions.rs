@@ -1,14 +1,13 @@
-use std::net::{TcpListener, UdpSocket, TcpStream};
+use std::net::{UdpSocket, TcpStream};
 use vsock::{VsockListener, VsockStream};
-use pcap::Packet;
-use crate::net::{receive_packet, receive_string, send_packet, BUF_SIZE, receive_u64, send_u64, send_string, send_whole_packet};
+use crate::net::{receive_packet, receive_string, BUF_SIZE, receive_u64, send_u64, send_string, send_whole_packet};
 
 pub trait RichListener {
-    fn accept_u64(&mut self) -> Result<u64, String>;
+    fn receive_u64(&mut self) -> Result<u64, String>;
 
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String>;
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String>;
 
-    fn accept_string(&mut self) -> Result<String, String>;
+    fn receive_string(&mut self) -> Result<String, String>;
 }
 
 pub trait RichSender {
@@ -20,15 +19,15 @@ pub trait RichSender {
 }
 
 impl RichListener for VsockStream {
-    fn accept_u64(&mut self) -> Result<u64, String> {
+    fn receive_u64(&mut self) -> Result<u64, String> {
         receive_u64(self)
     }
 
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String> {
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String> {
         receive_packet(self)
     }
 
-    fn accept_string(&mut self) -> Result<String, String> {
+    fn receive_string(&mut self) -> Result<String, String> {
         unimplemented!()
     }
 }
@@ -48,15 +47,15 @@ impl RichSender for VsockStream {
 }
 
 impl RichListener for UdpSocket {
-    fn accept_u64(&mut self) -> Result<u64, String> {
+    fn receive_u64(&mut self) -> Result<u64, String> {
         unimplemented!()
     }
 
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String> {
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String> {
         unimplemented!()
     }
 
-    fn accept_string(&mut self) -> Result<String, String> {
+    fn receive_string(&mut self) -> Result<String, String> {
         loop {
             let mut buf = [0; BUF_SIZE];
 
@@ -70,25 +69,25 @@ impl RichListener for UdpSocket {
 }
 
 impl RichListener for TcpStream {
-    fn accept_u64(&mut self) -> Result<u64, String> {
+    fn receive_u64(&mut self) -> Result<u64, String> {
         unimplemented!()
     }
 
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String> {
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String> {
         unimplemented!()
     }
 
-    fn accept_string(&mut self) -> Result<String, String> {
+    fn receive_string(&mut self) -> Result<String, String> {
         receive_string(self)
     }
 }
 
 impl RichSender for TcpStream {
-    fn send_u64(&mut self, value: u64) -> Result<(), String> {
+    fn send_u64(&mut self, _value: u64) -> Result<(), String> {
         unimplemented!()
     }
 
-    fn send_packet(&mut self, packet: &[u8]) -> Result<(), String> {
+    fn send_packet(&mut self, _packet: &[u8]) -> Result<(), String> {
         unimplemented!()
     }
 
