@@ -1,5 +1,6 @@
 pub mod socket_extensions;
 pub mod netlink;
+pub mod packet_capture;
 
 use std::io::{
     Read,
@@ -7,11 +8,6 @@ use std::io::{
 };
 use std::mem;
 
-use pcap;
-use pcap::{
-    Active,
-    Error
-};
 use byteorder::{
     LittleEndian,
     ByteOrder
@@ -19,8 +15,6 @@ use byteorder::{
 use tun::platform::linux::Device as TunDevice;
 
 pub const BUF_SIZE : usize = 4096;
-
-const PARENT_NETWORK_DEVICE: &str = "ens5";
 
 pub fn create_tap_device() -> Result<TunDevice, String> {
     let mut config = tun::Configuration::default();
@@ -33,43 +27,6 @@ pub fn create_tap_device() -> Result<TunDevice, String> {
         .up();
 
     tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
-}
-
-pub fn open_packet_capture(port : u32) -> Result<pcap::Capture<Active>, String> {
-    fn find_device(devices: Vec<pcap::Device>) -> Result<pcap::Device, Error> {
-        devices.into_iter()
-            .find(|e| e.name == PARENT_NETWORK_DEVICE)
-            .ok_or(Error::PcapError(format!("Can't find {:?} device", PARENT_NETWORK_DEVICE)))
-    }
-
-    fn add_port_filter(mut capture : pcap::Capture<Active>, port : u32) -> pcap::Capture<Active> {
-        capture.filter(&*format!("port {}", port));
-        capture
-    }
-
-    let main_device = pcap::Device::list()
-        .and_then(|devices|{ find_device(devices) })
-        .map_err(|err| format!("Failed to create device {:?}", err));
-
-    let capture = main_device.and_then(|device| {
-        println!("Capturing with device: {}", device.name);
-        pcap::Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))
-    });
-
-    capture.and_then(|capture| {
-
-        let result = capture.promisc(true)
-            .immediate_mode(true)
-            .snaplen(5000)
-            .open();
-
-        result.map(|c| add_port_filter(c, port))
-            .map_err(|err| format!("Cannot open capture {:?}", err))
-    })
-}
-
-pub fn send_pcap_packet(writer: &mut dyn Write, packet : pcap::Packet) -> Result<(), String> {
-    send_packet(writer, packet.data, packet.header.caplen as usize)
 }
 
 pub fn send_whole_packet(writer: &mut dyn Write, packet : &[u8]) -> Result<(), String> {
@@ -90,11 +47,10 @@ pub fn receive_packet(reader: &mut dyn Read) -> Result<Vec<u8>, String> {
     let len = receive_u64(reader).map_err(|err| format!("Failed to receive packet len {:?}", err));
 
     let packet_raw = len.and_then(|len| {
-        println!("Received packet len of {}", len);
         receive_bytes0(reader, &mut buf, len).map(|_| len as usize)
     }).map_err(|err| format!("Failed to receive packet {:?}", err));
 
-    return packet_raw.map(|len| buf[0..len].to_vec());
+    packet_raw.map(|len| buf[0..len].to_vec())
 }
 
 pub fn send_string(tcp: &mut dyn Write, data : String) -> Result<(), String> {
@@ -132,7 +88,7 @@ fn receive_bytes0(reader: &mut dyn Read, buf: &mut [u8], len: u64) -> Result<(),
     Ok(())
 }
 
-fn send_u64(writer: &mut dyn Write, val: u64) -> Result<(), String> {
+pub fn send_u64(writer: &mut dyn Write, val: u64) -> Result<(), String> {
     let mut buf = [0u8; mem::size_of::<u64>()];
     LittleEndian::write_u64(&mut buf, val);
 

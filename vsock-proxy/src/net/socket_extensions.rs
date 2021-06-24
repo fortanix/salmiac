@@ -1,34 +1,44 @@
-use std::net::{TcpListener, UdpSocket};
+use std::net::{UdpSocket, TcpStream};
 use vsock::{VsockListener, VsockStream};
-use pcap::Packet;
-use crate::net::{receive_packet, receive_string, send_packet, BUF_SIZE};
+use crate::net::{receive_packet, receive_string, BUF_SIZE, receive_u64, send_u64, send_string, send_whole_packet};
 
 pub trait RichListener {
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String>;
+    fn receive_u64(&mut self) -> Result<u64, String>;
 
-    fn accept_string(&mut self) -> Result<String, String>;
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String>;
+
+    fn receive_string(&mut self) -> Result<String, String>;
 }
 
 pub trait RichSender {
-    fn send_packet(&mut self, packet : pcap::Packet) -> Result<(), String>;
+    fn send_u64(&mut self, value : u64) -> Result<(), String>;
+
+    fn send_packet(&mut self, packet : &[u8]) -> Result<(), String>;
 
     fn send_string(&mut self, data : String) -> Result<(), String>;
 }
 
-impl RichListener for VsockListener {
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String> {
-        accept_vsock(self).and_then(|mut incoming| receive_packet(&mut incoming))
+impl RichListener for VsockStream {
+    fn receive_u64(&mut self) -> Result<u64, String> {
+        receive_u64(self)
     }
 
-    fn accept_string(&mut self) -> Result<String, String> {
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String> {
+        receive_packet(self)
+    }
+
+    fn receive_string(&mut self) -> Result<String, String> {
         unimplemented!()
     }
 }
 
 impl RichSender for VsockStream {
+    fn send_u64(&mut self, value: u64) -> Result<(), String> {
+        send_u64(self, value)
+    }
 
-    fn send_packet(&mut self, packet: Packet) -> Result<(), String> {
-        send_packet(self, packet.data, packet.header.caplen as usize)
+    fn send_packet(&mut self, packet: &[u8]) -> Result<(), String> {
+        send_whole_packet(self, packet)
     }
 
     fn send_string(&mut self, _data: String) -> Result<(), String> {
@@ -37,11 +47,15 @@ impl RichSender for VsockStream {
 }
 
 impl RichListener for UdpSocket {
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String> {
+    fn receive_u64(&mut self) -> Result<u64, String> {
         unimplemented!()
     }
 
-    fn accept_string(&mut self) -> Result<String, String> {
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String> {
+        unimplemented!()
+    }
+
+    fn receive_string(&mut self) -> Result<String, String> {
         loop {
             let mut buf = [0; BUF_SIZE];
 
@@ -54,24 +68,36 @@ impl RichListener for UdpSocket {
     }
 }
 
-impl RichListener for TcpListener {
-    fn accept_packet(&mut self) -> Result<Vec<u8>, String> {
+impl RichListener for TcpStream {
+    fn receive_u64(&mut self) -> Result<u64, String> {
         unimplemented!()
     }
 
-    fn accept_string(&mut self) -> Result<String, String> {
-        loop {
-            let (mut incoming, _) = self.accept().map_err(|err| format!("Accept from enclave socket failed: {:?}", err))?;
+    fn receive_packet(&mut self) -> Result<Vec<u8>, String> {
+        unimplemented!()
+    }
 
-            return receive_string(&mut incoming);
-        }
+    fn receive_string(&mut self) -> Result<String, String> {
+        receive_string(self)
     }
 }
 
-fn accept_vsock(vsock : &mut VsockListener) -> Result<VsockStream, String> {
-    loop {
-        let (incoming, _) = vsock.accept().map_err(|err| format!("Accept from enclave socket failed: {:?}", err))?;
-
-        return Ok(incoming)
+impl RichSender for TcpStream {
+    fn send_u64(&mut self, _value: u64) -> Result<(), String> {
+        unimplemented!()
     }
+
+    fn send_packet(&mut self, _packet: &[u8]) -> Result<(), String> {
+        unimplemented!()
+    }
+
+    fn send_string(&mut self, data: String) -> Result<(), String> {
+        send_string(self, data)
+    }
+}
+
+pub fn accept_vsock(vsock: &mut VsockListener) -> Result<VsockStream, String> {
+    vsock.accept()
+        .map(|r| r.0)
+        .map_err(|err| format!("Accept from vsock failed: {:?}", err))
 }
