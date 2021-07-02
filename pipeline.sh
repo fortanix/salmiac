@@ -2,7 +2,7 @@
 
 set -Eeuox pipefail
 
-source devops/tools/bitbucket-api/bitbucket-buildstatus.sh
+source tools/bitbucket-api/bitbucket-buildstatus.sh
 
 testname="salmiac-pr"
 description="this is the description of the test"
