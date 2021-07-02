@@ -23,7 +23,9 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                sh './pipeline.sh'
+                withCredentials([usernamePassword(credentialsId: 'tempBitBucketOauth', usernameVariable: 'bitbucket_key', passwordVariable: 'bitbucket_secret')]) {
+                    sh './pipeline.sh'
+                }
             }
         }
     }
