@@ -1,0 +1,11 @@
+pipeline {
+    agent { label 'sdkms-build-server' }
+
+    stages {
+        stage('Build') {
+            steps {
+                sh 'docker build --target build -t test-salmiac -f docker/vsock-proxy/Dockerfile .'
+            }
+        }
+    }
+}
