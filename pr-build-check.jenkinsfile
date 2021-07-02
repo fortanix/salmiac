@@ -1,0 +1,32 @@
+pipeline {
+    agent { label 'sdkms-build-server' }
+
+    triggers {
+        GenericTrigger(
+            genericVariables: [
+                [key: 'pr_source_branch', value: '$.pullrequest.source.branch.name'],
+                [key: 'merge_target_branch', value: '$.pullrequest.destination.branch.name'],
+                [key: 'title', value: '$.pullrequest.title'],
+                [key: 'bb_link', value: '$.pullrequest.links.html.href'],
+                [key: 'pr_number', value: '$.pullrequest.id'],
+                [key: 'commit_hash', value: '$.pullrequest.source.commit.hash'],
+                [key: 'repo_name', value: '$.pullrequest.source.repository.full_name']
+            ],
+            causeString: 'Triggered by pull request on branch $pr_source_branch',
+            token: 'salmiac-pr',
+            printContributedVariables: true,
+            printPostContent: true,
+            silentResponse: false
+        )
+  }
+
+    stages {
+        stage('Build') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'tempBitBucketOauth', usernameVariable: 'bitbucket_key', passwordVariable: 'bitbucket_secret')]) {
+                    sh './pipeline.sh'
+                }
+            }
+        }
+    }
+}
