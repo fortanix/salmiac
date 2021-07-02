@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-set -Eeuox pipefail
+set -Eeuo pipefail
 
 source tools/bitbucket-api/bitbucket-buildstatus.sh
 
 testname="salmiac-pr"
 description="this is the description of the test"
-link="https://jenkins.fortanix.net/job/${JOB_NAME}/${BUILD_NUMBER}/"
+link="${BUILD_URL}"
 
 updateStatus () {
     result=$1
@@ -19,7 +19,9 @@ trap "updateStatus FAILED" EXIT
 
 updateStatus "INPROGRESS"
 
+set -x
 ./ci.sh
+set +x
 
 updateStatus "SUCCESSFUL"
 trap "" EXIT
