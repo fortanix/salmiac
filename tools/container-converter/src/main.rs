@@ -2,7 +2,6 @@ use clap::{
     App,
     AppSettings,
     Arg,
-    SubCommand,
     ArgMatches
 };
 use env_logger;
@@ -11,8 +10,14 @@ use log::{
     debug,
     error
 };
-use container_converter::DockerUtil;
-use shiplift::Container;
+use container_converter::{
+    DockerUtil,
+    create_nitro_image
+};
+use container_converter::util::{
+    RichFile,
+    TempFile
+};
 use std::env;
 use std::fs;
 use std::process;
@@ -36,66 +41,117 @@ fn main() -> Result<(), String> {
     // get image from local repo or remote
     let image_result = rt.block_on(docker_util.local_image());
     let image = image_result.expect(format!("Image {} not found in local repository", image_name).as_str());
+
+    // get client CMD
     let user_cmd = image.details.config.cmd.expect("No CMD present in user image");
 
-    create_docker_file(image_name)?;
-    append_user_cmd_to_startup(user_cmd)?;
+    fs::copy("resources/enclave/vsock-proxy", "vsock-proxy")
+        .map_err(|err| format!("Failed to copy vsock-proxy bin {:?}", err))?;
 
-    let new_image_name = image_name.to_string() + "-converted";
-    let create_image_result = docker_util.create_image1("/home/nikitashyrei/salmiac/tools/container-converter/target/debug", &new_image_name)?;
-    //let new_image = create_image_result?;
+    let nitro_file = create_enclave_image(image_name, user_cmd, &docker_util)?;
 
-    let nitro_cli_args = [
-        "build-enclave",
-        "--docker-dir .",
-        &format!("--docker-uri {}", new_image_name),
-        &format!("--output-file {}.eif", new_image_name)
-    ];
+    create_parent_image(&image_name, &nitro_file, &docker_util)?;
 
-    let nitro_cli_command = process::Command::new("nitro-cli")
-        .args(&nitro_cli_args)
-        .output()
-        .map_err(|err| format!("Failed to execute nitro-cli {:?}", err))?;
-
-    // create container from image
-    // let container = docker_util.container(&image).map_err(|err| format!("Failed to create docker container {:?}", err))?;
-    // insert startup.sh and vsock-proxy binary into the image
+    fs::remove_file("vsock-proxy").map_err(|err| format!("Failed to remove file {:?}", err))?;
+    fs::remove_file(nitro_file).map_err(|err| format!("Failed to remove file {:?}", err))?;
 
     process::exit(0);
 }
 
-fn append_user_cmd_to_startup(user_cmd : Vec<String>) -> Result<(), String> {
-    let mut startup_file = fs::OpenOptions::new()
-        .append(true)
-        .open("/home/nikitashyrei/salmiac/tools/container-converter/target/debug/startup.sh")
-        .map_err(|err| format!("Failed to open startup.sh file {:?}", err))?;
+fn create_enclave_image(client_image : &str, client_cmd : Vec<String>, docker_util : &DockerUtil) -> Result<String, String> {
+    let enclave_image_name = client_image.to_string() + "-enclave";
+    let nitro_image_name = enclave_image_name.to_string() + ".eif";
 
-    let cmd = user_cmd.join(" ");
-    startup_file.write_all(cmd.as_bytes());
+    let docker_file = TempFile(create_enclave_docker_file(client_image)?);
+    let startup_script = TempFile(create_enclave_startup_script(client_cmd)?);
+
+    docker_util.create_image(".", &enclave_image_name)?;
+    create_nitro_image(&enclave_image_name, &nitro_image_name)?;
+
+    Ok(nitro_image_name)
+}
+
+fn create_parent_image(client_image : &str, nitro_file: &str, docker_util : &DockerUtil) -> Result<(), String> {
+    let parent_image_name = client_image.to_string() + "-parent";
+
+    let docker_file = TempFile(create_parent_docker_file(&parent_image_name, nitro_file)?);
+    let startup_script = TempFile(create_parent_startup_script(nitro_file)?);
+
+    docker_util.create_image(".", &parent_image_name)?;
 
     Ok(())
 }
 
-fn create_docker_file(image_name : &str) -> Result<(), String> {
-    let mut docker_file = fs::OpenOptions::new()
+fn create_parent_startup_script(nitro_file: &str) -> Result<RichFile, String> {
+    fs::copy("resources/parent/start-parent.sh", "start-parent.sh")
+        .map_err(|err| format!("Failed to copy base startup script {:?}", err))?;
+
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open("start-parent.sh")
+        .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
+
+    let cmd = format!("nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode", nitro_file);
+
+    file.write_all(cmd.as_bytes());
+
+    Ok(RichFile{
+        file,
+        path: "start-parent.sh"
+    })
+}
+
+fn create_enclave_startup_script<'a>(user_cmd : Vec<String>) -> Result<RichFile<'a>, String> {
+    fs::copy("resources/enclave/start-enclave.sh", "start-enclave.sh")
+        .map_err(|err| format!("Failed to copy base startup script {:?}", err))?;
+
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open("start-enclave.sh")
+        .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
+
+    let cmd = user_cmd.join(" ");
+
+    file.write_all(cmd.as_bytes());
+
+    Ok(RichFile{
+        file,
+        path: "start-enclave.sh"
+    })
+}
+
+fn create_enclave_docker_file<'a>(image_name : &str) -> Result<RichFile<'a>, String> {
+    create_docker_file(image_name, "start-enclave.sh vsock-proxy", "./start-enclave.sh")
+}
+
+fn create_parent_docker_file<'a>(image_name : &str, nitro_file: &str) -> Result<RichFile<'a>, String> {
+    let copy = nitro_file.to_string() + " start-parent.sh";
+
+    create_docker_file(image_name, &copy, "./start-parent.sh")
+}
+
+fn create_docker_file<'a>(image_name : &str, copy : &str, cmd : &str) -> Result<RichFile<'a>, String> {
+    let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/home/nikitashyrei/salmiac/tools/container-converter/target/debug/Dockerfile")
+        .open("Dockerfile")
         .map_err(|err| format!("Failed to create docker file {:?}", err))?;
 
-    let from = format!("FROM {} \n", image_name);
+    let filled_contents = format!(
+        "FROM {} \n\
+         COPY {} ./ \n\
+         CMD  {} \n",
+         image_name,
+         copy,
+         cmd
+    );
 
-    docker_file.write_all(from.as_bytes());
+    file.write_all(filled_contents.as_bytes());
 
-    let copy = format!("COPY {} {} ./\n", "startup.sh", "vsock-proxy");
-
-    docker_file.write_all(copy.as_bytes());
-
-    let cmd = format!("CMD {} \n", "./startup.sh");
-
-    docker_file.write_all(cmd.as_bytes());
-
-    Ok(())
+    Ok(RichFile{
+        file,
+        path: "Dockerfile"
+    })
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {

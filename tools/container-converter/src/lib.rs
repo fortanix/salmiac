@@ -1,11 +1,49 @@
+pub mod util;
+
 use log::{debug, error, info};
-use shiplift::{RegistryAuth, Image, Container, Containers, ContainerOptions};
-use shiplift::{BuildOptions, Docker, PullOptions};
-use shiplift::rep::{ContainerCreateInfo, ImageDetails};
+use shiplift::{Image};
+use shiplift::{Docker};
+use shiplift::rep::{ImageDetails};
 use std::process;
 use std::env;
-use futures::executor;
-use futures::StreamExt;
+
+pub fn create_nitro_image(image_name : &str, output_file : &str) -> Result<(), String> {
+    let nitro_cli_args = [
+        "build-enclave",
+        "--docker-uri",
+        image_name,
+        "--output-file",
+        output_file
+    ];
+
+    let nitro_cli_command = process::Command::new("nitro-cli")
+        .args(&nitro_cli_args)
+        .output()
+        .map_err(|err| format!("Failed to execute nitro-cli {:?}", err));
+
+    nitro_cli_command.map(|output| {
+        info!("status: {}", output.status);
+        info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+        info!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+    })
+}
+
+pub fn process_output(output : process::Output) -> Result<(), String> {
+    log_output(&output);
+
+    if !output.status.success() {
+        Err(format!("Process exited with code {:?}", output.status.code()))
+    }
+    else {
+        Ok(())
+    }
+}
+
+fn log_output(output : &process::Output) -> () {
+    info!("status: {}", output.status);
+    info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+    info!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+}
 
 pub struct DockerUtil {
     docker: Docker,
@@ -49,11 +87,14 @@ impl DockerUtil {
         }
     }
 
-    pub fn create_image1(&self, docker_file: &str, image_tag: &str) -> Result<(), String> {
+    pub fn create_image(&self, docker_file: &str, image_tag: &str) -> Result<(), String> {
         env::set_var("DOCKER_BUILDKIT", "1");
 
         let args = [
-            &format!("build {}", docker_file)
+            "build",
+            "-t",
+            image_tag,
+            docker_file,
         ];
 
         let docker = process::Command::new("docker")
@@ -61,42 +102,8 @@ impl DockerUtil {
             .output()
             .map_err(|err| format!("Failed to run docker {:?}", err));
 
-        docker.map(|output| {
-            info!("status: {}", output.status);
-            info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-            info!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+        docker.and_then(|output| {
+            process_output(output)
         })
-    }
-
-    pub async fn create_image(&self, docker_file: &str, image_tag: &str) -> Result<(), String> {
-        let build_options = BuildOptions::builder(docker_file).tag(image_tag).build();
-
-        let mut stream = self.docker.images().build(&build_options);
-
-        let mut result: Result<(), String> = Ok(());
-
-        while let Some(build_result) = stream.next().await {
-            match build_result {
-                Err(e) => {
-                    result = Err(format!("Failed to create docker image {:?}", e))
-                }
-                Ok(progress) => {
-                    info!("{:?}", progress)
-                }
-            }
-        }
-        result
-    }
-
-    pub fn container(&self, image : &str) -> shiplift::Result<ContainerCreateInfo> {
-        let build_options = ContainerOptions::builder(image).build();
-
-        let result = async {
-            self.docker.containers()
-                .create(&build_options)
-                .await
-        };
-
-        executor::block_on(result)
     }
 }
