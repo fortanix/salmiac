@@ -1,159 +1,157 @@
-pub mod util;
-pub mod docker;
+pub mod image;
+pub mod file;
 
-use log::{debug, error, info};
-use shiplift::{Image};
-use shiplift::{Docker};
-use shiplift::rep::{ImageDetails};
-use futures::StreamExt;
-use std::process;
-use std::env;
+use image::{
+    DockerUtil,
+    create_nitro_image
+};
+use tokio::runtime::Runtime;
+
 use std::fs;
+use std::io::Write;
 
-pub fn create_nitro_image(image_name : &str, output_file : &str) -> Result<(), String> {
-    let nitro_cli_args = [
-        "build-enclave",
-        "--docker-uri",
-        image_name,
-        "--output-file",
-        output_file
-    ];
 
-    let nitro_cli_command = process::Command::new("nitro-cli")
-        .args(&nitro_cli_args)
-        .output()
-        .map_err(|err| format!("Failed to execute nitro-cli {:?}", err));
+pub struct EnclaveImageBuilder<'a> {
+    pub client_image : String,
 
-    nitro_cli_command.and_then(|output| {
-        process_output(output)
-    })
+    pub client_cmd : Vec<String>,
+
+    pub dir : &'a file::TempDir<'a>
 }
 
-pub fn process_output(output : process::Output) -> Result<(), String> {
-    log_output(&output);
+impl<'a> EnclaveImageBuilder<'a> {
 
-    if !output.status.success() {
-        Err(format!("Process exited with code {:?}", output.status.code()))
+    fn enclave_image_name(&self) -> String {
+        self.client_image.clone() + "-enclave"
     }
-    else {
+
+    fn enclave_image_tar_path(&self) -> String {
+        let enclave_image_tar = self.enclave_image_name() + ".tar";
+
+        file::full_path(self.dir.0, &enclave_image_tar)
+    }
+
+    pub fn nitro_image_name(&self) -> String {
+        self.enclave_image_name() + ".eif"
+    }
+
+    fn nitro_image_path(&self) -> String {
+        file::full_path(self.dir.0, &self.nitro_image_name())
+    }
+
+    fn startup_tmp_dir_path(&self) -> String {
+        file::full_path(self.dir.0, "start-enclave.sh")
+    }
+
+    fn startup_resources_path(&self) -> String {
+        file::full_path("resources/enclave", "start-enclave.sh")
+    }
+
+    pub fn create_image(&self, docker_util : &DockerUtil, r : Runtime) -> Result<(), String> {
+        let enclave_image_name = self.enclave_image_name();
+        let enclave_image_tar_path = self.enclave_image_tar_path();
+        let nitro_image_path = self.nitro_image_path();
+
+        self.create_requisites()?;
+
+        docker_util.create_image_buildkit(self.dir.0, &enclave_image_name)?;
+
+        r.block_on(docker_util.load_image(&enclave_image_tar_path))?;
+
+        create_nitro_image(&enclave_image_name, &nitro_image_path)?;
+
+        Ok(())
+    }
+
+    fn create_requisites(&self) -> Result<(), String> {
+        file::create_docker_file(
+            self.dir.0,
+            &self.client_image,
+            "start-enclave.sh vsock-proxy",
+            "./start-enclave.sh")?;
+
+        self.create_enclave_startup_script()?;
+
+        Ok(())
+    }
+
+    fn create_enclave_startup_script(&self) -> Result<(), String> {
+        let from = self.startup_resources_path();
+        let to = self.startup_tmp_dir_path();
+
+        fs::copy(from, &to).map_err(|err| format!("Failed to copy base startup script {:?}", err))?;
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(to)
+            .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
+
+        let cmd = self.client_cmd.join(" ");
+
+        file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
         Ok(())
     }
 }
 
-fn log_output(output : &process::Output) -> () {
-    info!("status: {}", output.status);
-    info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-    info!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+pub struct ParentImageBuilder<'a> {
+    pub client_image : String,
+
+    pub nitro_file : String,
+
+    pub dir : &'a file::TempDir<'a>
 }
 
-pub struct DockerUtil {
-    docker: Docker,
-    image_name: String,
-}
+impl<'a> ParentImageBuilder<'a> {
 
-pub struct ImageWithDetails<'a> {
-    pub image : Image<'a>,
-    pub details : ImageDetails
-}
-
-impl DockerUtil {
-    pub fn new(docker_image: String) -> Self {
-        let docker = Docker::new();
-
-        let mut docker_image = docker_image;
-
-        if !docker_image.contains(':') {
-            docker_image.push_str(":latest");
-        }
-
-        DockerUtil {
-            docker,
-            image_name: docker_image,
-        }
+    fn parent_image_name(&self) -> String {
+        self.client_image.clone() + "-parent"
     }
 
-    pub async fn local_image(&self) -> Option<ImageWithDetails<'_>> {
-        let image = self.docker.images().get(&self.image_name);
-
-        match image.inspect().await {
-            Ok(details) => {
-                Some(ImageWithDetails {
-                    image,
-                    details,
-                })
-            }
-            Err(_) => {
-                None
-            }
-        }
+    fn startup_tmp_dir_path(&self) -> String {
+        file::full_path(self.dir.0, "start-parent.sh")
     }
 
-    pub async fn load_image(&self, tar_path : &str) -> Result<(), String> {
-
-        let tar = fs::File::open(tar_path).map_err(|err| format!("Unable to open file, {:?}", err))?;
-
-        let reader = Box::from(tar);
-
-        let mut stream = self.docker.images().import(reader);
-
-        let mut result : Result<(), String> = Ok(());
-
-        while let Some(import_result) = stream.next().await {
-            match import_result {
-                Ok(output) => {
-                    info!("{:?}", output)
-                },
-                Err(e) => {
-                    result = Err(format!("{:?}", e));
-                },
-            }
-        }
-        result
+    fn startup_resources_path(&self) -> String {
+        file::full_path("resources/parent", "start-parent.sh")
     }
 
-    pub fn create_image(&self, docker_file: &str, image_tag: &str) -> Result<(), String> {
-        env::set_var("DOCKER_BUILDKIT", "1");
+    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
+        let parent_image_name = self.parent_image_name();
 
-        let args = [
-            "build",
-            "-t",
-            image_tag,
-            docker_file,
-        ];
+        self.create_requisites()?;
 
-        let docker = process::Command::new("docker")
-            .args(&args)
-            .output()
-            .map_err(|err| format!("Failed to run docker {:?}", err));
-
-        docker.and_then(|output| {
-            process_output(output)
-        })
+        docker_util.create_image_buildkit(self.dir.0, &parent_image_name)?;
+        
+        Ok(())
     }
 
-    pub fn create_image_buildkit(&self, docker_file: &str, image_tag: &str) -> Result<(), String> {
-        let user_id = 1000;
-        let args = [
-            "--addr",
-            &format!("unix:///run/user/{}/buildkit/buildkitd.sock", user_id),
-            "build",
-            "--frontend",
-            "dockerfile.v0",
-            "--local",
-            "context=tmp",
-            "--local",
-            "dockerfile=tmp",
-            "--output",
-            &format!("type=docker,name={},dest=tmp/{}.tar", image_tag, image_tag),
-        ];
+    fn create_requisites(&self) -> Result<(), String> {
+        let copy = self.nitro_file.clone() + " start-parent.sh";
 
-        let run_buildkit = process::Command::new("buildctl")
-            .args(&args)
-            .output()
-            .map_err(|err| format!("Failed to run buildkit {:?}", err));
+        file::create_docker_file(self.dir.0, &self.client_image, &copy, "./start-parent.sh")?;
 
-        run_buildkit.and_then(|output| {
-            process_output(output)
-        })
+        self.create_parent_startup_script()?;
+
+        Ok(())
+    }
+
+    fn create_parent_startup_script(&self) -> Result<(), String> {
+        let from = self.startup_resources_path();
+        let to = self.startup_tmp_dir_path();
+
+        fs::copy(from, &to)
+            .map_err(|err| format!("Failed to copy base startup script {:?}", err))?;
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(to)
+            .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
+
+        let cmd = format!("nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode", self.nitro_file);
+
+        file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+        Ok(())
     }
 }
