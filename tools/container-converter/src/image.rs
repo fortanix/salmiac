@@ -107,14 +107,14 @@ impl DockerUtil {
         result
     }
 
-    pub fn create_image(&self, docker_file: &str, image_tag: &str) -> Result<(), String> {
+    pub fn create_image(&self, docker_dir: &str, image_tag: &str) -> Result<(), String> {
         env::set_var("DOCKER_BUILDKIT", "1");
 
         let args = [
             "build",
             "-t",
             image_tag,
-            docker_file,
+            docker_dir,
         ];
 
         let docker = process::Command::new("docker")

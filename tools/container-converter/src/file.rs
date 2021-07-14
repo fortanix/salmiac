@@ -8,6 +8,27 @@ pub fn full_path(dir : &str, file : &str) -> String {
     format!("{}/{}", dir, file)
 }
 
+pub struct Resource {
+    pub name : String,
+
+    pub data : Vec<u8>
+}
+
+pub fn create_resources(resources : &Vec<Resource>, dir : &str) -> Result<(), String> {
+    for resource in resources {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(full_path(dir, &resource.name))
+            .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+
+        file.write_all(&resource.data).map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+    }
+
+    Ok(())
+}
+
+// A directory that deletes itself on drop
 pub struct TempDir<'a>(pub &'a str);
 
 impl<'a> TempDir<'a> {
@@ -32,13 +53,11 @@ impl Drop for TempDir<'_> {
         }
     }
 }
-pub fn create_work_dir(name : &str) -> Result<TempDir, String> {
+
+pub fn create_work_dir<'a>(name : &'a str, resources : &Vec<Resource>) -> Result<TempDir<'a>, String> {
     let result = TempDir::new(name)?;
 
-    let from = full_path("resources/enclave", "vsock-proxy");
-    let to = full_path(&result.0, "vsock-proxy");
-
-    fs::copy(from, to).map_err(|err| format!("Failed to copy vsock-proxy bin {:?}", err))?;
+    create_resources(resources, result.0);
 
     Ok(result)
 }
