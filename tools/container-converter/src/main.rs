@@ -25,6 +25,8 @@ fn main() -> Result<(), String> {
     let console_arguments = console_arguments();
 
     let client_image = console_arguments.value_of("image").expect("Image argument must be supplied");
+    let parent_image = console_arguments.value_of("parent-image").unwrap_or("parent-base");
+
     let docker_util = DockerUtil::new(client_image.to_string());
 
     // get image from local repo or remote
@@ -52,6 +54,7 @@ fn main() -> Result<(), String> {
 
     let parent_builder = ParentImageBuilder {
         client_image: client_image.to_string(),
+        parent_image : parent_image.to_string(),
         nitro_file: enclave_builder.nitro_image_name(),
         dir: &tmp_dir,
     };
@@ -69,11 +72,18 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .about("Converts user docker container to be able to run in AWS Nitro environment")
         .setting(AppSettings::DisableVersion)
         .arg(
-            Arg::with_name("image")
+            Arg::with_name("client image")
                 .help("your docker image")
                 .long("image")
                 .takes_value(true)
                 .required(true),
+        )
+        .arg(
+            Arg::with_name("parent image")
+                .help("parent image")
+                .long("parent-image")
+                .takes_value(true)
+                .required(false),
         )
         .get_matches()
 }

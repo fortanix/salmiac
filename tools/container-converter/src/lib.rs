@@ -97,6 +97,8 @@ impl<'a> EnclaveImageBuilder<'a> {
 pub struct ParentImageBuilder<'a> {
     pub client_image : String,
 
+    pub parent_image : String,
+
     pub nitro_file : String,
 
     pub dir : &'a file::TempDir<'a>
@@ -105,13 +107,13 @@ pub struct ParentImageBuilder<'a> {
 impl<'a> ParentImageBuilder<'a> {
 
     pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
-        let parent_image_name = self.client_image.clone() + "-parent";
-
         debug!("Creating parent prerequisites!");
         self.create_requisites()?;
 
         debug!("Creating parent image!");
-        docker_util.create_image(self.dir.0, &parent_image_name)?;
+        let result_image_name = self.client_image.clone() + "-parent";
+
+        docker_util.create_image(self.dir.0, &result_image_name)?;
         debug!("Parent image has been created!");
 
         Ok(())
@@ -126,7 +128,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         file::create_docker_file(
             self.dir.0,
-            &self.client_image,
+            &self.parent_image,
             &all_requisites.join(" "),
             "./start-parent.sh")?;
 
@@ -143,20 +145,38 @@ impl<'a> ParentImageBuilder<'a> {
             .open(file::full_path(self.dir.0, "start-parent.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
-        let cmd = format!("nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode", self.nitro_file);
+        let cmd = format!(
+            "./vsock-proxy proxy --remote-port 5000 --vsock-port 5006 &\
+             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode",
+            self.nitro_file);
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+        let debug = true;
+        if debug {
+            let cmd = "cat /var/log/nitro_enclaves/*\
+             ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID')\
+             ID=\"${ID%\\\"}\"\
+             ID=\"${ID#\\\"}\"\
+             nitro-cli console --enclave-id $ID";
+
+            file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+        }
 
         Ok(())
     }
 
-    const parent_requisites : &'a[&'a str] = &["start-parent.sh", "vsock-proxy"];
+    const parent_requisites : &'a[&'a str] = &["allocator.yaml", "start-parent.sh", "vsock-proxy"];
 
     fn resources(&self) -> Vec<file::Resource> {
         vec![
             file::Resource {
                 name: "start-parent.sh".to_string(),
                 data: include_bytes!("resources/parent/start-parent.sh").to_vec(),
+            },
+            file::Resource {
+                name: "allocator.yaml".to_string(),
+                data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
             }
         ]
     }
