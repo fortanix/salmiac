@@ -1,5 +1,10 @@
 # syntax=docker/dockerfile:1.2
 
+# This is the foundational image that parent is built upon, it contains:
+# - A minimum number of networking utilities
+# - Rust toolchain
+# - AWS Nitro tools to run and setup the enclaves
+
 FROM ubuntu as packages
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -51,7 +56,6 @@ ENV RUST_VERSION=1.49.0
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
-#RUN cargo install cargo-audit --version ^0.15
 RUN cargo install cargo-about --version 0.2.2
 
 # Setup the env for nitro-cli

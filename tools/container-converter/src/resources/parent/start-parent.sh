@@ -1,4 +1,8 @@
 #!/bin/bash
+# This is an entry point script for parent image.
+# Its main purpose is to setup env vars for nitro tooling and allocate resources for enclave.
+# Enclave start and connection code is applied dynamically to the bottom of this file by the converter.
+
 # Setup nitro environment
 source /etc/profile.d/nitro-cli-env.sh
 

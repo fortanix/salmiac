@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# This is an entry point script for enclave.
+# Its main purpose is to setup networking, run vsock-proxy and client command
+# Client command is written dynamically to the bottom of this file by the converter.
+
 # setup environment for tap device in case its not present
 #mkdir -p /dev/net
 #mknod /dev/net/tun c 10 200
