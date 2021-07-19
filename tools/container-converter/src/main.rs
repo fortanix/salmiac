@@ -29,13 +29,11 @@ fn main() -> Result<(), String> {
 
     let docker_util = DockerUtil::new(client_image.to_string());
 
-    // get image from local repo or remote
     info!("Retrieving client image!");
 
     let image_result = task::block_on(docker_util.local_image());
     let image = image_result.expect(format!("Image {} not found in local repository", client_image).as_str());
 
-    // get client CMD
     info!("Retrieving CMD from client image!");
     let client_cmd = image.details.config.cmd.expect("No CMD present in user image");
 
@@ -72,14 +70,14 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .about("Converts user docker container to be able to run in AWS Nitro environment")
         .setting(AppSettings::DisableVersion)
         .arg(
-            Arg::with_name("client image")
+            Arg::with_name("image")
                 .help("your docker image")
                 .long("image")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name("parent image")
+            Arg::with_name("parent-image")
                 .help("parent image")
                 .long("parent-image")
                 .takes_value(true)

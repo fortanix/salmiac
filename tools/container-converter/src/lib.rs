@@ -1,6 +1,7 @@
 pub mod image;
 pub mod file;
 
+use file::UnixFile;
 use image::{
     DockerUtil,
     create_nitro_image
@@ -55,7 +56,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         file::full_path(self.dir.0, &enclave_image_tar)
     }
 
-    const enclave_requisites : &'a[&'a str] = &["start-enclave.sh", "vsock-proxy"];
+    const ENCLAVE_REQUISITES: &'a[&'a str] = &["start-enclave.sh", "vsock-proxy"];
 
     fn resources(&self) -> Vec<file::Resource> {
         vec![
@@ -70,7 +71,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         file::create_docker_file(
             self.dir.0,
             &self.client_image,
-            &EnclaveImageBuilder::enclave_requisites.join(" "),
+            &EnclaveImageBuilder::ENCLAVE_REQUISITES.join(" "),
             "./start-enclave.sh")?;
 
         file::create_resources(&self.resources(), self.dir.0)?;
@@ -89,6 +90,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         let cmd = self.client_cmd.join(" ");
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+        file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
     }
@@ -116,12 +119,15 @@ impl<'a> ParentImageBuilder<'a> {
         docker_util.create_image(self.dir.0, &result_image_name)?;
         debug!("Parent image has been created!");
 
+        /*fs::copy(file::full_path(self.dir.0, &result_image_name), ".")
+            .map_err(|err| format!("Cannot copy result image {:?}", err))?;*/
+
         Ok(())
     }
 
     fn create_requisites(&self) -> Result<(), String> {
         let all_requisites = {
-            let mut result = ParentImageBuilder::parent_requisites.to_vec();
+            let mut result = ParentImageBuilder::PARENT_REQUISITES.to_vec();
             result.push(&self.nitro_file);
             result
         };
@@ -140,33 +146,37 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn create_parent_startup_script(&self) -> Result<(), String> {
+        let path = file::full_path(self.dir.0, "start-parent.sh");
+
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(file::full_path(self.dir.0, "start-parent.sh"))
+            .open(&path)
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
         let cmd = format!(
-            "./vsock-proxy proxy --remote-port 5000 --vsock-port 5006 &\
-             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode",
+            "./vsock-proxy proxy --remote-port 5000 --vsock-port 5006 & \n\
+             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode \n",
             self.nitro_file);
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
 
         let debug = true;
         if debug {
-            let cmd = "cat /var/log/nitro_enclaves/*\
-             ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID')\
-             ID=\"${ID%\\\"}\"\
-             ID=\"${ID#\\\"}\"\
-             nitro-cli console --enclave-id $ID";
+            let cmd = "cat /var/log/nitro_enclaves/* \n\
+             ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID') \n\
+             ID=\"${ID%\\\"}\" \n\
+             ID=\"${ID#\\\"}\" \n\
+             nitro-cli console --enclave-id $ID \n";
 
             file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
         }
 
+        file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
+
         Ok(())
     }
 
-    const parent_requisites : &'a[&'a str] = &["allocator.yaml", "start-parent.sh", "vsock-proxy"];
+    const PARENT_REQUISITES: &'a[&'a str] = &["allocator.yaml", "start-parent.sh", "vsock-proxy"];
 
     fn resources(&self) -> Vec<file::Resource> {
         vec![

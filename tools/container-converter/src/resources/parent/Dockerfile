@@ -32,7 +32,8 @@ RUN apt-get update && apt-get install -y apt-utils \
      ca-certificates \
      gnupg \
      lsb-release \
-     jq
+     jq \
+     libpcap-dev
 
 # Install rust toolchain and its dependencies
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -50,7 +51,7 @@ ENV RUST_VERSION=1.49.0
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
-RUN cargo install cargo-audit --version ^0.15
+#RUN cargo install cargo-audit --version ^0.15
 RUN cargo install cargo-about --version 0.2.2
 
 # Setup the env for nitro-cli

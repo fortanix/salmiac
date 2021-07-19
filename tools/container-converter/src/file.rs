@@ -3,6 +3,8 @@ use std::io::Write;
 use log::{
     error
 };
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 
 pub fn full_path(dir : &str, file : &str) -> String {
     format!("{}/{}", dir, file)
@@ -23,6 +25,8 @@ pub fn create_resources(resources : &Vec<Resource>, dir : &str) -> Result<(), St
             .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
 
         file.write_all(&resource.data).map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+
+        file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
     }
 
     Ok(())
@@ -57,7 +61,7 @@ impl Drop for TempDir<'_> {
 pub fn create_work_dir<'a>(name : &'a str, resources : &Vec<Resource>) -> Result<TempDir<'a>, String> {
     let result = TempDir::new(name)?;
 
-    create_resources(resources, result.0);
+    create_resources(resources, result.0)?;
 
     Ok(result)
 }
@@ -65,7 +69,7 @@ pub fn create_work_dir<'a>(name : &'a str, resources : &Vec<Resource>) -> Result
 pub fn create_docker_file<'a>(dir: &str, image_name : &str, copy : &str, cmd : &str) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .create(true)
-        .append(true)
+        .write(true)
         .open(format!("{}/{}", dir, "Dockerfile"))
         .map_err(|err| format!("Failed to create docker file {:?}", err))?;
 
@@ -81,4 +85,14 @@ pub fn create_docker_file<'a>(dir: &str, image_name : &str, copy : &str, cmd : &
     file.write_all(filled_contents.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
 
     Ok(())
+}
+
+pub trait UnixFile {
+    fn set_execute(&mut self) -> std::io::Result<()>;
+}
+
+impl UnixFile for fs::File {
+    fn set_execute(&mut self) -> std::io::Result<()> {
+        self.set_permissions(Permissions::from_mode(0o755))
+    }
 }

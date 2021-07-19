@@ -1,4 +1,10 @@
 #!/bin/sh
+
+# setup environment for tap device in case its not present
+#mkdir -p /dev/net
+#mknod /dev/net/tun c 10 200
+#chmod 0666 /dev/net/tun
+
 ./vsock-proxy server --vsock-port 5006 --remote-port 5007 &
 sleep 30s
 ip link set address 0a:9d:f6:91:fb:73 dev tap0
