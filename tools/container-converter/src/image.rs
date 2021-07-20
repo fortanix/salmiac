@@ -5,14 +5,17 @@ use futures::StreamExt;
 use std::process;
 use std::env;
 use std::fs;
+use std::path::Path;
 
-pub fn create_nitro_image(image_name : &str, output_file : &str) -> Result<(), String> {
+pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<(), String> {
+    let output = output_file.to_str().unwrap();
+
     let nitro_cli_args = [
         "build-enclave",
         "--docker-uri",
         image_name,
         "--output-file",
-        output_file
+        output
     ];
 
     let nitro_cli_command = process::Command::new("nitro-cli")
@@ -85,15 +88,12 @@ impl DockerUtil {
     }
 
     pub async fn load_image(&self, tar_path : &str) -> Result<(), String> {
-
         let tar = fs::File::open(tar_path).map_err(|err| format!("Unable to open file, {:?}", err))?;
 
         let reader = Box::from(tar);
-
         let mut stream = self.docker.images().import(reader);
 
         let mut result : Result<(), String> = Ok(());
-
         while let Some(import_result) = stream.next().await {
             match import_result {
                 Ok(output) => {
@@ -107,17 +107,19 @@ impl DockerUtil {
         result
     }
 
-    pub fn create_image(&self, docker_dir: &str, image_tag: &str) -> Result<(), String> {
+    pub fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<(), String> {
         env::set_var("DOCKER_BUILDKIT", "1");
+
+        let dir = docker_dir.to_str().unwrap();
 
         let args = [
             "build",
             "-t",
             image_tag,
-            docker_dir,
+            dir,
         ];
 
-        let docker = process::Command::new("docker")
+        let docker = process::Command::new("/usr/bin/docker")
             .args(&args)
             .output()
             .map_err(|err| format!("Failed to run docker {:?}", err));
@@ -127,7 +129,7 @@ impl DockerUtil {
         })
     }
 
-    pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str) -> Result<(), String> {
+    pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str, output_file : &str) -> Result<(), String> {
         let user_id = 1000;
         let args = [
             "--addr",
@@ -140,7 +142,7 @@ impl DockerUtil {
             "--local",
             &format!("dockerfile={}", docker_dir),
             "--output",
-            &format!("type=docker,name={},dest=tmp/{}.tar", image_tag, image_tag),
+            &format!("type=docker,name={},dest={}.tar", image_tag, output_file),
         ];
 
         let run_buildkit = process::Command::new("buildctl")

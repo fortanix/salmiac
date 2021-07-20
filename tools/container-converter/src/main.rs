@@ -24,37 +24,37 @@ fn main() -> Result<(), String> {
 
     let console_arguments = console_arguments();
 
-    let client_image = console_arguments.value_of("image").expect("Image argument must be supplied");
-    let parent_image = console_arguments.value_of("parent-image").unwrap_or("parent-base");
+    let client_image = console_arguments.value_of("image").expect("Image argument must be supplied").to_string();
+    let parent_image = console_arguments.value_of("parent-image").unwrap_or("parent-base").to_string();
 
-    let docker_util = DockerUtil::new(client_image.to_string());
+    let docker_util = DockerUtil::new(client_image.clone());
 
     info!("Retrieving client image!");
 
     let image_result = task::block_on(docker_util.local_image());
-    let image = image_result.expect(format!("Image {} not found in local repository", client_image).as_str());
+    let image = image_result.expect(format!("Image {} not found in local repository", &client_image).as_str());
 
     info!("Retrieving CMD from client image!");
     let client_cmd = image.details.config.cmd.expect("No CMD present in user image");
 
     info!("Creating working directory!");
     let global_resources = global_resources();
-    let tmp_dir = create_work_dir("tmp", &global_resources)?;
+    let temp_dir = create_work_dir(&global_resources)?;
 
     let enclave_builder = EnclaveImageBuilder {
-        client_image: client_image.to_string(),
+        client_image: client_image.clone(),
         client_cmd,
-        dir: &tmp_dir,
+        dir : &temp_dir,
     };
 
     info!("Building enclave image!");
     enclave_builder.create_image(&docker_util)?;
 
     let parent_builder = ParentImageBuilder {
-        client_image: client_image.to_string(),
-        parent_image : parent_image.to_string(),
+        client_image,
+        parent_image,
         nitro_file: enclave_builder.nitro_image_name(),
-        dir: &tmp_dir,
+        dir : &temp_dir,
     };
 
     info!("Building parent image!");

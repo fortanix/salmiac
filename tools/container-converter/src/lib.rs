@@ -6,6 +6,9 @@ use image::{
     DockerUtil,
     create_nitro_image
 };
+use tempfile::TempDir;
+use crate::file::DockerCopyArgs;
+
 use log::debug;
 
 use std::fs;
@@ -16,7 +19,7 @@ pub struct EnclaveImageBuilder<'a> {
 
     pub client_cmd : Vec<String>,
 
-    pub dir : &'a file::TempDir<'a>
+    pub dir : &'a TempDir
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
@@ -27,17 +30,13 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
         let enclave_image_name = self.enclave_image_name();
-        let enclave_image_tar_path = self.enclave_image_tar_path();
-        let nitro_image_path = file::full_path(self.dir.0, &self.nitro_image_name());
+        let nitro_image_path = &self.dir.path().join(&self.nitro_image_name());
 
         debug!("Creating enclave prerequisites!");
         self.create_requisites()?;
 
         debug!("Creating enclave image using buildkit!");
-        docker_util.create_image(self.dir.0, &enclave_image_name)?;
-
-        debug!("Loading enclave image into local docker repository!");
-        //r.block_on(docker_util.load_image(&enclave_image_tar_path))?;
+        docker_util.create_image(self.dir.path(), &enclave_image_name)?;
 
         debug!("Creating nitro image!");
         create_nitro_image(&enclave_image_name, &nitro_image_path)?;
@@ -50,13 +49,11 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image.clone() + "-enclave"
     }
 
-    fn enclave_image_tar_path(&self) -> String {
+   /* fn enclave_image_tar_path(&self) -> Path {
         let enclave_image_tar = self.enclave_image_name() + ".tar";
 
-        file::full_path(self.dir.0, &enclave_image_tar)
-    }
-
-    const ENCLAVE_REQUISITES: &'a[&'a str] = &["start-enclave.sh", "vsock-proxy"];
+        self.dir.path().join(&enclave_image_tar).as_path()
+    }*/
 
     fn resources(&self) -> Vec<file::Resource> {
         vec![
@@ -67,14 +64,21 @@ impl<'a> EnclaveImageBuilder<'a> {
         ]
     }
 
-    fn create_requisites(&self) -> Result<(), String> {
-        file::create_docker_file(
-            self.dir.0,
-            &self.client_image,
-            &EnclaveImageBuilder::ENCLAVE_REQUISITES.join(" "),
-            "./start-enclave.sh")?;
+    fn requisites(&self) -> Vec<String> {
+        vec![
+            "start-enclave.sh".to_string(),
+            "vsock-proxy".to_string()
+        ]
+    }
 
-        file::create_resources(&self.resources(), self.dir.0)?;
+    fn create_requisites(&self) -> Result<(), String> {
+        let mut docker_file = file::create_docker_file(self.dir.path())?;
+
+        let copy = DockerCopyArgs::copy_to_home(self.requisites());
+
+        file::populate_docker_file(&mut docker_file, &self.client_image, &copy, "./start-enclave.sh")?;
+
+        file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_enclave_startup_script()?;
 
@@ -84,9 +88,11 @@ impl<'a> EnclaveImageBuilder<'a> {
     fn create_enclave_startup_script(&self) -> Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(file::full_path(self.dir.0, "start-enclave.sh"))
+            .open(&self.dir.path().join("start-enclave.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
+        // todo: sanitize the user cmd before putting it into startup script.
+        // Escape chars like: ' ” \ or ;.
         let cmd = self.client_cmd.join(" ");
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
@@ -104,7 +110,7 @@ pub struct ParentImageBuilder<'a> {
 
     pub nitro_file : String,
 
-    pub dir : &'a file::TempDir<'a>
+    pub dir : &'a TempDir
 }
 
 impl<'a> ParentImageBuilder<'a> {
@@ -116,29 +122,26 @@ impl<'a> ParentImageBuilder<'a> {
         debug!("Creating parent image!");
         let result_image_name = self.client_image.clone() + "-parent";
 
-        docker_util.create_image(self.dir.0, &result_image_name)?;
+        docker_util.create_image(self.dir.path(), &result_image_name)?;
         debug!("Parent image has been created!");
-
-        /*fs::copy(file::full_path(self.dir.0, &result_image_name), ".")
-            .map_err(|err| format!("Cannot copy result image {:?}", err))?;*/
 
         Ok(())
     }
 
     fn create_requisites(&self) -> Result<(), String> {
         let all_requisites = {
-            let mut result = ParentImageBuilder::PARENT_REQUISITES.to_vec();
-            result.push(&self.nitro_file);
+            let mut result = self.requisites();
+            result.push(self.nitro_file.clone());
             result
         };
 
-        file::create_docker_file(
-            self.dir.0,
-            &self.parent_image,
-            &all_requisites.join(" "),
-            "./start-parent.sh")?;
+        let mut docker_file = file::create_docker_file(self.dir.path())?;
 
-        file::create_resources(&self.resources(), self.dir.0)?;
+        let copy = DockerCopyArgs::copy_to_home(all_requisites);
+
+        file::populate_docker_file(&mut docker_file, &self.parent_image, &copy, "./start-parent.sh")?;
+
+        file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_parent_startup_script()?;
 
@@ -146,11 +149,9 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn create_parent_startup_script(&self) -> Result<(), String> {
-        let path = file::full_path(self.dir.0, "start-parent.sh");
-
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(&path)
+            .open(self.dir.path().join("start-parent.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
         let cmd = format!(
@@ -176,8 +177,6 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(())
     }
 
-    const PARENT_REQUISITES: &'a[&'a str] = &["allocator.yaml", "start-parent.sh", "vsock-proxy"];
-
     fn resources(&self) -> Vec<file::Resource> {
         vec![
             file::Resource {
@@ -188,6 +187,14 @@ impl<'a> ParentImageBuilder<'a> {
                 name: "allocator.yaml".to_string(),
                 data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
             }
+        ]
+    }
+
+    fn requisites(&self) -> Vec<String> {
+        vec![
+            "allocator.yaml".to_string(),
+            "start-parent.sh".to_string(),
+            "vsock-proxy".to_string()
         ]
     }
 }
