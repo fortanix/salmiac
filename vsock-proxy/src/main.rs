@@ -176,7 +176,8 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     info!("Connected to enclave id = {}!", proxy.cid);
 
-    const PARENT_NETWORK_DEVICE: &str = "ens5";
+    // const PARENT_NETWORK_DEVICE: &str = "eth0"; // default docker device
+    const PARENT_NETWORK_DEVICE: &str = "ens5"; // default EC2 device
 
     // `capture` should be properly locked when shared among threads (like tap device),
     // however copying captures is good enough for prototype and it just works.

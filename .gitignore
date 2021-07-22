@@ -1,3 +1,6 @@
 /vsock-proxy/target/
 /vsock-proxy/.idea
+/tools/container-converter/target/
+/tools/container-converter/.idea
 Cargo.lock
+.idea
