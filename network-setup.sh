@@ -3,7 +3,7 @@
 
 # We turn off any network packet handling by the kernel, because 
 # networking is handled by vsock-proxy program. Without this setup
-# kernel will immediately refuse TCP connection for example.
+# kernel will immediately refuse a TCP connection.
 #iptables -A INPUT -m socket -j ACCEPT	# use only in release build
 #iptables -P INPUT DROP			# use only in release build
 

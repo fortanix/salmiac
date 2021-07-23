@@ -12,7 +12,7 @@ use crate::file::DockerCopyArgs;
 use log::debug;
 
 use std::fs;
-use std::io::Write;
+use std::io::{Write, Read, Seek};
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image : String,
@@ -78,6 +78,17 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         file::populate_docker_file(&mut docker_file, &self.client_image, &copy, "./start-enclave.sh")?;
 
+        let debug = true;
+        if debug {
+            use std::io::{SeekFrom};
+            docker_file.seek(SeekFrom::Start(0)).map_err(|err| format!("failed to read file {:?}", err))?;
+
+            let mut docker_file_str = String::new();
+
+            docker_file.read_to_string(&mut docker_file_str).map_err(|err| format!("failed to read file {:?}", err))?;
+            debug!("Parent docker file: {}", docker_file_str);
+        }
+
         file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_enclave_startup_script()?;
@@ -88,6 +99,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     fn create_enclave_startup_script(&self) -> Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
+            .read(true)
             .open(&self.dir.path().join("start-enclave.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
@@ -96,6 +108,14 @@ impl<'a> EnclaveImageBuilder<'a> {
         let cmd = self.client_cmd.join(" ");
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+        use std::io::{SeekFrom};
+        file.seek(SeekFrom::Start(0)).map_err(|err| format!("failed to read file {:?}", err))?;
+
+        let mut docker_file_str = String::new();
+
+        file.read_to_string(&mut docker_file_str).map_err(|err| format!("failed to read file {:?}", err))?;
+        debug!("Parent startup script file: {}", docker_file_str);
 
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
@@ -141,6 +161,17 @@ impl<'a> ParentImageBuilder<'a> {
 
         file::populate_docker_file(&mut docker_file, &self.parent_image, &copy, "./start-parent.sh")?;
 
+        let debug = true;
+        if debug {
+            use std::io::{SeekFrom};
+            docker_file.seek(SeekFrom::Start(0)).map_err(|err| format!("failed to read file {:?}", err))?;
+
+            let mut docker_file_str = String::new();
+
+            docker_file.read_to_string(&mut docker_file_str).map_err(|err| format!("failed to read file {:?}", err))?;
+            debug!("Parent docker file: {}", docker_file_str);
+        }
+
         file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_parent_startup_script()?;
@@ -151,12 +182,13 @@ impl<'a> ParentImageBuilder<'a> {
     fn create_parent_startup_script(&self) -> Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
+            .read(true)
             .open(self.dir.path().join("start-parent.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
         let cmd = format!(
-            "./vsock-proxy proxy --remote-port 5000 --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode \n",
+            "./vsock-proxy proxy --remote-port 8080 --vsock-port 5006 & \n\
+             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 3516 --debug-mode \n",
             self.nitro_file);
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
@@ -170,6 +202,14 @@ impl<'a> ParentImageBuilder<'a> {
              nitro-cli console --enclave-id $ID \n";
 
             file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+            use std::io::{SeekFrom};
+            file.seek(SeekFrom::Start(0)).map_err(|err| format!("failed to read file {:?}", err))?;
+
+            let mut docker_file_str = String::new();
+
+            file.read_to_string(&mut docker_file_str).map_err(|err| format!("failed to read file {:?}", err))?;
+            debug!("Parent startup script file: {}", docker_file_str);
         }
 
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
