@@ -5,7 +5,7 @@ set -Eeuo pipefail
 source tools/bitbucket-api/bitbucket-buildstatus.sh
 
 testname="salmiac-pr"
-description="this is the description of the test"
+description="Builds Salmiac project and runs tests"
 link="${BUILD_URL}"
 
 updateStatus () {
