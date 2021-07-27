@@ -1,6 +1,6 @@
 FROM rust:1.53.0 as build
 RUN apt-get update && \
-    apt-get install -y libpcap-dev make
+    apt-get install -y libpcap-dev
 
 ADD vsock-proxy /opt/salmiac/vsock-proxy
 ADD tools/container-converter /opt/salmiac/tools/container-converter
@@ -13,8 +13,8 @@ RUN cd vsock-proxy && \
 
 RUN cd tools/container-converter && \
     cat Cargo.toml && \
-    cat Makefile && \
-    /usr/bin/make
+    cat build-project.sh && \
+    ./build-project.sh
 
 FROM ubuntu-networking
 
