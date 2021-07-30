@@ -7,12 +7,15 @@ use image::{
     create_nitro_image
 };
 use tempfile::TempDir;
-use crate::file::DockerCopyArgs;
+use crate::file::{
+    DockerCopyArgs
+};
 
-use log::debug;
+use log::info;
 
 use std::fs;
 use std::io::Write;
+use std::path::{PathBuf};
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image : String,
@@ -32,15 +35,13 @@ impl<'a> EnclaveImageBuilder<'a> {
         let enclave_image_name = self.enclave_image_name();
         let nitro_image_path = &self.dir.path().join(&self.nitro_image_name());
 
-        debug!("Creating enclave prerequisites!");
         self.create_requisites()?;
+        info!("Enclave prerequisites have been created!");
 
-        debug!("Creating enclave image using buildkit!");
         docker_util.create_image(self.dir.path(), &enclave_image_name)?;
 
-        debug!("Creating nitro image!");
         create_nitro_image(&enclave_image_name, &nitro_image_path)?;
-        debug!("Nitro image has been created!");
+        info!("Nitro image has been created!");
 
         Ok(())
     }
@@ -71,16 +72,29 @@ impl<'a> EnclaveImageBuilder<'a> {
         ]
     }
 
+    fn startup_path(&self) -> PathBuf {
+        self.dir.path().join("start-enclave.sh")
+    }
+
     fn create_requisites(&self) -> Result<(), String> {
+
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
         let copy = DockerCopyArgs::copy_to_home(self.requisites());
 
         file::populate_docker_file(&mut docker_file, &self.client_image, &copy, "./start-enclave.sh")?;
 
+        if cfg!(debug_assertions) {
+            file::log_docker_file(self.dir.path())?;
+        }
+
         file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_enclave_startup_script()?;
+
+        if cfg!(debug_assertions) {
+            file::log_file(&self.startup_path())?;
+        }
 
         Ok(())
     }
@@ -115,15 +129,18 @@ pub struct ParentImageBuilder<'a> {
 
 impl<'a> ParentImageBuilder<'a> {
 
-    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
-        debug!("Creating parent prerequisites!");
-        self.create_requisites()?;
+    fn startup_path(&self) -> PathBuf {
+        self.dir.path().join("start-parent.sh")
+    }
 
-        debug!("Creating parent image!");
+    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
+        self.create_requisites()?;
+        info!("Parent prerequisites have been created!");
+
         let result_image_name = self.client_image.clone() + "-parent";
 
         docker_util.create_image(self.dir.path(), &result_image_name)?;
-        debug!("Parent image has been created!");
+        info!("Parent image has been created!");
 
         Ok(())
     }
@@ -141,9 +158,17 @@ impl<'a> ParentImageBuilder<'a> {
 
         file::populate_docker_file(&mut docker_file, &self.parent_image, &copy, "./start-parent.sh")?;
 
+        if cfg!(debug_assertions) {
+            file::log_docker_file(self.dir.path())?;
+        }
+
         file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_parent_startup_script()?;
+
+        if cfg!(debug_assertions) {
+            file::log_file(&self.startup_path())?;
+        }
 
         Ok(())
     }
@@ -151,30 +176,33 @@ impl<'a> ParentImageBuilder<'a> {
     fn create_parent_startup_script(&self) -> Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(self.dir.path().join("start-parent.sh"))
+            .open(self.startup_path())
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
-        let cmd = format!(
-            "./vsock-proxy proxy --remote-port 5000 --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode \n",
-            self.nitro_file);
+        file.write_all(self.start_enclave_command().as_bytes())
+            .map_err(|err| format!("Failed to write to file {:?}", err))?;
 
-        file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-        let debug = true;
-        if debug {
-            let cmd = "cat /var/log/nitro_enclaves/* \n\
-             ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID') \n\
-             ID=\"${ID%\\\"}\" \n\
-             ID=\"${ID#\\\"}\" \n\
-             nitro-cli console --enclave-id $ID \n";
-
-            file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
-        }
+        file.write_all(ParentImageBuilder::connect_to_enclave_command().as_bytes())
+            .map_err(|err| format!("Failed to write to file {:?}", err))?;
 
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
+    }
+
+    fn start_enclave_command(&self) -> String {
+        format!(
+            "./vsock-proxy proxy --remote-port 5000 --vsock-port 5006 & \n\
+            nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 1124 --debug-mode \n",
+            self.nitro_file)
+    }
+
+    fn connect_to_enclave_command() -> String {
+        "cat /var/log/nitro_enclaves/* \n\
+         ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID') \n\
+         ID=\"${ID%\\\"}\" \n\
+         ID=\"${ID#\\\"}\" \n\
+         nitro-cli console --enclave-id $ID \n".to_string()
     }
 
     fn resources(&self) -> Vec<file::Resource> {

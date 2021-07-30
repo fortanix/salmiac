@@ -1,7 +1,7 @@
 use tempfile::TempDir;
 
 use std::fs;
-use std::io::Write;
+use std::io::{Write, Read};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -58,6 +58,31 @@ pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &Doc
     );
 
     file.write_all(filled_contents.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+    Ok(())
+}
+
+pub fn log_docker_file(dir : &Path) -> Result<(), String> {
+    log_file(&*dir.join("Dockerfile"))
+}
+
+pub fn log_file(path : &Path) -> Result<(), String> {
+    use log::debug;
+
+    let file_name = path.file_name()
+        .and_then(|e| e.to_str())
+        .unwrap_or("<Unknown file>");
+
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|err| format!("Failed to open file {} {:?}", file_name, err))?;
+
+    let mut file_contents = String::new();
+
+    file.read_to_string(&mut file_contents).map_err(|err|format!("Failed to read file {} {:?}", file_name, err))?;
+
+    debug!("File contents of {}:\n {}", file_name, file_contents);
 
     Ok(())
 }

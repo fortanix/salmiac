@@ -1,4 +1,4 @@
-use log::{info};
+use log::{info, error};
 use shiplift::{Docker,Image};
 use shiplift::rep::{ImageDetails};
 use futures::StreamExt;
@@ -29,20 +29,16 @@ pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<(), 
 }
 
 fn process_output(output : process::Output) -> Result<(), String> {
-    log_output(&output);
-
     if !output.status.success() {
+        error!("status: {}", output.status);
+        error!("stderr: {}", String::from_utf8_lossy(&output.stderr));
         Err(format!("Process exited with code {:?}", output.status.code()))
     }
     else {
+        info!("status: {}", output.status);
+        info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
         Ok(())
     }
-}
-
-fn log_output(output : &process::Output) -> () {
-    info!("status: {}", output.status);
-    info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-    info!("stderr: {}", String::from_utf8_lossy(&output.stderr));
 }
 
 pub struct DockerUtil {
