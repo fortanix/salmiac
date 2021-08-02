@@ -1,7 +1,7 @@
 use tempfile::TempDir;
 
 use std::fs;
-use std::io::{Write, Read};
+use std::io::{Write, BufReader, BufRead};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -73,16 +73,19 @@ pub fn log_file(path : &Path) -> Result<(), String> {
         .and_then(|e| e.to_str())
         .unwrap_or("<Unknown file>");
 
-    let mut file = fs::OpenOptions::new()
+    let file = fs::OpenOptions::new()
         .read(true)
         .open(path)
         .map_err(|err| format!("Failed to open file {} {:?}", file_name, err))?;
 
-    let mut file_contents = String::new();
+    let reader = BufReader::new(file);
 
-    file.read_to_string(&mut file_contents).map_err(|err|format!("Failed to read file {} {:?}", file_name, err))?;
-
-    debug!("File contents of {}:\n {}", file_name, file_contents);
+    debug!("File contents of {}:\n", file_name);
+    for line in reader.lines() {
+        if let Ok(l) = line {
+            println!("{}", l)
+        }
+    }
 
     Ok(())
 }
