@@ -43,7 +43,6 @@ pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
     fs::OpenOptions::new()
         .create(true)
         .write(true)
-        .read(true)
         .open(dir.join("Dockerfile"))
         .map_err(|err| format!("Failed to create docker file {:?}", err))
 }

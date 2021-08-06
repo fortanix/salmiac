@@ -12,12 +12,11 @@ use crate::file::{
 };
 
 use log::{
-    info,
-    debug
+    info
 };
 
 use std::fs;
-use std::io::{Write, Read, Seek};
+use std::io::{Write};
 use std::path::{PathBuf};
 
 pub struct EnclaveImageBuilder<'a> {
@@ -105,7 +104,6 @@ impl<'a> EnclaveImageBuilder<'a> {
     fn create_enclave_startup_script(&self) -> Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .read(true)
             .open(&self.dir.path().join("start-enclave.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
