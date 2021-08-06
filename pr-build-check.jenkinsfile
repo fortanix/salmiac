@@ -1,6 +1,8 @@
 pipeline {
     agent { label 'sdkms-build-server' }
 
+    parameters { string(name: 'pr_source_branch', defaultValue: '', description: 'set by Generic Webhook Trigger') }
+
     triggers {
         GenericTrigger(
             genericVariables: [
