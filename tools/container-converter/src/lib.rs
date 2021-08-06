@@ -11,7 +11,10 @@ use crate::file::{
     DockerCopyArgs
 };
 
-use log::info;
+use log::{
+    info,
+    debug
+};
 
 use std::fs;
 use std::io::{Write, Read, Seek};
