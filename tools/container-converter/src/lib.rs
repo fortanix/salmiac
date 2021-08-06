@@ -115,14 +115,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
 
-        use std::io::{SeekFrom};
-        file.seek(SeekFrom::Start(0)).map_err(|err| format!("failed to read file {:?}", err))?;
-
-        let mut docker_file_str = String::new();
-
-        file.read_to_string(&mut docker_file_str).map_err(|err| format!("failed to read file {:?}", err))?;
-        debug!("Parent startup script file: {}", docker_file_str);
-
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
