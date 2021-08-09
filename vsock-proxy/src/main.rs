@@ -39,7 +39,6 @@ use log::{
 use vsock::VsockStream;
 use tun::platform::linux::Device;
 use pcap::{Capture, Active};
-use pnet_datalink::NetworkInterface;
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");

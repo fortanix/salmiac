@@ -1,11 +1,6 @@
 use std::net::{Ipv4Addr, IpAddr};
-
-use netlink_packet_route::rtnl::{
-    RtnlMessage
-};
-
-use tokio::task::JoinHandle;
 use rtnetlink::proto::Connection;
+use rtnetlink::packet::RtnlMessage;
 
 pub fn connect() -> (Connection<RtnlMessage> , rtnetlink::Handle) {
     let (connection, handle, _) = rtnetlink::new_connection().map_err(|err| format!("{:?}", err)).expect("Failed to connect to netlink");
