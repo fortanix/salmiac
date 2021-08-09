@@ -16,6 +16,16 @@ use tun::platform::linux::Device as TunDevice;
 
 pub const BUF_SIZE : usize = 4096;
 
+use pnet_datalink::NetworkInterface;
+
+pub fn get_default_network_device() -> Option<NetworkInterface> {
+    pnet_datalink::interfaces()
+        .into_iter()
+        .find(|e| {
+            e.is_up() && !e.is_loopback() && !e.ips.is_empty() && e.mac.is_some()
+        })
+}
+
 pub fn create_tap_device() -> Result<TunDevice, String> {
     let mut config = tun::Configuration::default();
 

@@ -17,7 +17,7 @@ use vsock_proxy::net::socket_extensions::{
     RichSender,
     accept_vsock
 };
-use vsock_proxy::net::create_tap_device;
+use vsock_proxy::net;
 use vsock_proxy::net::netlink;
 use threadpool::ThreadPool;
 
@@ -39,6 +39,7 @@ use log::{
 use vsock::VsockStream;
 use tun::platform::linux::Device;
 use pcap::{Capture, Active};
+use pnet_datalink::NetworkInterface;
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");
@@ -231,21 +232,21 @@ async fn setup_enclave_networking(tap_device : &Device) -> Result<(), String> {
     debug!("Tap index {}", tap_index);
 
     netlink::set_address(&netlink_handle, tap_index, vec![0x0a,0x9d,0xf6,0x91,0xfb,0x73]).await?;
-    info!("MAC address for tap set!");
+    info!("MAC address for tap is set!");
 
     let gateway_addr = Ipv4Addr::new(172,31,32,1);
 
     netlink::add_default_gateway(&netlink_handle, gateway_addr.clone()).await?;
-    info!("Gateway set!");
+    info!("Gateway is set!");
 
     netlink::add_neighbour(&netlink_handle, tap_index, IpAddr::from(gateway_addr), vec![0x0a,0x63,0x7f,0x97,0xf3,0xc9]).await?;
-    info!("ARP entry set!");
+    info!("ARP entry is set!");
 
     Ok(())
 }
 
 fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
-    let tap_device = create_tap_device()?;
+    let tap_device = net::create_tap_device()?;
     tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock".to_string())?;
 
     debug!("Created tap device in enclave!");
