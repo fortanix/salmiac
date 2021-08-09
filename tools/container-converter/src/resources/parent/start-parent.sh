@@ -13,5 +13,6 @@ nitro-cli --version
 cp allocator.yaml /etc/nitro_enclaves/allocator.yaml
 systemctl start nitro-enclaves-allocator.service
 systemctl enable nitro-enclaves-allocator.service
+systemctl status nitro-enclaves-allocator.service
 
 iptables -A INPUT -p tcp --destination-port 8080 -j DROP
