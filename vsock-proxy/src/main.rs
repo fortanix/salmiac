@@ -18,6 +18,7 @@ use vsock_proxy::net::socket_extensions::{
     accept_vsock
 };
 use vsock_proxy::net::create_tap_device;
+use vsock_proxy::net::netlink;
 use threadpool::ThreadPool;
 
 use std::net::{IpAddr, SocketAddr, Ipv4Addr};
@@ -215,11 +216,41 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
     Ok(())
 }
 
+#[tokio::main]
+async fn setup_enclave_networking(tap_device : &Device) -> Result<(), String> {
+    use tun::Device;
+    use nix::net::if_::if_nametoindex;
+
+    let (_netlink_connection, netlink_handle) = netlink::connect();
+    tokio::spawn(_netlink_connection);
+
+    debug!("Connected to netlink");
+
+    let tap_index = if_nametoindex(tap_device.name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
+
+    debug!("Tap index {}", tap_index);
+
+    netlink::set_address(&netlink_handle, tap_index, vec![0x0a,0x9d,0xf6,0x91,0xfb,0x73]).await?;
+    info!("MAC address for tap set!");
+
+    let gateway_addr = Ipv4Addr::new(172,31,32,1);
+
+    netlink::add_default_gateway(&netlink_handle, gateway_addr.clone()).await?;
+    info!("Gateway set!");
+
+    netlink::add_neighbour(&netlink_handle, tap_index, IpAddr::from(gateway_addr), vec![0x0a,0x63,0x7f,0x97,0xf3,0xc9]).await?;
+    info!("ARP entry set!");
+
+    Ok(())
+}
+
 fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
     let tap_device = create_tap_device()?;
     tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock".to_string())?;
 
     debug!("Created tap device in enclave!");
+
+    setup_enclave_networking(&tap_device)?;
 
     let server = Proxy::new(local_port, 4, remote_port);
 

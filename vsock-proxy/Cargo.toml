@@ -19,3 +19,6 @@ tun = {version = "*" ,features = ["mio"] }
 threadpool = "1.7.1"
 netlink-sys = "0.6.0"
 netlink-packet-route = "0.7.0"
+rtnetlink = "0.8.0"
+pnet_datalink = "0.28.0"
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread"] }
