@@ -2,7 +2,7 @@
 # Enclave configuration file.
 #
 # How much memory to allocate for enclaves (in MiB).
-memory_mib: 1200
+memory_mib: 3550
 #
 # How many CPUs to reserve for enclaves.
 cpu_count: 2

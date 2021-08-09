@@ -11,10 +11,12 @@ use crate::file::{
     DockerCopyArgs
 };
 
-use log::info;
+use log::{
+    info
+};
 
 use std::fs;
-use std::io::Write;
+use std::io::{Write};
 use std::path::{PathBuf};
 
 pub struct EnclaveImageBuilder<'a> {
