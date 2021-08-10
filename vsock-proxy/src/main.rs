@@ -39,6 +39,10 @@ use log::{
 use vsock::VsockStream;
 use tun::platform::linux::Device;
 use pcap::{Capture, Active};
+use rtnetlink::packet::{RouteMessage, NeighbourMessage};
+use rtnetlink::packet::nlas::route::Nla::Gateway;
+use pnet_datalink::NetworkInterface;
+use vsock_proxy::net::device::{NetworkSettings, SetupMessages};
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");
@@ -87,19 +91,19 @@ fn main() -> Result<(), String> {
             }
         }
         ("client", Some(args)) => {
-            let address_vec = address_argument(args)?;
+            let address = address_argument(args)?;
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
 
             let message = "Hello world from outside EC2!".to_string();
 
             if args.is_present("udp") {
                 let ec2_connect = bind_udp(remote_port)?;
-                let address = SocketAddr::from((address_vec[0], remote_port));
+                let address = SocketAddr::from((address, remote_port));
 
                 ec2_connect.send_to(message.as_bytes(), address).map_err(|err| format!("cannot send udp! {:?}", err))?;
             }
             else {
-                let mut ec2_connect = connect_remote_tcp(address_vec[0], remote_port as u32)?;
+                let mut ec2_connect = connect_remote_tcp(address, remote_port as u32)?;
 
                 info!("Connected to EC2!");
 
@@ -160,6 +164,11 @@ fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream
 }
 
 fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
+    use vsock_proxy::net::{
+        receive_struct,
+        send_struct
+    };
+
     // for simplicity sake we work only with one enclave with id = 4
     let proxy = Proxy::new(local_port, 4, remote_port);
 
@@ -176,6 +185,13 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
     let mut to_enclave = proxy.connect_to_enclave()?;
 
     info!("Connected to enclave id = {}!", proxy.cid);
+
+    let network_settings = get_network_settings()?;
+    send_struct(&mut to_enclave, SetupMessages::Settings(network_settings))?;
+
+    let msg = receive_struct::<SetupMessages>(&mut from_enclave)?;
+
+    //assert!(msg == SetupMessages::Done);
 
     // const PARENT_NETWORK_DEVICE: &str = "eth0"; // default docker device
     const PARENT_NETWORK_DEVICE: &str = "ens5"; // default EC2 device
@@ -217,7 +233,43 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 }
 
 #[tokio::main]
-async fn setup_enclave_networking(tap_device : &Device) -> Result<(), String> {
+async fn get_network_settings() -> Result<NetworkSettings, String> {
+    use tun::Device;
+    use nix::net::if_::if_nametoindex;
+
+    fn raw_gateway(msg : &RouteMessage) -> Option<Vec<u8>> {
+        msg.nlas.iter().find_map(|nla| {
+            if let Gateway(v) = nla {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    let (_netlink_connection, netlink_handle) = netlink::connect();
+    tokio::spawn(_netlink_connection);
+
+    debug!("Connected to netlink");
+
+    let parent_device = net::device::get_default_network_device().expect("Parent has no suitable network devices!");
+    let parent_gateway = netlink::get_route_for_device(&netlink_handle, parent_device.index).await?.unwrap();
+
+    let parent_gateway_address = raw_gateway(&parent_gateway).unwrap();
+
+    let parent_arp = netlink::get_neighbour_for_device(&netlink_handle, parent_device.index, parent_gateway_address).await?.unwrap();
+
+    let result = NetworkSettings {
+        mac_address: [0; 6],
+        gateway_address: [0; 4],
+        link_local_address: [0; 6]
+    };
+
+    Ok(result)
+}
+
+#[tokio::main]
+async fn setup_enclave_networking(tap_device : &Device, parent_settings : &NetworkSettings) -> Result<(), String> {
     use tun::Device;
     use nix::net::if_::if_nametoindex;
 
@@ -230,27 +282,30 @@ async fn setup_enclave_networking(tap_device : &Device) -> Result<(), String> {
 
     debug!("Tap index {}", tap_index);
 
-    netlink::set_address(&netlink_handle, tap_index, vec![0x0a,0x9d,0xf6,0x91,0xfb,0x73]).await?;
+    netlink::set_address(&netlink_handle, tap_index, parent_settings.mac_address.to_vec()/*vec![0x0a,0x9d,0xf6,0x91,0xfb,0x73]*/).await?;
     info!("MAC address for tap is set!");
 
-    let gateway_addr = Ipv4Addr::new(172,31,32,1);
+    let gateway_addr = Ipv4Addr::from(parent_settings.gateway_address/*172,31,32,1*/);
 
     netlink::add_default_gateway(&netlink_handle, gateway_addr.clone()).await?;
     info!("Gateway is set!");
 
-    netlink::add_neighbour(&netlink_handle, tap_index, IpAddr::from(gateway_addr), vec![0x0a,0x63,0x7f,0x97,0xf3,0xc9]).await?;
+    netlink::add_neighbour(&netlink_handle, tap_index, IpAddr::from(gateway_addr), parent_settings.link_local_address.to_vec()/*vec![0x0a,0x63,0x7f,0x97,0xf3,0xc9]*/).await?;
     info!("ARP entry is set!");
 
     Ok(())
 }
 
 fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
+    use vsock_proxy::net::{
+        receive_struct,
+        send_struct
+    };
+
     let tap_device = net::create_tap_device()?;
     tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock".to_string())?;
 
     debug!("Created tap device in enclave!");
-
-    setup_enclave_networking(&tap_device)?;
 
     let server = Proxy::new(local_port, 4, remote_port);
 
@@ -267,6 +322,12 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
 
     let mut from_parent = accept_vsock(&mut self_listener)?;
 
+    let parent_settings = receive_struct::<NetworkSettings>(&mut from_parent)?;
+
+    setup_enclave_networking(&tap_device, &parent_settings)?;
+
+    send_struct(&mut to_parent, SetupMessages::Done)?;
+
     let sync_tap = sync::Arc::new(sync::Mutex::new(tap_device));
 
     let tap_write = sync_tap.clone();
@@ -275,7 +336,6 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
     thread_pool.execute(move || {
         loop {
             let read = read_from_tap(&tap_read, &mut to_parent);
-
 
             match read {
                 Ok(0) => {
@@ -357,9 +417,9 @@ fn parse_console_argument<T : FromStr + Display>(args: &ArgMatches, name: &str) 
         .map_err(|_err| format!("Cannot parse console argument {}", name))
 }
 
-fn address_argument(args: &ArgMatches) -> Result<Vec<IpAddr>, String> {
+fn address_argument(args: &ArgMatches) -> Result<IpAddr, String> {
     args.value_of("address")
-        .map(|e| dns_lookup::lookup_host(&e))
+        .map(|e| e.parse::<IpAddr>())
         .expect("address must be specified")
         .map_err(|err| format!("Cannot parse address {:?}", err))
 }

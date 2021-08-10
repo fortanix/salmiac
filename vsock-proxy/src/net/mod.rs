@@ -1,6 +1,7 @@
 pub mod socket_extensions;
 pub mod netlink;
 pub mod packet_capture;
+pub mod device;
 
 use std::io::{
     Read,
@@ -16,16 +17,6 @@ use tun::platform::linux::Device as TunDevice;
 
 pub const BUF_SIZE : usize = 4096;
 
-use pnet_datalink::NetworkInterface;
-
-pub fn get_default_network_device() -> Option<NetworkInterface> {
-    pnet_datalink::interfaces()
-        .into_iter()
-        .find(|e| {
-            e.is_up() && !e.is_loopback() && !e.ips.is_empty() && e.mac.is_some()
-        })
-}
-
 pub fn create_tap_device() -> Result<TunDevice, String> {
     let mut config = tun::Configuration::default();
 
@@ -39,16 +30,28 @@ pub fn create_tap_device() -> Result<TunDevice, String> {
     tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
 }
 
+pub fn send_struct<T : serde::Serialize>(writer: &mut dyn Write, _struct : T) -> Result<(), String> {
+    let bytes = bincode::serialize(&_struct).map_err(|err| format!("Failed to serialize struct {:?}", err))?;
+
+    send_whole_packet(writer, &bytes)
+}
+
+pub fn receive_struct<T : serde::de::DeserializeOwned>(reader: &mut dyn Read) -> Result<T, String> {
+    let bytes = receive_packet(reader)?;
+
+    bincode::deserialize(&bytes.clone()).map_err(|err| format!("Failed to deserialize struct {:?}", err))
+}
+
 pub fn send_whole_packet(writer: &mut dyn Write, packet : &[u8]) -> Result<(), String> {
     send_packet(writer, packet, packet.len())
 }
 
 pub fn send_packet(writer: &mut dyn Write, data : &[u8], len : usize) -> Result<(), String> {
     let send_length = send_u64(writer, len as u64)
-        .map_err(|err| format!("Failure to send captured packet to vsock: {:?}", err));
+        .map_err(|err| format!("Failure to send packet to vsock: {:?}", err));
 
     send_length.and_then(|_| {
-        send_all_bytes(writer, data).map_err(|err| format!("Failure to send captured packet to vsock: {:?}", err))
+        send_all_bytes(writer, data).map_err(|err| format!("Failure to send packet to vsock: {:?}", err))
     })
 }
 
