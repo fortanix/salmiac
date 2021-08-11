@@ -107,15 +107,35 @@ impl<'a> EnclaveImageBuilder<'a> {
             .open(&self.dir.path().join("start-enclave.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
+        if cfg!(debug_assertions) {
+            file.write_all(EnclaveImageBuilder::debug_networking_command().as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+        }
+
         // todo: sanitize the user cmd before putting it into startup script.
         // Escape chars like: ' ” \ or ;.
-        let cmd = self.client_cmd.join(" ");
+        let cmd = "\n" + self.client_cmd.join(" ");
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
 
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
+    }
+
+    fn debug_networking_command() -> String {
+        "\n\
+        # Debug code. \n\
+        # Dumps networking info to make sure that enclave is setup correctly \n\
+        sleep 30 \n\
+        echo \"Devices start\" \n\
+        ip a \n\
+        echo \"Devices end\" \n\
+        echo \"Routes start\" \n\
+        ip r \n\
+        echo \"Routes end\" \n\
+        echo \"ARP start\" \n\
+        ip neigh \n\
+        echo \"ARP end\" \n".to_string()
     }
 }
 
@@ -194,13 +214,15 @@ impl<'a> ParentImageBuilder<'a> {
 
     fn start_enclave_command(&self) -> String {
         format!(
-            "./vsock-proxy proxy --remote-port 8080 --vsock-port 5006 & \n\
+            "\n\
+            ./vsock-proxy proxy --remote-port 8080 --vsock-port 5006 & \n\
             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 2200 --debug-mode \n",
             self.nitro_file)
     }
 
     fn connect_to_enclave_command() -> String {
-        "cat /var/log/nitro_enclaves/* \n\
+        "\n\
+         cat /var/log/nitro_enclaves/* \n\
          ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID') \n\
          ID=\"${ID%\\\"}\" \n\
          ID=\"${ID#\\\"}\" \n\

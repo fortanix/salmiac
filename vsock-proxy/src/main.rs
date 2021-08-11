@@ -41,9 +41,10 @@ use tun::platform::linux::Device;
 use pcap::{Capture, Active};
 use rtnetlink::packet::{RouteMessage, NeighbourMessage};
 use rtnetlink::packet::nlas::route::Nla::Gateway;
-use pnet_datalink::NetworkInterface;
 use vsock_proxy::net::device::{NetworkSettings, SetupMessages};
 use rtnetlink::packet::neighbour::Nla::LinkLocalAddress;
+use tun::IntoAddress;
+use pnet_datalink::NetworkInterface;
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");
@@ -129,16 +130,6 @@ fn main() -> Result<(), String> {
     process::exit(0);
 }
 
-fn await_confirmation_from_enclave(from_enclave : &mut VsockStream) -> Result<(), String> {
-    loop {
-        let acc = from_enclave.receive_u64()?;
-
-        if acc == 1 {
-            return Ok(());
-        }
-    }
-}
-
 fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {
     let packet = capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err))?;
 
@@ -177,43 +168,41 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     info!("Awaiting confirmation from enclave id = {}!", proxy.cid);
 
-    let mut from_enclave = accept_vsock(&mut enclave_listener)?;
+    let mut enclave_port = accept_vsock(&mut enclave_listener)?;
 
-    await_confirmation_from_enclave(&mut from_enclave)?;
-
-    info!("Got confirmation from enclave id = {}!", proxy.cid);
-
-    let mut to_enclave = proxy.connect_to_enclave()?;
+    //let mut to_enclave = proxy.connect_to_enclave()?;
 
     info!("Connected to enclave id = {}!", proxy.cid);
 
-    let network_settings = get_network_settings()?;
+    let parent_device = net::device::get_default_network_device().expect("Parent has no suitable network devices!");
+
+    let network_settings = get_network_settings(&parent_device)?;
 
     debug!("Read network settings from parent {:?}", network_settings);
 
-    send_struct(&mut to_enclave, SetupMessages::Settings(network_settings))?;
+    send_struct(&mut enclave_port, SetupMessages::Settings(network_settings))?;
 
     debug!("Sent network settings to enclave!");
 
-    let msg = receive_struct::<SetupMessages>(&mut from_enclave)?;
+    let msg = receive_struct::<SetupMessages>(&mut enclave_port)?;
 
     info!("Enclave has setup networking!");
 
     //assert!(msg == SetupMessages::Done);
 
-    // const PARENT_NETWORK_DEVICE: &str = "eth0"; // default docker device
-    const PARENT_NETWORK_DEVICE: &str = "ens5"; // default EC2 device
-
     // `capture` should be properly locked when shared among threads (like tap device),
     // however copying captures is good enough for prototype and it just works.
-    let mut capture = proxy.open_packet_capture(PARENT_NETWORK_DEVICE)?;
-    let mut write_capture = proxy.open_packet_capture(PARENT_NETWORK_DEVICE)?;
+    let mut capture = proxy.open_packet_capture(&parent_device.name)?;
+    let mut write_capture = proxy.open_packet_capture(&parent_device.name)?;
 
     debug!("Listening to packets from network device!");
 
+    let mut vsock_write = enclave_port.clone();
+    let mut vsock_read = enclave_port.clone();
+
     thread_pool.execute(move || {
         loop {
-            match read_from_device(&mut capture, &mut to_enclave) {
+            match read_from_device(&mut capture, &mut vsock_write) {
                 Err(e) => {
                     error!("Failure reading from network device {:?}", e);
                     break;
@@ -225,7 +214,7 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     thread_pool.execute(move || {
         loop {
-            match write_to_device(&mut write_capture, &mut from_enclave) {
+            match write_to_device(&mut write_capture, &mut vsock_read) {
                 Err(e) => {
                     error!("Failure writing to network device {:?}", e);
                     break;
@@ -241,9 +230,7 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 }
 
 #[tokio::main]
-async fn get_network_settings() -> Result<NetworkSettings, String> {
-    use tun::Device;
-    use nix::net::if_::if_nametoindex;
+async fn get_network_settings(parent_device : &NetworkInterface) -> Result<NetworkSettings, String> {
     use std::convert::TryInto;
 
     fn raw_gateway(msg : &RouteMessage) -> Option<Vec<u8>> {
@@ -271,7 +258,6 @@ async fn get_network_settings() -> Result<NetworkSettings, String> {
 
     debug!("Connected to netlink");
 
-    let parent_device = net::device::get_default_network_device().expect("Parent has no suitable network devices!");
     let parent_gateway = netlink::get_route_for_device(&netlink_handle, parent_device.index).await?.unwrap();
 
     let parent_gateway_address = raw_gateway(&parent_gateway).unwrap();
@@ -286,7 +272,17 @@ async fn get_network_settings() -> Result<NetworkSettings, String> {
 
     let link_local_address : [u8; 6] = link_local_address(&parent_arp).unwrap().try_into().unwrap();
 
+    let ip_network = parent_device.ips
+        .first()
+        .expect("Parent device should have an ip settings");
+
+    let ip_address : [u8; 4] = ip_network.ip().into_address().unwrap().octets();
+
+    let netmask : [u8; 4] = ip_network.mask().into_address().unwrap().octets();
+
     let result = NetworkSettings {
+        ip_address,
+        netmask,
         mac_address,
         gateway_address,
         link_local_address
@@ -309,15 +305,15 @@ async fn setup_enclave_networking(tap_device : &Device, parent_settings : &Netwo
 
     debug!("Tap index {}", tap_index);
 
-    netlink::set_address(&netlink_handle, tap_index, parent_settings.mac_address.to_vec()/*vec![0x0a,0x9d,0xf6,0x91,0xfb,0x73]*/).await?;
+    netlink::set_address(&netlink_handle, tap_index, parent_settings.mac_address.to_vec()).await?;
     info!("MAC address for tap is set!");
 
-    let gateway_addr = Ipv4Addr::from(parent_settings.gateway_address/*172,31,32,1*/);
+    let gateway_addr = Ipv4Addr::from(parent_settings.gateway_address);
 
     netlink::add_default_gateway(&netlink_handle, gateway_addr.clone()).await?;
     info!("Gateway is set!");
 
-    netlink::add_neighbour(&netlink_handle, tap_index, IpAddr::from(gateway_addr), parent_settings.link_local_address.to_vec()/*vec![0x0a,0x63,0x7f,0x97,0xf3,0xc9]*/).await?;
+    netlink::add_neighbour(&netlink_handle, tap_index, IpAddr::from(gateway_addr), parent_settings.link_local_address.to_vec()).await?;
     info!("ARP entry is set!");
 
     Ok(())
@@ -329,27 +325,24 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
         send_struct
     };
 
-    let tap_device = net::create_tap_device()?;
-    tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock".to_string())?;
-
     debug!("Created tap device in enclave!");
 
     let server = Proxy::new(local_port, 4, remote_port);
 
-    let mut to_parent = server.connect_to_parent()?;
+    let mut parent_connection = server.connect_to_parent()?;
 
     info!("Connected to parent!");
 
     // send 'enclave ready' messsage
-    to_parent.send_u64(1)?;
+    // parent_connection.send_u64(1)?;
 
-    let mut self_listener = server.listen_enclave()?;
+    //let mut self_listener = server.listen_enclave()?;
 
     debug!("Listening to self!");
 
-    let mut from_parent = accept_vsock(&mut self_listener)?;
+    //let mut from_parent = accept_vsock(&mut self_listener)?;
 
-    let msg = receive_struct::<SetupMessages>(&mut from_parent)?;
+    let msg = receive_struct::<SetupMessages>(&mut parent_connection)?;
 
     let parent_settings = match msg {
         SetupMessages::Settings(s) => {
@@ -360,22 +353,28 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
         }
     };
 
+    let tap_device = net::device::create_tap_device(&parent_settings)?;
+    tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock".to_string())?;
+
     debug!("Received next settings from parent {:?}", parent_settings);
 
     setup_enclave_networking(&tap_device, &parent_settings)?;
 
     info!("Finished network setup!");
 
-    send_struct(&mut to_parent, SetupMessages::Done)?;
+    send_struct(&mut parent_connection, SetupMessages::Done)?;
 
     let sync_tap = sync::Arc::new(sync::Mutex::new(tap_device));
 
     let tap_write = sync_tap.clone();
     let tap_read = sync_tap.clone();
 
+    let mut vsock_write = parent_connection.clone();
+    let mut vsock_read = parent_connection.clone();
+
     thread_pool.execute(move || {
         loop {
-            let read = read_from_tap(&tap_read, &mut to_parent);
+            let read = read_from_tap(&tap_read, &mut vsock_write);
 
             match read {
                 Ok(0) => {
@@ -392,7 +391,7 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
 
     thread_pool.execute(move || {
         loop {
-            match write_to_tap(&tap_write, &mut from_parent) {
+            match write_to_tap(&tap_write, &mut vsock_read) {
                 Err(e) => {
                     error!("Failure reading from tap device {:?}", e);
                     break;

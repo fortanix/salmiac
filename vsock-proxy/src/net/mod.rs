@@ -13,22 +13,8 @@ use byteorder::{
     LittleEndian,
     ByteOrder
 };
-use tun::platform::linux::Device as TunDevice;
 
 pub const BUF_SIZE : usize = 4096;
-
-pub fn create_tap_device() -> Result<TunDevice, String> {
-    let mut config = tun::Configuration::default();
-
-    // address and netmask settings come from parent routing settings
-    // this will be set using netlink in the future.
-    config.address((172,31,46,106))
-        .netmask((255,255,240,0))
-        .layer(tun::Layer::L2)
-        .up();
-
-    tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
-}
 
 pub fn send_struct<T : serde::Serialize>(writer: &mut dyn Write, _struct : T) -> Result<(), String> {
     let bytes = bincode::serialize(&_struct).map_err(|err| format!("Failed to serialize struct {:?}", err))?;
