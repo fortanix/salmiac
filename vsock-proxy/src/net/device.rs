@@ -1,13 +1,14 @@
 use serde::{Serialize, Deserialize};
 use pnet_datalink::NetworkInterface;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
     Done,
     Settings(NetworkSettings)
 }
 
-#[derive(Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkSettings {
     pub mac_address : [u8; 6],
 

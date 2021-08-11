@@ -43,6 +43,7 @@ use rtnetlink::packet::{RouteMessage, NeighbourMessage};
 use rtnetlink::packet::nlas::route::Nla::Gateway;
 use pnet_datalink::NetworkInterface;
 use vsock_proxy::net::device::{NetworkSettings, SetupMessages};
+use rtnetlink::packet::neighbour::Nla::LinkLocalAddress;
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");
@@ -187,9 +188,16 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
     info!("Connected to enclave id = {}!", proxy.cid);
 
     let network_settings = get_network_settings()?;
+
+    debug!("Read network settings from parent {:?}", network_settings);
+
     send_struct(&mut to_enclave, SetupMessages::Settings(network_settings))?;
 
+    debug!("Sent network settings to enclave!");
+
     let msg = receive_struct::<SetupMessages>(&mut from_enclave)?;
+
+    info!("Enclave has setup networking!");
 
     //assert!(msg == SetupMessages::Done);
 
@@ -236,10 +244,21 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 async fn get_network_settings() -> Result<NetworkSettings, String> {
     use tun::Device;
     use nix::net::if_::if_nametoindex;
+    use std::convert::TryInto;
 
     fn raw_gateway(msg : &RouteMessage) -> Option<Vec<u8>> {
         msg.nlas.iter().find_map(|nla| {
             if let Gateway(v) = nla {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    fn link_local_address(msg : &NeighbourMessage) -> Option<Vec<u8>> {
+        msg.nlas.iter().find_map(|nla| {
+            if let LinkLocalAddress(v) = nla {
                 Some(v.clone())
             } else {
                 None
@@ -257,12 +276,20 @@ async fn get_network_settings() -> Result<NetworkSettings, String> {
 
     let parent_gateway_address = raw_gateway(&parent_gateway).unwrap();
 
-    let parent_arp = netlink::get_neighbour_for_device(&netlink_handle, parent_device.index, parent_gateway_address).await?.unwrap();
+    let parent_arp = netlink::get_neighbour_for_device(&netlink_handle, parent_device.index, parent_gateway_address.clone()).await?.unwrap();
+
+    let mac_address = parent_device.mac
+        .expect("Parent device should have a MAC address")
+        .octets();
+
+    let gateway_address : [u8; 4] = parent_gateway_address.try_into().unwrap();
+
+    let link_local_address : [u8; 6] = link_local_address(&parent_arp).unwrap().try_into().unwrap();
 
     let result = NetworkSettings {
-        mac_address: [0; 6],
-        gateway_address: [0; 4],
-        link_local_address: [0; 6]
+        mac_address,
+        gateway_address,
+        link_local_address
     };
 
     Ok(result)
@@ -322,9 +349,22 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
 
     let mut from_parent = accept_vsock(&mut self_listener)?;
 
-    let parent_settings = receive_struct::<NetworkSettings>(&mut from_parent)?;
+    let msg = receive_struct::<SetupMessages>(&mut from_parent)?;
+
+    let parent_settings = match msg {
+        SetupMessages::Settings(s) => {
+            s
+        }
+        x => {
+            panic!("Expected settings message, but got {:?}", x)
+        }
+    };
+
+    debug!("Received next settings from parent {:?}", parent_settings);
 
     setup_enclave_networking(&tap_device, &parent_settings)?;
+
+    info!("Finished network setup!");
 
     send_struct(&mut to_parent, SetupMessages::Done)?;
 
