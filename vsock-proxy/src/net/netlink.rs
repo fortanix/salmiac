@@ -82,3 +82,36 @@ pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index 
 
     Ok(None)
 }
+
+pub struct RichRouteMessage(pub RouteMessage);
+
+impl RichRouteMessage {
+    pub fn raw_gateway(&self) -> Option<Vec<u8>> {
+        use rtnetlink::packet::nlas::route::Nla;
+
+        self.0.nlas.iter().find_map(|nla| {
+            if let Nla::Gateway(v) = nla {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
+    }
+}
+
+pub struct RichNeighbourMessage(pub NeighbourMessage);
+
+impl RichNeighbourMessage {
+    pub fn link_local_address(&self) -> Option<Vec<u8>> {
+        use rtnetlink::packet::neighbour::Nla;
+
+        self.0.nlas.iter().find_map(|nla| {
+            if let Nla::LinkLocalAddress(v) = nla {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
+    }
+}
+

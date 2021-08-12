@@ -113,7 +113,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         // todo: sanitize the user cmd before putting it into startup script.
         // Escape chars like: ' ” \ or ;.
-        let cmd = "\n" + self.client_cmd.join(" ");
+        let cmd = "\n".to_string() + &self.client_cmd.join(" ");
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
 

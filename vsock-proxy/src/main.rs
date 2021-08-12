@@ -12,11 +12,7 @@ use vsock_proxy::{
     connect_remote_tcp,
     listen_remote_tcp
 };
-use vsock_proxy::net::socket_extensions::{
-    RichListener,
-    RichSender,
-    accept_vsock
-};
+use vsock_proxy::net::socket::{RichSocket, accept_vsock, RichUdp};
 use vsock_proxy::net;
 use vsock_proxy::net::netlink;
 use threadpool::ThreadPool;
@@ -40,11 +36,11 @@ use vsock::VsockStream;
 use tun::platform::linux::Device;
 use pcap::{Capture, Active};
 use rtnetlink::packet::{RouteMessage, NeighbourMessage};
-use rtnetlink::packet::nlas::route::Nla::Gateway;
 use vsock_proxy::net::device::{NetworkSettings, SetupMessages};
-use rtnetlink::packet::neighbour::Nla::LinkLocalAddress;
 use tun::IntoAddress;
 use pnet_datalink::NetworkInterface;
+use vsock_proxy::net::netlink::{RichRouteMessage, RichNeighbourMessage};
+use std::convert::TryInto;
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");
@@ -66,10 +62,10 @@ fn main() -> Result<(), String> {
             let remote_port = parse_console_argument::<u16>(args, "remote-port")?;
 
             if args.is_present("udp") {
-                let mut udp_listener = bind_udp(remote_port)?;
+                let mut udp_listener = RichUdp(bind_udp(remote_port)?);
 
                 loop {
-                    let result = udp_listener.receive_string()?;
+                    let result : String = udp_listener.receive()?;
 
                     info!("Received string from tap as a test program! {}", result);
                 }
@@ -86,7 +82,8 @@ fn main() -> Result<(), String> {
 
                     debug!("Accepted TCP connection outside EC!");
 
-                    let result = incoming.receive_string()?;
+
+                    let result : String = incoming.receive()?;
 
                     info!("Received string from tap as a test program! {}", result);
                 }
@@ -109,7 +106,7 @@ fn main() -> Result<(), String> {
 
                 info!("Connected to EC2!");
 
-                ec2_connect.send_string(message)?;
+                ec2_connect.send(message)?;
             }
 
             info!("Sent string to EC2!");
@@ -135,7 +132,7 @@ fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStr
 
     debug!("Captured packet from network device in parent! {:?}", packet);
 
-    enclave_stream.send_packet(packet.data)?;
+    enclave_stream.send(packet.data.to_vec())?;
 
     debug!("Sent network packet to enclave!");
 
@@ -144,7 +141,7 @@ fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStr
 }
 
 fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream) -> Result<(), String> {
-    let packet = from_enclave.receive_packet().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+    let packet : Vec<u8> = from_enclave.receive().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
 
     debug!("Received packet from enclave! {:?}", packet);
 
@@ -156,11 +153,6 @@ fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream
 }
 
 fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
-    use vsock_proxy::net::{
-        receive_struct,
-        send_struct
-    };
-
     // for simplicity sake we work only with one enclave with id = 4
     let proxy = Proxy::new(local_port, 4, remote_port);
 
@@ -170,8 +162,6 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     let mut enclave_port = accept_vsock(&mut enclave_listener)?;
 
-    //let mut to_enclave = proxy.connect_to_enclave()?;
-
     info!("Connected to enclave id = {}!", proxy.cid);
 
     let parent_device = net::device::get_default_network_device().expect("Parent has no suitable network devices!");
@@ -180,11 +170,11 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
     debug!("Read network settings from parent {:?}", network_settings);
 
-    send_struct(&mut enclave_port, SetupMessages::Settings(network_settings))?;
+    enclave_port.send(SetupMessages::Settings(network_settings))?;
 
     debug!("Sent network settings to enclave!");
 
-    let msg = receive_struct::<SetupMessages>(&mut enclave_port)?;
+    let msg : SetupMessages = enclave_port.receive()?;
 
     info!("Enclave has setup networking!");
 
@@ -231,38 +221,16 @@ fn run_proxy(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> R
 
 #[tokio::main]
 async fn get_network_settings(parent_device : &NetworkInterface) -> Result<NetworkSettings, String> {
-    use std::convert::TryInto;
-
-    fn raw_gateway(msg : &RouteMessage) -> Option<Vec<u8>> {
-        msg.nlas.iter().find_map(|nla| {
-            if let Gateway(v) = nla {
-                Some(v.clone())
-            } else {
-                None
-            }
-        })
-    }
-
-    fn link_local_address(msg : &NeighbourMessage) -> Option<Vec<u8>> {
-        msg.nlas.iter().find_map(|nla| {
-            if let LinkLocalAddress(v) = nla {
-                Some(v.clone())
-            } else {
-                None
-            }
-        })
-    }
-
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);
 
     debug!("Connected to netlink");
 
-    let parent_gateway = netlink::get_route_for_device(&netlink_handle, parent_device.index).await?.unwrap();
+    let parent_gateway = RichRouteMessage(netlink::get_route_for_device(&netlink_handle, parent_device.index).await?.unwrap());
 
-    let parent_gateway_address = raw_gateway(&parent_gateway).unwrap();
+    let parent_gateway_address = parent_gateway.raw_gateway().unwrap();
 
-    let parent_arp = netlink::get_neighbour_for_device(&netlink_handle, parent_device.index, parent_gateway_address.clone()).await?.unwrap();
+    let parent_arp = RichNeighbourMessage(netlink::get_neighbour_for_device(&netlink_handle, parent_device.index, parent_gateway_address.clone()).await?.unwrap());
 
     let mac_address = parent_device.mac
         .expect("Parent device should have a MAC address")
@@ -270,7 +238,7 @@ async fn get_network_settings(parent_device : &NetworkInterface) -> Result<Netwo
 
     let gateway_address : [u8; 4] = parent_gateway_address.try_into().unwrap();
 
-    let link_local_address : [u8; 6] = link_local_address(&parent_arp).unwrap().try_into().unwrap();
+    let link_local_address : [u8; 6] = parent_arp.link_local_address().unwrap().try_into().unwrap();
 
     let ip_network = parent_device.ips
         .first()
@@ -320,11 +288,6 @@ async fn setup_enclave_networking(tap_device : &Device, parent_settings : &Netwo
 }
 
 fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
-    use vsock_proxy::net::{
-        receive_struct,
-        send_struct
-    };
-
     debug!("Created tap device in enclave!");
 
     let server = Proxy::new(local_port, 4, remote_port);
@@ -333,16 +296,7 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
 
     info!("Connected to parent!");
 
-    // send 'enclave ready' messsage
-    // parent_connection.send_u64(1)?;
-
-    //let mut self_listener = server.listen_enclave()?;
-
-    debug!("Listening to self!");
-
-    //let mut from_parent = accept_vsock(&mut self_listener)?;
-
-    let msg = receive_struct::<SetupMessages>(&mut parent_connection)?;
+    let msg : SetupMessages = parent_connection.receive()?;
 
     let parent_settings = match msg {
         SetupMessages::Settings(s) => {
@@ -362,7 +316,7 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
 
     info!("Finished network setup!");
 
-    send_struct(&mut parent_connection, SetupMessages::Done)?;
+    parent_connection.send(SetupMessages::Done)?;
 
     let sync_tap = sync::Arc::new(sync::Mutex::new(tap_device));
 
@@ -407,7 +361,7 @@ fn run_server(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> 
 }
 
 fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, from_parent: &mut VsockStream) -> Result<(), String> {
-    let packet = from_parent.receive_packet()?;
+    let packet : Vec<u8> = from_parent.receive()?;
 
     debug!("Received packet from parent! {:?}", packet);
 
@@ -442,7 +396,7 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, parent_connection: &
 
     debug!("Read packet from tap! {:?}", packet);
 
-    parent_connection.send_packet(packet)?;
+    parent_connection.send(packet.to_vec())?;
 
     debug!("Sent packet to parent!");
 

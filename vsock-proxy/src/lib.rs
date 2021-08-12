@@ -1,4 +1,5 @@
 pub mod net;
+pub mod mode;
 
 use std::net::{
     Ipv4Addr,

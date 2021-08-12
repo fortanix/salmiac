@@ -4,6 +4,8 @@ use pcap::{
     Error
 };
 
+const SNAP_LEN : i32 = 5000;
+
 pub fn open_packet_capture(port : u32, device_name : &str) -> Result<pcap::Capture<Active>, String> {
     let main_device = pcap::Device::list()
         .and_then(|devices|{ find_device(devices, device_name) })
@@ -18,7 +20,7 @@ pub fn open_packet_capture(port : u32, device_name : &str) -> Result<pcap::Captu
 
         let result = capture.promisc(true)
             .immediate_mode(true)
-            .snaplen(5000)
+            .snaplen(SNAP_LEN)
             .open();
 
         result.map(|c| add_port_filter(c, port))
