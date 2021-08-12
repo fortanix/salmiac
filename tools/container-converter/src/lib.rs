@@ -215,7 +215,7 @@ impl<'a> ParentImageBuilder<'a> {
     fn start_enclave_command(&self) -> String {
         format!(
             "\n\
-            ./vsock-proxy proxy --remote-port 8080 --vsock-port 5006 & \n\
+            ./vsock-proxy parent --remote-port 8080 --vsock-port 5006 & \n\
             nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 2200 --debug-mode \n",
             self.nitro_file)
     }
