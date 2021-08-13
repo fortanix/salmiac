@@ -4,11 +4,24 @@ use byteorder::{
 };
 use serde::{Serialize};
 use serde::de::DeserializeOwned;
-use vsock::{VsockListener, VsockStream};
-
-use std::io::{Read, Write};
+use vsock::{
+    VsockListener,
+    VsockStream
+};
+use std::io::{
+    Read,
+    Write
+};
 use std::net::{UdpSocket};
 use std::mem;
+
+pub const BUF_SIZE : usize = 4096;
+
+pub fn accept_vsock(vsock: &mut VsockListener) -> Result<VsockStream, String> {
+    vsock.accept()
+        .map(|r| r.0)
+        .map_err(|err| format!("Accept from vsock failed: {:?}", err))
+}
 
 pub trait RichSocket<T> {
     fn receive(&mut self) -> Result<T, String>;
@@ -44,34 +57,34 @@ impl Write for RichUdp {
     }
 }
 
-pub const BUF_SIZE : usize = 4096;
+fn send_struct<T : serde::Serialize>(writer: &mut dyn Write, _struct : T) -> Result<(), String> {
+    let bytes = bincode::serialize(&_struct)
+        .map_err(|err| format!("Failed to serialize struct {:?}", err))?;
 
-pub fn send_struct<T : serde::Serialize>(writer: &mut dyn Write, _struct : T) -> Result<(), String> {
-    let bytes = bincode::serialize(&_struct).map_err(|err| format!("Failed to serialize struct {:?}", err))?;
-
-    send_whole_packet(writer, &bytes)
+    send_whole_array(writer, &bytes)
 }
 
-pub fn receive_struct<T : serde::de::DeserializeOwned>(reader: &mut dyn Read) -> Result<T, String> {
-    let bytes = receive_packet(reader)?;
+fn receive_struct<T : serde::de::DeserializeOwned>(reader: &mut dyn Read) -> Result<T, String> {
+    let bytes = receive_array(reader)?;
 
-    bincode::deserialize(&bytes.clone()).map_err(|err| format!("Failed to deserialize struct {:?}", err))
+    bincode::deserialize(&bytes.clone())
+        .map_err(|err| format!("Failed to deserialize struct {:?}", err))
 }
 
-pub fn send_whole_packet(writer: &mut dyn Write, packet : &[u8]) -> Result<(), String> {
-    send_packet(writer, packet, packet.len())
+fn send_whole_array(writer: &mut dyn Write, packet : &[u8]) -> Result<(), String> {
+    send_array(writer, packet, packet.len())
 }
 
-fn send_packet(writer: &mut dyn Write, data : &[u8], len : usize) -> Result<(), String> {
+fn send_array(writer: &mut dyn Write, data : &[u8], len : usize) -> Result<(), String> {
     let send_length = send_u64(writer, len as u64)
-        .map_err(|err| format!("Failure to send packet to vsock: {:?}", err));
+        .map_err(|err| format!("Failure to send packet: {:?}", err));
 
     send_length.and_then(|_| {
         send_all_bytes(writer, data).map_err(|err| format!("Failure to send packet to vsock: {:?}", err))
     })
 }
 
-fn receive_packet(reader: &mut dyn Read) -> Result<Vec<u8>, String> {
+fn receive_array(reader: &mut dyn Read) -> Result<Vec<u8>, String> {
     let mut buf = [0u8; BUF_SIZE];
     let len = receive_u64(reader).map_err(|err| format!("Failed to receive packet len {:?}", err));
 
@@ -113,10 +126,4 @@ fn send_u64(writer: &mut dyn Write, val: u64) -> Result<(), String> {
 
 fn send_all_bytes(writer: &mut dyn Write, buf: &[u8]) -> Result<(), String> {
     writer.write_all(buf).map_err(|err| format!("Failed to write bytes to external socket {:?}", err))
-}
-
-pub fn accept_vsock(vsock: &mut VsockListener) -> Result<VsockStream, String> {
-    vsock.accept()
-        .map(|r| r.0)
-        .map_err(|err| format!("Accept from vsock failed: {:?}", err))
 }

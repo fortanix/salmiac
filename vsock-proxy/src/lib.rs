@@ -13,12 +13,31 @@ use std::net::{
 use nix::sys::socket::SockAddr;
 use vsock::{
     VsockListener,
-    VsockStream
+    VsockStream,
 };
+use crate::net::packet_capture;
 
 const VSOCK_PARENT_CID: u32 = 3; // from AWS Nitro documentation
 
 const VSOCK_ANY_CID : u32 = 0xFFFFFFFF;
+
+/*pub struct Parent {
+    cid : u32,
+
+    remote_port : u16
+}
+
+impl Parent {
+    pub fn open_packet_capture(&self, device_name : &str) -> Result<pcap::Capture<pcap::Active>, String> {
+        packet_capture::open_packet_capture(self.remote_port as u32, device_name)
+    }
+
+    pub fn listen_vsock(&self) -> Result<VsockListener, String> {
+        let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, self.local_port);
+
+        VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
+    }
+}*/
 
 pub struct Proxy {
     local_port: u32,
@@ -43,24 +62,6 @@ impl Proxy {
         let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, self.local_port);
 
         VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
-    }
-
-    pub fn listen_any(&self) -> Result<VsockListener, String> {
-        let sockaddr = SockAddr::new_vsock(VSOCK_ANY_CID, self.local_port);
-
-        VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
-    }
-
-    pub fn listen_enclave(&self) -> Result<VsockListener, String> {
-        let sockaddr = SockAddr::new_vsock(self.cid, self.local_port);
-
-        VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
-    }
-
-    pub fn connect_to_enclave(&self) -> Result<VsockStream, String> {
-        let sockaddr = SockAddr::new_vsock(self.cid, self.local_port);
-
-        VsockStream::connect(&sockaddr).map_err(|err| format!("Failed to connect to enclave: {:?}", err))
     }
 
     pub fn connect_to_parent(&self) -> Result<VsockStream, String> {

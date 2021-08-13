@@ -1,9 +1,8 @@
 use crate::net::device::{NetworkSettings, SetupMessages};
-use crate::net::{netlink, vec_to_ip};
+use crate::net::{netlink, vec_to_ip, vec_to_mac};
 use crate::net::socket::{RichSocket, accept_vsock};
 
-use std::convert::TryInto;
-use pnet_datalink::NetworkInterface;
+use pnet_datalink::{NetworkInterface};
 use crate::net::netlink::{RichRouteMessage, RichNeighbourMessage};
 use crate::net::device;
 use rtnetlink::packet::{RouteMessage, NeighbourMessage};
@@ -81,7 +80,7 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<NetworkInter
 
     vsock.send(SetupMessages::Settings(network_settings))?;
 
-    debug!("Sent network settings to enclave!");
+    debug!("Sent network settings to the enclave!");
 
     let msg : SetupMessages = vsock.receive()?;
 
@@ -115,16 +114,17 @@ async fn get_network_settings(parent_device : &NetworkInterface) -> Result<Netwo
         parent_gateway_address.clone()).await?);
 
     let mac_address = parent_device.mac
-        .expect("Parent device has no MAC address!")
-        .octets();
+        .expect("Parent device has no MAC address!");
 
-    let link_local_address : [u8; 6] = parent_arp.link_local_address().unwrap().try_into().unwrap();
+    let link_local_address = vec_to_mac(
+        &parent_arp.link_local_address()
+            .expect("ARP entry should have link local address"))?;
 
     let ip_network = parent_device.ips
         .first()
         .expect("Parent device has no ip settings!");
 
-    let gateway_address = vec_to_ip(parent_gateway_address)?;
+    let gateway_address = vec_to_ip(&parent_gateway_address)?;
 
     let result = NetworkSettings {
         ip_address  : ip_network.ip(),
@@ -157,7 +157,6 @@ fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStr
     enclave_stream.send(packet.data.to_vec())?;
 
     debug!("Sent network packet to enclave!");
-
 
     Ok(())
 }

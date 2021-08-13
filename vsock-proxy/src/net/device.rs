@@ -1,15 +1,23 @@
-use serde::{Serialize, Deserialize};
-use pnet_datalink::{NetworkInterface, MacAddr};
+use serde::{
+    Serialize,
+    Deserialize
+};
+use pnet_datalink::{
+    NetworkInterface,
+    MacAddr
+};
 use tun::platform::linux::Device as TunDevice;
 use std::net::IpAddr;
-
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
     SetupSuccessful,
     Settings(NetworkSettings)
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "pnet_datalink::MacAddr")]
+struct MacAddrDefinition(pub u8, pub u8, pub u8, pub u8, pub u8, pub u8);
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, Debug)]
@@ -18,15 +26,16 @@ pub struct NetworkSettings {
 
     pub netmask : IpAddr,
 
-    pub mac_address : [u8; 6],
+    #[serde(with = "MacAddrDefinition")]
+    pub mac_address : MacAddr,
 
     pub gateway_address : IpAddr,
 
-    pub link_local_address : [u8; 6]
+    #[serde(with = "MacAddrDefinition")]
+    pub link_local_address : MacAddr
 }
 
 pub fn get_default_network_device() -> Option<NetworkInterface> {
-
     pnet_datalink::interfaces()
         .into_iter()
         .find(|e| {

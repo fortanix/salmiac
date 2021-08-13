@@ -1,6 +1,7 @@
 use crate::net::netlink;
 use crate::net::device::{NetworkSettings, SetupMessages};
 use crate::net::socket::{RichSocket};
+use crate::{net, Proxy};
 
 use tun::platform::linux::Device;
 use log::{
@@ -8,9 +9,8 @@ use log::{
     info,
     error
 };
-
+use nix::net::if_::if_nametoindex;
 use std::net::IpAddr;
-use crate::{net, Proxy};
 use vsock::VsockStream;
 use threadpool::ThreadPool;
 use std::{sync, thread};
@@ -96,7 +96,6 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<Device, Stri
 #[tokio::main]
 async fn setup_enclave_networking(tap_device : &Device, parent_settings : &NetworkSettings) -> Result<(), String> {
     use tun::Device;
-    use nix::net::if_::if_nametoindex;
 
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);
@@ -107,7 +106,7 @@ async fn setup_enclave_networking(tap_device : &Device, parent_settings : &Netwo
 
     debug!("Tap index {}", tap_index);
 
-    netlink::set_address(&netlink_handle, tap_index, parent_settings.mac_address.to_vec()).await?;
+    netlink::set_address(&netlink_handle, tap_index, parent_settings.mac_address).await?;
     info!("MAC address for tap is set!");
 
     let gateway_addr = parent_settings.gateway_address;
@@ -123,14 +122,14 @@ async fn setup_enclave_networking(tap_device : &Device, parent_settings : &Netwo
     netlink::add_default_gateway(&netlink_handle, as_ipv4).await?;
     info!("Gateway is set!");
 
-    netlink::add_neighbour(&netlink_handle, tap_index, gateway_addr, parent_settings.link_local_address.to_vec()).await?;
+    netlink::add_neighbour(&netlink_handle, tap_index, gateway_addr, parent_settings.link_local_address).await?;
     info!("ARP entry is set!");
 
     Ok(())
 }
 
-fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, from_parent: &mut VsockStream) -> Result<(), String> {
-    let packet : Vec<u8> = from_parent.receive()?;
+fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<(), String> {
+    let packet : Vec<u8> = vsock.receive()?;
 
     debug!("Received packet from parent! {:?}", packet);
 
@@ -145,7 +144,7 @@ fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, from_parent: &mut Vso
     Ok(())
 }
 
-fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, parent_connection: &mut VsockStream) -> Result<usize, String> {
+fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<usize, String> {
     let mut buf = [0u8; 4096];
 
     let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
@@ -165,7 +164,7 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, parent_connection: &
 
     debug!("Read packet from tap! {:?}", packet);
 
-    parent_connection.send(packet.to_vec())?;
+    vsock.send(packet.to_vec())?;
 
     debug!("Sent packet to parent!");
 
