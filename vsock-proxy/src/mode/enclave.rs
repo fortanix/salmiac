@@ -1,7 +1,8 @@
 use crate::net::netlink;
 use crate::net::device::{NetworkSettings, SetupMessages};
 use crate::net::socket::{RichSocket};
-use crate::{net, Proxy};
+use crate::{net};
+use crate::mode::VSOCK_PARENT_CID;
 
 use tun::platform::linux::Device;
 use log::{
@@ -10,22 +11,21 @@ use log::{
     error
 };
 use nix::net::if_::if_nametoindex;
-use std::net::IpAddr;
 use vsock::VsockStream;
 use threadpool::ThreadPool;
+use nix::sys::socket::SockAddr;
+
+use std::net::IpAddr;
 use std::{sync, thread};
 use std::io::{Write, Read};
 
-pub fn run(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
-    debug!("Created tap device in enclave!");
-
-    let server = Proxy::new(local_port, 4, remote_port);
-
-    let mut parent_connection = server.connect_to_parent()?;
+pub fn run(vsock_port: u32, thread_pool : ThreadPool) -> Result<(), String> {
+    let mut parent_connection = connect_to_parent(vsock_port)?;
 
     info!("Connected to parent!");
 
     let tap_device = communicate_network_settings(&mut parent_connection)?;
+    debug!("Created tap device in enclave!");
 
     let sync_tap = sync::Arc::new(sync::Mutex::new(tap_device));
 
@@ -75,7 +75,7 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<Device, Stri
     let parent_settings = match msg {
         SetupMessages::Settings(s) => { s }
         x => {
-            panic!("Expected SetupMessages::Settings, but got {:?}", x)
+            return Err(format!("Expected SetupMessages::Settings, but got {:?}", x))
         }
     };
 
@@ -169,4 +169,10 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStr
     debug!("Sent packet to parent!");
 
     Ok(1)
+}
+
+fn connect_to_parent(port : u32) -> Result<VsockStream, String> {
+    let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, port);
+
+    VsockStream::connect(&sockaddr).map_err(|err| format!("Failed to connect to enclave: {:?}", err))
 }

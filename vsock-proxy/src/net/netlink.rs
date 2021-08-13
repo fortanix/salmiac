@@ -1,10 +1,11 @@
-use std::net::{Ipv4Addr, IpAddr};
 use futures::stream::TryStreamExt;
+use futures::TryStream;
 use rtnetlink::proto::Connection;
 use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage};
 use rtnetlink::{IpVersion};
 use pnet_datalink::MacAddr;
-use futures::TryStream;
+
+use std::net::{Ipv4Addr, IpAddr};
 
 pub fn connect() -> (Connection<RtnlMessage> , rtnetlink::Handle) {
     let (connection, handle, _) = rtnetlink::new_connection().map_err(|err| format!("{:?}", err)).expect("Failed to connect to netlink");

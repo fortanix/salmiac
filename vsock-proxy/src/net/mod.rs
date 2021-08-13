@@ -3,12 +3,13 @@ pub mod netlink;
 pub mod packet_capture;
 pub mod device;
 
+use pnet_datalink::MacAddr;
+
 use std::net::{
     IpAddr,
     Ipv6Addr,
     Ipv4Addr
 };
-use pnet_datalink::MacAddr;
 
 pub fn vec_to_ip(vec : &Vec<u8>) -> Result<IpAddr, String> {
     if vec.len() == 4 {

@@ -1,40 +1,36 @@
-use crate::net::device::{NetworkSettings, SetupMessages};
-use crate::net::{netlink, vec_to_ip, vec_to_mac};
+use crate::net::device::{NetworkSettings, SetupMessages, get_default_network_device};
 use crate::net::socket::{RichSocket, accept_vsock};
+use crate::net::{netlink, vec_to_ip, vec_to_mac};
+use crate::net::packet_capture::open_packet_capture;
+use crate::mode::VSOCK_PARENT_CID;
 
 use pnet_datalink::{NetworkInterface};
-use crate::net::netlink::{RichRouteMessage, RichNeighbourMessage};
-use crate::net::device;
 use rtnetlink::packet::{RouteMessage, NeighbourMessage};
 use log::{
     debug,
     info,
     error
 };
-use vsock::VsockStream;
+use vsock::{VsockStream, VsockListener};
 use threadpool::ThreadPool;
-use crate::Proxy;
 use pcap::{Capture, Active};
+use nix::sys::socket::SockAddr;
 
+pub fn run(vsock_port: u32, remote_port : u32, thread_pool : ThreadPool) -> Result<(), String> {
+    let mut enclave_listener = listen_parent(vsock_port)?;
 
-pub fn run(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Result<(), String> {
-    // for simplicity sake we work only with one enclave with id = 4
-    let proxy = Proxy::new(local_port, 4, remote_port);
-
-    let mut enclave_listener = proxy.listen_parent()?;
-
-    info!("Awaiting confirmation from enclave id = {}!", proxy.cid);
+    info!("Awaiting confirmation from enclave!");
 
     let mut enclave_port = accept_vsock(&mut enclave_listener)?;
 
-    info!("Connected to enclave id = {}!", proxy.cid);
+    info!("Connected to enclave!");
 
     let parent_device = communicate_network_settings(&mut enclave_port)?;
 
     // `capture` should be properly locked when shared among threads (like tap device),
     // however copying captures is good enough for prototype and it just works.
-    let mut capture = proxy.open_packet_capture(&parent_device.name)?;
-    let mut write_capture = proxy.open_packet_capture(&parent_device.name)?;
+    let mut capture = open_packet_capture(remote_port, &parent_device.name)?;
+    let mut write_capture = open_packet_capture(remote_port, &parent_device.name)?;
 
     debug!("Listening to packets from network device!");
 
@@ -71,7 +67,7 @@ pub fn run(local_port : u32, remote_port : u16, thread_pool : ThreadPool) -> Res
 }
 
 fn communicate_network_settings(vsock : &mut VsockStream) -> Result<NetworkInterface, String> {
-    let parent_device = device::get_default_network_device()
+    let parent_device = get_default_network_device()
         .expect("Parent has no suitable network devices!");
 
     let network_settings = get_network_settings(&parent_device)?;
@@ -102,13 +98,14 @@ async fn get_network_settings(parent_device : &NetworkInterface) -> Result<Netwo
 
     debug!("Connected to netlink");
 
-    let parent_gateway = RichRouteMessage(get_parent_gateway(
+    let parent_gateway = netlink::RichRouteMessage(get_parent_gateway(
         &netlink_handle,
         parent_device.index).await?);
 
-    let parent_gateway_address = parent_gateway.raw_gateway().expect("No default gateway was found in parent!");
+    let parent_gateway_address = parent_gateway.raw_gateway()
+        .expect("No default gateway was found in parent!");
 
-    let parent_arp = RichNeighbourMessage(get_parent_neighbour(
+    let parent_arp = netlink::RichNeighbourMessage(get_parent_neighbour(
         &netlink_handle,
         parent_device.index,
         parent_gateway_address.clone()).await?);
@@ -171,4 +168,10 @@ fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream
     debug!("Sent raw packet to network device!");
 
     Ok(())
+}
+
+fn listen_parent(port : u32) -> Result<VsockListener, String> {
+    let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, port);
+
+    VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
 }
