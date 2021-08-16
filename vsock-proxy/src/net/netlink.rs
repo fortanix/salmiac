@@ -1,7 +1,7 @@
 use futures::stream::TryStreamExt;
 use futures::TryStream;
 use rtnetlink::proto::Connection;
-use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage, LinkMessage};
+use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage};
 use rtnetlink::{IpVersion};
 
 use std::net::{Ipv4Addr, IpAddr};

@@ -1,6 +1,5 @@
 use pcap::{
     Active,
-    Error,
     Capture,
     Device
 };
@@ -27,6 +26,7 @@ pub fn open_packet_capture(interface : &RichNetworkInterface) -> Result<Capture<
         .map_err(|err| format!("Cannot open capture {:?}", err))
 }
 
+#[cfg(debug_assertions)]
 pub fn open_packet_capture_with_port_filter(interface : &RichNetworkInterface, port : u32) -> Result<Capture<Active>, String> {
     fn add_port_filter(mut capture : Capture<Active>, port : u32) -> Capture<Active> {
         capture.filter(&*format!("port {}", port)).expect("Cannot set pcap port filter.");

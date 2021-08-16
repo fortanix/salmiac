@@ -18,8 +18,6 @@ use container_converter::file::create_work_dir;
 use std::env;
 
 fn main() -> Result<(), String> {
-    env::set_var("RUST_LOG","debug");
-
     env_logger::init();
 
     let console_arguments = console_arguments();

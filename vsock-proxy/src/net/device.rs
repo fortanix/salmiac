@@ -5,7 +5,6 @@ use serde::{
 use pnet_datalink::{
     NetworkInterface,
 };
-use interfaces::Interface;
 
 use tun::platform::linux::Device as TunDevice;
 use std::net::IpAddr;

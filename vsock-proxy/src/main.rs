@@ -6,14 +6,9 @@ use log::{error};
 
 use std::{
     process,
-    env
 };
 
-use vsock_proxy::net::netlink;
-
 fn main() -> Result<(), String> {
-    env::set_var("RUST_LOG","debug");
-
     env_logger::init();
 
     let matches = console_arguments();

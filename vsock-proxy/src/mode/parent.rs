@@ -4,7 +4,6 @@ use crate::net::{netlink, vec_to_ip4};
 use crate::net::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
 use crate::mode::VSOCK_PARENT_CID;
 
-use pnet_datalink::{NetworkInterface};
 use rtnetlink::packet::{RouteMessage, NeighbourMessage};
 use log::{
     debug,
