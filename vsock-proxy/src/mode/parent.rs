@@ -1,6 +1,6 @@
 use crate::net::device::{NetworkSettings, SetupMessages, get_default_network_device};
 use crate::net::socket::{RichSocket, accept_vsock};
-use crate::net::{netlink, vec_to_ip, vec_to_mac};
+use crate::net::{netlink, vec_to_ip4};
 use crate::net::packet_capture::open_packet_capture;
 use crate::mode::VSOCK_PARENT_CID;
 
@@ -111,17 +111,18 @@ async fn get_network_settings(parent_device : &NetworkInterface) -> Result<Netwo
         parent_gateway_address.clone()).await?);
 
     let mac_address = parent_device.mac
-        .expect("Parent device has no MAC address!");
+        .expect("Parent device has no MAC address!")
+        .octets()
+        .to_vec();
 
-    let link_local_address = vec_to_mac(
-        &parent_arp.link_local_address()
-            .expect("ARP entry should have link local address"))?;
+    let link_local_address = parent_arp.link_local_address()
+        .expect("ARP entry should have link local address");
 
     let ip_network = parent_device.ips
         .first()
         .expect("Parent device has no ip settings!");
 
-    let gateway_address = vec_to_ip(&parent_gateway_address)?;
+    let gateway_address = vec_to_ip4(&parent_gateway_address)?;
 
     let result = NetworkSettings {
         ip_address  : ip_network.ip(),

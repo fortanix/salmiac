@@ -4,7 +4,6 @@ use serde::{
 };
 use pnet_datalink::{
     NetworkInterface,
-    MacAddr
 };
 use tun::platform::linux::Device as TunDevice;
 use std::net::IpAddr;
@@ -15,10 +14,6 @@ pub enum SetupMessages {
     Settings(NetworkSettings)
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(remote = "pnet_datalink::MacAddr")]
-struct MacAddrDefinition(pub u8, pub u8, pub u8, pub u8, pub u8, pub u8);
-
 #[repr(C)]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkSettings {
@@ -26,13 +21,11 @@ pub struct NetworkSettings {
 
     pub netmask : IpAddr,
 
-    #[serde(with = "MacAddrDefinition")]
-    pub mac_address : MacAddr,
+    pub mac_address : Vec<u8>,
 
     pub gateway_address : IpAddr,
 
-    #[serde(with = "MacAddrDefinition")]
-    pub link_local_address : MacAddr
+    pub link_local_address : Vec<u8>
 }
 
 pub fn get_default_network_device() -> Option<NetworkInterface> {

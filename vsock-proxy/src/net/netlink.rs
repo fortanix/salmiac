@@ -3,7 +3,6 @@ use futures::TryStream;
 use rtnetlink::proto::Connection;
 use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage};
 use rtnetlink::{IpVersion};
-use pnet_datalink::MacAddr;
 
 use std::net::{Ipv4Addr, IpAddr};
 
@@ -13,19 +12,19 @@ pub fn connect() -> (Connection<RtnlMessage> , rtnetlink::Handle) {
     (connection, handle)
 }
 
-pub async fn set_address(handle : &rtnetlink::Handle, index : u32, mac_address: MacAddr) -> Result<(), String> {
+pub async fn set_address(handle : &rtnetlink::Handle, index : u32, mac_address: &Vec<u8>) -> Result<(), String> {
     handle.link()
         .set(index)
-        .address(mac_address.octets().to_vec())
+        .address(mac_address.clone())
         .execute()
         .await
         .map_err(|err| format!("Failed to set MAC address {:?}", err))
 }
 
-pub async fn add_neighbour(handle : &rtnetlink::Handle, device_index : u32, destination : IpAddr, mac_address:MacAddr) -> Result<(), String> {
+pub async fn add_neighbour(handle : &rtnetlink::Handle, device_index : u32, destination : IpAddr, mac_address : &Vec<u8>) -> Result<(), String> {
     handle.neighbours()
         .add(device_index, destination)
-        .link_local_address(&mac_address.octets())
+        .link_local_address(&mac_address)
         .execute()
         .await
         .map_err(|err| format!("Failed to create ARP entry {:?}", err))

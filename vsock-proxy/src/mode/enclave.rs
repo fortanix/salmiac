@@ -106,7 +106,7 @@ async fn setup_enclave_networking(tap_device : &Device, parent_settings : &Netwo
 
     debug!("Tap index {}", tap_index);
 
-    netlink::set_address(&netlink_handle, tap_index, parent_settings.mac_address).await?;
+    netlink::set_address(&netlink_handle, tap_index, &parent_settings.mac_address).await?;
     info!("MAC address for tap is set!");
 
     let gateway_addr = parent_settings.gateway_address;
@@ -122,7 +122,7 @@ async fn setup_enclave_networking(tap_device : &Device, parent_settings : &Netwo
     netlink::add_default_gateway(&netlink_handle, as_ipv4).await?;
     info!("Gateway is set!");
 
-    netlink::add_neighbour(&netlink_handle, tap_index, gateway_addr, parent_settings.link_local_address).await?;
+    netlink::add_neighbour(&netlink_handle, tap_index, gateway_addr, &parent_settings.link_local_address).await?;
     info!("ARP entry is set!");
 
     Ok(())
