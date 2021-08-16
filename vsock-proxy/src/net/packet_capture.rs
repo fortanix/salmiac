@@ -4,6 +4,7 @@ use pcap::{
     Capture,
     Device
 };
+use log::info;
 
 const SNAP_LEN : i32 = 5000;
 
@@ -13,7 +14,7 @@ pub fn open_packet_capture(port : u32, device_name : &str) -> Result<Capture<Act
         .map_err(|err| format!("Failed to create device {:?}", err));
 
     let capture = main_device.and_then(|device| {
-        println!("Capturing with device: {}", device.name);
+        info!("Capturing with device: {}", device.name);
         Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))
     });
 

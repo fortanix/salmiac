@@ -39,5 +39,5 @@ fn main() -> Result<(), String> {
         }
     }
 
-    process::exit(0);
+    Ok(())
 }
