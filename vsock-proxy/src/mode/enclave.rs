@@ -24,7 +24,8 @@ pub fn run(vsock_port: u32, thread_pool : ThreadPool) -> Result<(), String> {
 
     info!("Connected to parent!");
 
-    let tap_device = communicate_network_settings(&mut parent_connection)?;
+    let parent_settings = receive_parent_network_settings(&mut parent_connection)?;
+    let tap_device = setup_enclave_networking(&mut parent_connection, &parent_settings)?;
     debug!("Created tap device in enclave!");
 
     let sync_tap = sync::Arc::new(sync::Mutex::new(tap_device));
@@ -35,9 +36,10 @@ pub fn run(vsock_port: u32, thread_pool : ThreadPool) -> Result<(), String> {
     let mut vsock_write = parent_connection.clone();
     let mut vsock_read = parent_connection.clone();
 
+    let mtu = parent_settings.mtu;
     thread_pool.execute(move || {
         loop {
-            let read = read_from_tap(&tap_read, &mut vsock_write);
+            let read = read_from_tap(&tap_read, &mut vsock_write, mtu);
 
             match read {
                 Ok(0) => {
@@ -69,22 +71,24 @@ pub fn run(vsock_port: u32, thread_pool : ThreadPool) -> Result<(), String> {
     Ok(())
 }
 
-fn communicate_network_settings(vsock : &mut VsockStream) -> Result<Device, String> {
+fn receive_parent_network_settings(vsock : &mut VsockStream) -> Result<NetworkSettings, String> {
     let msg : SetupMessages = vsock.receive()?;
 
-    let parent_settings = match msg {
-        SetupMessages::Settings(s) => { s }
+    match msg {
+        SetupMessages::Settings(s) => { Ok(s) }
         x => {
             return Err(format!("Expected SetupMessages::Settings, but got {:?}", x))
         }
-    };
+    }
+}
 
+fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &NetworkSettings) -> Result<Device, String> {
     let tap_device = net::device::create_tap_device(&parent_settings)?;
     tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock for tap device".to_string())?;
 
     debug!("Received next settings from parent {:?}", parent_settings);
 
-    setup_enclave_networking(&tap_device, &parent_settings)?;
+    setup_enclave_networking0(&tap_device, &parent_settings)?;
 
     info!("Finished network setup!");
 
@@ -94,7 +98,7 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<Device, Stri
 }
 
 #[tokio::main]
-async fn setup_enclave_networking(tap_device : &Device, parent_settings : &NetworkSettings) -> Result<(), String> {
+async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &NetworkSettings) -> Result<(), String> {
     use tun::Device;
 
     let (_netlink_connection, netlink_handle) = netlink::connect();
@@ -137,17 +141,24 @@ fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStre
 
     debug!("acquired tap write lock!");
 
-    tap_device.write_all(&packet).map_err(|err| format!("Cannot write to tap {:?}", err))?;
+    match tap_device.write(&packet).map_err(|err| format!("Cannot write to tap {:?}", err)) {
+        Ok(size_written) if size_written != packet.len() => {
+            return Err(format!("Tried to write packet of size {}, but only {} was written", packet.len(), size_written))
+        }
+        Err(e) => {
+            return Err(e)
+        }
+        _ => {}
+    }
 
     debug!("Sent data to tap!");
 
     Ok(())
 }
 
-fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<usize, String> {
-    let mut buf = [0u8; 4096];
-
+fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream, buf_len : i32) -> Result<usize, String> {
     let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
+    let mut buf = vec![0 as u8; buf_len as usize];
 
     debug!("acquired tap read lock!");
 

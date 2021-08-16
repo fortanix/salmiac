@@ -1,7 +1,4 @@
-use vsock_proxy::mode::{
-    parse_console_argument,
-    console_arguments,
-};
+use vsock_proxy::mode::{parse_console_argument, console_arguments, parse_optional_console_argument};
 use vsock_proxy::mode;
 
 use threadpool::ThreadPool;
@@ -11,6 +8,8 @@ use std::{
     process,
     env
 };
+
+use vsock_proxy::net::netlink;
 
 fn main() -> Result<(), String> {
     env::set_var("RUST_LOG","debug");
@@ -22,10 +21,17 @@ fn main() -> Result<(), String> {
     match matches.subcommand() {
         ("parent", Some(args)) => {
             let vsock_port = parse_console_argument::<u32>(args, "vsock-port")?;
-            let remote_port = parse_console_argument::<u32>(args, "remote-port")?;
             let thread_pool = ThreadPool::new(2);
 
-            mode::parent::run(vsock_port, remote_port, thread_pool)?;
+            if cfg!(debug_assertions) {
+                let remote_port = parse_optional_console_argument::<u32>(args, "remote-port")
+                    .and_then(|e| e.ok());
+
+                mode::parent::run(vsock_port, remote_port, thread_pool)?;
+            }
+            else {
+                mode::parent::run(vsock_port, None, thread_pool)?;
+            }
         }
         ("enclave", Some(args)) => {
             let vsock_port = parse_console_argument::<u32>(args, "vsock-port")?;

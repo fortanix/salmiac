@@ -1,7 +1,7 @@
-use crate::net::device::{NetworkSettings, SetupMessages, get_default_network_device};
+use crate::net::device::{NetworkSettings, SetupMessages, get_default_network_device, RichNetworkInterface};
 use crate::net::socket::{RichSocket, accept_vsock};
 use crate::net::{netlink, vec_to_ip4};
-use crate::net::packet_capture::open_packet_capture;
+use crate::net::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
 use crate::mode::VSOCK_PARENT_CID;
 
 use pnet_datalink::{NetworkInterface};
@@ -16,7 +16,7 @@ use threadpool::ThreadPool;
 use pcap::{Capture, Active};
 use nix::sys::socket::SockAddr;
 
-pub fn run(vsock_port: u32, remote_port : u32, thread_pool : ThreadPool) -> Result<(), String> {
+pub fn run(vsock_port: u32, remote_port : Option<u32>, thread_pool : ThreadPool) -> Result<(), String> {
     let mut enclave_listener = listen_parent(vsock_port)?;
 
     info!("Awaiting confirmation from enclave!");
@@ -29,8 +29,14 @@ pub fn run(vsock_port: u32, remote_port : u32, thread_pool : ThreadPool) -> Resu
 
     // `capture` should be properly locked when shared among threads (like tap device),
     // however copying captures is good enough for prototype and it just works.
-    let mut capture = open_packet_capture(remote_port, &parent_device.name)?;
-    let mut write_capture = open_packet_capture(remote_port, &parent_device.name)?;
+    let (mut capture, mut write_capture) = if let Some(remote_port) = remote_port{
+        (open_packet_capture_with_port_filter(&parent_device, remote_port)?,
+        open_packet_capture_with_port_filter(&parent_device, remote_port)?)
+    }
+    else {
+        (open_packet_capture(&parent_device)?,
+        open_packet_capture(&parent_device)?)
+    };
 
     debug!("Listening to packets from network device!");
 
@@ -66,7 +72,7 @@ pub fn run(vsock_port: u32, remote_port : u32, thread_pool : ThreadPool) -> Resu
     Ok(())
 }
 
-fn communicate_network_settings(vsock : &mut VsockStream) -> Result<NetworkInterface, String> {
+fn communicate_network_settings(vsock : &mut VsockStream) -> Result<RichNetworkInterface, String> {
     let parent_device = get_default_network_device()
         .expect("Parent has no suitable network devices!");
 
@@ -92,7 +98,7 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<NetworkInter
 }
 
 #[tokio::main]
-async fn get_network_settings(parent_device : &NetworkInterface) -> Result<NetworkSettings, String> {
+async fn get_network_settings(parent_device : &RichNetworkInterface) -> Result<NetworkSettings, String> {
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);
 
@@ -100,17 +106,17 @@ async fn get_network_settings(parent_device : &NetworkInterface) -> Result<Netwo
 
     let parent_gateway = netlink::RichRouteMessage(get_parent_gateway(
         &netlink_handle,
-        parent_device.index).await?);
+        parent_device.0.index).await?);
 
     let parent_gateway_address = parent_gateway.raw_gateway()
         .expect("No default gateway was found in parent!");
 
     let parent_arp = netlink::RichNeighbourMessage(get_parent_neighbour(
         &netlink_handle,
-        parent_device.index,
+        parent_device.0.index,
         parent_gateway_address.clone()).await?);
 
-    let mac_address = parent_device.mac
+    let mac_address = parent_device.0.mac
         .expect("Parent device has no MAC address!")
         .octets()
         .to_vec();
@@ -118,18 +124,21 @@ async fn get_network_settings(parent_device : &NetworkInterface) -> Result<Netwo
     let link_local_address = parent_arp.link_local_address()
         .expect("ARP entry should have link local address");
 
-    let ip_network = parent_device.ips
+    let ip_network = parent_device.0.ips
         .first()
         .expect("Parent device has no ip settings!");
 
     let gateway_address = vec_to_ip4(&parent_gateway_address)?;
+
+    let mtu = parent_device.get_mtu()?;
 
     let result = NetworkSettings {
         ip_address  : ip_network.ip(),
         netmask     : ip_network.mask(),
         mac_address,
         gateway_address,
-        link_local_address
+        link_local_address,
+        mtu
     };
 
     Ok(result)

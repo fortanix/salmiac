@@ -5,6 +5,8 @@ use serde::{
 use pnet_datalink::{
     NetworkInterface,
 };
+use interfaces::Interface;
+
 use tun::platform::linux::Device as TunDevice;
 use std::net::IpAddr;
 
@@ -25,14 +27,35 @@ pub struct NetworkSettings {
 
     pub gateway_address : IpAddr,
 
-    pub link_local_address : Vec<u8>
+    pub link_local_address : Vec<u8>,
+
+    pub mtu : i32
 }
 
-pub fn get_default_network_device() -> Option<NetworkInterface> {
+pub struct RichNetworkInterface(pub NetworkInterface);
+
+impl RichNetworkInterface {
+    pub fn get_mtu(&self) -> Result<i32, String> {
+        let iface = interfaces::Interface::get_by_name(&self.0.name)
+            .unwrap()
+            .unwrap();
+
+        iface.get_mtu()
+            .map(|e| e as i32)
+            .map_err(|err| format!("Cannot get device {} MTU, error {:?}", &self.0.name, err))
+    }
+}
+
+pub fn get_default_network_device() -> Option<RichNetworkInterface> {
     pnet_datalink::interfaces()
         .into_iter()
-        .find(|e| {
-            e.is_up() && !e.is_loopback() && !e.ips.is_empty() && e.mac.is_some()
+        .find_map(|e| {
+            if e.is_up() && !e.is_loopback() && !e.ips.is_empty() && e.mac.is_some() {
+                Some(RichNetworkInterface(e))
+            }
+            else {
+                None
+            }
         })
 }
 
@@ -42,6 +65,7 @@ pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TunDevice
     config.address(IpAddr::from(parent_settings.ip_address))
         .netmask(IpAddr::from(parent_settings.netmask))
         .layer(tun::Layer::L2)
+        .mtu(parent_settings.mtu)
         .up();
 
     tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
