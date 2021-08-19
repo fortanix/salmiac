@@ -120,7 +120,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 }
 
 pub struct ParentImageBuilder<'a> {
-    pub client_image : String,
+    pub output_image : String,
 
     pub parent_image : String,
 
@@ -139,9 +139,7 @@ impl<'a> ParentImageBuilder<'a> {
         self.create_requisites()?;
         info!("Parent prerequisites have been created!");
 
-        let result_image_name = self.client_image.clone() + "-parent";
-
-        docker_util.create_image(self.dir.path(), &result_image_name)?;
+        docker_util.create_image(self.dir.path(), &self.output_image)?;
         info!("Parent image has been created!");
 
         Ok(())

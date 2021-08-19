@@ -26,6 +26,7 @@ fn main() -> Result<(), String> {
 
     let client_image = console_arguments.value_of("image").expect("Image argument must be supplied").to_string();
     let parent_image = console_arguments.value_of("parent-image").unwrap_or("parent-base").to_string();
+    let output_image = console_arguments.value_of("output-image").unwrap_or(&*(client_image.clone() + "-parent")).to_string();
 
     let docker_util = DockerUtil::new(client_image.clone());
 
@@ -51,7 +52,7 @@ fn main() -> Result<(), String> {
     enclave_builder.create_image(&docker_util)?;
 
     let parent_builder = ParentImageBuilder {
-        client_image,
+        output_image,
         parent_image,
         nitro_file: enclave_builder.nitro_image_name(),
         dir : &temp_dir,
