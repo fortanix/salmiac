@@ -84,5 +84,12 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .takes_value(true)
                 .required(false),
         )
+        .arg(
+            Arg::with_name("output-image")
+                .help("output image name")
+                .long("output-image")
+                .takes_value(true)
+                .required(false),
+        )
         .get_matches()
 }
