@@ -55,31 +55,33 @@ pub async fn get_route_for_device(handle :&rtnetlink::Handle, device_index : u32
     Ok(None)
 }
 
-pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index : u32, gateway_address : Vec<u8>) -> Result<Option<NeighbourMessage>, String> {
+pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index : u32, gateway_address : &[u8]) -> Result<Option<NeighbourMessage>, String> {
     let mut neighbours = handle.neighbours().get().execute();
 
     while let Some(neighbour) = next_in_stream(&mut neighbours).await? {
-        let rich_neighbour = RichNeighbourMessage(neighbour);
 
-        if rich_neighbour.0.header.ifindex == device_index &&
-           rich_neighbour.has_destination_for_address(&gateway_address) {
+        if neighbour.header.ifindex == device_index &&
+           neighbour.has_destination_for_address(&gateway_address) {
 
-            return Ok(Some(rich_neighbour.0))
+            return Ok(Some(neighbour))
         }
     }
 
     Ok(None)
 }
 
-pub struct RichRouteMessage(pub RouteMessage);
+pub trait RouteMessageExt {
+    fn raw_gateway(&self) -> Option<&[u8]>;
+}
 
-impl RichRouteMessage {
-    pub fn raw_gateway(&self) -> Option<Vec<u8>> {
+impl RouteMessageExt for RouteMessage {
+    fn raw_gateway(&self) -> Option<&[u8]> {
         use rtnetlink::packet::nlas::route::Nla;
 
-        self.0.nlas.iter().find_map(|nla| {
+        self.nlas.iter().find_map(|nla| {
             if let Nla::Gateway(v) = nla {
-                Some(v.clone())
+                let result : &[u8] = &v;
+                Some(result)
             } else {
                 None
             }
@@ -87,36 +89,44 @@ impl RichRouteMessage {
     }
 }
 
-pub struct RichNeighbourMessage(pub NeighbourMessage);
+pub trait NeighbourMessageExt {
+    fn link_local_address(&self) -> Option<&[u8]>;
 
-impl RichNeighbourMessage {
-    pub fn link_local_address(&self) -> Option<Vec<u8>> {
+    fn destination(&self) -> Option<&[u8]>;
+
+    fn has_destination_for_address(&self, address : &[u8]) -> bool;
+}
+
+impl NeighbourMessageExt for NeighbourMessage {
+    fn link_local_address(&self) -> Option<&[u8]> {
         use rtnetlink::packet::neighbour::Nla;
 
-        self.0.nlas.iter().find_map(|nla| {
+        self.nlas.iter().find_map(|nla| {
             if let Nla::LinkLocalAddress(v) = nla {
-                Some(v.clone())
+                let result : &[u8] = &v;
+                Some(result)
             } else {
                 None
             }
         })
     }
 
-    pub fn destination(&self) -> Option<Vec<u8>> {
+    fn destination(&self) -> Option<&[u8]> {
         use rtnetlink::packet::neighbour::Nla;
 
-        self.0.nlas.iter().find_map(|nla| {
+        self.nlas.iter().find_map(|nla| {
             if let Nla::Destination(v) = nla {
-                Some(v.clone())
+                let result : &[u8] = &v;
+                Some(result)
             } else {
                 None
             }
         })
     }
 
-    pub fn has_destination_for_address(&self, address : &Vec<u8>) -> bool {
+    fn has_destination_for_address(&self, address : &[u8]) -> bool {
         match self.destination() {
-            Some(destination_address) if destination_address == *address => {
+            Some(destination_address) if *destination_address == *address => {
                 true
             }
             _ => { false }

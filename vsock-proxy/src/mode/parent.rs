@@ -1,6 +1,7 @@
 use crate::net::device::{NetworkSettings, SetupMessages, get_default_network_device, RichNetworkInterface};
-use crate::net::socket::{RichSocket, accept_vsock};
+use crate::net::socket::{RichSocket};
 use crate::net::{netlink, vec_to_ip4};
+use crate::net::netlink::{RouteMessageExt, NeighbourMessageExt};
 use crate::net::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
 use crate::mode::VSOCK_PARENT_CID;
 
@@ -19,11 +20,13 @@ use std::convert::TryFrom;
 
 pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     let thread_pool = ThreadPool::new(2);
-    let mut enclave_listener = listen_parent(vsock_port)?;
+    let enclave_listener = listen_parent(vsock_port)?;
 
     info!("Awaiting confirmation from enclave!");
 
-    let mut enclave_port = accept_vsock(&mut enclave_listener)?;
+    let mut enclave_port = enclave_listener.accept()
+        .map(|r| r.0)
+        .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
 
     info!("Connected to enclave!");
 
@@ -106,17 +109,17 @@ async fn get_network_settings(parent_device : &RichNetworkInterface) -> Result<N
 
     debug!("Connected to netlink");
 
-    let parent_gateway = netlink::RichRouteMessage(get_parent_gateway(
+    let parent_gateway = get_gateway(
         &netlink_handle,
-        parent_device.0.index).await?);
+        parent_device.0.index).await?;
 
     let parent_gateway_address = parent_gateway.raw_gateway()
         .expect("No default gateway was found in parent!");
 
-    let parent_arp = netlink::RichNeighbourMessage(get_parent_neighbour(
+    let parent_arp = get_neighbor_by_address(
         &netlink_handle,
         parent_device.0.index,
-        parent_gateway_address.clone()).await?);
+        parent_gateway_address).await?;
 
     let mac_address = parent_device.0.mac
         .expect("Parent device has no MAC address!")
@@ -127,13 +130,13 @@ async fn get_network_settings(parent_device : &RichNetworkInterface) -> Result<N
         .expect("ARP entry should have link local address")
         .map_err(|err| format!("Cannot convert vec {:?}", err))?;
 
-    if parent_device.0.ips.len() > 1 {
+    /*if parent_device.0.ips.len() > 1 {
         return Err(format!("Parent device {} should have only one ip address!", parent_device.0.name))
-    }
+    }*/
 
     let ip_network = parent_device.0.ips[0];
 
-    let gateway_address = vec_to_ip4(&parent_gateway_address)?;
+    let gateway_address = vec_to_ip4(parent_gateway_address)?;
 
     let mtu = parent_device.get_mtu()?;
 
@@ -149,16 +152,16 @@ async fn get_network_settings(parent_device : &RichNetworkInterface) -> Result<N
     Ok(result)
 }
 
-async fn get_parent_gateway(netlink_handle : &rtnetlink::Handle, device_index : u32) -> Result<RouteMessage, String> {
+async fn get_gateway(netlink_handle : &rtnetlink::Handle, device_index : u32) -> Result<RouteMessage, String> {
     netlink::get_route_for_device(&netlink_handle, device_index)
         .await
         .and_then(|e| e.ok_or(format!("No default gateway was found in parent!")))
 }
 
-async fn get_parent_neighbour(netlink_handle : &rtnetlink::Handle, device_index : u32, gateway_address : Vec<u8>) -> Result<NeighbourMessage, String> {
-    netlink::get_neighbour_for_device(netlink_handle, device_index, gateway_address.clone())
+async fn get_neighbor_by_address(netlink_handle : &rtnetlink::Handle, device_index : u32, l3_address: &[u8]) -> Result<NeighbourMessage, String> {
+    netlink::get_neighbour_for_device(netlink_handle, device_index, l3_address.clone())
         .await
-        .and_then(|e| e.ok_or(format!("No ARP entry found for address {:?} in parent!", gateway_address)))
+        .and_then(|e| e.ok_or(format!("No ARP entry found for address {:?} in parent!", l3_address)))
 }
 
 fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {

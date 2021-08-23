@@ -1,7 +1,6 @@
 use vsock_proxy::mode::{parse_console_argument, console_arguments, parse_optional_console_argument};
 use vsock_proxy::mode;
 
-use threadpool::ThreadPool;
 use log::{error};
 
 use std::{

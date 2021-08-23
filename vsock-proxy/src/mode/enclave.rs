@@ -116,7 +116,7 @@ async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &Netw
     info!("MAC address for tap is set!");
 
     let gateway_addr = parent_settings.gateway_l2_address;
-    let as_ipv4 = match gateway_addr.clone() {
+    let as_ipv4 = match gateway_addr {
         IpAddr::V4(e) => {
             e
         }
@@ -173,11 +173,11 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStr
         }
     };
 
-    let packet = &buf[0..amount];
+    buf.truncate(amount);
 
-    debug!("Read packet from tap! {:?}", packet);
+    debug!("Read packet from tap! {:?}", buf);
 
-    vsock.send(packet.to_vec())?;
+    vsock.send(buf)?;
 
     debug!("Sent packet to parent!");
 

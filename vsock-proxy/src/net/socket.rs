@@ -5,23 +5,11 @@ use byteorder::{
 };
 use serde::{Serialize};
 use serde::de::DeserializeOwned;
-use vsock::{
-    VsockListener,
-    VsockStream
-};
 
 use std::io::{
     Read,
     Write
 };
-
-pub const BUF_SIZE : usize = 4096;
-
-pub fn accept_vsock(vsock: &mut VsockListener) -> Result<VsockStream, String> {
-    vsock.accept()
-        .map(|r| r.0)
-        .map_err(|err| format!("Accept from vsock failed: {:?}", err))
-}
 
 pub trait RichSocket<T> {
     fn receive(&mut self) -> Result<T, String>;
@@ -31,26 +19,18 @@ pub trait RichSocket<T> {
 
 impl<T, U> RichSocket<T> for U where U : Read + Write, T : Serialize + DeserializeOwned {
     fn receive(&mut self) -> Result<T, String> {
-        receive_struct(self)
+        let bytes = receive_array(self)?;
+
+        serde_cbor::from_slice(&bytes)
+            .map_err(|err| format!("Failed to deserialize struct {:?}", err))
     }
 
     fn send(&mut self, arg: T) -> Result<(), String> {
-        send_struct(self, arg)
+        let bytes = serde_cbor::to_vec(&arg)
+            .map_err(|err| format!("Failed to serialize struct {:?}", err))?;
+
+        send_array(self, &bytes)
     }
-}
-
-fn send_struct<T : serde::Serialize>(writer: &mut dyn Write, _struct : T) -> Result<(), String> {
-    let bytes = bincode::serialize(&_struct)
-        .map_err(|err| format!("Failed to serialize struct {:?}", err))?;
-
-    send_array(writer, &bytes)
-}
-
-fn receive_struct<T : serde::de::DeserializeOwned>(reader: &mut dyn Read) -> Result<T, String> {
-    let bytes = receive_array(reader)?;
-
-    bincode::deserialize(&bytes.clone())
-        .map_err(|err| format!("Failed to deserialize struct {:?}", err))
 }
 
 fn send_array(writer: &mut dyn Write, data : &[u8]) -> Result<(), String> {
