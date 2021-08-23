@@ -21,7 +21,7 @@ pub fn open_packet_capture(interface : &RichNetworkInterface) -> Result<Capture<
 
     capture.promisc(true)
         .immediate_mode(true)
-        .snaplen(mtu)
+        .snaplen(mtu as i32)
         .open()
         .map_err(|err| format!("Cannot open capture {:?}", err))
 }

@@ -15,7 +15,10 @@ use threadpool::ThreadPool;
 use pcap::{Capture, Active};
 use nix::sys::socket::SockAddr;
 
-pub fn run(vsock_port: u32, remote_port : Option<u32>, thread_pool : ThreadPool) -> Result<(), String> {
+use std::convert::TryFrom;
+
+pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
+    let thread_pool = ThreadPool::new(2);
     let mut enclave_listener = listen_parent(vsock_port)?;
 
     info!("Awaiting confirmation from enclave!");
@@ -117,26 +120,29 @@ async fn get_network_settings(parent_device : &RichNetworkInterface) -> Result<N
 
     let mac_address = parent_device.0.mac
         .expect("Parent device has no MAC address!")
-        .octets()
-        .to_vec();
+        .octets();
 
     let link_local_address = parent_arp.link_local_address()
-        .expect("ARP entry should have link local address");
+        .map(|e|  <[u8; 6]>::try_from(&e[..]))
+        .expect("ARP entry should have link local address")
+        .map_err(|err| format!("Cannot convert vec {:?}", err))?;
 
-    let ip_network = parent_device.0.ips
-        .first()
-        .expect("Parent device has no ip settings!");
+    if parent_device.0.ips.len() > 1 {
+        return Err(format!("Parent device {} should have only one ip address!", parent_device.0.name))
+    }
+
+    let ip_network = parent_device.0.ips[0];
 
     let gateway_address = vec_to_ip4(&parent_gateway_address)?;
 
     let mtu = parent_device.get_mtu()?;
 
     let result = NetworkSettings {
-        ip_address  : ip_network.ip(),
-        netmask     : ip_network.mask(),
-        mac_address,
-        gateway_address,
-        link_local_address,
+        self_l3_address: ip_network.ip(),
+        self_prefix: ip_network.mask(),
+        self_l2_address: mac_address,
+        gateway_l2_address: gateway_address,
+        gateway_l3_address: link_local_address,
         mtu
     };
 

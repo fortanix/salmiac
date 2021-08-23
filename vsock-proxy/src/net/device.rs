@@ -18,29 +18,28 @@ pub enum SetupMessages {
 #[repr(C)]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkSettings {
-    pub ip_address : IpAddr,
+    pub self_l2_address: [u8; 6],
 
-    pub netmask : IpAddr,
+    pub self_l3_address: IpAddr,
 
-    pub mac_address : Vec<u8>,
+    pub self_prefix: IpAddr,
 
-    pub gateway_address : IpAddr,
+    pub gateway_l2_address: IpAddr,
 
-    pub link_local_address : Vec<u8>,
+    pub gateway_l3_address: [u8; 6],
 
-    pub mtu : i32
+    pub mtu : u32
 }
 
 pub struct RichNetworkInterface(pub NetworkInterface);
 
 impl RichNetworkInterface {
-    pub fn get_mtu(&self) -> Result<i32, String> {
+    pub fn get_mtu(&self) -> Result<u32, String> {
         let iface = interfaces::Interface::get_by_name(&self.0.name)
             .unwrap()
             .unwrap();
 
         iface.get_mtu()
-            .map(|e| e as i32)
             .map_err(|err| format!("Cannot get device {} MTU, error {:?}", &self.0.name, err))
     }
 }
@@ -61,10 +60,10 @@ pub fn get_default_network_device() -> Option<RichNetworkInterface> {
 pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TunDevice, String> {
     let mut config = tun::Configuration::default();
 
-    config.address(IpAddr::from(parent_settings.ip_address))
-        .netmask(IpAddr::from(parent_settings.netmask))
+    config.address(IpAddr::from(parent_settings.self_l3_address))
+        .netmask(IpAddr::from(parent_settings.self_prefix))
         .layer(tun::Layer::L2)
-        .mtu(parent_settings.mtu)
+        .mtu(parent_settings.mtu as i32)
         .up();
 
     tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))

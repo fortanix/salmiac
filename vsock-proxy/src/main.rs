@@ -16,23 +16,21 @@ fn main() -> Result<(), String> {
     match matches.subcommand() {
         ("parent", Some(args)) => {
             let vsock_port = parse_console_argument::<u32>(args, "vsock-port")?;
-            let thread_pool = ThreadPool::new(2);
 
             if cfg!(debug_assertions) {
                 let remote_port = parse_optional_console_argument::<u32>(args, "remote-port")
                     .and_then(|e| e.ok());
 
-                mode::parent::run(vsock_port, remote_port, thread_pool)?;
+                mode::parent::run(vsock_port, remote_port)?;
             }
             else {
-                mode::parent::run(vsock_port, None, thread_pool)?;
+                mode::parent::run(vsock_port, None)?;
             }
         }
         ("enclave", Some(args)) => {
             let vsock_port = parse_console_argument::<u32>(args, "vsock-port")?;
-            let thread_pool = ThreadPool::new(2);
 
-            mode::enclave::run(vsock_port, thread_pool)?;
+            mode::enclave::run(vsock_port)?;
         }
         _ => {
             error!("Program must be either 'enclave' or 'parent'");
