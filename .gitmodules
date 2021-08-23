@@ -1,0 +1,3 @@
+[submodule "zircon"]
+	path = zircon
+	url = git@bitbucket.org:fortanix/zircon.git
