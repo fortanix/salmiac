@@ -8,7 +8,7 @@ fn main() -> Result<(), String> {
 
     let matches = console_arguments();
 
-    let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port")?;
+    let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
     enclave::run(vsock_port)?;
 

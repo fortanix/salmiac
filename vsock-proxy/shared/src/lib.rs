@@ -30,12 +30,12 @@ pub fn vec_to_ip6(vec : &[u16]) -> Result<Ipv6Addr, String> {
 
 pub const VSOCK_PARENT_CID: u32 = 3; // From AWS Nitro documentation.
 
-pub fn parse_console_argument<T : FromStr + Display + NumArg>(args: &ArgMatches, name: &str) -> Result<T, String> {
+pub fn parse_console_argument<T : FromStr + Display + NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
 }
 
-pub fn parse_optional_console_argument<T : FromStr + Display + NumArg>(args: &ArgMatches, name: &str) -> Option<Result<T, String>> {
-    args.value_of(name).map(|e| parse_num(e).map_err(|_err| format!("Cannot parse console argument {}", name)))
+pub fn parse_optional_console_argument<T : FromStr + Display + NumArg>(args: &ArgMatches, name: &str) -> Option<T> {
+    args.value_of(name).map(|e| T::parse_arg(e))
 }
 
 pub trait NumArg: Copy {

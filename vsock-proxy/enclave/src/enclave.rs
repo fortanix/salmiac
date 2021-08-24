@@ -72,7 +72,7 @@ pub fn run(vsock_port: u32) -> Result<(), String> {
 }
 
 fn receive_parent_network_settings(vsock : &mut VsockStream) -> Result<NetworkSettings, String> {
-    let msg : SetupMessages = vsock.receive()?;
+    let msg : SetupMessages = vsock.read_lv()?;
 
     match msg {
         SetupMessages::Settings(s) => { Ok(s) }
@@ -92,7 +92,7 @@ fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &Network
 
     info!("Finished network setup!");
 
-    vsock.send(&SetupMessages::SetupSuccessful)?;
+    vsock.write_lv(&SetupMessages::SetupSuccessful)?;
 
     Ok(tap_device)
 }
@@ -102,8 +102,8 @@ async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &Netw
     use tun::Device;
     use shared::netlink;
 
-    let (_netlink_connection, netlink_handle) = netlink::connect();
-    tokio::spawn(_netlink_connection);
+    let (netlink_connection, netlink_handle) = netlink::connect();
+    tokio::spawn(netlink_connection);
 
     debug!("Connected to netlink");
 
@@ -134,7 +134,7 @@ async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &Netw
 }
 
 fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<(), String> {
-    let packet = vsock.receive_bytes()?;
+    let packet = vsock.read_lv_bytes()?;
 
     debug!("Received packet from parent! {:?}", packet);
 
@@ -176,7 +176,7 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStr
 
     debug!("Read packet from tap! {:?}", buf);
 
-    vsock.send_bytes(&buf)?;
+    vsock.write_lv_bytes(&buf)?;
 
     debug!("Sent packet to parent!");
 

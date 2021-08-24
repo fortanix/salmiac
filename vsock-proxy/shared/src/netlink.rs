@@ -88,13 +88,13 @@ pub async fn get_route_for_device(handle :&rtnetlink::Handle, device_index : u32
     Ok(None)
 }
 
-pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index : u32, gateway_address : &[u8]) -> Result<Option<NeighbourMessage>, String> {
+pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index : u32, l3_address: &[u8]) -> Result<Option<NeighbourMessage>, String> {
     let mut neighbours = handle.neighbours().get().execute();
 
     while let Some(neighbour) = next_in_stream(&mut neighbours).await? {
 
         if neighbour.header.ifindex == device_index &&
-           neighbour.has_destination_for_address(&gateway_address) {
+           neighbour.has_destination_for_address(&l3_address) {
 
             return Ok(Some(neighbour))
         }

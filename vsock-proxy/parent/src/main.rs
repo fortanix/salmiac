@@ -8,11 +8,10 @@ fn main() -> Result<(), String> {
 
     let matches = console_arguments();
 
-    let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port")?;
+    let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
     if cfg!(debug_assertions) {
-        let remote_port = parse_optional_console_argument::<u32>(&matches, "remote-port")
-            .and_then(|e| e.ok());
+        let remote_port = parse_optional_console_argument::<u32>(&matches, "remote-port");
 
         parent::run(vsock_port, remote_port)?;
     }

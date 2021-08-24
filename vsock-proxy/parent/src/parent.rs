@@ -91,11 +91,11 @@ pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
 fn communicate_network_settings(settings : NetworkSettings, vsock : &mut VsockStream) -> Result<(), String> {
     debug!("Read network settings from parent {:?}", settings);
 
-    vsock.send(&SetupMessages::Settings(settings))?;
+    vsock.write_lv(&SetupMessages::Settings(settings))?;
 
     debug!("Sent network settings to the enclave!");
 
-    let msg : SetupMessages = vsock.receive()?;
+    let msg : SetupMessages = vsock.read_lv()?;
 
     match msg {
         SetupMessages::SetupSuccessful => {
@@ -188,7 +188,7 @@ fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStr
 
     debug!("Captured packet from network device in parent! {:?}", packet);
 
-    enclave_stream.send_bytes(&packet.data)?;
+    enclave_stream.write_lv_bytes(&packet.data)?;
 
     debug!("Sent network packet to enclave!");
 
@@ -196,7 +196,7 @@ fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStr
 }
 
 fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream) -> Result<(), String> {
-    let packet = from_enclave.receive_bytes().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+    let packet = from_enclave.read_lv_bytes().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
 
     debug!("Received packet from enclave! {:?}", packet);
 
