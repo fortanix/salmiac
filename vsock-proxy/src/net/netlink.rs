@@ -1,10 +1,14 @@
 use futures::stream::TryStreamExt;
 use futures::TryStream;
 use rtnetlink::proto::Connection;
-use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage};
+use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage, LinkMessage, AddressMessage};
 use rtnetlink::{IpVersion};
 
 use std::net::{Ipv4Addr, IpAddr};
+use ipnetwork::{IpNetwork, Ipv4Network};
+use crate::net::vec_to_ip4;
+
+const FAMILY_INET : u8 = 2;
 
 pub fn connect() -> (Connection<RtnlMessage> , rtnetlink::Handle) {
     let (connection, handle, _) = rtnetlink::new_connection().map_err(|err| format!("{:?}", err)).expect("Failed to connect to netlink");
@@ -12,9 +16,38 @@ pub fn connect() -> (Connection<RtnlMessage> , rtnetlink::Handle) {
     (connection, handle)
 }
 
-pub async fn set_address(handle : &rtnetlink::Handle, index : u32, mac_address: &[u8; 6]) -> Result<(), String> {
+pub async fn get_inet_address_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Option<AddressMessage>, String> {
+    let mut links = handle.address()
+        .get()
+        .set_link_index_filter(device_index)
+        .execute();
+
+    while let Some(link) = next_in_stream(&mut links).await? {
+        if link.header.family == FAMILY_INET {
+            return Ok(Some(link))
+        }
+    }
+
+    Ok(None)
+}
+
+pub async fn get_links_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Vec<LinkMessage>, String> {
+    let mut links = handle.link()
+        .get()
+        .match_index(device_index)
+        .execute();
+
+    let mut result : Vec<LinkMessage> = Vec::new();
+    while let Some(link) = next_in_stream(&mut links).await? {
+        result.push(link)
+    }
+
+    Ok(result)
+}
+
+pub async fn set_link(handle : &rtnetlink::Handle, device_index: u32, mac_address: &[u8; 6]) -> Result<(), String> {
     handle.link()
-        .set(index)
+        .set(device_index)
         .address(mac_address.to_vec())
         .execute()
         .await
@@ -68,6 +101,72 @@ pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index 
     }
 
     Ok(None)
+}
+
+pub trait AddressMessageExt {
+    fn ip_network(&self) -> Result<IpNetwork, String>;
+
+    fn address(&self) -> Option<&[u8]>;
+}
+
+impl AddressMessageExt for AddressMessage {
+
+    fn address(&self) -> Option<&[u8]> {
+        use rtnetlink::packet::rtnl::address::nlas::Nla;
+
+        self.nlas.iter().find_map(|nla| {
+            if let Nla::Address(v) = nla {
+                let result : &[u8] = &v;
+                Some(result)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn ip_network(&self) -> Result<IpNetwork, String> {
+        let address = self.address()
+            .ok_or("Address message must have an address field".to_string())
+            .and_then(|e| vec_to_ip4(e))?;
+
+        let result = Ipv4Network::new(address, self.header.prefix_len)
+            .map_err(|err| format!("Cannot create ip network {:?}", err))?;
+
+        Ok(IpNetwork::V4(result))
+    }
+}
+
+pub trait LinkMessageExt {
+    fn address(&self) -> Option<&[u8]>;
+
+    fn mtu(&self) -> Option<u32>;
+}
+
+impl LinkMessageExt for LinkMessage {
+    fn address(&self) -> Option<&[u8]> {
+        use rtnetlink::packet::rtnl::link::nlas::Nla;
+
+        self.nlas.iter().find_map(|nla| {
+            if let Nla::Address(v) = nla {
+                let result : &[u8] = &v;
+                Some(result)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn mtu(&self) -> Option<u32> {
+        use rtnetlink::packet::rtnl::link::nlas::Nla;
+
+        self.nlas.iter().find_map(|nla| {
+            if let Nla::Mtu(result) = nla {
+                Some(*result)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 pub trait RouteMessageExt {

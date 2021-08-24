@@ -1,7 +1,7 @@
-use crate::net::device::{NetworkSettings, SetupMessages, get_default_network_device, RichNetworkInterface};
-use crate::net::socket::{RichSocket};
+use crate::net::device::{NetworkSettings, SetupMessages};
+use crate::net::socket::{LvStream};
 use crate::net::{netlink, vec_to_ip4};
-use crate::net::netlink::{RouteMessageExt, NeighbourMessageExt};
+use crate::net::netlink::{RouteMessageExt, NeighbourMessageExt, LinkMessageExt, AddressMessageExt};
 use crate::net::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
 use crate::mode::VSOCK_PARENT_CID;
 
@@ -15,8 +15,11 @@ use vsock::{VsockStream, VsockListener};
 use threadpool::ThreadPool;
 use pcap::{Capture, Active};
 use nix::sys::socket::SockAddr;
+use nix::net::if_::if_nametoindex;
 
 use std::convert::TryFrom;
+use ipnetwork::IpNetwork;
+use std::net::IpAddr;
 
 pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     let thread_pool = ThreadPool::new(2);
@@ -30,17 +33,23 @@ pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
 
     info!("Connected to enclave!");
 
-    let parent_device = communicate_network_settings(&mut enclave_port)?;
+    let parent_device = pcap::Device::lookup()
+        .map_err(|err| format!("Cannot find device for packet capture {:?}", err))?;
+
+    let network_settings = get_network_settings(&parent_device)?;
+
+    let mtu = network_settings.mtu;
+    communicate_network_settings(network_settings, &mut enclave_port)?;
 
     // `capture` should be properly locked when shared among threads (like tap device),
     // however copying captures is good enough for prototype and it just works.
     let (mut capture, mut write_capture) = if let Some(remote_port) = remote_port{
-        (open_packet_capture_with_port_filter(&parent_device, remote_port)?,
-        open_packet_capture_with_port_filter(&parent_device, remote_port)?)
+        (open_packet_capture_with_port_filter(parent_device.clone(), remote_port, mtu)?,
+         open_packet_capture_with_port_filter(parent_device, remote_port, mtu)?)
     }
     else {
-        (open_packet_capture(&parent_device)?,
-        open_packet_capture(&parent_device)?)
+        (open_packet_capture(parent_device.clone(), mtu)?,
+         open_packet_capture(parent_device, mtu)?)
     };
 
     debug!("Listening to packets from network device!");
@@ -77,15 +86,10 @@ pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     Ok(())
 }
 
-fn communicate_network_settings(vsock : &mut VsockStream) -> Result<RichNetworkInterface, String> {
-    let parent_device = get_default_network_device()
-        .expect("Parent has no suitable network devices!");
+fn communicate_network_settings(settings : NetworkSettings, vsock : &mut VsockStream) -> Result<(), String> {
+    debug!("Read network settings from parent {:?}", settings);
 
-    let network_settings = get_network_settings(&parent_device)?;
-
-    debug!("Read network settings from parent {:?}", network_settings);
-
-    vsock.send(SetupMessages::Settings(network_settings))?;
+    vsock.send(&SetupMessages::Settings(settings))?;
 
     debug!("Sent network settings to the enclave!");
 
@@ -94,7 +98,7 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<RichNetworkI
     match msg {
         SetupMessages::SetupSuccessful => {
             info!("Enclave has setup networking!");
-            Ok(parent_device)
+            Ok(())
         }
         x => {
             Err(format!("Expected message of type {:?}, but got {:?}", SetupMessages::SetupSuccessful, x))
@@ -103,47 +107,53 @@ fn communicate_network_settings(vsock : &mut VsockStream) -> Result<RichNetworkI
 }
 
 #[tokio::main]
-async fn get_network_settings(parent_device : &RichNetworkInterface) -> Result<NetworkSettings, String> {
+async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSettings, String> {
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);
 
     debug!("Connected to netlink");
 
-    let parent_gateway = get_gateway(
-        &netlink_handle,
-        parent_device.0.index).await?;
+    let parent_device_index = if_nametoindex(parent_device.name.as_str())
+        .map_err(|err| format!("Cannot find index for device {}, error {:?}", parent_device.name, err))?;
+
+    let parent_gateway = get_gateway(&netlink_handle, parent_device_index).await?;
 
     let parent_gateway_address = parent_gateway.raw_gateway()
         .expect("No default gateway was found in parent!");
 
     let parent_arp = get_neighbor_by_address(
         &netlink_handle,
-        parent_device.0.index,
+        parent_device_index,
         parent_gateway_address).await?;
 
-    let mac_address = parent_device.0.mac
-        .expect("Parent device has no MAC address!")
-        .octets();
+    let parent_links = netlink::get_links_for_device(&netlink_handle, parent_device_index).await?;
+
+    let parent_link = if parent_links.len() != 1 {
+        return Err(format!("Device {} should have exactly 1 link!", parent_device.name))
+    }
+    else {
+        &parent_links[0]
+    };
+
+    let mac_address = parent_link.address()
+        .map(|e| <[u8; 6]>::try_from(&e[..]))
+        .expect("Parent link should have an address!")
+        .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
+
+    let mtu = parent_link.mtu().expect("Parent device should have an MTU!");
 
     let link_local_address = parent_arp.link_local_address()
         .map(|e|  <[u8; 6]>::try_from(&e[..]))
         .expect("ARP entry should have link local address")
-        .map_err(|err| format!("Cannot convert vec {:?}", err))?;
+        .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
 
-    /*if parent_device.0.ips.len() > 1 {
-        return Err(format!("Parent device {} should have only one ip address!", parent_device.0.name))
-    }*/
+    let ip_network = get_ip_network(&netlink_handle, parent_device_index).await?;
 
-    let ip_network = parent_device.0.ips[0];
-
-    let gateway_address = vec_to_ip4(parent_gateway_address)?;
-
-    let mtu = parent_device.get_mtu()?;
+    let gateway_address = IpAddr::V4(vec_to_ip4(parent_gateway_address)?);
 
     let result = NetworkSettings {
-        self_l3_address: ip_network.ip(),
-        self_prefix: ip_network.mask(),
         self_l2_address: mac_address,
+        self_l3_address: ip_network,
         gateway_l2_address: gateway_address,
         gateway_l3_address: link_local_address,
         mtu
@@ -164,12 +174,19 @@ async fn get_neighbor_by_address(netlink_handle : &rtnetlink::Handle, device_ind
         .and_then(|e| e.ok_or(format!("No ARP entry found for address {:?} in parent!", l3_address)))
 }
 
+async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32) -> Result<IpNetwork, String> {
+    let address = netlink::get_inet_address_for_device(netlink_handle, device_index).await?;
+
+    address.ok_or("No inet address in parent!".to_string())
+        .and_then(|e| e.ip_network())
+}
+
 fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {
     let packet = capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err))?;
 
     debug!("Captured packet from network device in parent! {:?}", packet);
 
-    enclave_stream.send(packet.data.to_vec())?;
+    enclave_stream.send_bytes(&packet.data)?;
 
     debug!("Sent network packet to enclave!");
 
@@ -177,7 +194,7 @@ fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStr
 }
 
 fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream) -> Result<(), String> {
-    let packet : Vec<u8> = from_enclave.receive().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+    let packet = from_enclave.receive_bytes().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
 
     debug!("Received packet from enclave! {:?}", packet);
 

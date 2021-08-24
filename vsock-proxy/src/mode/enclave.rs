@@ -1,6 +1,6 @@
 use crate::net::netlink;
 use crate::net::device::{NetworkSettings, SetupMessages};
-use crate::net::socket::{RichSocket};
+use crate::net::socket::{LvStream};
 use crate::{net};
 use crate::mode::VSOCK_PARENT_CID;
 
@@ -94,7 +94,7 @@ fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &Network
 
     info!("Finished network setup!");
 
-    vsock.send(SetupMessages::SetupSuccessful)?;
+    vsock.send(&SetupMessages::SetupSuccessful)?;
 
     Ok(tap_device)
 }
@@ -112,7 +112,7 @@ async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &Netw
 
     debug!("Tap index {}", tap_index);
 
-    netlink::set_address(&netlink_handle, tap_index, &parent_settings.self_l2_address).await?;
+    netlink::set_link(&netlink_handle, tap_index, &parent_settings.self_l2_address).await?;
     info!("MAC address for tap is set!");
 
     let gateway_addr = parent_settings.gateway_l2_address;
@@ -135,7 +135,7 @@ async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &Netw
 }
 
 fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<(), String> {
-    let packet : Vec<u8> = vsock.receive()?;
+    let packet = vsock.receive_bytes()?;
 
     debug!("Received packet from parent! {:?}", packet);
 
@@ -177,7 +177,7 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStr
 
     debug!("Read packet from tap! {:?}", buf);
 
-    vsock.send(buf)?;
+    vsock.send_bytes(&buf)?;
 
     debug!("Sent packet to parent!");
 
