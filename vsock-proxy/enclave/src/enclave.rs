@@ -1,23 +1,21 @@
-use crate::net::netlink;
-use crate::net::device::{NetworkSettings, SetupMessages};
-use crate::net::socket::{LvStream};
-use crate::{net};
-use crate::mode::VSOCK_PARENT_CID;
-
-use tun::platform::linux::Device;
 use log::{
     debug,
-    info,
-    error
+    error,
+    info
 };
 use nix::net::if_::if_nametoindex;
-use vsock::VsockStream;
-use threadpool::ThreadPool;
 use nix::sys::socket::SockAddr;
+use threadpool::ThreadPool;
+use tun::platform::linux::Device;
+use vsock::VsockStream;
 
-use std::net::IpAddr;
+use shared::device::{NetworkSettings, SetupMessages};
+use shared::{VSOCK_PARENT_CID};
+use shared::socket::LvStream;
+
 use std::{sync, thread};
-use std::io::{Write, Read};
+use std::io::{Read, Write};
+use std::net::IpAddr;
 
 pub fn run(vsock_port: u32) -> Result<(), String> {
     let thread_pool = ThreadPool::new(2);
@@ -85,7 +83,7 @@ fn receive_parent_network_settings(vsock : &mut VsockStream) -> Result<NetworkSe
 }
 
 fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &NetworkSettings) -> Result<Device, String> {
-    let tap_device = net::device::create_tap_device(&parent_settings)?;
+    let tap_device = shared::device::create_tap_device(&parent_settings)?;
     tap_device.set_nonblock().map_err(|_err| "Cannot set nonblock for tap device".to_string())?;
 
     debug!("Received next settings from parent {:?}", parent_settings);
@@ -102,6 +100,7 @@ fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &Network
 #[tokio::main]
 async fn setup_enclave_networking0(tap_device : &Device, parent_settings : &NetworkSettings) -> Result<(), String> {
     use tun::Device;
+    use shared::netlink;
 
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);

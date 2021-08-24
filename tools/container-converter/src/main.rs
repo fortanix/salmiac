@@ -7,15 +7,13 @@ use clap::{
 use env_logger;
 use log::{info};
 use async_std::task;
+use tempfile::TempDir;
+
 use container_converter::{
     ParentImageBuilder,
-    EnclaveImageBuilder,
-    global_resources
+    EnclaveImageBuilder
 };
 use container_converter::image::DockerUtil;
-use container_converter::file::create_work_dir;
-
-use std::env;
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -36,8 +34,7 @@ fn main() -> Result<(), String> {
     let client_cmd = image.details.config.cmd.expect("No CMD present in user image");
 
     info!("Creating working directory!");
-    let global_resources = global_resources();
-    let temp_dir = create_work_dir(&global_resources)?;
+    let temp_dir = TempDir::new().map_err(|err| format!("Cannot create temp dir {:?}", err))?;
 
     let enclave_builder = EnclaveImageBuilder {
         client_image: client_image.clone(),

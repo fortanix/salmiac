@@ -6,7 +6,7 @@ use rtnetlink::{IpVersion};
 
 use std::net::{Ipv4Addr, IpAddr};
 use ipnetwork::{IpNetwork, Ipv4Network};
-use crate::net::vec_to_ip4;
+use crate::vec_to_ip4;
 
 const FAMILY_INET : u8 = 2;
 

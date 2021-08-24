@@ -63,14 +63,18 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::Resource {
                 name: "start-enclave.sh".to_string(),
                 data: include_bytes!("resources/enclave/start-enclave.sh").to_vec(),
-            }
+            },
+            file::Resource {
+                name: "enclave".to_string(),
+                data: include_bytes!("resources/enclave/enclave").to_vec(),
+            },
         ]
     }
 
     fn requisites(&self) -> Vec<String> {
         vec![
             "start-enclave.sh".to_string(),
-            "vsock-proxy".to_string()
+            "enclave".to_string(),
         ]
     }
 
@@ -218,14 +222,14 @@ impl<'a> ParentImageBuilder<'a> {
         if cfg!(debug_assertions) {
             format!(
                 "\n\
-                ./vsock-proxy parent --remote-port 8080 --vsock-port 5006 & \n\
+                ./parent --remote-port 8080 --vsock-port 5006 & \n\
                 nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
                 sanitized_nitro_file)
         }
         else {
             format!(
                 "\n\
-                ./vsock-proxy parent --vsock-port 5006 & \n\
+                ./parent --vsock-port 5006 & \n\
                 nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
                 sanitized_nitro_file)
         }
@@ -249,6 +253,10 @@ impl<'a> ParentImageBuilder<'a> {
             file::Resource {
                 name: "allocator.yaml".to_string(),
                 data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
+            },
+            file::Resource {
+                name: "parent".to_string(),
+                data: include_bytes!("resources/parent/parent").to_vec(),
             }
         ]
     }
@@ -257,16 +265,7 @@ impl<'a> ParentImageBuilder<'a> {
         vec![
             "allocator.yaml".to_string(),
             "start-parent.sh".to_string(),
-            "vsock-proxy".to_string()
+            "parent".to_string()
         ]
     }
-}
-
-pub fn global_resources() -> Vec<file::Resource> {
-    vec![
-        file::Resource {
-            name: "vsock-proxy".to_string(),
-            data: include_bytes!("resources/vsock-proxy").to_vec(),
-        }
-    ]
 }

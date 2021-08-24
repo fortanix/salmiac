@@ -1,25 +1,27 @@
-use crate::net::device::{NetworkSettings, SetupMessages};
-use crate::net::socket::{LvStream};
-use crate::net::{netlink, vec_to_ip4};
-use crate::net::netlink::{RouteMessageExt, NeighbourMessageExt, LinkMessageExt, AddressMessageExt};
-use crate::net::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
-use crate::mode::VSOCK_PARENT_CID;
-
-use rtnetlink::packet::{RouteMessage, NeighbourMessage};
+use ipnetwork::IpNetwork;
 use log::{
     debug,
-    info,
-    error
+    error,
+    info
 };
-use vsock::{VsockStream, VsockListener};
-use threadpool::ThreadPool;
-use pcap::{Capture, Active};
-use nix::sys::socket::SockAddr;
 use nix::net::if_::if_nametoindex;
+use nix::sys::socket::SockAddr;
+use pcap::{Active, Capture};
+use rtnetlink::packet::{NeighbourMessage, RouteMessage};
+use threadpool::ThreadPool;
+use vsock::{VsockListener, VsockStream};
+
+use shared::device::{NetworkSettings, SetupMessages};
+use shared::netlink::{AddressMessageExt, LinkMessageExt, NeighbourMessageExt, RouteMessageExt};
+use shared::netlink;
+use shared::VSOCK_PARENT_CID;
+use shared::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
+use shared::socket::LvStream;
+use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
-use ipnetwork::IpNetwork;
 use std::net::IpAddr;
+
 
 pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     let thread_pool = ThreadPool::new(2);
