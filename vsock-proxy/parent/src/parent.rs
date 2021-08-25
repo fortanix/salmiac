@@ -11,11 +11,11 @@ use rtnetlink::packet::{NeighbourMessage, RouteMessage};
 use threadpool::ThreadPool;
 use vsock::{VsockListener, VsockStream};
 
+use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::netlink::{AddressMessageExt, LinkMessageExt, NeighbourMessageExt, RouteMessageExt};
 use shared::netlink;
 use shared::VSOCK_PARENT_CID;
-use shared::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
 use shared::socket::LvStream;
 use shared::vec_to_ip4;
 

@@ -1,6 +1,5 @@
 pub mod device;
 pub mod netlink;
-pub mod packet_capture;
 pub mod socket;
 
 use clap::{

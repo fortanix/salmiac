@@ -1,4 +1,5 @@
 mod parent;
+mod packet_capture;
 
 use shared::{parse_console_argument, parse_optional_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
