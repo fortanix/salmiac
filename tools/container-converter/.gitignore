@@ -1,1 +1,2 @@
-src/resources/vsock-proxy
+src/resources/parent/parent
+src/resources/enclave/enclave

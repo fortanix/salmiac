@@ -1,5 +1,3 @@
-use tempfile::TempDir;
-
 use std::fs;
 use std::io::{Write, BufReader, BufRead};
 use std::os::unix::fs::PermissionsExt;
@@ -29,14 +27,6 @@ pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), S
     }
 
     Ok(())
-}
-
-pub fn create_work_dir(resources : &Vec<Resource>) -> Result<TempDir, String> {
-    let result = TempDir::new().map_err(|err| format!("Cannot create temp dir {:?}", err))?;
-
-    create_resources(resources, result.path())?;
-
-    Ok(result)
 }
 
 pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
