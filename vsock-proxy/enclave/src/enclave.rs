@@ -41,10 +41,10 @@ pub fn run(vsock_port: u32) -> Result<(), String> {
             let read = read_from_tap(&tap_read, &mut vsock_write, mtu);
 
             match read {
+                // FIXME: SALM-35
                 Ok(0) => {
                     thread::sleep_ms(5000); // if nothing was read then wait some time for packet
                 }
-                // FIXME: SALM-35
                 Err(e) => {
                     error!("Failure reading from tap device {:?}", e);
                     break;
