@@ -160,7 +160,7 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
 }
 
 async fn get_gateway(netlink_handle : &rtnetlink::Handle, device_index : u32) -> Result<RouteMessage, String> {
-    netlink::get_route_for_device(&netlink_handle, device_index)
+    netlink::get_default_route_for_device(&netlink_handle, device_index)
         .await
         .and_then(|e| e.ok_or(format!("No default gateway was found in parent!")))
 }
@@ -172,10 +172,14 @@ async fn get_neighbor_by_address(netlink_handle : &rtnetlink::Handle, device_ind
 }
 
 async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32) -> Result<IpNetwork, String> {
-    let address = netlink::get_inet_address_for_device(netlink_handle, device_index).await?;
+    let addresses = netlink::get_inet_addresses_for_device(netlink_handle, device_index).await?;
 
-    address.ok_or("No inet address in parent!".to_string())
-        .and_then(|e| e.ip_network())
+    if addresses.len() != 1 {
+        Err(format!("Device with index {} should have only one inet address", device_index))
+    }
+    else {
+        addresses[0].ip_network()
+    }
 }
 
 fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {

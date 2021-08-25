@@ -16,19 +16,20 @@ pub fn connect() -> (Connection<RtnlMessage> , rtnetlink::Handle) {
     (connection, handle)
 }
 
-pub async fn get_inet_address_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Option<AddressMessage>, String> {
+pub async fn get_inet_addresses_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Vec<AddressMessage>, String> {
     let mut links = handle.address()
         .get()
         .set_link_index_filter(device_index)
         .execute();
 
+    let mut result : Vec<AddressMessage> = Vec::new();
     while let Some(link) = next_in_stream(&mut links).await? {
         if link.header.family == FAMILY_INET {
-            return Ok(Some(link))
+            result.push(link);
         }
     }
 
-    Ok(None)
+    Ok(result)
 }
 
 pub async fn get_link_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Option<LinkMessage>, String> {
@@ -37,11 +38,19 @@ pub async fn get_link_for_device(handle : &rtnetlink::Handle, device_index: u32)
         .match_index(device_index)
         .execute();
 
+    let mut result : Option<LinkMessage> = None;
     while let Some(link) = next_in_stream(&mut links).await? {
-        return Ok(Some(link))
+        match result {
+            None => {
+                result = Some(link)
+            }
+            _ => {
+                return Err(format!("Device with index {} should have only one link. Found link: {:?}", device_index, link))
+            }
+        }
     }
 
-    Ok(None)
+    Ok(result)
 }
 
 pub async fn set_link(handle : &rtnetlink::Handle, device_index: u32, mac_address: &[u8; 6]) -> Result<(), String> {
@@ -72,15 +81,14 @@ pub async fn add_default_gateway(handle : &rtnetlink::Handle, address : Ipv4Addr
         .map_err(|err| format!("Failed to create default gateway {:?}", err))
 }
 
-pub async fn get_route_for_device(handle :&rtnetlink::Handle, device_index : u32) -> Result<Option<RouteMessage>, String> {
+pub async fn get_default_route_for_device(handle :&rtnetlink::Handle, device_index : u32) -> Result<Option<RouteMessage>, String> {
     let mut routes = handle.route().get(IpVersion::V4).execute();
 
     while let Some(route) = next_in_stream(&mut routes).await? {
-        match route.output_interface() {
-            Some(index) if route.gateway().is_some() && index == device_index => {
-                return Ok(Some(route))
-            }
-            _ => {}
+        // default route has no destination or /0 destination
+        if route.output_interface() == Some(device_index) &&
+            route.destination_prefix().map_or(true, |(_, prefix)| prefix == 0) {
+            return Ok(Some(route))
         }
     }
 

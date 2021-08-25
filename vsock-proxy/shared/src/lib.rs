@@ -7,8 +7,6 @@ use clap::{
     ArgMatches
 };
 
-use std::str::FromStr;
-use std::fmt::Display;
 use std::num::ParseIntError;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
@@ -30,11 +28,11 @@ pub fn vec_to_ip6(vec : &[u16]) -> Result<Ipv6Addr, String> {
 
 pub const VSOCK_PARENT_CID: u32 = 3; // From AWS Nitro documentation.
 
-pub fn parse_console_argument<T : FromStr + Display + NumArg>(args: &ArgMatches, name: &str) -> T {
+pub fn parse_console_argument<T : NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
 }
 
-pub fn parse_optional_console_argument<T : FromStr + Display + NumArg>(args: &ArgMatches, name: &str) -> Option<T> {
+pub fn parse_optional_console_argument<T : NumArg>(args: &ArgMatches, name: &str) -> Option<T> {
     args.value_of(name).map(|e| T::parse_arg(e))
 }
 
