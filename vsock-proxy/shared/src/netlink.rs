@@ -31,18 +31,17 @@ pub async fn get_inet_address_for_device(handle : &rtnetlink::Handle, device_ind
     Ok(None)
 }
 
-pub async fn get_links_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Vec<LinkMessage>, String> {
+pub async fn get_link_for_device(handle : &rtnetlink::Handle, device_index: u32) -> Result<Option<LinkMessage>, String> {
     let mut links = handle.link()
         .get()
         .match_index(device_index)
         .execute();
 
-    let mut result : Vec<LinkMessage> = Vec::new();
     while let Some(link) = next_in_stream(&mut links).await? {
-        result.push(link)
+        return Ok(Some(link))
     }
 
-    Ok(result)
+    Ok(None)
 }
 
 pub async fn set_link(handle : &rtnetlink::Handle, device_index: u32, mac_address: &[u8; 6]) -> Result<(), String> {

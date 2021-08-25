@@ -128,14 +128,9 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
         parent_device_index,
         parent_gateway_address).await?;
 
-    let parent_links = netlink::get_links_for_device(&netlink_handle, parent_device_index).await?;
-
-    let parent_link = if parent_links.len() != 1 {
-        return Err(format!("Device {} should have exactly 1 link!", parent_device.name))
-    }
-    else {
-        &parent_links[0]
-    };
+    let parent_link = netlink::get_link_for_device(&netlink_handle, parent_device_index)
+        .await?
+        .expect(&format!("Device {} must have a link!", parent_device.name));
 
     let mac_address = parent_link.address()
         .map(|e| <[u8; 6]>::try_from(&e[..]))
