@@ -84,7 +84,11 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let copy = DockerCopyArgs::copy_to_home(self.requisites());
 
-        file::populate_docker_file(&mut docker_file, &self.client_image, &copy, "./start-enclave.sh")?;
+        file::populate_docker_file(&mut docker_file,
+                                   &self.client_image,
+                                   &copy,
+                                   "./start-enclave.sh",
+                                   &rust_log_env_var())?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(self.dir.path())?;
@@ -156,7 +160,11 @@ impl<'a> ParentImageBuilder<'a> {
 
         let copy = DockerCopyArgs::copy_to_home(all_requisites);
 
-        file::populate_docker_file(&mut docker_file, &self.parent_image, &copy, "./start-parent.sh")?;
+        file::populate_docker_file(&mut docker_file,
+                                   &self.parent_image,
+                                   &copy,
+                                   "./start-parent.sh",
+                                   &rust_log_env_var())?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(self.dir.path())?;
@@ -234,4 +242,15 @@ pub fn global_resources() -> Vec<file::Resource> {
             data: include_bytes!("resources/vsock-proxy").to_vec(),
         }
     ]
+}
+
+fn rust_log_env_var() -> String {
+    format!("RUST_LOG={}", {
+        if cfg!(debug_assertions) {
+            "debug"
+        }
+        else {
+            "info"
+        }
+    })
 }

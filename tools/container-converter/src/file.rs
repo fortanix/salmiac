@@ -47,13 +47,15 @@ pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
         .map_err(|err| format!("Failed to create docker file {:?}", err))
 }
 
-pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &DockerCopyArgs, cmd : &str) -> Result<(), String> {
+pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &DockerCopyArgs, cmd : &str, env : &str) -> Result<(), String> {
     let filled_contents = format!(
         "FROM {} \n\
          COPY {} ./ \n\
+         ENV  {} \n\
          CMD  {} \n",
         image_name,
         copy.to_string(),
+        env,
         cmd
     );
 
