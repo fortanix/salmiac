@@ -63,14 +63,18 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::Resource {
                 name: "start-enclave.sh".to_string(),
                 data: include_bytes!("resources/enclave/start-enclave.sh").to_vec(),
-            }
+            },
+            file::Resource {
+                name: "enclave".to_string(),
+                data: include_bytes!("resources/enclave/enclave").to_vec(),
+            },
         ]
     }
 
     fn requisites(&self) -> Vec<String> {
         vec![
             "start-enclave.sh".to_string(),
-            "vsock-proxy".to_string()
+            "enclave".to_string(),
         ]
     }
 
@@ -111,15 +115,35 @@ impl<'a> EnclaveImageBuilder<'a> {
             .open(&self.dir.path().join("start-enclave.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
+        if cfg!(debug_assertions) {
+            file.write_all(EnclaveImageBuilder::debug_networking_command().as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
+        }
+
         // todo: sanitize the user cmd before putting it into startup script.
         // Escape chars like: ' ” \ or ;.
-        let cmd = self.client_cmd.join(" ");
+        let cmd = "\n".to_string() + &self.client_cmd.join(" ");
 
         file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
 
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
+    }
+
+    fn debug_networking_command() -> String {
+        "\n\
+        # Debug code. \n\
+        # Dumps networking info to make sure that enclave is setup correctly \n\
+        sleep 30 \n\
+        echo \"Devices start\" \n\
+        ip a \n\
+        echo \"Devices end\" \n\
+        echo \"Routes start\" \n\
+        ip r \n\
+        echo \"Routes end\" \n\
+        echo \"ARP start\" \n\
+        ip neigh \n\
+        echo \"ARP end\" \n".to_string()
     }
 }
 
@@ -199,14 +223,27 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn start_enclave_command(&self) -> String {
-        format!(
-            "./vsock-proxy proxy --remote-port 8080 --vsock-port 5006 & \n\
-            nitro-cli run-enclave --eif-path {} --enclave-cid 4 --cpu-count 2 --memory 2200 --debug-mode \n",
-            self.nitro_file)
+        let sanitized_nitro_file = format!("'{}'", self.nitro_file);
+
+        if cfg!(debug_assertions) {
+            format!(
+                "\n\
+                ./parent --remote-port 8080 --vsock-port 5006 & \n\
+                nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
+                sanitized_nitro_file)
+        }
+        else {
+            format!(
+                "\n\
+                ./parent --vsock-port 5006 & \n\
+                nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
+                sanitized_nitro_file)
+        }
     }
 
     fn connect_to_enclave_command() -> String {
-        "cat /var/log/nitro_enclaves/* \n\
+        "\n\
+         cat /var/log/nitro_enclaves/* \n\
          ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID') \n\
          ID=\"${ID%\\\"}\" \n\
          ID=\"${ID#\\\"}\" \n\
@@ -222,6 +259,10 @@ impl<'a> ParentImageBuilder<'a> {
             file::Resource {
                 name: "allocator.yaml".to_string(),
                 data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
+            },
+            file::Resource {
+                name: "parent".to_string(),
+                data: include_bytes!("resources/parent/parent").to_vec(),
             }
         ]
     }
@@ -230,18 +271,9 @@ impl<'a> ParentImageBuilder<'a> {
         vec![
             "allocator.yaml".to_string(),
             "start-parent.sh".to_string(),
-            "vsock-proxy".to_string()
+            "parent".to_string()
         ]
     }
-}
-
-pub fn global_resources() -> Vec<file::Resource> {
-    vec![
-        file::Resource {
-            name: "vsock-proxy".to_string(),
-            data: include_bytes!("resources/vsock-proxy").to_vec(),
-        }
-    ]
 }
 
 fn rust_log_env_var() -> String {
