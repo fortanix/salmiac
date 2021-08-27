@@ -20,9 +20,15 @@ fn main() -> Result<(), String> {
 
     let console_arguments = console_arguments();
 
-    let client_image = console_arguments.value_of("image").expect("Image argument must be supplied").to_string();
-    let parent_image = console_arguments.value_of("parent-image").unwrap_or("parent-base").to_string();
-    let output_image = console_arguments.value_of("output-image").unwrap_or(&*(client_image.clone() + "-parent")).to_string();
+    let client_image = console_arguments.value_of("image")
+        .expect("Image argument must be supplied")
+        .to_string();
+    let parent_image = console_arguments.value_of("parent-image")
+        .unwrap_or("parent-base")
+        .to_string();
+    let output_image = console_arguments.value_of("output-image")
+        .unwrap_or(&(client_image.clone() + "-parent"))
+        .to_string();
 
     let docker_util = DockerUtil::new(client_image.clone());
 
