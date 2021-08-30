@@ -1,0 +1,3 @@
+[submodule "tools/build-container/devops"]
+	path = tools/build-container/devops
+	url = ssh://git@bitbucket.org/fortanix/devops.git

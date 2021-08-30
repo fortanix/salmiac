@@ -2,7 +2,8 @@
 
 set -Eeuo pipefail
 
-source tools/bitbucket-api/bitbucket-buildstatus.sh
+git submodule update --init
+source tools/build-container/devops/tools/bitbucket-api/bitbucket-buildstatus.sh
 
 testname="salmiac-pr"
 description="Builds Salmiac project and runs tests"
