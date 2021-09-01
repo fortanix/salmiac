@@ -15,8 +15,7 @@ fn main() -> Result<(), String> {
         let remote_port = parse_optional_console_argument::<u32>(&matches, "remote-port");
 
         parent::run(vsock_port, remote_port)?;
-    }
-    else {
+    } else {
         parent::run(vsock_port, None)?;
     }
 

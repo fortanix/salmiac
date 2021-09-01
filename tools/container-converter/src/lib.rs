@@ -231,8 +231,7 @@ impl<'a> ParentImageBuilder<'a> {
                 ./parent --remote-port 8080 --vsock-port 5006 & \n\
                 nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
                 sanitized_nitro_file)
-        }
-        else {
+        } else {
             format!(
                 "\n\
                 ./parent --vsock-port 5006 & \n\
@@ -280,8 +279,7 @@ fn rust_log_env_var() -> String {
     format!("RUST_LOG={}", {
         if cfg!(debug_assertions) {
             "debug"
-        }
-        else {
+        } else {
             "info"
         }
     })
