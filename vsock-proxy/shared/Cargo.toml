@@ -13,8 +13,10 @@ byteorder = "1.3"
 tun = {version = "0.5.1" ,features = ["mio"] }
 threadpool = "1.7.1"
 rtnetlink = "0.8.0"
-tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "net"] }
 futures = "0.3"
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
+async-trait = "0.1.51"
+tokio-tun = "0.3.15"

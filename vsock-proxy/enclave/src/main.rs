@@ -3,14 +3,15 @@ mod enclave;
 use shared::{parse_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
 
-fn main() -> Result<(), String> {
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() -> Result<(), String> {
     env_logger::init();
 
     let matches = console_arguments();
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
-    enclave::run(vsock_port)?;
+    enclave::run(vsock_port).await?;
 
     Ok(())
 }

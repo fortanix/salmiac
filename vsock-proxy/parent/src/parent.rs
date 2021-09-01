@@ -35,6 +35,15 @@ pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
 
     info!("Connected to enclave!");
 
+    info!("Awaiting confirmation from enclave for data!");
+
+    let data_listener = listen_parent(100)?;
+    let mut enclave_data_port = data_listener.accept()
+        .map(|r| r.0)
+        .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
+
+    info!("Connected to enclave for data!");
+
     let parent_device = pcap::Device::lookup()
         .map_err(|err| format!("Cannot find device for packet capture {:?}", err))?;
 
@@ -56,8 +65,8 @@ pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
 
     debug!("Listening to packets from network device!");
 
-    let mut vsock_write = enclave_port.clone();
-    let mut vsock_read = enclave_port.clone();
+    let mut vsock_write = enclave_data_port.clone();
+    let mut vsock_read = enclave_data_port.clone();
 
     thread_pool.execute(move || {
         loop {
