@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
-set -Eeuox pipefail
+set -Eeox pipefail
 
-docker build --target build -t test-salmiac -f docker/vsock-proxy/Dockerfile .
+if [ $# -ge 1 ]; then
+    RELEASE=$1
+fi
+
+docker build --target build -t test-salmiac --build-arg RELEASE=$RELEASE -f docker/vsock-proxy/Dockerfile .

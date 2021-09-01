@@ -1,6 +1,10 @@
 pipeline {
     agent { label 'sdkms-build-server' }
 
+    options {
+        skipDefaultCheckout(true)
+    }
+
     parameters { string(name: 'pr_source_branch', defaultValue: '', description: 'set by Generic Webhook Trigger') }
 
     triggers {
@@ -26,7 +30,14 @@ pipeline {
         stage('Build') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'tempBitBucketOauth', usernameVariable: 'bitbucket_key', passwordVariable: 'bitbucket_secret')]) {
-                    sh './pipeline.sh'
+                    cleanWs()
+                    checkout scm
+
+                    timestamps {
+                        sshagent(['buildbot-ssh']) {
+                            sh("./pipeline.sh")
+                        }
+                    }
                 }
             }
         }

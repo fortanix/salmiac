@@ -4,17 +4,12 @@ RUN apt-get update && \
 
 ADD vsock-proxy /opt/salmiac/vsock-proxy
 ADD tools/container-converter /opt/salmiac/tools/container-converter
+ADD build-solution.sh /opt/salmiac/
 
 WORKDIR /opt/salmiac
 
-RUN cd vsock-proxy && \
-    cat Cargo.toml && \
-    cargo build
-
-RUN cd tools/container-converter && \
-    cat Cargo.toml && \
-    cat build-project.sh && \
-    ./build-project.sh
+ARG RELEASE=debug
+RUN bash -x ./build-solution.sh $RELEASE
 
 FROM ubuntu-networking
 
