@@ -88,7 +88,11 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let copy = DockerCopyArgs::copy_to_home(self.requisites());
 
-        file::populate_docker_file(&mut docker_file, &self.client_image, &copy, "./start-enclave.sh")?;
+        file::populate_docker_file(&mut docker_file,
+                                   &self.client_image,
+                                   &copy,
+                                   "./start-enclave.sh",
+                                   &rust_log_env_var())?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(self.dir.path())?;
@@ -144,7 +148,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 }
 
 pub struct ParentImageBuilder<'a> {
-    pub client_image : String,
+    pub output_image : String,
 
     pub parent_image : String,
 
@@ -163,9 +167,7 @@ impl<'a> ParentImageBuilder<'a> {
         self.create_requisites()?;
         info!("Parent prerequisites have been created!");
 
-        let result_image_name = self.client_image.clone() + "-parent";
-
-        docker_util.create_image(self.dir.path(), &result_image_name)?;
+        docker_util.create_image(self.dir.path(), &self.output_image)?;
         info!("Parent image has been created!");
 
         Ok(())
@@ -182,7 +184,11 @@ impl<'a> ParentImageBuilder<'a> {
 
         let copy = DockerCopyArgs::copy_to_home(all_requisites);
 
-        file::populate_docker_file(&mut docker_file, &self.parent_image, &copy, "./start-parent.sh")?;
+        file::populate_docker_file(&mut docker_file,
+                                   &self.parent_image,
+                                   &copy,
+                                   "./start-parent.sh",
+                                   &rust_log_env_var())?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(self.dir.path())?;
@@ -225,8 +231,7 @@ impl<'a> ParentImageBuilder<'a> {
                 ./parent --remote-port 8080 --vsock-port 5006 & \n\
                 nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
                 sanitized_nitro_file)
-        }
-        else {
+        } else {
             format!(
                 "\n\
                 ./parent --vsock-port 5006 & \n\
@@ -268,4 +273,14 @@ impl<'a> ParentImageBuilder<'a> {
             "parent".to_string()
         ]
     }
+}
+
+fn rust_log_env_var() -> String {
+    format!("RUST_LOG={}", {
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "info"
+        }
+    })
 }
