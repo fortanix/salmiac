@@ -3,7 +3,7 @@ mod enclave;
 use shared::{parse_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), String> {
     env_logger::init();
 

@@ -38,7 +38,7 @@ pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     info!("Awaiting confirmation from enclave for data!");
 
     let data_listener = listen_parent(100)?;
-    let mut enclave_data_port = data_listener.accept()
+    let enclave_data_port = data_listener.accept()
         .map(|r| r.0)
         .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
 
