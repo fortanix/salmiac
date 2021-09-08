@@ -1,6 +1,5 @@
 use log::{
     debug,
-    error,
     info
 };
 use nix::net::if_::if_nametoindex;
@@ -17,6 +16,11 @@ use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream, LvStream};
 
 use std::net::IpAddr;
 
+#[cfg(feature = "sync")]
+use tun::platform::linux::Device;
+#[cfg(feature = "sync")]
+use std::sync;
+
 pub async fn run(vsock_port: u32) -> Result<(), String> {
     let mut parent_settings_connection = connect_to_parent(vsock_port)?;
 
@@ -24,52 +28,49 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     let parent_data_connection = connect_to_parent_async(100).await?;
 
-    debug!("Connected to Data port");
+    info!("Connected to parent to transmit data!");
 
     let parent_settings = receive_parent_network_settings(&mut parent_settings_connection)?;
 
     let async_tap_device = setup_enclave_networking(&mut parent_settings_connection, &parent_settings).await?;
 
-    debug!("Created tap device in enclave!");
-
-    debug!("Connected to Data port");
-
-    debug!("Connected to parent to transmit data!");
+    info!("Created tap device in enclave!");
 
     let (mut tap_read, mut tap_write) = io::split(async_tap_device);
     let (mut vsock_read, mut vsock_write) = io::split(parent_data_connection);
 
     let mtu = parent_settings.mtu;
 
-    let r = tokio::spawn(async move {
+    let read_tap_loop = tokio::spawn(async move {
         loop {
             match read_from_tap_async(&mut tap_read, &mut vsock_write, mtu).await {
                 Err(e) => {
-                    error!("Failure reading from tap device {:?}", e);
                     return Err(e);
                 }
                 _ => {}
             }
         }
-        Ok(())
     });
 
-    let w = tokio::spawn(async move {
+    debug!("Started tap read loop!");
+
+    let write_tap_loop = tokio::spawn(async move {
         loop {
             match write_to_tap_async(&mut tap_write, &mut vsock_read).await {
                 Err(e) => {
-                    error!("Failure writing to tap device {:?}", e);
                     return Err(e);
                 }
                 _ => {}
             }
         }
-
-        Ok(())
     });
 
-    r.await.map_err(|err| format!("Failure running read from tap task {:?}", err))??;
-    w.await.map_err(|err| format!("Failure running write to tap task {:?}", err))??;
+    debug!("Started tap write loop!");
+
+    let (r, l) = tokio::join!(read_tap_loop, write_tap_loop);
+
+    r.map_err(|err| format!("Failure in tap read loop: {:?}", err))??;
+    l.map_err(|err| format!("Failure in tap write loop: {:?}", err))??;
 
     Ok(())
 }
@@ -173,7 +174,8 @@ async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : 
     Ok(())
 }
 
-/*fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<(), String> {
+#[cfg(feature = "sync")]
+fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<(), String> {
     let packet = vsock.read_lv_bytes()?;
 
     debug!("Received packet from parent! {:?}", packet);
@@ -197,6 +199,7 @@ async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : 
     Ok(())
 }
 
+#[cfg(feature = "sync")]
 fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream, buf_len : u32) -> Result<usize, String> {
     let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
     let mut buf = vec![0 as u8; buf_len as usize];
@@ -221,7 +224,7 @@ fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStr
     debug!("Sent packet to parent!");
 
     Ok(1)
-}*/
+}
 
 fn connect_to_parent(port : u32) -> Result<VsockStream, String> {
     let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, port);

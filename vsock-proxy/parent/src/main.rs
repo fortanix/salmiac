@@ -4,7 +4,8 @@ mod packet_capture;
 use shared::{parse_console_argument, parse_optional_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
 
-fn main() -> Result<(), String> {
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() -> Result<(), String> {
     env_logger::init();
 
     let matches = console_arguments();
@@ -14,10 +15,10 @@ fn main() -> Result<(), String> {
     if cfg!(debug_assertions) {
         let remote_port = parse_optional_console_argument::<u32>(&matches, "remote-port");
 
-        parent::run(vsock_port, remote_port)?;
+        parent::run(vsock_port, remote_port).await?;
     }
     else {
-        parent::run(vsock_port, None)?;
+        parent::run(vsock_port, None).await?;
     }
 
     Ok(())
