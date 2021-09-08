@@ -33,8 +33,7 @@ fn process_output(output : process::Output) -> Result<(), String> {
         error!("status: {}", output.status);
         error!("stderr: {}", String::from_utf8_lossy(&output.stderr));
         Err(format!("Process exited with code {:?}", output.status.code()))
-    }
-    else {
+    } else {
         info!("status: {}", output.status);
         info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
         Ok(())
