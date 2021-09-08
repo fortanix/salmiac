@@ -96,10 +96,10 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
 
     debug!("Started pcap write loop!");
 
-    let (r, l) = tokio::join!(pcap_read_loop, pcap_write_loop);
+    let (read_returned, write_returned) = tokio::join!(pcap_read_loop, pcap_write_loop);
 
-    r.map_err(|err| format!("Failure in pcap read loop: {:?}", err))??;
-    l.map_err(|err| format!("Failure in pcap write loop: {:?}", err))??;
+    read_returned.map_err(|err| format!("Failure in pcap read loop: {:?}", err))??;
+    write_returned.map_err(|err| format!("Failure in pcap write loop: {:?}", err))??;
 
     Ok(())
 }
@@ -211,7 +211,7 @@ async fn read_from_device_async(capture: &mut Fuse<pcap_async::PacketStream>, en
     };
 
     for packet in packets {
-        debug!("Captured packet from network device in parent! {:?}", packet);
+        debug!("Captured packet from pcap! {:?}", packet);
 
         enclave_stream.write_lv_bytes_async(packet.data()).await?;
 
@@ -230,7 +230,7 @@ async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut
 
     capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
 
-    debug!("Sent raw packet to network device!");
+    debug!("Sent packet to network device!");
 
     Ok(())
 }
@@ -239,7 +239,7 @@ async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut
 fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {
     let packet = capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err))?;
 
-    debug!("Captured packet from network device in parent! {:?}", packet);
+    debug!("Captured packet from pcap! {:?}", packet);
 
     enclave_stream.write_lv_bytes(&packet.data)?;
 
@@ -256,7 +256,7 @@ fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream
 
     capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
 
-    debug!("Sent raw packet to network device!");
+    debug!("Sent packet to network device!");
 
     Ok(())
 }

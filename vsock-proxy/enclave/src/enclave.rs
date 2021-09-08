@@ -56,10 +56,10 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     debug!("Started tap write loop!");
 
-    let (r, l) = tokio::join!(read_tap_loop, write_tap_loop);
+    let (read_returned, write_returned) = tokio::join!(read_tap_loop, write_tap_loop);
 
-    r.map_err(|err| format!("Failure in tap read loop: {:?}", err))??;
-    l.map_err(|err| format!("Failure in tap write loop: {:?}", err))??;
+    read_returned.map_err(|err| format!("Failure in tap read loop: {:?}", err))??;
+    write_returned.map_err(|err| format!("Failure in tap write loop: {:?}", err))??;
 
     Ok(())
 }
