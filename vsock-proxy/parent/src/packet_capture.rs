@@ -1,5 +1,5 @@
-use pcap::{Active, Capture};
 use log::info;
+use pcap::{Active, Capture};
 use pcap_async::{Handle, Config};
 use futures::stream::Fuse;
 use futures::StreamExt;

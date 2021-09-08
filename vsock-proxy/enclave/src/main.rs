@@ -1,8 +1,9 @@
 mod enclave;
 
-use shared::{parse_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
 use log::error;
+
+use shared::{parse_console_argument, NumArg};
 
 use std::process;
 

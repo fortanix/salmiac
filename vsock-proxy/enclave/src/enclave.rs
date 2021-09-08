@@ -1,13 +1,11 @@
-use log::{
-    debug,
-    info
-};
+use log::{debug, info};
 use nix::net::if_::if_nametoindex;
 use nix::sys::socket::SockAddr;
-
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::AsyncDevice;
+#[cfg(feature = "sync")]
+use tun::platform::linux::Device;
 use vsock::VsockStream;
 
 use shared::device::{NetworkSettings, SetupMessages};
@@ -15,9 +13,6 @@ use shared::{VSOCK_PARENT_CID};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream, LvStream};
 
 use std::net::IpAddr;
-
-#[cfg(feature = "sync")]
-use tun::platform::linux::Device;
 #[cfg(feature = "sync")]
 use std::sync;
 

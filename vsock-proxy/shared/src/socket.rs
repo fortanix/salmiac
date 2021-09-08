@@ -5,11 +5,6 @@ use byteorder::{
 };
 use serde::{Serialize};
 use serde::de::DeserializeOwned;
-
-use std::io::{
-    Read,
-    Write
-};
 use tokio::io::{
     AsyncRead,
     AsyncWrite,
@@ -18,6 +13,12 @@ use tokio::io::{
 };
 use async_trait::async_trait;
 
+use std::io::{
+    Read,
+    Write
+};
+
+/// Async variant of `LvStream`
 #[async_trait]
 pub trait AsyncWriteLvStream : AsyncWrite {
     async fn write_lv_bytes_async(&mut self, data: &[u8]) -> Result<(), String>;

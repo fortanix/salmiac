@@ -2,12 +2,11 @@ use serde::{
     Serialize,
     Deserialize
 };
-
-//use tun::platform::linux::Device as TunDevice;
-use std::net::IpAddr;
 use ipnetwork::IpNetwork;
 use tun::{AsyncDevice};
 use tun::platform::linux::Device as TapDevice;
+
+use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {

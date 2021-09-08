@@ -7,10 +7,13 @@ use nix::net::if_::if_nametoindex;
 use nix::sys::socket::SockAddr;
 use pcap::{Active, Capture};
 use rtnetlink::packet::{NeighbourMessage, RouteMessage};
-use vsock::{VsockListener, VsockStream};
 use tokio::io;
+use tokio::io::{WriteHalf, ReadHalf};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio_vsock::VsockListener as AsyncVsockListener;
+use futures::{StreamExt};
+use futures::stream::Fuse;
+use vsock::{VsockListener, VsockStream};
 
 use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter, open_async_packet_capture, open_async_packet_capture_with_port_filter};
 use shared::device::{NetworkSettings, SetupMessages};
@@ -26,9 +29,6 @@ use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
 use std::net::IpAddr;
-use tokio::io::{WriteHalf, ReadHalf};
-use futures::{StreamExt};
-use futures::stream::Fuse;
 
 pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     let enclave_listener = listen_parent(vsock_port)?;
