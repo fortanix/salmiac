@@ -43,11 +43,8 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     let read_tap_loop = tokio::spawn(async move {
         loop {
-            match read_from_tap_async(&mut tap_read, &mut vsock_write, mtu).await {
-                Err(e) => {
-                    return Err(e);
-                }
-                _ => {}
+            if let Err(e) = read_from_tap_async(&mut tap_read, &mut vsock_write, mtu).await {
+                return Err(e);
             }
         }
     });
@@ -56,11 +53,8 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     let write_tap_loop = tokio::spawn(async move {
         loop {
-            match write_to_tap_async(&mut tap_write, &mut vsock_read).await {
-                Err(e) => {
-                    return Err(e);
-                }
-                _ => {}
+            if let Err(e) = write_to_tap_async(&mut tap_write, &mut vsock_read).await {
+                return Err(e);
             }
         }
     });

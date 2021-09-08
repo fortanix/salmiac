@@ -3,6 +3,9 @@ mod packet_capture;
 
 use shared::{parse_console_argument, parse_optional_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
+use log::error;
+
+use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
@@ -11,14 +14,15 @@ async fn main() -> Result<(), String> {
     let matches = console_arguments();
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
+    let remote_port = if cfg!(debug_assertions) {
+        parse_optional_console_argument::<u32>(&matches, "remote-port")
+    } else {
+        None
+    };
 
-    if cfg!(debug_assertions) {
-        let remote_port = parse_optional_console_argument::<u32>(&matches, "remote-port");
-
-        parent::run(vsock_port, remote_port).await?;
-    }
-    else {
-        parent::run(vsock_port, None).await?;
+    if let Err(e) = parent::run(vsock_port, remote_port).await {
+        error!("{}", e);
+        process::exit(1);
     }
 
     Ok(())

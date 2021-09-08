@@ -66,23 +66,20 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
             remote_port)?;
         let write_capture = open_packet_capture_with_port_filter(parent_device, remote_port)?;
 
-        (read_capture.fuse(), write_capture)
+        (read_capture, write_capture)
     } else {
         let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
         let write_capture = open_packet_capture(parent_device)?;
 
-        (read_capture.fuse(), write_capture)
+        (read_capture, write_capture)
     };
 
     let (mut vsock_read, mut vsock_write) = io::split(enclave_data_port);
 
     let pcap_read_loop = tokio::spawn(async move {
         loop {
-            match read_from_device_async(&mut read_capture, &mut vsock_write).await {
-                Err(e) => {
-                    return Err(e)
-                }
-                _ => {}
+            if let Err(e) = read_from_device_async(&mut read_capture, &mut vsock_write).await {
+                return Err(e)
             }
         }
     });
@@ -91,11 +88,8 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
 
     let pcap_write_loop = tokio::spawn(async move {
         loop {
-            match write_to_device_async(&mut write_capture, &mut vsock_read).await {
-                Err(e) => {
-                    return Err(e)
-                }
-                _ => {}
+            if let Err(e) = write_to_device_async(&mut write_capture, &mut vsock_read).await {
+                return Err(e)
             }
         }
     });

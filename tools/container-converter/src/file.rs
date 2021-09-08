@@ -45,7 +45,7 @@ pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &Doc
          CMD  {} \n",
         image_name,
         copy.to_string(),
-        "RUST_LOG=debug",
+        env,
         cmd
     );
 

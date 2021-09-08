@@ -2,6 +2,9 @@ mod enclave;
 
 use shared::{parse_console_argument, NumArg};
 use clap::{ArgMatches, App, AppSettings, Arg};
+use log::error;
+
+use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
@@ -11,7 +14,10 @@ async fn main() -> Result<(), String> {
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
-    enclave::run(vsock_port).await?;
+    if let Err(e) = enclave::run(vsock_port).await {
+        error!("{}", e);
+        process::exit(1);
+    }
 
     Ok(())
 }
