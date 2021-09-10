@@ -31,11 +31,12 @@ use std::convert::TryFrom;
 use std::net::IpAddr;
 
 pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
-    let enclave_listener = listen_parent(vsock_port)?;
+    let mut enclave_listener = listen_parent_async(vsock_port)?;
 
     info!("Awaiting confirmation from enclave!");
 
     let mut enclave_port = enclave_listener.accept()
+        .await
         .map(|r| r.0)
         .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
 
@@ -57,7 +58,7 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
     let network_settings = get_network_settings(&parent_device).await?;
 
     let mtu = network_settings.mtu;
-    communicate_network_settings(network_settings, &mut enclave_port)?;
+    communicate_network_settings(network_settings, &mut enclave_port).await?;
 
     let (mut read_capture, mut write_capture) = if let Some(remote_port) = remote_port {
         let read_capture = open_async_packet_capture_with_port_filter(
@@ -96,14 +97,14 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
     Ok(())
 }
 
-fn communicate_network_settings(settings : NetworkSettings, vsock : &mut VsockStream) -> Result<(), String> {
+async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
     debug!("Read network settings from parent {:?}", settings);
 
-    vsock.write_lv(&SetupMessages::Settings(settings))?;
+    vsock.write_lv_async(&SetupMessages::Settings(settings)).await?;
 
     debug!("Sent network settings to the enclave!");
 
-    let msg : SetupMessages = vsock.read_lv()?;
+    let msg : SetupMessages = vsock.read_lv_async().await?;
 
     match msg {
         SetupMessages::SetupSuccessful => {
@@ -225,12 +226,6 @@ async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut
 
         debug!("Sent packet to network device!");
     }
-}
-
-fn listen_parent(port : u32) -> Result<VsockListener, String> {
-    let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, port);
-
-    VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
 }
 
 fn listen_parent_async(port : u32) -> Result<AsyncVsockListener, String> {

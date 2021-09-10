@@ -17,7 +17,7 @@ use std::net::IpAddr;
 use std::sync;
 
 pub async fn run(vsock_port: u32) -> Result<(), String> {
-    let mut parent_settings_connection = connect_to_parent(vsock_port)?;
+    let mut parent_settings_connection = connect_to_parent_async(vsock_port).await?;
 
     info!("Connected to parent!");
 
@@ -25,7 +25,7 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     info!("Connected to parent to transmit data!");
 
-    let parent_settings = receive_parent_network_settings(&mut parent_settings_connection)?;
+    let parent_settings = receive_parent_network_settings(&mut parent_settings_connection).await?;
 
     let async_tap_device = setup_enclave_networking(&mut parent_settings_connection, &parent_settings).await?;
 
@@ -88,8 +88,8 @@ async fn write_to_tap_async(device: &mut WriteHalf<AsyncDevice>, vsock : &mut Re
     }
 }
 
-fn receive_parent_network_settings(vsock : &mut VsockStream) -> Result<NetworkSettings, String> {
-    let msg : SetupMessages = vsock.read_lv()?;
+async fn receive_parent_network_settings(vsock : &mut AsyncVsockStream) -> Result<NetworkSettings, String> {
+    let msg : SetupMessages = vsock.read_lv_async().await?;
 
     match msg {
         SetupMessages::Settings(s) => { Ok(s) }
@@ -99,7 +99,7 @@ fn receive_parent_network_settings(vsock : &mut VsockStream) -> Result<NetworkSe
     }
 }
 
-async fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
+async fn setup_enclave_networking(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
     let tap_device = shared::device::create_async_tap_device(&parent_settings)?;
 
     debug!("Received next settings from parent {:?}", parent_settings);
@@ -108,7 +108,7 @@ async fn setup_enclave_networking(vsock : &mut VsockStream, parent_settings : &N
 
     info!("Finished network setup!");
 
-    vsock.write_lv(&SetupMessages::SetupSuccessful)?;
+    vsock.write_lv_async(&SetupMessages::SetupSuccessful).await?;
 
     Ok(tap_device)
 }
@@ -146,12 +146,6 @@ async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : 
     info!("ARP entry is set!");
 
     Ok(())
-}
-
-fn connect_to_parent(port : u32) -> Result<VsockStream, String> {
-    let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, port);
-
-    VsockStream::connect(&sockaddr).map_err(|err| format!("Failed to connect to enclave: {:?}", err))
 }
 
 async fn connect_to_parent_async(port : u32) -> Result<AsyncVsockStream, String> {
