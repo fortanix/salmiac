@@ -18,7 +18,7 @@ use vsock::{VsockListener, VsockStream};
 use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter, open_async_packet_capture, open_async_packet_capture_with_port_filter};
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::netlink::{AddressMessageExt, LinkMessageExt, NeighbourMessageExt, RouteMessageExt};
-use shared::netlink;
+use shared::{netlink, DATA_SOCKET};
 use shared::VSOCK_PARENT_CID;
 use shared::socket::{
     AsyncWriteLvStream,
@@ -43,7 +43,7 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
 
     info!("Awaiting confirmation from enclave for data!");
 
-    let mut data_listener = listen_parent_async(100)?;
+    let mut data_listener = listen_parent_async(DATA_SOCKET)?;
     let enclave_data_port = data_listener.accept()
         .await
         .map(|r| r.0)
@@ -77,21 +77,13 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
     let (mut vsock_read, mut vsock_write) = io::split(enclave_data_port);
 
     let pcap_read_loop = tokio::spawn(async move {
-        loop {
-            if let Err(e) = read_from_device_async(&mut read_capture, &mut vsock_write).await {
-                return Err(e)
-            }
-        }
+        read_from_device_async(&mut read_capture, &mut vsock_write).await
     });
 
     debug!("Started pcap read loop!");
 
     let pcap_write_loop = tokio::spawn(async move {
-        loop {
-            if let Err(e) = write_to_device_async(&mut write_capture, &mut vsock_read).await {
-                return Err(e)
-            }
-        }
+        write_to_device_async(&mut write_capture, &mut vsock_read).await
     });
 
     debug!("Started pcap write loop!");
@@ -198,67 +190,41 @@ async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32)
 }
 
 async fn read_from_device_async(capture: &mut Fuse<pcap_async::PacketStream>, enclave_stream: &mut WriteHalf<AsyncVsockStream>) -> Result<(), String> {
-    let packets = match capture.next().await {
-        Some(Ok(packet)) => {
-            packet
-        }
-        Some(Err(e)) => {
-            return Err(format!("Failed to read packet from pcap {:?}", e))
-        }
-        None => {
-            return Ok(())
-        }
-    };
+    loop {
+        let packets = match capture.next().await {
+            Some(Ok(packet)) => {
+                packet
+            }
+            Some(Err(e)) => {
+                return Err(format!("Failed to read packet from pcap {:?}", e))
+            }
+            None => {
+                return Ok(())
+            }
+        };
 
-    for packet in packets {
-        debug!("Captured packet from pcap! {:?}", packet);
+        for packet in packets {
+            debug!("Captured packet from pcap! {:?}", packet);
 
-        enclave_stream.write_lv_bytes_async(packet.data()).await?;
+            enclave_stream.write_lv_bytes_async(packet.data()).await?;
 
-        debug!("Sent network packet to enclave!");
+            debug!("Sent network packet to enclave!");
+        }
     }
-
-    Ok(())
 }
 
 async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut ReadHalf<AsyncVsockStream>) -> Result<(), String> {
-    let packet = from_enclave.read_lv_bytes_async()
-        .await
-        .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+    loop {
+        let packet = from_enclave.read_lv_bytes_async()
+            .await
+            .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
 
-    debug!("Received packet from enclave! {:?}", packet);
+        debug!("Received packet from enclave! {:?}", packet);
 
-    capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
+        capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
 
-    debug!("Sent packet to network device!");
-
-    Ok(())
-}
-
-#[cfg(feature = "sync")]
-fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {
-    let packet = capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err))?;
-
-    debug!("Captured packet from pcap! {:?}", packet);
-
-    enclave_stream.write_lv_bytes(&packet.data)?;
-
-    debug!("Sent network packet to enclave!");
-
-    Ok(())
-}
-
-#[cfg(feature = "sync")]
-fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream) -> Result<(), String> {
-    let packet = from_enclave.read_lv_bytes().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
-
-    debug!("Received packet from enclave! {:?}", packet);
-
-    capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
-
-    debug!("Sent packet to network device!");
-
-    Ok(())
+        debug!("Sent packet to network device!");
+    }
 }
 
 fn listen_parent(port : u32) -> Result<VsockListener, String> {

@@ -27,6 +27,8 @@ pub fn vec_to_ip6(vec : &[u16]) -> Result<Ipv6Addr, String> {
 
 pub const VSOCK_PARENT_CID: u32 = 3; // From AWS Nitro documentation.
 
+pub const DATA_SOCKET : u32 = 100;
+
 pub fn parse_console_argument<T : NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
 }

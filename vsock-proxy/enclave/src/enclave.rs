@@ -9,7 +9,7 @@ use tun::platform::linux::Device;
 use vsock::VsockStream;
 
 use shared::device::{NetworkSettings, SetupMessages};
-use shared::{VSOCK_PARENT_CID};
+use shared::{VSOCK_PARENT_CID, DATA_SOCKET};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream, LvStream};
 
 use std::net::IpAddr;
@@ -21,7 +21,7 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     info!("Connected to parent!");
 
-    let parent_data_connection = connect_to_parent_async(100).await?;
+    let parent_data_connection = connect_to_parent_async(DATA_SOCKET).await?;
 
     info!("Connected to parent to transmit data!");
 
@@ -37,21 +37,13 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     let mtu = parent_settings.mtu;
 
     let read_tap_loop = tokio::spawn(async move {
-        loop {
-            if let Err(e) = read_from_tap_async(&mut tap_read, &mut vsock_write, mtu).await {
-                return Err(e);
-            }
-        }
+        read_from_tap_async(&mut tap_read, &mut vsock_write, mtu).await
     });
 
     debug!("Started tap read loop!");
 
     let write_tap_loop = tokio::spawn(async move {
-        loop {
-            if let Err(e) = write_to_tap_async(&mut tap_write, &mut vsock_read).await {
-                return Err(e);
-            }
-        }
+        write_to_tap_async(&mut tap_write, &mut vsock_read).await
     });
 
     debug!("Started tap write loop!");
@@ -65,42 +57,35 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 }
 
 async fn read_from_tap_async(device: &mut ReadHalf<AsyncDevice>, vsock : &mut WriteHalf<AsyncVsockStream>, buf_len : u32) -> Result<(), String> {
-
     let mut buf = vec![0 as u8; buf_len as usize];
 
-    let amount = AsyncReadExt::read(device, &mut buf)
-        .await
-        .map_err(|err| format!("Cannot read from tap {:?}", err))?;
+    loop {
+        let amount = AsyncReadExt::read(device, &mut buf)
+            .await
+            .map_err(|err| format!("Cannot read from tap {:?}", err))?;
 
-    buf.truncate(amount);
+        debug!("Read packet from tap! {:?}", &buf[..amount]);
 
-    debug!("Read packet from tap! {:?}", buf);
+        vsock.write_lv_bytes_async(&buf[..amount])
+            .await
+            .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
 
-    vsock.write_lv_bytes_async(&buf)
-        .await
-        .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
-
-    debug!("Sent packet to parent!");
-
-    Ok(())
+        debug!("Sent packet to parent!");
+    }
 }
 
 async fn write_to_tap_async(device: &mut WriteHalf<AsyncDevice>, vsock : &mut ReadHalf<AsyncVsockStream>) -> Result<(), String> {
-    let packet = vsock.read_lv_bytes_async().await?;
+    loop {
+        let packet = vsock.read_lv_bytes_async().await?;
 
-    debug!("Received packet from parent! {:?}", packet);
+        debug!("Received packet from parent! {:?}", packet);
 
-    let size_written = AsyncWriteExt::write(device, &packet)
-        .await
-        .map_err(|err| format!("Cannot write to tap {:?}", err))?;
+        AsyncWriteExt::write_all(device, &packet)
+            .await
+            .map_err(|err| format!("Cannot write to tap {:?}", err))?;
 
-    if size_written != packet.len() {
-        return Err(format!("Tried to write packet of size {}, but only {} was written", packet.len(), size_written))
+        debug!("Sent data to tap!");
     }
-
-    debug!("Sent data to tap!");
-
-    Ok(())
 }
 
 fn receive_parent_network_settings(vsock : &mut VsockStream) -> Result<NetworkSettings, String> {
@@ -161,58 +146,6 @@ async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : 
     info!("ARP entry is set!");
 
     Ok(())
-}
-
-#[cfg(feature = "sync")]
-fn write_to_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream) -> Result<(), String> {
-    let packet = vsock.read_lv_bytes()?;
-
-    debug!("Received packet from parent! {:?}", packet);
-
-    let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
-
-    debug!("acquired tap write lock!");
-
-    match tap_device.write(&packet).map_err(|err| format!("Cannot write to tap {:?}", err)) {
-        Ok(size_written) if size_written != packet.len() => {
-            return Err(format!("Tried to write packet of size {}, but only {} was written", packet.len(), size_written))
-        }
-        Err(e) => {
-            return Err(e)
-        }
-        _ => {}
-    }
-
-    debug!("Sent data to tap!");
-
-    Ok(())
-}
-
-#[cfg(feature = "sync")]
-fn read_from_tap(tap_lock: &sync::Arc<sync::Mutex<Device>>, vsock: &mut VsockStream, buf_len : u32) -> Result<usize, String> {
-    let mut tap_device = tap_lock.lock().map_err(|err| format!("Cannot acquire tap lock {:?}", err))?;
-    let mut buf = vec![0 as u8; buf_len as usize];
-
-    debug!("acquired tap read lock!");
-
-    let amount = match tap_device.read(&mut buf).map_err(|err| format!("Cannot read from tap {:?}", err)) {
-        Ok(amount) => {
-            amount
-        }
-        Err(_) => {
-            return Ok(0)
-        }
-    };
-
-    buf.truncate(amount);
-
-    debug!("Read packet from tap! {:?}", buf);
-
-    vsock.write_lv_bytes(&buf)?;
-
-    debug!("Sent packet to parent!");
-
-    Ok(1)
 }
 
 fn connect_to_parent(port : u32) -> Result<VsockStream, String> {
