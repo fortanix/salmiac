@@ -1,20 +1,14 @@
 use log::{debug, info};
 use nix::net::if_::if_nametoindex;
-use nix::sys::socket::SockAddr;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::AsyncDevice;
-#[cfg(feature = "sync")]
-use tun::platform::linux::Device;
-use vsock::VsockStream;
 
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream, LvStream};
+use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 
 use std::net::IpAddr;
-#[cfg(feature = "sync")]
-use std::sync;
 
 pub async fn run(vsock_port: u32) -> Result<(), String> {
     let mut parent_settings_connection = connect_to_parent_async(vsock_port).await?;
@@ -66,7 +60,7 @@ async fn read_from_tap_async(device: &mut ReadHalf<AsyncDevice>, vsock : &mut Wr
 
         debug!("Read packet from tap! {:?}", &buf[..amount]);
 
-        vsock.write_lv_bytes_async(&buf[..amount])
+        vsock.write_lv_bytes(&buf[..amount])
             .await
             .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
 
@@ -76,7 +70,7 @@ async fn read_from_tap_async(device: &mut ReadHalf<AsyncDevice>, vsock : &mut Wr
 
 async fn write_to_tap_async(device: &mut WriteHalf<AsyncDevice>, vsock : &mut ReadHalf<AsyncVsockStream>) -> Result<(), String> {
     loop {
-        let packet = vsock.read_lv_bytes_async().await?;
+        let packet = vsock.read_lv_bytes().await?;
 
         debug!("Received packet from parent! {:?}", packet);
 
@@ -89,7 +83,7 @@ async fn write_to_tap_async(device: &mut WriteHalf<AsyncDevice>, vsock : &mut Re
 }
 
 async fn receive_parent_network_settings(vsock : &mut AsyncVsockStream) -> Result<NetworkSettings, String> {
-    let msg : SetupMessages = vsock.read_lv_async().await?;
+    let msg : SetupMessages = vsock.read_lv().await?;
 
     match msg {
         SetupMessages::Settings(s) => { Ok(s) }
@@ -108,7 +102,7 @@ async fn setup_enclave_networking(vsock : &mut AsyncVsockStream, parent_settings
 
     info!("Finished network setup!");
 
-    vsock.write_lv_async(&SetupMessages::SetupSuccessful).await?;
+    vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
 
     Ok(tap_device)
 }

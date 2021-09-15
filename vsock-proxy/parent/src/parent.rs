@@ -4,7 +4,6 @@ use log::{
     info
 };
 use nix::net::if_::if_nametoindex;
-use nix::sys::socket::SockAddr;
 use pcap::{Active, Capture};
 use rtnetlink::packet::{NeighbourMessage, RouteMessage};
 use tokio::io;
@@ -13,7 +12,6 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio_vsock::VsockListener as AsyncVsockListener;
 use futures::{StreamExt};
 use futures::stream::Fuse;
-use vsock::{VsockListener, VsockStream};
 
 use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter, open_async_packet_capture, open_async_packet_capture_with_port_filter};
 use shared::device::{NetworkSettings, SetupMessages};
@@ -23,7 +21,6 @@ use shared::VSOCK_PARENT_CID;
 use shared::socket::{
     AsyncWriteLvStream,
     AsyncReadLvStream,
-    LvStream
 };
 use shared::vec_to_ip4;
 
@@ -31,26 +28,19 @@ use std::convert::TryFrom;
 use std::net::IpAddr;
 
 pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
-    let mut enclave_listener = listen_parent_async(vsock_port)?;
-
     info!("Awaiting confirmation from enclave!");
 
-    let mut enclave_port = enclave_listener.accept()
-        .await
-        .map(|r| r.0)
-        .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
+    let mut enclave_listener = listen_to_parent(vsock_port)?;
+    let mut data_listener = listen_to_parent(DATA_SOCKET)?;
+
+    let (enclave_port_result, enclave_data_port_result) = tokio::join!(
+        accept(&mut enclave_listener),
+        accept(&mut data_listener));
+
+    let mut enclave_port = enclave_port_result?;
+    let enclave_data_port = enclave_data_port_result?;
 
     info!("Connected to enclave!");
-
-    info!("Awaiting confirmation from enclave for data!");
-
-    let mut data_listener = listen_parent_async(DATA_SOCKET)?;
-    let enclave_data_port = data_listener.accept()
-        .await
-        .map(|r| r.0)
-        .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
-
-    info!("Connected to enclave for data!");
 
     let parent_device = pcap::Device::lookup()
         .map_err(|err| format!("Cannot find device for packet capture {:?}", err))?;
@@ -100,11 +90,11 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
 async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
     debug!("Read network settings from parent {:?}", settings);
 
-    vsock.write_lv_async(&SetupMessages::Settings(settings)).await?;
+    vsock.write_lv(&SetupMessages::Settings(settings)).await?;
 
     debug!("Sent network settings to the enclave!");
 
-    let msg : SetupMessages = vsock.read_lv_async().await?;
+    let msg : SetupMessages = vsock.read_lv().await?;
 
     match msg {
         SetupMessages::SetupSuccessful => {
@@ -207,7 +197,7 @@ async fn read_from_device_async(capture: &mut Fuse<pcap_async::PacketStream>, en
         for packet in packets {
             debug!("Captured packet from pcap! {:?}", packet);
 
-            enclave_stream.write_lv_bytes_async(packet.data()).await?;
+            enclave_stream.write_lv_bytes(packet.data()).await?;
 
             debug!("Sent network packet to enclave!");
         }
@@ -216,7 +206,7 @@ async fn read_from_device_async(capture: &mut Fuse<pcap_async::PacketStream>, en
 
 async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut ReadHalf<AsyncVsockStream>) -> Result<(), String> {
     loop {
-        let packet = from_enclave.read_lv_bytes_async()
+        let packet = from_enclave.read_lv_bytes()
             .await
             .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
 
@@ -228,7 +218,14 @@ async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut
     }
 }
 
-fn listen_parent_async(port : u32) -> Result<AsyncVsockListener, String> {
+fn listen_to_parent(port : u32) -> Result<AsyncVsockListener, String> {
     AsyncVsockListener::bind(VSOCK_PARENT_CID, port)
         .map_err(|_| format!("Could not bind to cid: {}, port: {}", VSOCK_PARENT_CID, port))
+}
+
+async fn accept(listener: &mut AsyncVsockListener) -> Result<AsyncVsockStream, String> {
+    listener.accept()
+        .await
+        .map(|r| r.0)
+        .map_err(|err| format!("Accept from vsock failed: {:?}", err))
 }
