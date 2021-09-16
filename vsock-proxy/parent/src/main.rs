@@ -22,7 +22,7 @@ async fn main() -> Result<(), String> {
     };
 
     if let Err(e) = parent::run(vsock_port, remote_port).await {
-        error!("{}", e);
+        error!("Parent returns with failure: {}", e);
         process::exit(1);
     }
 

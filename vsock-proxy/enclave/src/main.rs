@@ -16,7 +16,7 @@ async fn main() -> Result<(), String> {
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
     if let Err(e) = enclave::run(vsock_port).await {
-        error!("{}", e);
+        error!("Enclave returns with failure: {}", e);
         process::exit(1);
     }
 

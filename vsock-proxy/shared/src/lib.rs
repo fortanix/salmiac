@@ -29,6 +29,18 @@ pub const VSOCK_PARENT_CID: u32 = 3; // From AWS Nitro documentation.
 
 pub const DATA_SOCKET : u32 = 100;
 
+pub const PACKET_LOG_STEP : u32 = 5000;
+
+pub fn log_packet_processing(count : u32, step : u32, source : &str) -> u32 {
+    let result = count.overflowing_add(1).0;
+
+    if result % step == 0 {
+        log::debug!("Successfully served another {} packets from {}!", step, source);
+    }
+
+    result
+}
+
 pub fn parse_console_argument<T : NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
 }
