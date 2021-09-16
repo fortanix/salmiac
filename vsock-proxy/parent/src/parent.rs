@@ -50,7 +50,7 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
     let mtu = network_settings.mtu;
     communicate_network_settings(network_settings, &mut enclave_port).await?;
 
-    let (mut read_capture, mut write_capture) = if let Some(remote_port) = remote_port {
+    let (read_capture, write_capture) = if let Some(remote_port) = remote_port {
         let read_capture = open_async_packet_capture_with_port_filter(
             &parent_device.name,
             mtu,
@@ -65,17 +65,13 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
         (read_capture, write_capture)
     };
 
-    let (mut vsock_read, mut vsock_write) = io::split(enclave_data_port);
+    let (vsock_read, vsock_write) = io::split(enclave_data_port);
 
-    let pcap_read_loop = tokio::spawn(async move {
-        read_from_device_async(&mut read_capture, &mut vsock_write).await
-    });
+    let pcap_read_loop = tokio::spawn(read_from_device_async(read_capture, vsock_write));
 
     debug!("Started pcap read loop!");
 
-    let pcap_write_loop = tokio::spawn(async move {
-        write_to_device_async(&mut write_capture, &mut vsock_read).await
-    });
+    let pcap_write_loop = tokio::spawn(write_to_device_async(write_capture, vsock_read));
 
     debug!("Started pcap write loop!");
 
@@ -180,7 +176,7 @@ async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32)
     }
 }
 
-async fn read_from_device_async(capture: &mut Fuse<pcap_async::PacketStream>, enclave_stream: &mut WriteHalf<AsyncVsockStream>) -> Result<(), String> {
+async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut enclave_stream: WriteHalf<AsyncVsockStream>) -> Result<(), String> {
     loop {
         let packets = match capture.next().await {
             Some(Ok(packet)) => {
@@ -204,7 +200,7 @@ async fn read_from_device_async(capture: &mut Fuse<pcap_async::PacketStream>, en
     }
 }
 
-async fn write_to_device_async(capture: &mut Capture<Active>, from_enclave: &mut ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+async fn write_to_device_async(mut capture: Capture<Active>, mut from_enclave: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
     loop {
         let packet = from_enclave.read_lv_bytes()
             .await

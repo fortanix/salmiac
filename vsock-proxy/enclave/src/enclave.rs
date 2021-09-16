@@ -25,20 +25,16 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     info!("Created tap device in enclave!");
 
-    let (mut tap_read, mut tap_write) = io::split(async_tap_device);
-    let (mut vsock_read, mut vsock_write) = io::split(parent_data_connection);
+    let (tap_read, tap_write) = io::split(async_tap_device);
+    let (vsock_read, vsock_write) = io::split(parent_data_connection);
 
     let mtu = parent_settings.mtu;
 
-    let read_tap_loop = tokio::spawn(async move {
-        read_from_tap_async(&mut tap_read, &mut vsock_write, mtu).await
-    });
+    let read_tap_loop = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
 
     debug!("Started tap read loop!");
 
-    let write_tap_loop = tokio::spawn(async move {
-        write_to_tap_async(&mut tap_write, &mut vsock_read).await
-    });
+    let write_tap_loop = tokio::spawn(write_to_tap_async(tap_write, vsock_read));
 
     debug!("Started tap write loop!");
 
@@ -50,11 +46,11 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     Ok(())
 }
 
-async fn read_from_tap_async(device: &mut ReadHalf<AsyncDevice>, vsock : &mut WriteHalf<AsyncVsockStream>, buf_len : u32) -> Result<(), String> {
+async fn read_from_tap_async(mut device: ReadHalf<AsyncDevice>, mut vsock : WriteHalf<AsyncVsockStream>, buf_len : u32) -> Result<(), String> {
     let mut buf = vec![0 as u8; buf_len as usize];
 
     loop {
-        let amount = AsyncReadExt::read(device, &mut buf)
+        let amount = AsyncReadExt::read(&mut device, &mut buf)
             .await
             .map_err(|err| format!("Cannot read from tap {:?}", err))?;
 
@@ -68,13 +64,13 @@ async fn read_from_tap_async(device: &mut ReadHalf<AsyncDevice>, vsock : &mut Wr
     }
 }
 
-async fn write_to_tap_async(device: &mut WriteHalf<AsyncDevice>, vsock : &mut ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : ReadHalf<AsyncVsockStream>) -> Result<(), String> {
     loop {
         let packet = vsock.read_lv_bytes().await?;
 
         debug!("Received packet from parent! {:?}", packet);
 
-        AsyncWriteExt::write_all(device, &packet)
+        AsyncWriteExt::write_all(&mut device, &packet)
             .await
             .map_err(|err| format!("Cannot write to tap {:?}", err))?;
 
