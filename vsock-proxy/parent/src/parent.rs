@@ -25,7 +25,10 @@ use shared::socket::{
 use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
+use std::sync::mpsc;
+use std::thread;
 use std::net::IpAddr;
+use std::sync::mpsc::TryRecvError;
 
 pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     info!("Awaiting confirmation from enclave!");
@@ -206,13 +209,38 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
 
 async fn write_to_device_async(mut capture: Capture<Active>, mut from_enclave: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
     let mut count = 0 as u32;
+    let (packet_tx, packet_rx) = mpsc::channel();
+    let (error_tx, error_rx) = mpsc::sync_channel(1);
+
+    thread::spawn(move || {
+        while let Ok(packet) = packet_rx.recv() {
+            if let Err(e) = capture.sendpacket(packet) {
+                let err = format!("Failed to write to pcap {:?}", e);
+
+                error_tx.send(err).expect("Failed sending error");
+
+                break;
+            }
+        }
+    });
 
     loop {
         let packet = from_enclave.read_lv_bytes()
             .await
             .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
 
-        capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
+        match error_rx.try_recv() {
+            Err(TryRecvError::Disconnected) => {
+                return Err(format!("pcap writer thread died prematurely"));
+            }
+            Ok(e) => {
+                return Err(e)
+            }
+            _ => {}
+        }
+
+        packet_tx.send(packet)
+            .map_err(|err| format!("Failed to send packet to pcap writer thread {:?}", err))?;
 
         count = log_packet_processing(count, PACKET_LOG_STEP, "parent vsock");
     }
