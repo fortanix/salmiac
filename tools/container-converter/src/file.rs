@@ -41,7 +41,7 @@ pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &Doc
     let filled_contents = format!(
         "FROM {} \n\
          COPY {} ./ \n\
-         ENV  {} \n\
+         ENV {} \n\
          CMD  {} \n",
         image_name,
         copy.to_string(),

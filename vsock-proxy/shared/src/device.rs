@@ -2,10 +2,11 @@ use serde::{
     Serialize,
     Deserialize
 };
-
-use tun::platform::linux::Device as TunDevice;
-use std::net::IpAddr;
 use ipnetwork::IpNetwork;
+use tun::{AsyncDevice};
+use tun::platform::linux::Device as TapDevice;
+
+use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -27,7 +28,17 @@ pub struct NetworkSettings {
     pub mtu : u32
 }
 
-pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TunDevice, String> {
+pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TapDevice, String> {
+    tun::create(&tap_device_config(parent_settings))
+        .map_err(|err| format!("Cannot create tap device {:?}", err))
+}
+
+pub fn create_async_tap_device(parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
+    tun::create_as_async(&tap_device_config(parent_settings))
+        .map_err(|err| format!("Cannot create async tap device {:?}", err))
+}
+
+fn tap_device_config(parent_settings : &NetworkSettings) -> tun::Configuration {
     let mut config = tun::Configuration::default();
 
     config.address(parent_settings.self_l3_address.ip())
@@ -36,5 +47,5 @@ pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TunDevice
         .mtu(parent_settings.mtu as i32)
         .up();
 
-    tun::create(&config).map_err(|err| format!("Cannot create tap device {:?}", err))
+    config
 }

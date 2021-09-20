@@ -12,7 +12,7 @@ clap = "2.33"
 env_logger = "0.7"
 log = "0.4"
 nix = "0.15.0"
-vsock = "0.1.5"
-tun = {version = "0.5.1" ,features = ["mio"] }
-threadpool = "1.7.1"
-tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread"] }
+futures = "0.3"
+tun = {version = "0.5.3" ,features = ["async"] }
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }
+tokio-vsock = "0.3.1"

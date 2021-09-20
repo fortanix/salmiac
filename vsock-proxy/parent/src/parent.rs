@@ -1,101 +1,102 @@
 use ipnetwork::IpNetwork;
 use log::{
     debug,
-    error,
     info
 };
 use nix::net::if_::if_nametoindex;
-use nix::sys::socket::SockAddr;
 use pcap::{Active, Capture};
 use rtnetlink::packet::{NeighbourMessage, RouteMessage};
-use threadpool::ThreadPool;
-use vsock::{VsockListener, VsockStream};
+use tokio::io;
+use tokio::io::{WriteHalf, ReadHalf};
+use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::VsockListener as AsyncVsockListener;
+use futures::{StreamExt};
+use futures::stream::Fuse;
 
-use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter};
+use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter, open_async_packet_capture, open_async_packet_capture_with_port_filter};
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::netlink::{AddressMessageExt, LinkMessageExt, NeighbourMessageExt, RouteMessageExt};
-use shared::netlink;
+use shared::{netlink, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing};
 use shared::VSOCK_PARENT_CID;
-use shared::socket::LvStream;
+use shared::socket::{
+    AsyncWriteLvStream,
+    AsyncReadLvStream,
+};
 use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
+use std::sync::mpsc;
+use std::thread;
 use std::net::IpAddr;
+use std::sync::mpsc::TryRecvError;
 
-
-pub fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
-    let thread_pool = ThreadPool::new(2);
-    let enclave_listener = listen_parent(vsock_port)?;
-
+pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
     info!("Awaiting confirmation from enclave!");
 
-    let mut enclave_port = enclave_listener.accept()
-        .map(|r| r.0)
-        .map_err(|err| format!("Accept from vsock failed: {:?}", err))?;
+    let mut enclave_listener = listen_to_parent(vsock_port)?;
+    let mut data_listener = listen_to_parent(DATA_SOCKET)?;
+
+    let (enclave_port_result, enclave_data_port_result) = tokio::join!(
+        accept(&mut enclave_listener),
+        accept(&mut data_listener));
+
+    let mut enclave_port = enclave_port_result?;
+    let enclave_data_port = enclave_data_port_result?;
 
     info!("Connected to enclave!");
 
     let parent_device = pcap::Device::lookup()
         .map_err(|err| format!("Cannot find device for packet capture {:?}", err))?;
 
-    let network_settings = get_network_settings(&parent_device)?;
+    let network_settings = get_network_settings(&parent_device).await?;
 
     let mtu = network_settings.mtu;
-    communicate_network_settings(network_settings, &mut enclave_port)?;
+    communicate_network_settings(network_settings, &mut enclave_port).await?;
 
-    // `capture` should be properly locked when shared among threads (like tap device),
-    // however copying captures is good enough for prototype and it just works.
-    let (mut capture, mut write_capture) = if let Some(remote_port) = remote_port{
-        (open_packet_capture_with_port_filter(parent_device.clone(), remote_port, mtu)?,
-         open_packet_capture_with_port_filter(parent_device, remote_port, mtu)?)
-    }
-    else {
-        (open_packet_capture(parent_device.clone(), mtu)?,
-         open_packet_capture(parent_device, mtu)?)
+    let (read_capture, write_capture) = if let Some(remote_port) = remote_port {
+        let read_capture = open_async_packet_capture_with_port_filter(
+            &parent_device.name,
+            mtu,
+            remote_port)?;
+        let write_capture = open_packet_capture_with_port_filter(parent_device, remote_port)?;
+
+        (read_capture, write_capture)
+    } else {
+        let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
+        let write_capture = open_packet_capture(parent_device)?;
+
+        (read_capture, write_capture)
     };
 
-    debug!("Listening to packets from network device!");
+    let (vsock_read, vsock_write) = io::split(enclave_data_port);
 
-    let mut vsock_write = enclave_port.clone();
-    let mut vsock_read = enclave_port.clone();
+    let pcap_read_loop = tokio::spawn(read_from_device_async(read_capture, vsock_write));
 
-    thread_pool.execute(move || {
-        loop {
-            match read_from_device(&mut capture, &mut vsock_write) {
-                Err(e) => {
-                    error!("Failure reading from network device {:?}", e);
-                    break;
-                }
-                _ => {}
-            }
+    debug!("Started pcap read loop!");
+
+    let pcap_write_loop = tokio::spawn(write_to_device_async(write_capture, vsock_read));
+
+    debug!("Started pcap write loop!");
+
+    match tokio::try_join!(pcap_read_loop, pcap_write_loop) {
+        Ok((read_returned, write_returned)) => {
+            read_returned.map_err(|err| format!("Failure in pcap read loop: {:?}", err))?;
+            write_returned.map_err(|err| format!("Failure in pcap write loop: {:?}", err))
         }
-    });
-
-    thread_pool.execute(move || {
-        loop {
-            match write_to_device(&mut write_capture, &mut vsock_read) {
-                Err(e) => {
-                    error!("Failure writing to network device {:?}", e);
-                    break;
-                }
-                _ => {}
-            }
+        Err(err) => {
+            Err(format!("{:?}", err))
         }
-    });
-
-    thread_pool.join();
-
-    Ok(())
+    }
 }
 
-fn communicate_network_settings(settings : NetworkSettings, vsock : &mut VsockStream) -> Result<(), String> {
+async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
     debug!("Read network settings from parent {:?}", settings);
 
-    vsock.write_lv(&SetupMessages::Settings(settings))?;
+    vsock.write_lv(&SetupMessages::Settings(settings)).await?;
 
     debug!("Sent network settings to the enclave!");
 
-    let msg : SetupMessages = vsock.read_lv()?;
+    let msg : SetupMessages = vsock.read_lv().await?;
 
     match msg {
         SetupMessages::SetupSuccessful => {
@@ -108,7 +109,6 @@ fn communicate_network_settings(settings : NetworkSettings, vsock : &mut VsockSt
     }
 }
 
-#[tokio::main]
 async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSettings, String> {
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);
@@ -182,32 +182,78 @@ async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32)
     }
 }
 
-fn read_from_device(capture: &mut Capture<Active>, enclave_stream: &mut VsockStream) -> Result<(), String> {
-    let packet = capture.next().map_err(|err| format!("Failed to read packet from pcap {:?}", err))?;
+async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut enclave_stream: WriteHalf<AsyncVsockStream>) -> Result<(), String> {
+    let mut count = 0 as u32;
 
-    debug!("Captured packet from network device in parent! {:?}", packet);
+    loop {
+        let packets = match capture.next().await {
+            Some(Ok(packet)) => {
+                packet
+            }
+            Some(Err(e)) => {
+                return Err(format!("Failed to read packet from pcap {:?}", e))
+            }
+            None => {
+                return Ok(())
+            }
+        };
 
-    enclave_stream.write_lv_bytes(&packet.data)?;
+        for packet in packets {
 
-    debug!("Sent network packet to enclave!");
+            enclave_stream.write_lv_bytes(packet.data()).await?;
 
-    Ok(())
+            count = log_packet_processing(count, PACKET_LOG_STEP, "parent pcap");
+        }
+    }
 }
 
-fn write_to_device(capture: &mut Capture<Active>, from_enclave: &mut VsockStream) -> Result<(), String> {
-    let packet = from_enclave.read_lv_bytes().map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+async fn write_to_device_async(mut capture: Capture<Active>, mut from_enclave: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+    let mut count = 0 as u32;
+    let (packet_tx, packet_rx) = mpsc::channel();
+    let (error_tx, error_rx) = mpsc::sync_channel(1);
 
-    debug!("Received packet from enclave! {:?}", packet);
+    thread::spawn(move || {
+        while let Ok(packet) = packet_rx.recv() {
+            if let Err(e) = capture.sendpacket(packet) {
+                let err = format!("Failed to write to pcap {:?}", e);
 
-    capture.sendpacket(packet).map_err(|err| format!("Failed to send packet to device {:?}", err))?;
+                error_tx.send(err).expect("Failed sending error");
 
-    debug!("Sent raw packet to network device!");
+                break;
+            }
+        }
+    });
 
-    Ok(())
+    loop {
+        let packet = from_enclave.read_lv_bytes()
+            .await
+            .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+
+        match error_rx.try_recv() {
+            Err(TryRecvError::Disconnected) => {
+                return Err(format!("pcap writer thread died prematurely"));
+            }
+            Ok(e) => {
+                return Err(e)
+            }
+            _ => {}
+        }
+
+        packet_tx.send(packet)
+            .map_err(|err| format!("Failed to send packet to pcap writer thread {:?}", err))?;
+
+        count = log_packet_processing(count, PACKET_LOG_STEP, "parent vsock");
+    }
 }
 
-fn listen_parent(port : u32) -> Result<VsockListener, String> {
-    let sockaddr = SockAddr::new_vsock(VSOCK_PARENT_CID, port);
+fn listen_to_parent(port : u32) -> Result<AsyncVsockListener, String> {
+    AsyncVsockListener::bind(VSOCK_PARENT_CID, port)
+        .map_err(|_| format!("Could not bind to cid: {}, port: {}", VSOCK_PARENT_CID, port))
+}
 
-    VsockListener::bind(&sockaddr).map_err(|_| format!("Could not bind to {:?}", sockaddr))
+async fn accept(listener: &mut AsyncVsockListener) -> Result<AsyncVsockStream, String> {
+    listener.accept()
+        .await
+        .map(|r| r.0)
+        .map_err(|err| format!("Accept from vsock failed: {:?}", err))
 }
