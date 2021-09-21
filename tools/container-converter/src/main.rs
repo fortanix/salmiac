@@ -30,10 +30,7 @@ async fn main() -> Result<(), String> {
     };
 
     let parent_image = string_argument_or_default(&console_arguments, "parent-image", "parent-base".to_string());
-
-    let output_image = console_arguments.value_of("output-image")
-        .unwrap_or(&(client_image.clone() + "-parent"))
-        .to_string();
+    let output_image = string_argument_or_default(&console_arguments, "output-image", client_image.clone() + "-parent");
 
     let username = string_argument(&console_arguments, "pull-username");
     let password = string_argument(&console_arguments, "pull-password");
@@ -44,7 +41,6 @@ async fn main() -> Result<(), String> {
     let input_repository = DockerUtil::new(username, password);
 
     info!("Retrieving client image!");
-
     let input_image = input_repository.get_remote_image(&client_image).await.expect("Image not found");
 
     info!("Retrieving CMD from client image!");
@@ -74,7 +70,7 @@ async fn main() -> Result<(), String> {
 
     info!("Resulting image has been successfully created!");
 
-    let result_image = input_repository.get_local_image(&parent_builder.output_image)
+    let result_image = input_repository.get_local_image(&output_image)
         .await
         .expect("Failed to retrieve converted image");
 
