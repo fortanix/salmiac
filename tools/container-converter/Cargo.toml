@@ -10,7 +10,7 @@ edition = "2018"
 env_logger = "0.7"
 log = "0.4"
 clap = "2.33"
-shiplift = "0.7"
+shiplift = { git = "https://github.com/charlolizard/shiplift" }
 futures = "0.3"
-async-std = { version = "1.9.0", features = ["attributes", "tokio1"] }
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "net"] }
 tempfile = "3.2.0"
