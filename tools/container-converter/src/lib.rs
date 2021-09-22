@@ -7,12 +7,12 @@ use image::{
     create_nitro_image
 };
 use tempfile::TempDir;
-use crate::file::{
-    DockerCopyArgs
-};
-
 use log::{
     info
+};
+
+use crate::file::{
+    DockerCopyArgs
 };
 
 use std::fs;

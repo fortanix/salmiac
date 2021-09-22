@@ -3,11 +3,12 @@ use shiplift::{Docker, Image, RegistryAuth, PullOptions, TagOptions};
 use shiplift::image::{PushOptions, ImageDetails};
 use futures::StreamExt;
 
+use crate::DockerImageURL;
+
 use std::process;
 use std::env;
 use std::fs;
 use std::path::Path;
-use crate::DockerImageURL;
 
 pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<(), String> {
     let output = output_file.to_str().unwrap();
