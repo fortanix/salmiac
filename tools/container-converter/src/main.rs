@@ -8,7 +8,7 @@ use env_logger;
 use log::{info};
 use tempfile::TempDir;
 
-use container_converter::{ParentImageBuilder, EnclaveImageBuilder, DockerImageURL};
+use container_converter::{ParentImageBuilder, EnclaveImageBuilder};
 use container_converter::image::DockerUtil;
 
 #[tokio::main]
@@ -24,7 +24,7 @@ async fn main() -> Result<(), String> {
             arg.push_str(":latest")
         };
 
-        DockerImageURL(arg)
+        arg
     };
 
     let parent_image = console_argument_or_default::<String>(
@@ -35,9 +35,9 @@ async fn main() -> Result<(), String> {
         let arg = console_argument_or_default::<String>(
             &console_arguments,
             "output-image",
-            client_image.0.clone() + "-parent");
+            client_image.clone() + "-parent");
 
-        DockerImageURL(arg)
+        arg
     };
 
     let username = console_argument::<String>(&console_arguments, "pull-username");
@@ -57,7 +57,7 @@ async fn main() -> Result<(), String> {
     info!("Retrieving client image!");
     let input_image = input_repository.get_remote_image(&client_image)
         .await
-        .expect(&format!("Image {} not found", client_image.0));
+        .expect(&format!("Image {} not found", client_image));
 
     info!("Retrieving CMD from client image!");
     let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
@@ -66,7 +66,7 @@ async fn main() -> Result<(), String> {
     let temp_dir = TempDir::new().map_err(|err| format!("Cannot create temp dir {:?}", err))?;
 
     let enclave_builder = EnclaveImageBuilder {
-        client_image: client_image.0.clone(),
+        client_image: client_image.clone(),
         client_cmd : client_cmd[2..].to_vec(), // removes /bin/sh -c
         dir : &temp_dir,
     };
@@ -75,7 +75,7 @@ async fn main() -> Result<(), String> {
     let nitro_file = enclave_builder.create_image(&input_repository)?;
 
     let parent_builder = ParentImageBuilder {
-        output_image : output_image.0.clone(),
+        output_image : output_image.clone(),
         parent_image,
         nitro_file,
         dir : &temp_dir,
@@ -86,16 +86,16 @@ async fn main() -> Result<(), String> {
 
     info!("Resulting image has been successfully created!");
 
-    let result_image = input_repository.get_local_image(&output_image.0)
+    let result_image = input_repository.get_local_image(&output_image)
         .await
         .expect("Failed to retrieve converted image");
 
     let result_repository = DockerUtil::new(push_username, push_password);
 
-    info!("Pushing resulting image to {}!", output_image.0);
+    info!("Pushing resulting image to {}!", output_image);
     result_repository.push_image(&result_image, &output_image).await?;
 
-    info!("Resulting image has been successfully pushed to {} !", output_image.0);
+    info!("Resulting image has been successfully pushed to {} !", output_image);
 
     Ok(())
 }

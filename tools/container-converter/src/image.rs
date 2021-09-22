@@ -68,10 +68,10 @@ impl DockerUtil {
         }
     }
 
-    pub async fn get_remote_image(&self, image : &DockerImageURL) -> Result<ImageWithDetails<'_>, String> {
+    pub async fn get_remote_image(&self, image : &str) -> Result<ImageWithDetails<'_>, String> {
         self.pull_image(image).await?;
 
-        Ok(self.get_local_image(&image.0).await.expect("Failed to pull image"))
+        Ok(self.get_local_image(&image).await.expect("Failed to pull image"))
     }
 
     pub async fn get_local_image(&self, name : &str) -> Option<ImageWithDetails<'_>> {
@@ -110,7 +110,7 @@ impl DockerUtil {
         Ok(())
     }
 
-    pub async fn push_image(&self, image : &ImageWithDetails<'_>, output_address: &DockerImageURL) -> Result<(), String> {
+    pub async fn push_image(&self, image : &ImageWithDetails<'_>, output_address: &str) -> Result<(), String> {
         let (repository, tag) = output_address.repository_and_tag();
 
         let tag_options = TagOptions::builder()
@@ -181,7 +181,7 @@ impl DockerUtil {
         })
     }
 
-    async fn pull_image(&self, image : &DockerImageURL) -> Result<(), String> {
+    async fn pull_image(&self, image : &str) -> Result<(), String> {
         let (repository, tag) = image.repository_and_tag();
 
         let pull_options = PullOptions::builder()
