@@ -8,10 +8,7 @@ use env_logger;
 use log::{info};
 use tempfile::TempDir;
 
-use container_converter::{
-    ParentImageBuilder,
-    EnclaveImageBuilder
-};
+use container_converter::{ParentImageBuilder, EnclaveImageBuilder, DockerImageURL};
 use container_converter::image::DockerUtil;
 
 #[tokio::main]
@@ -21,27 +18,46 @@ async fn main() -> Result<(), String> {
     let console_arguments = console_arguments();
 
     let client_image = {
-        let mut arg = string_argument(&console_arguments, "image");
+        let mut arg = console_argument::<String>(&console_arguments, "image");
 
         if !arg.contains(':') {
             arg.push_str(":latest")
         };
-        arg
+
+        DockerImageURL(arg)
     };
 
-    let parent_image = string_argument_or_default(&console_arguments, "parent-image", "parent-base".to_string());
-    let output_image = string_argument_or_default(&console_arguments, "output-image", client_image.clone() + "-parent");
+    let parent_image = console_argument_or_default::<String>(
+        &console_arguments,
+        "parent-image",
+        "parent-base".to_string());
+    let output_image = {
+        let arg = console_argument_or_default::<String>(
+            &console_arguments,
+            "output-image",
+            client_image.0.clone() + "-parent");
 
-    let username = string_argument(&console_arguments, "pull-username");
-    let password = string_argument(&console_arguments, "pull-password");
+        DockerImageURL(arg)
+    };
 
-    let push_username = string_argument_or_default(&console_arguments, "push-username", username.clone());
-    let push_password = string_argument_or_default(&console_arguments, "push-password", password.clone());
+    let username = console_argument::<String>(&console_arguments, "pull-username");
+    let password = console_argument::<String>(&console_arguments, "pull-password");
+
+    let push_username = console_argument_or_default::<String>(
+        &console_arguments,
+        "push-username",
+        username.clone());
+    let push_password = console_argument_or_default::<String>(
+        &console_arguments,
+        "push-password",
+        password.clone());
 
     let input_repository = DockerUtil::new(username, password);
 
     info!("Retrieving client image!");
-    let input_image = input_repository.get_remote_image(&client_image).await.expect("Image not found");
+    let input_image = input_repository.get_remote_image(&client_image)
+        .await
+        .expect(&format!("Image {} not found", client_image.0));
 
     info!("Retrieving CMD from client image!");
     let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
@@ -50,18 +66,18 @@ async fn main() -> Result<(), String> {
     let temp_dir = TempDir::new().map_err(|err| format!("Cannot create temp dir {:?}", err))?;
 
     let enclave_builder = EnclaveImageBuilder {
-        client_image: client_image.clone(),
-        client_cmd : client_cmd[2..].to_vec(),
+        client_image: client_image.0.clone(),
+        client_cmd : client_cmd[2..].to_vec(), // removes /bin/sh -c
         dir : &temp_dir,
     };
 
     info!("Building enclave image!");
-    enclave_builder.create_image(&input_repository)?;
+    let nitro_file = enclave_builder.create_image(&input_repository)?;
 
     let parent_builder = ParentImageBuilder {
-        output_image : output_image.clone(),
+        output_image : output_image.0.clone(),
         parent_image,
-        nitro_file: enclave_builder.nitro_image_name(),
+        nitro_file,
         dir : &temp_dir,
     };
 
@@ -70,16 +86,16 @@ async fn main() -> Result<(), String> {
 
     info!("Resulting image has been successfully created!");
 
-    let result_image = input_repository.get_local_image(&output_image)
+    let result_image = input_repository.get_local_image(&output_image.0)
         .await
         .expect("Failed to retrieve converted image");
 
     let result_repository = DockerUtil::new(push_username, push_password);
 
-    info!("Pushing resulting image to {}!", output_image);
+    info!("Pushing resulting image to {}!", output_image.0);
     result_repository.push_image(&result_image, &output_image).await?;
 
-    info!("Resulting image has been successfully pushed to {} !", output_image);
+    info!("Resulting image has been successfully pushed to {} !", output_image.0);
 
     Ok(())
 }
@@ -140,14 +156,14 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .get_matches()
 }
 
-fn string_argument(matches : &ArgMatches, name : &str) -> String {
+fn console_argument<'a, T : From<&'a str>>(matches : &'a ArgMatches, name : &str) -> T {
     matches.value_of(name)
-        .map(|e| e.to_string())
+        .map(|e| T::from(e))
         .expect(&format!("Argument {} should be supplied", name))
 }
 
-fn string_argument_or_default(matches : &ArgMatches, name : &str, default : String) -> String {
+fn console_argument_or_default<'a, T : From<&'a str>>(matches : &'a ArgMatches, name : &str, default : T) -> T {
     matches.value_of(name)
-        .map(|e| e.to_string())
+        .map(|e| T::from(e))
         .unwrap_or(default)
 }

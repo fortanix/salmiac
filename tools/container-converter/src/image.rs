@@ -7,6 +7,7 @@ use std::process;
 use std::env;
 use std::fs;
 use std::path::Path;
+use crate::DockerImageURL;
 
 pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<(), String> {
     let output = output_file.to_str().unwrap();
@@ -66,10 +67,10 @@ impl DockerUtil {
         }
     }
 
-    pub async fn get_remote_image(&self, image : &str) -> Result<ImageWithDetails<'_>, String> {
+    pub async fn get_remote_image(&self, image : &DockerImageURL) -> Result<ImageWithDetails<'_>, String> {
         self.pull_image(image).await?;
 
-        Ok(self.get_local_image(image).await.expect("Failed to pull image"))
+        Ok(self.get_local_image(&image.0).await.expect("Failed to pull image"))
     }
 
     pub async fn get_local_image(&self, name : &str) -> Option<ImageWithDetails<'_>> {
@@ -108,12 +109,8 @@ impl DockerUtil {
         Ok(())
     }
 
-    pub async fn push_image(&self, image : &ImageWithDetails<'_>, output_address: &str) -> Result<(), String> {
-        let (repository, tag) = if let Some(pos) = output_address.find(":") {
-            (&output_address[..pos], &output_address[pos..])
-        } else {
-            return Err("Malformed output address".to_string())
-        };
+    pub async fn push_image(&self, image : &ImageWithDetails<'_>, output_address: &DockerImageURL) -> Result<(), String> {
+        let (repository, tag) = output_address.repository_and_tag();
 
         let tag_options = TagOptions::builder()
             .repo(repository)
@@ -183,9 +180,12 @@ impl DockerUtil {
         })
     }
 
-    async fn pull_image(&self, image : &str) -> Result<(), String> {
+    async fn pull_image(&self, image : &DockerImageURL) -> Result<(), String> {
+        let (repository, tag) = image.repository_and_tag();
+
         let pull_options = PullOptions::builder()
-            .image(image)
+            .image(repository)
+            .tag(tag)
             .auth(self.credentials.clone())
             .build();
 
