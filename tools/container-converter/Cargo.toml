@@ -12,5 +12,5 @@ log = "0.4"
 clap = "2.33"
 shiplift = { git = "https://github.com/charlolizard/shiplift" }
 futures = "0.3"
-tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "net"] }
+tokio = { version = "1.0.1", features = ["macros", "rt"] }
 tempfile = "3.2.0"
