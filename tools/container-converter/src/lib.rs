@@ -225,19 +225,11 @@ impl<'a> ParentImageBuilder<'a> {
     fn start_enclave_command(&self) -> String {
         let sanitized_nitro_file = format!("'{}'", self.nitro_file);
 
-        if cfg!(debug_assertions) {
-            format!(
-                "\n\
-                ./parent --remote-port 8080 --vsock-port 5006 & \n\
-                nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
-                sanitized_nitro_file)
-        } else {
-            format!(
-                "\n\
+        format!(
+            "\n\
                 ./parent --vsock-port 5006 & \n\
                 nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
-                sanitized_nitro_file)
-        }
+            sanitized_nitro_file)
     }
 
     fn connect_to_enclave_command() -> String {
