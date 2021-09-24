@@ -5,7 +5,7 @@ use log::{
 };
 use nix::net::if_::if_nametoindex;
 use pcap::{Active, Capture};
-use rtnetlink::packet::{NeighbourMessage, RouteMessage};
+use rtnetlink::packet::{RouteMessage};
 use tokio::io;
 use tokio::io::{WriteHalf, ReadHalf};
 use tokio_vsock::VsockStream as AsyncVsockStream;
@@ -13,9 +13,9 @@ use tokio_vsock::VsockListener as AsyncVsockListener;
 use futures::{StreamExt};
 use futures::stream::Fuse;
 
-use crate::packet_capture::{open_packet_capture, open_packet_capture_with_port_filter, open_async_packet_capture, open_async_packet_capture_with_port_filter};
+use crate::packet_capture::{open_packet_capture, open_async_packet_capture};
 use shared::device::{NetworkSettings, SetupMessages};
-use shared::netlink::{AddressMessageExt, LinkMessageExt, NeighbourMessageExt, RouteMessageExt};
+use shared::netlink::{AddressMessageExt, LinkMessageExt, RouteMessageExt};
 use shared::{netlink, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing};
 use shared::VSOCK_PARENT_CID;
 use shared::socket::{
@@ -30,7 +30,7 @@ use std::thread;
 use std::net::IpAddr;
 use std::sync::mpsc::TryRecvError;
 
-pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), String> {
+pub async fn run(vsock_port: u32) -> Result<(), String> {
     info!("Awaiting confirmation from enclave!");
 
     let mut enclave_listener = listen_to_parent(vsock_port)?;
@@ -53,20 +53,8 @@ pub async fn run(vsock_port: u32, remote_port : Option<u32>) -> Result<(), Strin
     let mtu = network_settings.mtu;
     communicate_network_settings(network_settings, &mut enclave_port).await?;
 
-    let (read_capture, write_capture) = if let Some(remote_port) = remote_port {
-        let read_capture = open_async_packet_capture_with_port_filter(
-            &parent_device.name,
-            mtu,
-            remote_port)?;
-        let write_capture = open_packet_capture_with_port_filter(parent_device, remote_port)?;
-
-        (read_capture, write_capture)
-    } else {
-        let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
-        let write_capture = open_packet_capture(parent_device)?;
-
-        (read_capture, write_capture)
-    };
+    let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
+    let write_capture = open_packet_capture(parent_device)?;
 
     let (vsock_read, vsock_write) = io::split(enclave_data_port);
 

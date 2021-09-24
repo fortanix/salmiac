@@ -1,10 +1,10 @@
 use futures::stream::TryStreamExt;
 use futures::TryStream;
 use rtnetlink::proto::Connection;
-use rtnetlink::packet::{RtnlMessage, RouteMessage, NeighbourMessage, LinkMessage, AddressMessage};
+use rtnetlink::packet::{RtnlMessage, RouteMessage, LinkMessage, AddressMessage};
 use rtnetlink::{IpVersion};
 
-use std::net::{Ipv4Addr, IpAddr};
+use std::net::{Ipv4Addr};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use crate::vec_to_ip4;
 
@@ -177,43 +177,6 @@ pub trait NeighbourMessageExt {
     fn destination(&self) -> Option<&[u8]>;
 
     fn has_destination_for_address(&self, address : &[u8]) -> bool;
-}
-
-impl NeighbourMessageExt for NeighbourMessage {
-    fn link_local_address(&self) -> Option<&[u8]> {
-        use rtnetlink::packet::neighbour::Nla;
-
-        self.nlas.iter().find_map(|nla| {
-            if let Nla::LinkLocalAddress(v) = nla {
-                let result : &[u8] = &v;
-                Some(result)
-            } else {
-                None
-            }
-        })
-    }
-
-    fn destination(&self) -> Option<&[u8]> {
-        use rtnetlink::packet::neighbour::Nla;
-
-        self.nlas.iter().find_map(|nla| {
-            if let Nla::Destination(v) = nla {
-                let result : &[u8] = &v;
-                Some(result)
-            } else {
-                None
-            }
-        })
-    }
-
-    fn has_destination_for_address(&self, address : &[u8]) -> bool {
-        match self.destination() {
-            Some(destination_address) if *destination_address == *address => {
-                true
-            }
-            _ => { false }
-        }
-    }
 }
 
 async fn next_in_stream<T, S>(stream : &mut S) -> Result<Option<T>, String>
