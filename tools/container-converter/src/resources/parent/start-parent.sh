@@ -15,6 +15,5 @@ systemctl start nitro-enclaves-allocator.service
 systemctl enable nitro-enclaves-allocator.service
 systemctl status nitro-enclaves-allocator.service
 
-ping -c 1 www.google.com
 iptables -A INPUT -m socket -j ACCEPT
 iptables -P INPUT DROP

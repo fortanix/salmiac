@@ -123,11 +123,6 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
     let parent_gateway_address = parent_gateway.raw_gateway()
         .expect("No default gateway was found in parent!");
 
-    let parent_arp = get_neighbor_by_address(
-        &netlink_handle,
-        parent_device_index,
-        parent_gateway_address).await?;
-
     let parent_link = netlink::get_link_for_device(&netlink_handle, parent_device_index)
         .await?
         .expect(&format!("Device {} must have a link!", parent_device.name));
@@ -139,11 +134,6 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
 
     let mtu = parent_link.mtu().expect("Parent device should have an MTU!");
 
-    let link_local_address = parent_arp.link_local_address()
-        .map(|e|  <[u8; 6]>::try_from(&e[..]))
-        .expect("ARP entry should have link local address")
-        .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
-
     let ip_network = get_ip_network(&netlink_handle, parent_device_index).await?;
 
     let gateway_address = IpAddr::V4(vec_to_ip4(parent_gateway_address)?);
@@ -152,7 +142,6 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
         self_l2_address: mac_address,
         self_l3_address: ip_network,
         gateway_l2_address: gateway_address,
-        gateway_l3_address: link_local_address,
         mtu
     };
 
@@ -163,12 +152,6 @@ async fn get_gateway(netlink_handle : &rtnetlink::Handle, device_index : u32) ->
     netlink::get_default_route_for_device(&netlink_handle, device_index)
         .await
         .and_then(|e| e.ok_or(format!("No default gateway was found in parent!")))
-}
-
-async fn get_neighbor_by_address(netlink_handle : &rtnetlink::Handle, device_index : u32, l3_address: &[u8]) -> Result<NeighbourMessage, String> {
-    netlink::get_neighbour_for_device(netlink_handle, device_index, l3_address.clone())
-        .await
-        .and_then(|e| e.ok_or(format!("No ARP entry found for address {:?} in parent!", l3_address)))
 }
 
 async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32) -> Result<IpNetwork, String> {

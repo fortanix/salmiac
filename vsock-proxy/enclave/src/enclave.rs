@@ -134,9 +134,6 @@ async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : 
     netlink::add_default_gateway(&netlink_handle, as_ipv4).await?;
     info!("Gateway is set!");
 
-    netlink::add_neighbour(&netlink_handle, tap_index, gateway_addr, &parent_settings.gateway_l3_address).await?;
-    info!("ARP entry is set!");
-
     Ok(())
 }
 

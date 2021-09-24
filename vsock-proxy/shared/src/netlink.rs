@@ -62,15 +62,6 @@ pub async fn set_link(handle : &rtnetlink::Handle, device_index: u32, mac_addres
         .map_err(|err| format!("Failed to set MAC address {:?}", err))
 }
 
-pub async fn add_neighbour(handle : &rtnetlink::Handle, device_index : u32, destination : IpAddr, mac_address : &[u8; 6]) -> Result<(), String> {
-    handle.neighbours()
-        .add(device_index, destination)
-        .link_local_address(mac_address)
-        .execute()
-        .await
-        .map_err(|err| format!("Failed to create ARP entry {:?}", err))
-}
-
 pub async fn add_default_gateway(handle : &rtnetlink::Handle, address : Ipv4Addr) -> Result<(), String> {
     handle.route()
         .add()
@@ -89,21 +80,6 @@ pub async fn get_default_route_for_device(handle :&rtnetlink::Handle, device_ind
         if route.output_interface() == Some(device_index) &&
             route.destination_prefix().map_or(true, |(_, prefix)| prefix == 0) {
             return Ok(Some(route))
-        }
-    }
-
-    Ok(None)
-}
-
-pub async fn get_neighbour_for_device(handle : &rtnetlink::Handle, device_index : u32, l3_address: &[u8]) -> Result<Option<NeighbourMessage>, String> {
-    let mut neighbours = handle.neighbours().get().execute();
-
-    while let Some(neighbour) = next_in_stream(&mut neighbours).await? {
-
-        if neighbour.header.ifindex == device_index &&
-           neighbour.has_destination_for_address(&l3_address) {
-
-            return Ok(Some(neighbour))
         }
     }
 

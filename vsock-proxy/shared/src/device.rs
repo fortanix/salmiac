@@ -23,8 +23,6 @@ pub struct NetworkSettings {
 
     pub gateway_l2_address: IpAddr,
 
-    pub gateway_l3_address: [u8; 6],
-
     pub mtu : u32
 }
 
