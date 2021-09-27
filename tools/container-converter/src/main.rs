@@ -7,9 +7,12 @@ use clap::{
 use env_logger;
 use log::{info};
 use tempfile::TempDir;
+use serde::Deserialize;
 
 use container_converter::{ParentImageBuilder, EnclaveImageBuilder};
 use container_converter::image::DockerUtil;
+
+use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -27,19 +30,18 @@ async fn main() -> Result<(), String> {
         "output-image",
         client_image.clone());
 
-    let username = console_argument::<String>(&console_arguments, "pull-username");
-    let password = console_argument::<String>(&console_arguments, "pull-password");
+    let credentials = if console_arguments.is_present("credentials-file") {
+        let path = console_argument::<String>(&console_arguments, "credentials-file");
+        let file_contents = fs::read_to_string(path)
+            .map_err(|err| format!("Failed to read credentials file: {:?}", err))?;
 
-    let push_username = console_argument_or_default::<String>(
-        &console_arguments,
-        "push-username",
-        username.clone());
-    let push_password = console_argument_or_default::<String>(
-        &console_arguments,
-        "push-password",
-        password.clone());
+        toml::from_str::<Credentials>(&file_contents)
+            .map_err(|err| format!("Failed to read credentials from file: {:?}", err))?
+    } else {
+        Credentials::from_console_args(&console_arguments)
+    };
 
-    let input_repository = DockerUtil::new(username, password);
+    let input_repository = DockerUtil::new(credentials.pull_username, credentials.pull_password);
 
     info!("Retrieving client image!");
     let input_image = input_repository.get_remote_image(&client_image)
@@ -77,7 +79,7 @@ async fn main() -> Result<(), String> {
         .await
         .expect("Failed to retrieve converted image");
 
-    let result_repository = DockerUtil::new(push_username, push_password);
+    let result_repository = DockerUtil::new(credentials.push_username, credentials.push_password);
 
     info!("Pushing resulting image to {}!", output_image);
     result_repository.push_image(&result_image, &output_image).await?;
@@ -117,14 +119,14 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .help("user name for a repository that contains input image")
                 .long("pull-username")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             Arg::with_name("pull-password")
                 .help("password for a repository that contains input image")
                 .long("pull-password")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             Arg::with_name("push-username")
@@ -137,6 +139,13 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("push-password")
                 .help("password for a repository that will contain output image")
                 .long("push-password")
+                .takes_value(true)
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("credentials-file")
+                .help("Path to a file with credentials")
+                .long("credentials-file")
                 .takes_value(true)
                 .required(false),
         )
@@ -153,4 +162,38 @@ fn console_argument_or_default<'a, T : From<&'a str>>(matches : &'a ArgMatches, 
     matches.value_of(name)
         .map(|e| T::from(e))
         .unwrap_or(default)
+}
+
+#[derive(Deserialize, Debug)]
+struct Credentials {
+    pub pull_username : String,
+
+    pub pull_password : String,
+
+    pub push_username : String,
+
+    pub push_password : String
+}
+
+impl Credentials {
+    pub fn from_console_args(console_arguments : &ArgMatches) -> Self {
+        let pull_username = console_argument::<String>(&console_arguments, "pull-username");
+        let pull_password = console_argument::<String>(&console_arguments, "pull-password");
+
+        let push_username = console_argument_or_default::<String>(
+            &console_arguments,
+            "push-username",
+            pull_username.clone());
+        let push_password = console_argument_or_default::<String>(
+            &console_arguments,
+            "push-password",
+            pull_password.clone());
+
+        Credentials {
+            pull_username,
+            pull_password,
+            push_username,
+            push_password
+        }
+    }
 }
