@@ -110,27 +110,28 @@ impl DockerUtil {
         Ok(())
     }
 
-    pub async fn push_image(&self, image : &ImageWithDetails<'_>, output_address: &str) -> Result<(), String> {
-        let (repository, tag) = output_address.repository_and_tag();
+    pub async fn push_image(&self, image : &ImageWithDetails<'_>, address: &str) -> Result<(), String> {
+        let (repository, tag) = address.repository_and_tag();
 
-        let tag_options = TagOptions::builder()
-            .repo(repository)
-            .tag(tag)
-            .build();
+        let mut tag_options = TagOptions::builder();
+        tag_options.repo(repository);
 
-        image.image.tag(&tag_options)
+        let mut push_options = PushOptions::builder();
+        push_options.auth(self.credentials.clone());
+
+        if let Some(tag_value) = tag {
+            tag_options.tag(tag_value);
+            push_options.tag(tag_value.to_string());
+        }
+
+        image.image.tag(&tag_options.build())
             .await
-            .map_err(|err| format!("Failed to tag image {} with repo {} and tag {}. Err {:?}", image.details.id, repository, tag, err))?;
-
-        let push_options = PushOptions::builder()
-            .tag(tag.to_string())
-            .auth(self.credentials.clone())
-            .build();
+            .map_err(|err| format!("Failed to tag image {} with repo {}. Err {:?}", image.details.id, address, err))?;
 
         self.docker.images()
-            .push(repository, &push_options)
+            .push(repository, &push_options.build())
             .await
-            .map_err(|err| format!("Failed to push image {} into repo {} with tag {}. Err: {:?}", image.details.id, repository, tag, err))
+            .map_err(|err| format!("Failed to push image {} into repo {}. Err: {:?}", image.details.id, repository, err))
     }
 
     pub fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<(), String> {
@@ -181,18 +182,20 @@ impl DockerUtil {
         })
     }
 
-    async fn pull_image(&self, image : &str) -> Result<(), String> {
-        let (repository, tag) = image.repository_and_tag();
+    async fn pull_image(&self, address: &str) -> Result<(), String> {
+        let (repository, tag) = address.repository_and_tag();
 
-        let pull_options = PullOptions::builder()
-            .image(repository)
-            .tag(tag)
-            .auth(self.credentials.clone())
-            .build();
+        let mut pull_options = PullOptions::builder();
+        pull_options.image(repository)
+                    .auth(self.credentials.clone());
+
+        if let Some(tag_value) = tag {
+            pull_options.tag(tag_value);
+        }
 
         let mut stream = self.docker
             .images()
-            .pull(&pull_options);
+            .pull(&pull_options.build());
 
         while let Some(pull_result) = stream.next().await {
             match pull_result {

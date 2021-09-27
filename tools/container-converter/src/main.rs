@@ -17,28 +17,15 @@ async fn main() -> Result<(), String> {
 
     let console_arguments = console_arguments();
 
-    let client_image = {
-        let mut arg = console_argument::<String>(&console_arguments, "image");
-
-        if !arg.contains(':') {
-            arg.push_str(":latest")
-        };
-
-        arg
-    };
-
+    let client_image = console_argument::<String>(&console_arguments, "image");
     let parent_image = console_argument_or_default::<String>(
         &console_arguments,
         "parent-image",
         "parent-base".to_string());
-    let output_image = {
-        let arg = console_argument_or_default::<String>(
-            &console_arguments,
-            "output-image",
-            client_image.clone() + "-parent");
-
-        arg
-    };
+    let output_image = console_argument_or_default::<String>(
+        &console_arguments,
+        "output-image",
+        client_image.clone());
 
     let username = console_argument::<String>(&console_arguments, "pull-username");
     let password = console_argument::<String>(&console_arguments, "pull-password");
