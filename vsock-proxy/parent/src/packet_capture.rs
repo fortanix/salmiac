@@ -14,22 +14,6 @@ pub fn open_packet_capture(device : pcap::Device) -> Result<Capture<Active>, Str
     capture.open().map_err(|err| format!("Cannot open capture {:?}", err))
 }
 
-pub fn open_packet_capture_with_port_filter(device : pcap::Device, port : u32) -> Result<Capture<Active>, String> {
-    fn add_port_filter(mut capture : Capture<Active>, port : u32) -> Capture<Active> {
-        capture.filter(&*format!("port {}", port)).expect("Cannot set pcap port filter.");
-        capture
-    }
-
-    open_packet_capture(device).map(|c| add_port_filter(c, port))
-}
-
-pub fn open_async_packet_capture_with_port_filter(device_name : &str, mtu : u32, port : u32) -> Result<Fuse<pcap_async::PacketStream>, String> {
-    let mut config = async_packet_capture_config(mtu);
-    config.with_bpf(format!("port {}", port));
-
-    open_async_packet_capture0(device_name, config)
-}
-
 pub fn open_async_packet_capture(device_name : &str, mtu : u32) -> Result<Fuse<pcap_async::PacketStream>, String> {
     open_async_packet_capture0(device_name, async_packet_capture_config(mtu))
 }
