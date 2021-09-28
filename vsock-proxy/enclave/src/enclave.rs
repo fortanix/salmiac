@@ -121,7 +121,7 @@ async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : 
     netlink::set_link(&netlink_handle, tap_index, &parent_settings.self_l2_address).await?;
     info!("MAC address for tap is set!");
 
-    let gateway_addr = parent_settings.gateway_l2_address;
+    let gateway_addr = parent_settings.gateway_l3_address;
     let as_ipv4 = match gateway_addr {
         IpAddr::V4(e) => {
             e

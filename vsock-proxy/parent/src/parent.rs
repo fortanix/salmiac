@@ -129,7 +129,7 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
     let result = NetworkSettings {
         self_l2_address: mac_address,
         self_l3_address: ip_network,
-        gateway_l2_address: gateway_address,
+        gateway_l3_address: gateway_address,
         mtu
     };
 
