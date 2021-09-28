@@ -25,10 +25,11 @@ async fn main() -> Result<(), String> {
         &console_arguments,
         "parent-image",
         "parent-base".to_string());
-    let output_image = console_argument_or_default::<String>(
-        &console_arguments,
-        "output-image",
-        client_image.clone());
+    let output_image = console_argument::<String>(&console_arguments, "output-image");
+
+    if client_image == output_image {
+        return Err("Client and output image should point to different images!".to_string())
+    }
 
     let credentials = if console_arguments.is_present("credentials-file") {
         let path = console_argument::<String>(&console_arguments, "credentials-file");
@@ -112,7 +113,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .help("output image name")
                 .long("output-image")
                 .takes_value(true)
-                .required(false),
+                .required(true),
         )
         .arg(
             Arg::with_name("pull-username")
