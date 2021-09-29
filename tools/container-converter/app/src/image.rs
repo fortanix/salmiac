@@ -3,15 +3,14 @@ use shiplift::{Docker, Image, RegistryAuth, PullOptions, TagOptions};
 use shiplift::image::{PushOptions, ImageDetails};
 use futures::StreamExt;
 
-use crate::DockerImageURL;
-
 use std::process;
 use std::env;
 use std::fs;
 use std::path::Path;
+use crate::Credentials;
 
-pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<(), String> {
-    let output = output_file.to_str().unwrap();
+pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<String, String> {
+    let output = output_file.to_str().expect("Cannot convert nitro output path to string");
 
     let nitro_cli_args = [
         "build-enclave",
@@ -27,19 +26,25 @@ pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<(), 
         .map_err(|err| format!("Failed to execute nitro-cli {:?}", err));
 
     nitro_cli_command.and_then(|output| {
-        process_output(output)
+        process_output(output, "nitro-cli")
     })
 }
 
-fn process_output(output : process::Output) -> Result<(), String> {
+fn process_output(output : process::Output, process_name : &str) -> Result<String, String> {
     if !output.status.success() {
+        let result = String::from_utf8_lossy(&output.stderr);
+
         error!("status: {}", output.status);
-        error!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-        Err(format!("Process exited with code {:?}", output.status.code()))
+        error!("stderr: {}", result);
+
+        Err(format!("External process {} exited with {}. Stderr: {}", process_name, output.status, result))
     } else {
+        let result = String::from_utf8_lossy(&output.stdout);
+
         info!("status: {}", output.status);
-        info!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-        Ok(())
+        info!("stdout: {}", result);
+
+        Ok(result.to_string())
     }
 }
 
@@ -54,12 +59,12 @@ pub struct ImageWithDetails<'a> {
 }
 
 impl DockerUtil {
-    pub fn new(username : String, password : String) -> Self {
+    pub fn new(credentials : &Credentials) -> Self {
         let docker = Docker::new();
 
         let credentials = RegistryAuth::builder()
-            .username(username)
-            .password(password)
+            .username(&credentials.username)
+            .password(&credentials.password)
             .build();
 
         DockerUtil {
@@ -134,7 +139,7 @@ impl DockerUtil {
             .map_err(|err| format!("Failed to push image {} into repo {}. Err: {:?}", image.details.id, repository, err))
     }
 
-    pub fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<(), String> {
+    pub fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<String, String> {
         env::set_var("DOCKER_BUILDKIT", "1");
 
         let dir = docker_dir.to_str().unwrap();
@@ -152,11 +157,11 @@ impl DockerUtil {
             .map_err(|err| format!("Failed to run docker {:?}", err));
 
         docker.and_then(|output| {
-            process_output(output)
+            process_output(output, "docker")
         })
     }
 
-    pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str, output_file : &str) -> Result<(), String> {
+    pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str, output_file : &str) -> Result<String, String> {
         let user_id = 1000;
         let args = [
             "--addr",
@@ -178,7 +183,7 @@ impl DockerUtil {
             .map_err(|err| format!("Failed to run buildkit {:?}", err));
 
         run_buildkit.and_then(|output| {
-            process_output(output)
+            process_output(output, "docker")
         })
     }
 
@@ -209,5 +214,17 @@ impl DockerUtil {
         }
 
         Ok(())
+    }
+}
+
+trait DockerImageURL {
+    fn repository_and_tag(&self) -> (&str, Option<&str>);
+}
+
+impl DockerImageURL for &str {
+    fn repository_and_tag(&self) -> (&str, Option<&str>) {
+        self.rfind(":")
+            .map(|pos| (&self[..pos], Some(&self[pos + 1..])))
+            .unwrap_or((&self, None))
     }
 }
