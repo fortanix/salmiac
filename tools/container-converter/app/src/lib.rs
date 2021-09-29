@@ -2,11 +2,18 @@ pub mod image;
 pub mod file;
 
 use file::UnixFile;
+use image::{
+    DockerUtil,
+    create_nitro_image
+};
 use tempfile::TempDir;
-use log::{info};
+use log::{
+    info
+};
 
-use crate::file::{DockerCopyArgs};
-use image::{DockerUtil, create_nitro_image};
+use crate::file::{
+    DockerCopyArgs
+};
 
 use std::fs;
 use std::io::{Write};
