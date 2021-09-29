@@ -12,8 +12,8 @@ fi;
 
 cd vsock-proxy
 cargo build $cargo_build_flag
-cp "target/${vsock_proxy_bin_folder}/enclave" ../tools/container-converter/src/resources/enclave
-cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/resources/parent
+cp "target/${vsock_proxy_bin_folder}/enclave" ../tools/container-converter/app/src/resources/enclave
+cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/app/src/resources/parent
 
 cd ../tools/container-converter
 cargo build $cargo_build_flag

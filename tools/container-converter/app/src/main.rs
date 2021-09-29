@@ -9,8 +9,8 @@ use log::{info};
 use tempfile::TempDir;
 use serde::Deserialize;
 
-use container_converter::{ParentImageBuilder, EnclaveImageBuilder};
-use container_converter::image::DockerUtil;
+use app::image::DockerUtil;
+use app::{EnclaveImageBuilder, ParentImageBuilder};
 
 use std::fs;
 
