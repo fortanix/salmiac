@@ -1,6 +1,7 @@
 use tempfile::TempDir;
 use log::info;
 use clap::ArgMatches;
+use serde::Deserialize;
 
 use crate::image::DockerUtil;
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
@@ -11,6 +12,7 @@ pub mod image_builder;
 
 pub type Result<T> = std::result::Result<T, ConverterError>;
 
+#[derive(Deserialize, Clone)]
 pub struct ConverterArgs {
     pub pull_repository : Repository,
 
@@ -64,24 +66,28 @@ impl ConverterArgs {
     }
 }
 
+#[derive(Deserialize, Clone)]
 pub struct Repository {
     pub image : String,
 
     pub credentials : Credentials
 }
 
+#[derive(Deserialize, Clone)]
 pub struct Credentials {
     pub username : String,
 
     pub password : String
 }
 
+#[derive(Debug)]
 pub struct ConverterError {
     pub message : String,
 
     pub kind : ConverterErrorKind
 }
 
+#[derive(Debug)]
 pub enum ConverterErrorKind {
     ImagePull,
     ImagePush,
