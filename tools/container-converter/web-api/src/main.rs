@@ -5,9 +5,9 @@ use iron::Plugin;
 use iron::status;
 use router::Router;
 use log::info;
+use tokio::runtime::{Runtime, Handle};
 
 use app::ConverterArgs;
-use tokio::runtime::{Runtime, Handle};
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -27,26 +27,28 @@ fn main() -> Result<(), String> {
                 "convert_handler");
 
     Iron::new(router).http(("localhost", port))
-        .expect("Server start fail");
+        .expect("Failed to start http server");
 
     Ok(())
 }
 
 fn convert_handler(req: &mut Request, handle : &Handle) -> IronResult<Response> {
+    fn run_converter(args : ConverterArgs, handle : &Handle) -> IronResult<Response> {
+        let converter_result = handle.block_on(app::run(args));
+
+        match converter_result {
+            Ok(result) => {
+                Ok(Response::with((status::Ok, result)))
+            }
+            Err(err) => {
+                Ok(Response::with((status::InternalServerError, format!("{:?}", err))))
+            }
+        }
+    }
+
     match req.get::<bodyparser::Struct<ConverterArgs>>() {
         Ok(Some(args)) => {
-            let converter_result = handle.block_on({
-                app::run(args)
-            });
-
-            match converter_result {
-                Ok(result) => {
-                    Ok(Response::with((status::Ok, result)))
-                }
-                Err(err) => {
-                    Ok(Response::with((status::InternalServerError, format!("{:?}", err))))
-                }
-            }
+            run_converter(args, handle)
         },
         Ok(None) => {
             Ok(Response::with((status::BadRequest, "No body")))
