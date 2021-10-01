@@ -9,6 +9,8 @@ use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processi
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 
 use std::net::IpAddr;
+use mbedtls::pk::Pk;
+use mbedtls::rng::Rdrand;
 
 pub async fn run(vsock_port: u32) -> Result<(), String> {
     let mut parent_settings_connection = connect_to_parent_async(vsock_port).await?;
@@ -24,6 +26,12 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     let async_tap_device = setup_enclave_networking(&mut parent_settings_connection, &parent_settings).await?;
 
     info!("Created tap device in enclave!");
+
+    info!("Performing enclave attestation!");
+    let certificate = setup_enclave_certification(&mut parent_settings_connection).await?;
+    // write certificate
+
+    info!("Finished enclave attestation!");
 
     let (tap_read, tap_write) = io::split(async_tap_device);
     let (vsock_read, vsock_write) = io::split(parent_data_connection);
@@ -91,6 +99,17 @@ async fn receive_parent_network_settings(vsock : &mut AsyncVsockStream) -> Resul
     }
 }
 
+async fn receive_certificate(vsock : &mut AsyncVsockStream) -> Result<String, String> {
+    let msg : SetupMessages = vsock.read_lv().await?;
+
+    match msg {
+        SetupMessages::Certificate(s) => { Ok(s) }
+        x => {
+            return Err(format!("Expected SetupMessages::Certificate, but got {:?}", x))
+        }
+    }
+}
+
 async fn setup_enclave_networking(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
     let tap_device = shared::device::create_async_tap_device(&parent_settings)?;
 
@@ -103,6 +122,24 @@ async fn setup_enclave_networking(vsock : &mut AsyncVsockStream, parent_settings
     vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
 
     Ok(tap_device)
+}
+
+async fn setup_enclave_certification(vsock : &mut AsyncVsockStream) -> Result<String, String> {
+    let mut rng = Rdrand;
+    let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001).unwrap();
+
+    let csr = em_app::get_remote_attestation_csr(
+        "localhost",
+        "enclave-certificate",
+        &mut key,
+        None,
+        None).expect("Failed to get CSR");
+
+    debug!("Sending CSR {} to parent!", csr);
+
+    vsock.write_lv(&SetupMessages::CSR(csr)).await?;
+
+    receive_certificate(vsock).await
 }
 
 async fn setup_enclave_networking0(tap_device : &AsyncDevice, parent_settings : &NetworkSettings) -> Result<(), String> {

@@ -11,7 +11,9 @@ use std::net::IpAddr;
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
     SetupSuccessful,
-    Settings(NetworkSettings)
+    Settings(NetworkSettings),
+    CSR(String),
+    Certificate(String)
 }
 
 #[repr(C)]

@@ -53,6 +53,8 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     let mtu = network_settings.mtu;
     communicate_network_settings(network_settings, &mut enclave_port).await?;
 
+    communicate_certificate(&mut enclave_port).await?;
+
     let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
     let write_capture = open_packet_capture(parent_device)?;
 
@@ -95,6 +97,29 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
             Err(format!("Expected message of type {:?}, but got {:?}", SetupMessages::SetupSuccessful, x))
         }
     }
+}
+
+async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), String> {
+    let msg : SetupMessages = vsock.read_lv().await?;
+
+    let csr = match msg {
+        SetupMessages::CSR(csr) => {
+            csr
+        }
+        x => {
+            return Err(format!("Expected message of type SetupMessages::CSR, but got {:?}", x))
+        }
+    };
+
+    debug!("Received CSR {} from enclave!", csr);
+
+    let certificate = em_app::request_issue_certificate("localhost", csr)
+        .map_err(|err| format!("Failed to receive certificate {:?}", err))
+        .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
+
+    debug!("Received certificate {}!", certificate);
+
+    vsock.write_lv(&SetupMessages::Certificate(certificate)).await
 }
 
 async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSettings, String> {
