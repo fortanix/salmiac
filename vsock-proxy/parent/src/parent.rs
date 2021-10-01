@@ -15,6 +15,7 @@ use futures::stream::Fuse;
 
 use crate::packet_capture::{open_packet_capture, open_async_packet_capture};
 use shared::device::{NetworkSettings, SetupMessages};
+use shared::extract_enum_value;
 use shared::netlink::{AddressMessageExt, LinkMessageExt, RouteMessageExt};
 use shared::{netlink, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing};
 use shared::VSOCK_PARENT_CID;
@@ -55,6 +56,10 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     communicate_certificate(&mut enclave_port).await?;
 
+    let msg : SetupMessages = enclave_port.read_lv().await?;
+
+    extract_enum_value!(msg, SetupMessages::SetupSuccessful => ())?;
+
     let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
     let write_capture = open_packet_capture(parent_device)?;
 
@@ -86,32 +91,13 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
 
     debug!("Sent network settings to the enclave!");
 
-    let msg : SetupMessages = vsock.read_lv().await?;
-
-    match msg {
-        SetupMessages::SetupSuccessful => {
-            info!("Enclave has setup networking!");
-            Ok(())
-        }
-        x => {
-            Err(format!("Expected message of type {:?}, but got {:?}", SetupMessages::SetupSuccessful, x))
-        }
-    }
+    Ok(())
 }
 
 async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), String> {
     let msg : SetupMessages = vsock.read_lv().await?;
 
-    let csr = match msg {
-        SetupMessages::CSR(csr) => {
-            csr
-        }
-        x => {
-            return Err(format!("Expected message of type SetupMessages::CSR, but got {:?}", x))
-        }
-    };
-
-    debug!("Received CSR {} from enclave!", csr);
+    let csr = extract_enum_value!(msg, SetupMessages::CSR(csr) => csr)?;
 
     let certificate = em_app::request_issue_certificate("localhost", csr)
         .map_err(|err| format!("Failed to receive certificate {:?}", err))
