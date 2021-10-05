@@ -12,6 +12,10 @@ use std::net::IpAddr;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 
+use std::path::{Path, PathBuf};
+use std::fs;
+use std::io::Write;
+
 pub async fn run(vsock_port: u32) -> Result<(), String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
@@ -87,7 +91,8 @@ async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &Network
 
     info!("Finished enclave network setup!");
 
-    setup_enclave_certification(vsock).await?;
+    let path = Path::new("certificate");
+    setup_enclave_certification(vsock, &path).await?;
 
     info!("Finished enclave attestation!");
 
@@ -132,13 +137,13 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
     Ok(tap_device)
 }
 
-async fn setup_enclave_certification(vsock : &mut AsyncVsockStream) -> Result<(), String> {
+async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, certificate_path : &Path) -> Result<(), String> {
     let mut rng = Rdrand;
     let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001).unwrap();
 
     let csr = em_app::get_remote_attestation_csr(
+        "http://172.31.46.106:9092",
         "localhost",
-        "enclave-certificate",
         &mut key,
         None,
         None).expect("Failed to get CSR");
@@ -151,7 +156,14 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream) -> Result<()
 
     let certificate = extract_enum_value!(msg, SetupMessages::Certificate(s) => s)?;
 
-    Ok(())
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(certificate_path)
+        .expect("Failed to create certificate file");
+
+    file.write_all(certificate.as_bytes())
+        .map_err(|err| format!("Failed to write certificate {:?}", err))
 }
 
 async fn connect_to_parent_async(port : u32) -> Result<AsyncVsockStream, String> {

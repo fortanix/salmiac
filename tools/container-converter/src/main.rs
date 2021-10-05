@@ -45,7 +45,7 @@ fn main() -> Result<(), String> {
 
     let enclave_builder = EnclaveImageBuilder {
         client_image: client_image.clone(),
-        client_cmd,
+        client_cmd : client_cmd[2..].to_vec(),
         dir : &temp_dir,
     };
 

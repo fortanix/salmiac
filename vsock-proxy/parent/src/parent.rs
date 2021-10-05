@@ -98,12 +98,12 @@ async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), St
     let msg : SetupMessages = vsock.read_lv().await?;
 
     let csr = extract_enum_value!(msg, SetupMessages::CSR(csr) => csr)?;
-
-    let certificate = em_app::request_issue_certificate("localhost", csr)
+    
+    let certificate = em_app::request_issue_certificate("http://172.31.46.106:9092", csr)
         .map_err(|err| format!("Failed to receive certificate {:?}", err))
         .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
 
-    debug!("Received certificate {}!", certificate);
+    debug!("Received certificate from node agent {}!", certificate);
 
     vsock.write_lv(&SetupMessages::Certificate(certificate)).await
 }
