@@ -268,15 +268,3 @@ fn rust_log_env_var() -> String {
         }
     })
 }
-
-trait DockerImageURL {
-    fn repository_and_tag(&self) -> (&str, Option<&str>);
-}
-
-impl DockerImageURL for &str {
-    fn repository_and_tag(&self) -> (&str, Option<&str>) {
-        self.rfind(":")
-            .map(|pos| (&self[..pos], Some(&self[pos + 1..])))
-            .unwrap_or((&self, None))
-    }
-}

@@ -8,6 +8,7 @@ use env_logger;
 use log::{info};
 use tempfile::TempDir;
 use serde::Deserialize;
+use docker_image_reference::Reference as DockerReference;
 
 use container_converter::{ParentImageBuilder, EnclaveImageBuilder};
 use container_converter::image::DockerUtil;
@@ -20,16 +21,21 @@ async fn main() -> Result<(), String> {
 
     let console_arguments = console_arguments();
 
-    let client_image = console_argument::<String>(&console_arguments, "image");
+    let client_image_raw = console_argument::<String>(&console_arguments, "image");
     let parent_image = console_argument_or_default::<String>(
         &console_arguments,
         "parent-image",
         "parent-base".to_string());
-    let output_image = console_argument::<String>(&console_arguments, "output-image");
+    let output_image_raw = console_argument::<String>(&console_arguments, "output-image");
 
-    if client_image == output_image {
+    if client_image_raw == output_image_raw {
         return Err("Client and output image should point to different images!".to_string())
     }
+
+    let client_image = DockerReference::from_str(&client_image_raw)
+        .expect("Incorrect image format");
+    let output_image = DockerReference::from_str(&output_image_raw)
+        .expect("Incorrect output-image format");
 
     let credentials = if console_arguments.is_present("credentials-file") {
         let path = console_argument::<String>(&console_arguments, "credentials-file");
@@ -47,7 +53,7 @@ async fn main() -> Result<(), String> {
     info!("Retrieving client image!");
     let input_image = input_repository.get_remote_image(&client_image)
         .await
-        .expect(&format!("Image {} not found", client_image));
+        .expect(&format!("Image {} not found", client_image_raw));
 
     info!("Retrieving CMD from client image!");
     let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
@@ -56,7 +62,7 @@ async fn main() -> Result<(), String> {
     let temp_dir = TempDir::new().map_err(|err| format!("Cannot create temp dir {:?}", err))?;
 
     let enclave_builder = EnclaveImageBuilder {
-        client_image: client_image.clone(),
+        client_image: client_image_raw.clone(),
         client_cmd : client_cmd[2..].to_vec(), // removes /bin/sh -c
         dir : &temp_dir,
     };
@@ -65,7 +71,7 @@ async fn main() -> Result<(), String> {
     let nitro_file = enclave_builder.create_image(&input_repository)?;
 
     let parent_builder = ParentImageBuilder {
-        output_image : output_image.clone(),
+        output_image : output_image_raw.clone(),
         parent_image,
         nitro_file,
         dir : &temp_dir,
@@ -82,10 +88,10 @@ async fn main() -> Result<(), String> {
 
     let result_repository = DockerUtil::new(credentials.push_username, credentials.push_password);
 
-    info!("Pushing resulting image to {}!", output_image);
+    info!("Pushing resulting image to {}!", output_image_raw);
     result_repository.push_image(&result_image, &output_image).await?;
 
-    info!("Resulting image has been successfully pushed to {} !", output_image);
+    info!("Resulting image has been successfully pushed to {} !", output_image_raw);
 
     Ok(())
 }
