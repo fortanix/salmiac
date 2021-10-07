@@ -3,20 +3,22 @@ use nix::net::if_::if_nametoindex;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::AsyncDevice;
+use serde::{Serialize, Deserialize};
+use mbedtls::pk::Pk;
+use mbedtls::rng::Rdrand;
 
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 
 use std::net::IpAddr;
-use mbedtls::pk::Pk;
-use mbedtls::rng::Rdrand;
-
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::fs;
 use std::io::Write;
 
-pub async fn run(vsock_port: u32) -> Result<(), String> {
+pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
+    let enclave_settings = read_enclave_settings(settings_path)?;
+
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
     info!("Connected to parent!");
@@ -29,7 +31,7 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     let parent_settings = extract_enum_value!(msg, SetupMessages::Settings(s) => s)?;
 
-    let async_tap_device = setup_enclave(&mut parent_port, &parent_settings).await?;
+    let async_tap_device = setup_enclave(&mut parent_port, &parent_settings, &enclave_settings).await?;
 
     let (tap_read, tap_write) = io::split(async_tap_device);
     let (vsock_read, vsock_write) = io::split(parent_data_port);
@@ -86,13 +88,12 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
     }
 }
 
-async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
+async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, enclave_settings : &Settings) -> Result<AsyncDevice, String> {
     let async_tap_device = setup_enclave_networking(&parent_settings).await?;
 
     info!("Finished enclave network setup!");
 
-    let path = Path::new("certificate");
-    setup_enclave_certification(vsock, &path).await?;
+    setup_enclave_certification(vsock, &enclave_settings).await?;
 
     info!("Finished enclave attestation!");
 
@@ -137,37 +138,67 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
     Ok(tap_device)
 }
 
-async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, certificate_path : &Path) -> Result<(), String> {
+async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &Settings) -> Result<(), String> {
     let mut rng = Rdrand;
     let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001).unwrap();
 
     let csr = em_app::get_remote_attestation_csr(
-        "http://172.31.46.106:9092",
-        "localhost",
+        &settings.key_url,
+        &settings.key_domain,
         &mut key,
         None,
-        None).expect("Failed to get CSR");
+        None)
+        .map_err(|err| format!("Failed to get CSR. {:?}", err))?;
 
     debug!("Sending CSR {} to parent!", csr);
 
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
-    let msg : SetupMessages = vsock.read_lv().await?;
+    let certificate_msg: SetupMessages = vsock.read_lv().await?;
 
-    let certificate = extract_enum_value!(msg, SetupMessages::Certificate(s) => s)?;
+    let certificate = extract_enum_value!(certificate_msg, SetupMessages::Certificate(s) => s)?;
 
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(certificate_path)
-        .expect("Failed to create certificate file");
+    let key_as_pem = key.write_private_pem_string()
+        .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
-    file.write_all(certificate.as_bytes())
-        .map_err(|err| format!("Failed to write certificate {:?}", err))
+    debug!("Enclave private key {}", key_as_pem);
+
+    create_key_file(Path::new(&settings.key_path), &key_as_pem)?;
+    create_key_file(Path::new(&settings.certificate_path), &certificate)
 }
 
 async fn connect_to_parent_async(port : u32) -> Result<AsyncVsockStream, String> {
     AsyncVsockStream::connect(VSOCK_PARENT_CID, port)
         .await
-        .map_err(|err| format!("Failed to connect to enclave: {:?}", err))
+        .map_err(|err| format!("Failed to connect to parent: {:?}", err))
+}
+
+fn create_key_file(path : &Path, key : &str) -> Result<(), String> {
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(path)
+        .map_err(|err| format!("Failed to create key file {}. {:?}", path.display(), err))?;
+
+    file.write_all(key.as_bytes())
+        .map_err(|err| format!("Failed to write data into key file {}. {:?}", path.display(), err))
+}
+
+fn read_enclave_settings(path : &Path) -> Result<Settings, String> {
+    let settings_raw = fs::read_to_string(path)
+        .map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
+
+    serde_json::from_str(&settings_raw)
+        .map_err(|err| format!("Failed to deserialize enclave settings. {:?}", err))
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Settings {
+    pub key_url : String,
+
+    pub key_domain : String,
+
+    pub key_path : String,
+
+    pub certificate_path : String
 }

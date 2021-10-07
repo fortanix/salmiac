@@ -52,13 +52,7 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     let network_settings = get_network_settings(&parent_device).await?;
 
     let mtu = network_settings.mtu;
-    communicate_network_settings(network_settings, &mut enclave_port).await?;
-
-    communicate_certificate(&mut enclave_port).await?;
-
-    let msg : SetupMessages = enclave_port.read_lv().await?;
-
-    extract_enum_value!(msg, SetupMessages::SetupSuccessful => ())?;
+    communicate_enclave_settings(network_settings, &mut enclave_port).await?;
 
     let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
     let write_capture = open_packet_capture(parent_device)?;
@@ -84,6 +78,16 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     }
 }
 
+async fn communicate_enclave_settings(network_settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
+    communicate_network_settings(network_settings, vsock).await?;
+
+    communicate_certificate(vsock).await?;
+
+    let msg : SetupMessages = vsock.read_lv().await?;
+
+    extract_enum_value!(msg, SetupMessages::SetupSuccessful => ())
+}
+
 async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
     debug!("Read network settings from parent {:?}", settings);
 
@@ -95,9 +99,9 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
 }
 
 async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), String> {
-    let msg : SetupMessages = vsock.read_lv().await?;
+    let csr_msg: SetupMessages = vsock.read_lv().await?;
 
-    let csr = extract_enum_value!(msg, SetupMessages::CSR(csr) => csr)?;
+    let csr = extract_enum_value!(csr_msg, SetupMessages::CSR(csr) => csr)?;
     
     let certificate = em_app::request_issue_certificate("http://172.31.46.106:9092", csr)
         .map_err(|err| format!("Failed to receive certificate {:?}", err))

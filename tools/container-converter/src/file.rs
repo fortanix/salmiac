@@ -10,7 +10,9 @@ pub fn full_path(dir : &str, file : &str) -> String {
 pub struct Resource {
     pub name : String,
 
-    pub data : Vec<u8>
+    pub data : Vec<u8>,
+
+    pub is_executable : bool
 }
 
 pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), String> {
@@ -23,7 +25,10 @@ pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), S
 
         file.write_all(&resource.data).map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
 
-        file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
+        if resource.is_executable {
+            file.set_execute()
+                .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
+        }
     }
 
     Ok(())
@@ -34,7 +39,7 @@ pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
         .create(true)
         .write(true)
         .open(dir.join("Dockerfile"))
-        .map_err(|err| format!("Failed to create docker file {:?}", err))
+        .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))
 }
 
 pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &DockerCopyArgs, cmd : &str, env : &str) -> Result<(), String> {
@@ -49,9 +54,8 @@ pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &Doc
         cmd
     );
 
-    file.write_all(filled_contents.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-    Ok(())
+    file.write_all(filled_contents.as_bytes())
+        .map_err(|err| format!("Failed to write to file {:?}", err))
 }
 
 pub fn log_docker_file(dir : &Path) -> Result<(), String> {
