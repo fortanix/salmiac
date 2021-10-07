@@ -2,5 +2,5 @@
 
 members = [
     "app",
-    "web-api",
+    "rest-api",
 ]

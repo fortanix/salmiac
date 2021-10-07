@@ -1,5 +1,5 @@
 [package]
-name = "web-api"
+name = "rest-api"
 version = "0.1.0"
 authors = ["NikitaShyrei <nikita.shyrei@fortanix.com>"]
 edition = "2018"

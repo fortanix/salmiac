@@ -4,7 +4,6 @@ use iron::{Iron, Request, Response, IronResult};
 use iron::Plugin;
 use iron::status;
 use router::Router;
-use log::info;
 use tokio::runtime::{Runtime, Handle};
 
 use app::ConverterArgs;
