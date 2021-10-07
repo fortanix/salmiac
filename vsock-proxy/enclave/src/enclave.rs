@@ -19,6 +19,8 @@ use std::io::Write;
 pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
+    debug!("Received enclave settings {:?}", enclave_settings);
+
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
     info!("Connected to parent!");
