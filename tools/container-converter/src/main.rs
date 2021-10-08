@@ -21,7 +21,7 @@ async fn main() -> Result<(), String> {
 
     let console_arguments = console_arguments();
 
-    let client_image_raw = console_argument::<String>(&console_arguments, "image");
+    let mut client_image_raw = console_argument::<String>(&console_arguments, "image");
     let parent_image = console_argument_or_default::<String>(
         &console_arguments,
         "parent-image",
@@ -32,10 +32,18 @@ async fn main() -> Result<(), String> {
         return Err("Client and output image should point to different images!".to_string())
     }
 
-    let client_image = DockerReference::from_str(&client_image_raw)
-        .expect("Incorrect image format");
-    let output_image = DockerReference::from_str(&output_image_raw)
-        .expect("Incorrect output-image format");
+    let client_image = {
+        let result = DockerReference::from_str(&client_image_raw).unwrap();
+
+        if result.tag().is_none() && !result.has_digest() {
+            client_image_raw.push_str(":latest");
+            DockerReference::from_str(&client_image_raw).unwrap()
+        } else {
+            result
+        }
+    };
+
+    let output_image = DockerReference::from_str(&output_image_raw).unwrap();
 
     let credentials = if console_arguments.is_present("credentials-file") {
         let path = console_argument::<String>(&console_arguments, "credentials-file");
@@ -104,6 +112,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("image")
                 .help("your docker image")
                 .long("image")
+                .validator(image_validator)
                 .takes_value(true)
                 .required(true),
         )
@@ -118,6 +127,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("output-image")
                 .help("output image name")
                 .long("output-image")
+                .validator(output_image_validator)
                 .takes_value(true)
                 .required(true),
         )
@@ -169,6 +179,24 @@ fn console_argument_or_default<'a, T : From<&'a str>>(matches : &'a ArgMatches, 
     matches.value_of(name)
         .map(|e| T::from(e))
         .unwrap_or(default)
+}
+
+fn image_validator(arg : String) -> Result<(), String> {
+    DockerReference::from_str(&arg)
+        .map_err(|err| format!("Incorrect image format. {:?}", err))?;
+
+    Ok(())
+}
+
+fn output_image_validator(arg : String) -> Result<(), String> {
+    let output_image = DockerReference::from_str(&arg)
+        .map_err(|err| format!("Incorrect image format. {:?}", err))?;
+
+    if output_image.tag().is_none() || output_image.has_digest() {
+        Err("Output image must have a tag and have no digest!".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Deserialize, Debug)]

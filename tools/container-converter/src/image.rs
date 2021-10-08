@@ -181,17 +181,14 @@ impl DockerUtil {
     }
 
     async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), String> {
-        let mut pull_options = PullOptions::builder();
-        pull_options.image(address.name())
-                    .auth(self.credentials.clone());
-
-        if let Some(tag_value) = address.tag() {
-            pull_options.tag(tag_value);
-        }
+        let pull_options = PullOptions::builder()
+            .image(address.to_string())
+            .auth(self.credentials.clone())
+            .build();
 
         let mut stream = self.docker
             .images()
-            .pull(&pull_options.build());
+            .pull(&pull_options);
 
         while let Some(pull_result) = stream.next().await {
             match pull_result {
