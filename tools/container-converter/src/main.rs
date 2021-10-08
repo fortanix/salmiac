@@ -7,7 +7,7 @@ use clap::{
 use env_logger;
 use log::{error};
 
-use app::{ConverterArgs};
+use container_converter::ConverterArgs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -18,7 +18,7 @@ async fn main() -> Result<(), String> {
     let converter_arguments = ConverterArgs::from_console_arguments(&console_arguments)
         .expect("Cannot create console arguments");
 
-    app::run(converter_arguments)
+    container_converter::run(converter_arguments)
         .await
         .map(|measurements| println!("{}", measurements))
         .map_err(|err| {

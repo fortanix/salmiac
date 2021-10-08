@@ -1,6 +1,17 @@
-[workspace]
+[package]
+name = "container-converter"
+version = "0.1.0"
+authors = ["NikitaShyrei <nikita.shyrei@fortanix.com>"]
+edition = "2018"
 
-members = [
-    "app",
-    "rest-api",
-]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+env_logger = "0.7"
+log = "0.4"
+clap = "2.33"
+shiplift = { git = "https://github.com/charlolizard/shiplift" }
+futures = "0.3"
+tokio = { version = "1.0.1", features = ["macros", "rt"] }
+tempfile = "3.2.0"
+serde = { version = "1.0.127", features = ["derive"] }
