@@ -1,7 +1,9 @@
 use log::{info, error};
-use shiplift::{Docker,Image};
-use shiplift::rep::{ImageDetails};
+use shiplift::{Docker, Image, RegistryAuth, PullOptions, TagOptions};
+use shiplift::image::{PushOptions, ImageDetails};
 use futures::StreamExt;
+use docker_image_reference::Reference as DockerReference;
+
 use std::process;
 use std::env;
 use std::fs;
@@ -42,7 +44,7 @@ fn process_output(output : process::Output) -> Result<(), String> {
 
 pub struct DockerUtil {
     docker: Docker,
-    image_name: String,
+    credentials : RegistryAuth
 }
 
 pub struct ImageWithDetails<'a> {
@@ -51,23 +53,28 @@ pub struct ImageWithDetails<'a> {
 }
 
 impl DockerUtil {
-    pub fn new(docker_image: String) -> Self {
+    pub fn new(username : String, password : String) -> Self {
         let docker = Docker::new();
 
-        let mut docker_image = docker_image;
-
-        if !docker_image.contains(':') {
-            docker_image.push_str(":latest");
-        }
+        let credentials = RegistryAuth::builder()
+            .username(username)
+            .password(password)
+            .build();
 
         DockerUtil {
             docker,
-            image_name: docker_image,
+            credentials
         }
     }
 
-    pub async fn local_image(&self) -> Option<ImageWithDetails<'_>> {
-        let image = self.docker.images().get(&self.image_name);
+    pub async fn get_remote_image(&self, image : &DockerReference<'_>) -> Result<ImageWithDetails<'_>, String> {
+        self.pull_image(image).await?;
+
+        Ok(self.get_local_image(image).await.expect("Failed to pull image"))
+    }
+
+    pub async fn get_local_image(&self, address : &DockerReference<'_>) -> Option<ImageWithDetails<'_>> {
+        let image = self.docker.images().get(address.name());
 
         match image.inspect().await {
             Ok(details) => {
@@ -88,18 +95,41 @@ impl DockerUtil {
         let reader = Box::from(tar);
         let mut stream = self.docker.images().import(reader);
 
-        let mut result : Result<(), String> = Ok(());
         while let Some(import_result) = stream.next().await {
             match import_result {
                 Ok(output) => {
                     info!("{:?}", output)
                 },
                 Err(e) => {
-                    result = Err(format!("{:?}", e));
+                    return Err(format!("{:?}", e));
                 },
             }
         }
-        result
+
+        Ok(())
+    }
+
+    pub async fn push_image(&self, image : &ImageWithDetails<'_>, address: &DockerReference<'_>) -> Result<(), String> {
+        let repository = address.name();
+        let mut tag_options = TagOptions::builder();
+        tag_options.repo(repository);
+
+        let mut push_options = PushOptions::builder();
+        push_options.auth(self.credentials.clone());
+
+        if let Some(tag_value) = address.tag() {
+            tag_options.tag(tag_value);
+            push_options.tag(tag_value.to_string());
+        }
+
+        image.image.tag(&tag_options.build())
+            .await
+            .map_err(|err| format!("Failed to tag image {} with repo {}. Err {:?}", image.details.id, address, err))?;
+
+        self.docker.images()
+            .push(repository, &push_options.build())
+            .await
+            .map_err(|err| format!("Failed to push image {} into repo {}. Err: {:?}", image.details.id, repository, err))
     }
 
     pub fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<(), String> {
@@ -148,5 +178,29 @@ impl DockerUtil {
         run_buildkit.and_then(|output| {
             process_output(output)
         })
+    }
+
+    async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), String> {
+        let pull_options = PullOptions::builder()
+            .image(address.to_string())
+            .auth(self.credentials.clone())
+            .build();
+
+        let mut stream = self.docker
+            .images()
+            .pull(&pull_options);
+
+        while let Some(pull_result) = stream.next().await {
+            match pull_result {
+                Ok(output) => {
+                    info!("{:?}", output)
+                },
+                Err(e) => {
+                    return Err(format!("{}", e))
+                }
+            }
+        }
+
+        Ok(())
     }
 }
