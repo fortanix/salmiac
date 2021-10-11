@@ -30,7 +30,7 @@ pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 define_apis! {
 //  Method & Path  => Operation name  (Input type)     -> Output type
-    post "/convert" => Convert         (Empty)          -> String
+    get "/" => Convert         (Empty)          -> String
 }
 
 pub fn routes() -> Vec<Route<crate::ConverterServer>> {
@@ -117,7 +117,7 @@ fn build_handler() -> Chain {
 
 fn main() {
     env_logger::init();
-
+    std::env::set_var("RUST_LOG", "debug");
     let chain = build_handler();
 
     let server_port = 8080;
