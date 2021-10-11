@@ -12,7 +12,7 @@ pub mod image_builder;
 
 pub type Result<T> = std::result::Result<T, ConverterError>;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct ConverterArgs {
     pub pull_repository : Repository,
 
@@ -66,14 +66,14 @@ impl ConverterArgs {
     }
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Repository {
     pub image : String,
 
     pub credentials : Credentials
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Credentials {
     pub username : String,
 

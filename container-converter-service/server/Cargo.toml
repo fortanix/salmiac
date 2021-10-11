@@ -11,6 +11,8 @@ webservice = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
 senclave = { git = "ssh://git@bitbucket.org/fortanix/roche.git", features = ["attestation_insecure"]  }
 database = { git = "ssh://git@bitbucket.org/fortanix/roche.git"  }
 container-converter = { path = "../../tools/container-converter" }
+tokio = { version = "1.0.1", features = ["macros", "rt"] }
+clap = "2.33"
 iron =  "0.6.1"
 env_logger = "0.7"
 log = "0.4"
