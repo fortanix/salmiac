@@ -3,3 +3,6 @@
 members = [
     "server"
 ]
+
+[patch.crates-io]
+mbedtls = { git = "https://github.com/fortanix/rust-mbedtls", branch = "mz/async-support"}
