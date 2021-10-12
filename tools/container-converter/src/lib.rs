@@ -2,12 +2,12 @@ pub mod image;
 pub mod file;
 
 use file::UnixFile;
-use image::{DockerUtil, create_nitro_image};
 use tempfile::TempDir;
 use log::{info};
 use serde_json::json;
 
 use crate::file::{DockerCopyArgs, Resource};
+use image::{DockerUtil, create_nitro_image};
 
 use std::fs;
 use std::io::{Write};
@@ -23,34 +23,25 @@ pub struct EnclaveImageBuilder<'a> {
 
 impl<'a> EnclaveImageBuilder<'a> {
 
-    pub fn nitro_image_name(&self) -> String {
-        self.enclave_image_name() + ".eif"
-    }
-
-    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
-        let enclave_image_name = self.enclave_image_name();
-        let nitro_image_path = &self.dir.path().join(&self.nitro_image_name());
-
+    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<String, String> {
         self.create_requisites()?;
         info!("Enclave prerequisites have been created!");
 
+        let enclave_image_name = self.enclave_image_name();
         docker_util.create_image(self.dir.path(), &enclave_image_name)?;
+
+        let nitro_file = enclave_image_name.clone() + ".eif";
+        let nitro_image_path = &self.dir.path().join(&nitro_file);
 
         create_nitro_image(&enclave_image_name, &nitro_image_path)?;
         info!("Nitro image has been created!");
 
-        Ok(())
+        Ok(nitro_file)
     }
 
     fn enclave_image_name(&self) -> String {
-        self.client_image.clone() + "-enclave"
+        self.client_image.clone().replace("/", "-") + "-enclave"
     }
-
-   /* fn enclave_image_tar_path(&self) -> Path {
-        let enclave_image_tar = self.enclave_image_name() + ".tar";
-
-        self.dir.path().join(&enclave_image_tar).as_path()
-    }*/
 
     fn resources(&self) -> Vec<file::Resource> {
         vec![
