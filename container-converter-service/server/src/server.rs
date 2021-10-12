@@ -38,7 +38,6 @@ impl Server for ConverterServer {
 
     fn build_handler(server: Self::Ref, routes: &[Route<Self>], _: Self::Interface) -> Chain {
         let chain = Chain::new(build_router(server, routes));
-        //chain.link_after(HandlePostResponseLogs::new(server));
         chain
     }
 
@@ -50,10 +49,7 @@ impl Server for ConverterServer {
         &self.metrics
     }
 
-    // This method is called by the HandlePostResponseLogs middleware on operation success, for
-    // operations that have the PostResponseLogs<T> output type.
     fn deferred_logs(&self, _req: &Request, _res: StdResult<&Response, &IronError>, logs: Vec<Self::Log>) {
-        //self.deferred_logs(logs)
     }
 
 }
@@ -62,19 +58,14 @@ impl<'s, A, S> Serve<'s, A, S> for ConverterServer
     where A: Operation + HasOperationState<'s, S, <A as Operation>::Out>,
 
 {
-    // Example application-specific pre_validate_input() hook
     fn pre_validate_input(&self, state: &StateOf<'s, A>) -> IronResult<()> {
-
         Ok(())
     }
 
-    // Example application-specific post_check_access() hook
     fn post_check_access(&self, state: &StateOf<'s, A>) -> IronResult<()> {
-
         Ok(())
     }
 
-    // This is called when any operation fails
     fn log_failed_operation(&self, e: &IronError, session: &S, _txn: &Transaction, socket: Option<SocketAddr>) {
         let socket_addr = socket.map_or("<unknown>".to_owned(), |s| s.to_string());
         error!("Operation '{}' with socket address '{}' failed with error '{}'", A::name(), socket_addr, e)

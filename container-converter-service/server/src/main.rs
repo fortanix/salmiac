@@ -17,9 +17,6 @@ use clap::{ArgMatches, AppSettings, App, Arg};
 use crate::server::ConverterServer;
 use iron::Chain;
 
-
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-
 define_apis! {
 //  Method & Path  => Operation name  (Input type)     -> Output type
     post "/convert" => Convert         (ConverterArgs) -> String

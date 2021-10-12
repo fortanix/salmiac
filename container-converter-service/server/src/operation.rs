@@ -41,66 +41,31 @@ macro_rules! operation_state_ext {
 pub trait MyCustomTagApiMarker {}
 
 define_api! {
-pub struct ConvertImage;
+    pub struct ConvertImage;
 
-pub struct IndexState {
-    // No custom state needed for Index operation
-}
+    pub struct NoState { }
 
-impl Operation(Uncached, MyCustomTag) for ConvertImage {
-    type Model = Convert;
-    type State = IndexState;
+    impl Operation(Uncached, MyCustomTag) for ConvertImage {
+        type Model = Convert;
+        type State = NoState;
 
-    type In = ConverterArgs;
-    type Out = String;
-    type Server = ConverterServer;
-    type SessionLookup = NoAuthRequired;
+        type In = ConverterArgs;
+        type Out = String;
+        type Server = ConverterServer;
+        type SessionLookup = NoAuthRequired;
 
-    fn operate(self) -> IronResult<String> {
-        // Here we have access to:
-        //   self.input: Self::In
-        //   self.request_body: Option<Box<dyn std::io::Read>>
-        //   self.server: std::sync::Arc<webservice::server::Server>
-        //   self.session: &mut <Self::Session as SessionLookup>::Session
-        //   self.txn: &database::Transaction
-        let handle = self.server.tokio().handle();
-        let converter_result = handle.block_on(container_converter::run(self.input));
+        fn operate(self) -> IronResult<String> {
+            let handle = self.server.tokio().handle();
+            let converter_result = handle.block_on(container_converter::run(self.input));
 
-        match converter_result {
-            Ok(result) => {
-                Ok(result)
+            match converter_result {
+                Ok(result) => {
+                    Ok(result)
+                }
+                Err(err) => {
+                    Ok(format!("{:?}", err))
+                }
             }
-            Err(err) => {
-                Ok(format!("{:?}", err))
-            }
-        }
-
-        //Ok(format!("Echo {:?}", self.input))
-    }
-}
-}
-
-/*fn run_converter(args : ConverterArgs, handle : &Handle) -> IronResult<Response> {
-    let converter_result = handle.block_on(app::run(args));
-
-    match converter_result {
-        Ok(result) => {
-            Ok(Response::with((status::Ok, result)))
-        }
-        Err(err) => {
-            Ok(Response::with((status::InternalServerError, format!("{:?}", err))))
         }
     }
 }
-
-match req.get::<bodyparser::Struct<ConverterArgs>>() {
-Ok(Some(args)) => {
-run_converter(args, handle)
-},
-Ok(None) => {
-Ok(Response::with((status::BadRequest, "No body")))
-},
-Err(err) => {
-Ok(Response::with((status::BadRequest, format!("{:?}", err))))
-}
-}*/
