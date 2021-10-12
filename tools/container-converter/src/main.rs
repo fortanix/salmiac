@@ -6,10 +6,9 @@ use clap::{
 };
 use env_logger;
 use log::{error};
+use docker_image_reference::Reference as DockerReference;
 
 use container_converter::ConverterArgs;
-
-use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -92,4 +91,22 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .required(false),
         )
         .get_matches()
+}
+
+fn image_validator(arg : String) -> Result<(), String> {
+    DockerReference::from_str(&arg)
+        .map_err(|err| format!("Incorrect image format. {:?}", err))?;
+
+    Ok(())
+}
+
+fn output_image_validator(arg : String) -> Result<(), String> {
+    let output_image = DockerReference::from_str(&arg)
+        .map_err(|err| format!("Incorrect image format. {:?}", err))?;
+
+    if output_image.tag().is_none() || output_image.has_digest() {
+        Err("Output image must have a tag and have no digest!".to_string())
+    } else {
+        Ok(())
+    }
 }
