@@ -163,8 +163,6 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &
     let key_as_pem = key.write_private_pem_string()
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
-    debug!("Enclave private key {}", key_as_pem);
-
     create_key_file(Path::new(&settings.key_path), &key_as_pem)?;
     create_key_file(Path::new(&settings.certificate_path), &certificate)
 }
