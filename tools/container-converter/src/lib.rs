@@ -2,6 +2,7 @@ use tempfile::TempDir;
 use log::info;
 use clap::ArgMatches;
 use serde::Deserialize;
+use docker_image_reference::Reference as DockerReference;
 
 use crate::image::DockerUtil;
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
@@ -73,6 +74,13 @@ pub struct Repository {
     pub credentials : Credentials
 }
 
+impl Repository {
+    fn image_reference(&self) -> DockerReference {
+        DockerReference::from_str(&self.image).unwrap()
+    }
+}
+
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct Credentials {
     pub username : String,
@@ -101,7 +109,7 @@ pub async fn run(args: ConverterArgs) -> Result<String> {
     let input_repository = DockerUtil::new(&args.pull_repository.credentials);
 
     info!("Retrieving client image!");
-    let input_image = input_repository.get_remote_image(&args.pull_repository.image)
+    let input_image = input_repository.get_remote_image(&args.pull_repository.image_reference())
         .await
         .map_err(|message| ConverterError {
             message,
@@ -138,14 +146,14 @@ pub async fn run(args: ConverterArgs) -> Result<String> {
 
     info!("Resulting image has been successfully created!");
 
-    let result_image = input_repository.get_local_image(&args.push_repository.image)
+    let result_image = input_repository.get_local_image(&args.push_repository.image_reference())
         .await
         .expect("Failed to retrieve converted image");
 
     let result_repository = DockerUtil::new(&args.push_repository.credentials);
 
     info!("Pushing resulting image to {}!", args.push_repository.image);
-    result_repository.push_image(&result_image, &args.push_repository.image)
+    result_repository.push_image(&result_image, &args.push_repository.image_reference())
         .await
         .map_err(|message| ConverterError {
             message,

@@ -9,6 +9,8 @@ use log::{error};
 
 use container_converter::ConverterArgs;
 
+use std::fs;
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
@@ -35,6 +37,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("image")
                 .help("your docker image")
                 .long("image")
+                .validator(image_validator)
                 .takes_value(true)
                 .required(true),
         )
@@ -49,6 +52,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("output-image")
                 .help("output image name")
                 .long("output-image")
+                .validator(output_image_validator)
                 .takes_value(true)
                 .required(true),
         )
@@ -57,14 +61,14 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .help("user name for a repository that contains input image")
                 .long("pull-username")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             Arg::with_name("pull-password")
                 .help("password for a repository that contains input image")
                 .long("pull-password")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             Arg::with_name("push-username")
@@ -77,6 +81,13 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("push-password")
                 .help("password for a repository that will contain output image")
                 .long("push-password")
+                .takes_value(true)
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("credentials-file")
+                .help("Path to a file with credentials")
+                .long("credentials-file")
                 .takes_value(true)
                 .required(false),
         )
