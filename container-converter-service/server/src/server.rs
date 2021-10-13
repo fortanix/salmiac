@@ -1,23 +1,17 @@
-use iron::{Chain, IronResult, IronError, Request, Response};
-use log::error;
-
+use std::net::SocketAddr;
+use std::result::Result as StdResult;
 
 use webservice::routing::Route;
 use webservice::server::{Serve, Server};
 use webservice::metrics::{Metrics, MetricsImpl};
-use webservice::operation::{Operation, StateOf, HasOperationState};
+use webservice::operation::{Operation, HasOperationState};
 use webservice::routing::{build_router};
-use webservice::post_response_logging::Log;
 use database::tasks::{DeferredTasksHandlerImpl, DeferredTasksHandler};
 use database::Transaction;
 
-use std::net::SocketAddr;
-use std::result::Result as StdResult;
+use iron::{Chain, IronError, Request, Response};
+use log::error;
 use tokio::runtime::Runtime;
-
-pub struct NoLog {}
-
-impl Log for NoLog {}
 
 pub struct ConverterServer {
     deferred_tasks_handler: DeferredTasksHandlerImpl,
@@ -33,7 +27,7 @@ impl ConverterServer {
 
 impl Server for ConverterServer {
     type Ref = &'static Self;
-    type Log = NoLog;
+    type Log = ();
     type Interface = ();
 
     fn build_handler(server: Self::Ref, routes: &[Route<Self>], _: Self::Interface) -> Chain {
@@ -58,14 +52,6 @@ impl<'s, A, S> Serve<'s, A, S> for ConverterServer
     where A: Operation + HasOperationState<'s, S, <A as Operation>::Out>,
 
 {
-    fn pre_validate_input(&self, state: &StateOf<'s, A>) -> IronResult<()> {
-        Ok(())
-    }
-
-    fn post_check_access(&self, state: &StateOf<'s, A>) -> IronResult<()> {
-        Ok(())
-    }
-
     fn log_failed_operation(&self, e: &IronError, session: &S, _txn: &Transaction, socket: Option<SocketAddr>) {
         let socket_addr = socket.map_or("<unknown>".to_owned(), |s| s.to_string());
         error!("Operation '{}' with socket address '{}' failed with error '{}'", A::name(), socket_addr, e)

@@ -1,5 +1,4 @@
 mod operation;
-mod session;
 mod server;
 
 use once_cell::sync::Lazy;

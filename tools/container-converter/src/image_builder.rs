@@ -11,17 +11,17 @@ use std::io::{Write};
 use std::path::{PathBuf};
 
 pub struct EnclaveImageBuilder<'a> {
-    pub client_image : String,
+    pub client_image: String,
 
-    pub client_cmd : Vec<String>,
+    pub client_cmd: Vec<String>,
 
-    pub dir : &'a TempDir
+    pub dir: &'a TempDir
 }
 
 pub struct EnclaveBuilderResult {
-    pub nitro_file : String,
+    pub nitro_file: String,
 
-    pub measurements : String
+    pub measurements: String
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
@@ -161,13 +161,13 @@ impl<'a> EnclaveImageBuilder<'a> {
 }
 
 pub struct ParentImageBuilder<'a> {
-    pub output_image : String,
+    pub output_image: String,
 
-    pub parent_image : String,
+    pub parent_image: String,
 
-    pub nitro_file : String,
+    pub nitro_file: String,
 
-    pub dir : &'a TempDir
+    pub dir: &'a TempDir
 }
 
 impl<'a> ParentImageBuilder<'a> {
