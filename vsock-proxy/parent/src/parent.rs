@@ -30,6 +30,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::net::IpAddr;
 use std::sync::mpsc::TryRecvError;
+use std::env;
 
 pub async fn run(vsock_port: u32) -> Result<(), String> {
     info!("Awaiting confirmation from enclave!");
@@ -102,8 +103,15 @@ async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), St
     let csr_msg: SetupMessages = vsock.read_lv().await?;
 
     let csr = extract_enum_value!(csr_msg, SetupMessages::CSR(csr) => csr)?;
-    
-    let certificate = em_app::request_issue_certificate("http://172.31.46.106:9092", csr)
+
+    let node_agent_address = {
+        let result = env::var("NODE_AGENT")
+            .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
+
+        "http://".to_string() + &result
+    };
+
+    let certificate = em_app::request_issue_certificate(&node_agent_address, csr)
         .map_err(|err| format!("Failed to receive certificate {:?}", err))
         .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
 
