@@ -1,7 +1,7 @@
 mod operation;
 mod server;
 
-use once_cell::sync::Lazy;
+use std::io::Write;
 
 use webservice::routes;
 use webservice::routing::Route;
@@ -11,9 +11,10 @@ use senclave::http::handle_connection;
 use senclave::secure_network::{create_service_pki, threads, ClientValidationStrategy};
 use container_converter::ConverterArgs;
 
-use std::io::Write;
-use clap::{ArgMatches, AppSettings, App, Arg};
 use crate::server::ConverterServer;
+
+use once_cell::sync::Lazy;
+use clap::{ArgMatches, AppSettings, App, Arg};
 use iron::Chain;
 
 define_apis! {
