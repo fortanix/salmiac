@@ -95,6 +95,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         let resources = {
             let mut result = self.resources();
 
+            // This is a placeholder value, it will be changed to a proper type after PR
+            // https://bitbucket.org/fortanix/salmiac/pull-requests/23 is merged
             let settings = json!({
                 "key_url": "www.google.com",
                 "key_domain": "localhost",
