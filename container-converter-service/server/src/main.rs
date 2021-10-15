@@ -2,13 +2,15 @@ mod operation;
 mod server;
 
 use std::io::Write;
+use std::path::Path;
+use std::fs;
 
 use webservice::routes;
 use webservice::routing::Route;
 use webservice::api_model::define_apis;
 use webservice::server::{Server};
 use senclave::http::handle_connection;
-use senclave::secure_network::{create_service_pki, threads, ClientValidationStrategy};
+use senclave::secure_network::{threads, ClientValidationStrategy, PKI};
 use container_converter::ConverterArgs;
 
 use crate::server::ConverterServer;
@@ -40,8 +42,24 @@ fn main() -> Result<(), String> {
         .expect("Failed to parse port")
         .expect("Port argument must be specified");
 
-    let pki = create_service_pki("webservice-example.default.svc.cluster.local")
-        .expect("failed to obtain certificate from enclave manager");
+    let certificate_path = console_arguments.value_of("certificate-path")
+        .map(|e| Path::new(e))
+        .expect("Certificate path is required");
+
+    let key_path = console_arguments.value_of("key-path")
+        .map(|e| Path::new(e))
+        .expect("Key path is required");
+
+    let certificate = fs::read_to_string(certificate_path)
+        .map_err(|e| format!("Failed to read certificate file. {:?}", e))?;
+
+    let key = fs::read_to_string(key_path)
+        .map_err(|e| format!("Failed to read key file. {:?}", e))?;
+
+    let pki = PKI::new_pki_from_vecs(certificate.as_bytes(), key.as_bytes())
+        .expect(&format!("Failed to create PKI from certificate {} and key {}",
+                         certificate_path.display(),
+                         key_path.display()));
 
     let handler = build_handler();
     threads::run_public_server::<fn(Option<&[u8]>) -> bool, _>(
@@ -67,8 +85,6 @@ fn main() -> Result<(), String> {
 }
 
 fn build_handler() -> Chain {
-    // We use a Lazy/OnceCell to store the server instance, alternatively we could store the
-    // instance on the heap and use an Arc instead.
     static SERVER: Lazy<ConverterServer> = Lazy::new(|| { ConverterServer::default()});
     ConverterServer::build_handler(&*SERVER, &routes(), ())
 }
@@ -81,6 +97,20 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
             Arg::with_name("port")
                 .help("http port")
                 .long("port")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("certificate-file")
+                .help("Path to certificate file")
+                .long("certificate-file")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("key-file")
+                .help("Path to a key file")
+                .long("key-file")
                 .takes_value(true)
                 .required(true),
         )
