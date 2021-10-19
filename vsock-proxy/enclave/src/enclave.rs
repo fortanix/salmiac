@@ -1,11 +1,15 @@
 use log::{debug, info};
 use nix::net::if_::if_nametoindex;
+use nix::ioctl_write_ptr;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::time;
+use tokio::task;
 use tun::AsyncDevice;
 use serde::{Serialize, Deserialize};
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
+use futures::TryFutureExt;
 
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value};
@@ -14,7 +18,12 @@ use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use std::net::IpAddr;
 use std::path::{Path};
 use std::fs;
-use std::io::Write;
+use std::io::{Write};
+use std::os::unix::io::{AsRawFd};
+use std::time::Duration;
+
+const ENTROPY_BYTES_COUNT : usize = 126;
+const ENTROPY_REFRESH_PERIOD : u64 = 30;
 
 pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
@@ -34,6 +43,8 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
     let parent_settings = extract_enum_value!(msg, SetupMessages::Settings(s) => s)?;
 
     let async_tap_device = setup_enclave(&mut parent_port, &parent_settings, &enclave_settings).await?;
+
+    tokio::spawn( seed_entropy(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
 
     let (tap_read, tap_write) = io::split(async_tap_device);
     let (vsock_read, vsock_write) = io::split(parent_data_port);
@@ -96,6 +107,8 @@ async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &Network
     info!("Finished enclave network setup!");
 
     setup_enclave_certification(vsock, &enclave_settings).await?;
+
+    info!("Finished enclave attestation!");
 
     info!("Finished enclave attestation!");
 
@@ -190,6 +203,102 @@ fn read_enclave_settings(path : &Path) -> Result<Settings, String> {
 
     serde_json::from_str(&settings_raw)
         .map_err(|err| format!("Failed to deserialize enclave settings. {:?}", err))
+}
+
+
+// Linux ioctl #define RNDADDTOENTCNT	_IOW( 'R', 0x01, int )
+ioctl_write_ptr!(set_entropy, 'R' as u8, 0x01, u32);
+
+const GET_RANDOM_MAX_OUTPUT : usize = 256;
+
+async fn seed_entropy(entropy_bytes_count: usize, refresh_period: u64) -> Result<(), String> {
+    fn seed_entropy0(entropy_bytes_count: usize) -> Result<(), String> {
+        use std::mem;
+
+        let nsm_device = NSMDevice::new()?;
+
+        let mut random_device = fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/random")
+            .map_err(|err| format!("Failed to open /dev/random. {:?}", err))?;
+
+        let mut count = 0 as usize;
+
+        while count != entropy_bytes_count {
+            let mut buf = [0 as u8; GET_RANDOM_MAX_OUTPUT];
+
+            let array_size = mem::size_of::<[u8; GET_RANDOM_MAX_OUTPUT]>();
+            let mut buf_len = if array_size > (entropy_bytes_count - count) {
+                entropy_bytes_count - count
+            } else {
+                array_size
+            };
+
+            match unsafe { nsm::nsm_get_random(nsm_device.descriptor, buf.as_mut_ptr(), &mut buf_len) } {
+                nsm_io::ErrorCode::Success => {},
+                err => {
+                    return Err(format!("Failed to get random from nsm. {:?}", err))
+                }
+            }
+
+            if buf_len == 0 {
+                return Err(format!("Nsm returned 0 entropy"))
+            }
+
+            random_device.write_all(&mut buf)
+                .map_err(|err| format!("Failed to write entropy to /dev/random. {:?}", err))?;
+
+            let bits = (buf_len * 8) as u32;
+
+            match unsafe { set_entropy(random_device.as_raw_fd(), &bits) } {
+                Ok(result_code) if result_code < 0 => {
+                    return Err(format!("Ioctl exited with code: {}", result_code))
+                },
+                Err(err) => {
+                    return Err(format!("Ioctl exited with error: {:?}", err))
+                },
+                _ => {}
+            }
+            count += buf_len;
+        }
+
+        Ok(())
+    }
+
+    loop {
+        task::spawn_blocking(move || seed_entropy0(entropy_bytes_count))
+            .map_err(|err| format!("Failed spawning entropy task. {:?}", err))
+            .await??;
+
+        debug!("Successfully seeded entropy with {} bytes", entropy_bytes_count);
+
+        time::sleep(Duration::new(refresh_period, 0)).await;
+    }
+}
+
+// Wraps NSM descriptor to implement Drop
+struct NSMDevice {
+    descriptor : i32
+}
+
+impl NSMDevice {
+    fn new() -> Result<Self, String> {
+        let descriptor = nsm::nsm_lib_init();
+
+        if descriptor < 0 {
+            return Err(format!("Failed initializing nsm lib. Returned {}", descriptor))
+        }
+
+        Ok(NSMDevice {
+            descriptor
+        })
+    }
+}
+
+impl Drop for NSMDevice {
+    fn drop(&mut self) {
+        nsm::nsm_lib_exit(self.descriptor);
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
