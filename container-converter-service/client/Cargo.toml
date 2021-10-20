@@ -1,0 +1,27 @@
+[package]
+name = "nitro-enclaves-converter-client"
+version = "0.1.0"
+authors = ["Fortanix, Inc"]
+edition = "2018"
+
+[features]
+default = ["hyper-native-tls"]
+sgx = []
+mock = ["mockito"]
+
+[dependencies]
+chrono = "0.4"
+hyper = "0.10"
+hyper-native-tls = { version = "0.3", optional = true }
+log = "0.4"
+mockito = { version = "0.30.0", default-features = false, optional = true }
+rustc-serialize = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+strum_macros = "0.19"
+uuid = { version = "0.6.3", features = ["v4", "serde"] }
+
+[build-dependencies]
+client_generator_base = {  git = "ssh://git@bitbucket.org/fortanix/roche.git"  }
+nitro-enclaves-converter-client-generator = { path = "../client-generator" }
+webservice-client-generator = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }

@@ -1,5 +1,5 @@
 [package]
-name = "nitro-converter-service-api-model"
+name = "nitro-enclaves-converter-api-model"
 version = "0.1.0"
 authors = ["Fortanix, Inc."]
 edition = "2018"
