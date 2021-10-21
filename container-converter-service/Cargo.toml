@@ -2,6 +2,8 @@
 
 members = [
     "api-model",
+    "client",
+    "client-generator",
     "server"
 ]
 
