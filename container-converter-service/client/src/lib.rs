@@ -4,7 +4,6 @@ extern crate hyper_native_tls;
 #[macro_use]
 extern crate log;
 
-pub mod api_model;
 mod client;
 pub mod error;
 mod generated;

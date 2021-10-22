@@ -1,6 +1,6 @@
 #![deny(warnings)]
 use api_model::*;
-
+use api_model::HexString;
 use client_generator_base::reflection::types::TypeDef;
 use model_types::*;
 use webservice_client_generator::api_definition::{ApiDefinition, ApiSource};
