@@ -4,7 +4,7 @@ use clap::ArgMatches;
 use serde::Deserialize;
 use docker_image_reference::Reference as DockerReference;
 
-use crate::image::DockerUtil;
+use crate::image::{DockerUtil};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 
 pub mod image;
@@ -109,12 +109,27 @@ pub async fn run(args: ConverterArgs) -> Result<String> {
     let input_repository = DockerUtil::new(&args.pull_repository.credentials);
 
     info!("Retrieving client image!");
-    let input_image = input_repository.get_remote_image(&args.pull_repository.image_reference())
-        .await
-        .map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::ImagePull
-        })?;
+    let mut client_image_raw = args.pull_repository.image.clone();
+    let client_image = {
+        let result = DockerReference::from_str(&client_image_raw).unwrap();
+
+        if result.tag().is_none() && !result.has_digest() {
+            client_image_raw.push_str(":latest");
+            DockerReference::from_str(&client_image_raw).unwrap()
+        } else {
+            result
+        }
+    };
+    let input_image = if let Some(local_image) = input_repository.get_local_image(&client_image).await {
+        local_image
+    } else {
+        input_repository.get_remote_image(&client_image)
+            .await
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::ImagePull
+            })?
+    };
 
     info!("Retrieving CMD from client image!");
     let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
@@ -164,7 +179,6 @@ pub async fn run(args: ConverterArgs) -> Result<String> {
 
     Ok(nitro_image_result.measurements)
 }
-
 
 fn console_argument<'a, T : From<&'a str>>(matches : &'a ArgMatches, name : &str) -> T {
     matches.value_of(name)

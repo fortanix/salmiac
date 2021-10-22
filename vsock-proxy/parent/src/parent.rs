@@ -15,6 +15,7 @@ use futures::stream::Fuse;
 
 use crate::packet_capture::{open_packet_capture, open_async_packet_capture};
 use shared::device::{NetworkSettings, SetupMessages};
+use shared::extract_enum_value;
 use shared::netlink::{AddressMessageExt, LinkMessageExt, RouteMessageExt};
 use shared::{netlink, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing};
 use shared::VSOCK_PARENT_CID;
@@ -29,6 +30,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::net::IpAddr;
 use std::sync::mpsc::TryRecvError;
+use std::env;
 
 pub async fn run(vsock_port: u32) -> Result<(), String> {
     info!("Awaiting confirmation from enclave!");
@@ -51,7 +53,7 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     let network_settings = get_network_settings(&parent_device).await?;
 
     let mtu = network_settings.mtu;
-    communicate_network_settings(network_settings, &mut enclave_port).await?;
+    communicate_enclave_settings(network_settings, &mut enclave_port).await?;
 
     let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
     let write_capture = open_packet_capture(parent_device)?;
@@ -77,6 +79,16 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
     }
 }
 
+async fn communicate_enclave_settings(network_settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
+    communicate_network_settings(network_settings, vsock).await?;
+
+    communicate_certificate(vsock).await?;
+
+    let msg : SetupMessages = vsock.read_lv().await?;
+
+    extract_enum_value!(msg, SetupMessages::SetupSuccessful => ())
+}
+
 async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
     debug!("Read network settings from parent {:?}", settings);
 
@@ -84,17 +96,30 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
 
     debug!("Sent network settings to the enclave!");
 
-    let msg : SetupMessages = vsock.read_lv().await?;
+    Ok(())
+}
 
-    match msg {
-        SetupMessages::SetupSuccessful => {
-            info!("Enclave has setup networking!");
-            Ok(())
+async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), String> {
+    let csr_msg: SetupMessages = vsock.read_lv().await?;
+
+    let csr = extract_enum_value!(csr_msg, SetupMessages::CSR(csr) => csr)?;
+
+    let node_agent_address = {
+        let result = env::var("NODE_AGENT")
+            .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
+
+        if !result.starts_with("http://") {
+            "http://".to_string() + &result
+        } else {
+            result
         }
-        x => {
-            Err(format!("Expected message of type {:?}, but got {:?}", SetupMessages::SetupSuccessful, x))
-        }
-    }
+    };
+
+    let certificate = em_app::request_issue_certificate(&node_agent_address, csr)
+        .map_err(|err| format!("Failed to receive certificate {:?}", err))
+        .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
+
+    vsock.write_lv(&SetupMessages::Certificate(certificate)).await
 }
 
 async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSettings, String> {

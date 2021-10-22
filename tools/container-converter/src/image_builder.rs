@@ -67,10 +67,12 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::Resource {
                 name: "start-enclave.sh".to_string(),
                 data: include_bytes!("resources/enclave/start-enclave.sh").to_vec(),
+                is_executable: true
             },
             file::Resource {
                 name: "enclave".to_string(),
                 data: include_bytes!("resources/enclave/enclave").to_vec(),
+                is_executable: true
             },
         ]
     }
@@ -275,14 +277,17 @@ impl<'a> ParentImageBuilder<'a> {
             file::Resource {
                 name: "start-parent.sh".to_string(),
                 data: include_bytes!("resources/parent/start-parent.sh").to_vec(),
+                is_executable: true
             },
             file::Resource {
                 name: "allocator.yaml".to_string(),
                 data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
+                is_executable: false
             },
             file::Resource {
                 name: "parent".to_string(),
                 data: include_bytes!("resources/parent/parent").to_vec(),
+                is_executable: true
             }
         ]
     }

@@ -397,6 +397,7 @@ dependencies = [
  "futures",
  "log 0.4.14",
  "serde",
+ "serde_json 1.0.68",
  "shiplift",
  "tempfile",
  "tokio 1.12.0",
