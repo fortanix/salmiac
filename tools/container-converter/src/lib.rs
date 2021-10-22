@@ -1,299 +1,204 @@
+use tempfile::TempDir;
+use log::info;
+use clap::ArgMatches;
+use serde::Deserialize;
+use docker_image_reference::Reference as DockerReference;
+
+use crate::image::{DockerUtil};
+use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
+
+use std::fmt;
+use std::error::Error;
+
 pub mod image;
 pub mod file;
+pub mod image_builder;
 
-use file::UnixFile;
-use tempfile::TempDir;
-use log::{info};
-use serde_json::json;
+pub type Result<T> = std::result::Result<T, ConverterError>;
 
-use crate::file::{DockerCopyArgs, Resource};
-use image::{DockerUtil, create_nitro_image};
+#[derive(Deserialize, Clone, Debug)]
+pub struct ConverterArgs {
+    pub pull_repository : Repository,
 
-use std::fs;
-use std::io::{Write};
-use std::path::{PathBuf};
-
-pub struct EnclaveImageBuilder<'a> {
-    pub client_image : String,
-
-    pub client_cmd : Vec<String>,
-
-    pub dir : &'a TempDir
-}
-
-impl<'a> EnclaveImageBuilder<'a> {
-
-    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<String, String> {
-        self.create_requisites()?;
-        info!("Enclave prerequisites have been created!");
-
-        let enclave_image_name = self.enclave_image_name();
-        docker_util.create_image(self.dir.path(), &enclave_image_name)?;
-
-        let nitro_file = enclave_image_name.clone() + ".eif";
-        let nitro_image_path = &self.dir.path().join(&nitro_file);
-
-        create_nitro_image(&enclave_image_name, &nitro_image_path)?;
-        info!("Nitro image has been created!");
-
-        Ok(nitro_file)
-    }
-
-    fn enclave_image_name(&self) -> String {
-        self.client_image.clone().replace("/", "-") + "-enclave"
-    }
-
-    fn resources(&self) -> Vec<file::Resource> {
-        vec![
-            file::Resource {
-                name: "start-enclave.sh".to_string(),
-                data: include_bytes!("resources/enclave/start-enclave.sh").to_vec(),
-                is_executable: true
-            },
-            file::Resource {
-                name: "enclave".to_string(),
-                data: include_bytes!("resources/enclave/enclave").to_vec(),
-                is_executable: true
-            },
-        ]
-    }
-
-    fn requisites(&self) -> Vec<String> {
-        vec![
-            "start-enclave.sh".to_string(),
-            "enclave".to_string(),
-        ]
-    }
-
-    fn startup_path(&self) -> PathBuf {
-        self.dir.path().join("start-enclave.sh")
-    }
-
-    fn create_requisites(&self) -> Result<(), String> {
-
-        let mut docker_file = file::create_docker_file(self.dir.path())?;
-
-        let requisites = {
-            let mut result = self.requisites();
-            result.push("enclave-settings.json".to_string());
-
-            result
-        };
-
-        let copy = DockerCopyArgs::copy_to_home(requisites);
-
-        file::populate_docker_file(&mut docker_file,
-                                   &self.client_image,
-                                   &copy,
-                                   "./start-enclave.sh",
-                                   &rust_log_env_var())?;
-
-        if cfg!(debug_assertions) {
-            file::log_docker_file(self.dir.path())?;
-        }
-
-        let resources = {
-            let mut result = self.resources();
-
-            // This is a placeholder value, it will be changed to a proper type after PR
-            // https://bitbucket.org/fortanix/salmiac/pull-requests/23 is merged
-            let settings = json!({
-                "key_url": "www.google.com",
-                "key_domain": "localhost",
-                "key_path": "key.pem",
-                "certificate_path": "certificate.pem",
-            });
-
-            let data = serde_json::to_vec_pretty(&settings)
-                .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
-
-            result.push(Resource {
-                name: "enclave-settings.json".to_string(),
-                data,
-                is_executable: false
-            });
-
-            result
-        };
-
-        file::create_resources(&resources, self.dir.path())?;
-
-        self.create_enclave_startup_script()?;
-
-        if cfg!(debug_assertions) {
-            file::log_file(&self.startup_path())?;
-        }
-
-        Ok(())
-    }
-
-    fn create_enclave_startup_script(&self) -> Result<(), String> {
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(&self.dir.path().join("start-enclave.sh"))
-            .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
-
-        if cfg!(debug_assertions) {
-            file.write_all(EnclaveImageBuilder::debug_networking_command().as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
-        }
-
-        // todo: sanitize the user cmd before putting it into startup script.
-        // Escape chars like: ' ” \ or ;.
-        let cmd = "\n".to_string() + &self.client_cmd.join(" ");
-
-        file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-        file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
-
-        Ok(())
-    }
-
-    fn debug_networking_command() -> String {
-        "\n\
-        # Debug code. \n\
-        # Dumps networking info to make sure that enclave is setup correctly \n\
-        sleep 30 \n\
-        echo \"Devices start\" \n\
-        ip a \n\
-        echo \"Devices end\" \n\
-        echo \"Routes start\" \n\
-        ip r \n\
-        echo \"Routes end\" \n\
-        echo \"ARP start\" \n\
-        ip neigh \n\
-        echo \"ARP end\" \n".to_string()
-    }
-}
-
-pub struct ParentImageBuilder<'a> {
-    pub output_image : String,
+    pub push_repository : Repository,
 
     pub parent_image : String,
-
-    pub nitro_file : String,
-
-    pub dir : &'a TempDir
 }
 
-impl<'a> ParentImageBuilder<'a> {
+impl ConverterArgs {
+    pub fn from_console_arguments(console_arguments : &ArgMatches) -> std::result::Result<ConverterArgs, String> {
+        let client_image = console_argument::<String>(console_arguments, "image");
+        let parent_image = console_argument_or_default::<String>(
+            console_arguments,
+            "parent-image",
+            "parent-base".to_string());
+        let output_image = console_argument::<String>(console_arguments, "output-image");
 
-    fn startup_path(&self) -> PathBuf {
-        self.dir.path().join("start-parent.sh")
-    }
-
-    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<(), String> {
-        self.create_requisites()?;
-        info!("Parent prerequisites have been created!");
-
-        docker_util.create_image(self.dir.path(), &self.output_image)?;
-        info!("Parent image has been created!");
-
-        Ok(())
-    }
-
-    fn create_requisites(&self) -> Result<(), String> {
-        let all_requisites = {
-            let mut result = self.requisites();
-            result.push(self.nitro_file.clone());
-            result
-        };
-
-        let mut docker_file = file::create_docker_file(self.dir.path())?;
-
-        let copy = DockerCopyArgs::copy_to_home(all_requisites);
-
-        file::populate_docker_file(&mut docker_file,
-                                   &self.parent_image,
-                                   &copy,
-                                   "./start-parent.sh",
-                                   &rust_log_env_var())?;
-
-        if cfg!(debug_assertions) {
-            file::log_docker_file(self.dir.path())?;
+        if client_image == output_image {
+            return Err("Client and output image should point to different images!".to_string())
         }
 
-        file::create_resources(&self.resources(), self.dir.path())?;
+        let pull_username = console_argument::<String>(console_arguments, "pull-username");
+        let pull_password = console_argument::<String>(console_arguments, "pull-password");
 
-        self.create_parent_startup_script()?;
+        let push_username = console_argument_or_default::<String>(
+            console_arguments,
+            "push-username",
+            pull_username.clone());
+        let push_password = console_argument_or_default::<String>(
+            console_arguments,
+            "push-password",
+            pull_password.clone());
 
-        if cfg!(debug_assertions) {
-            file::log_file(&self.startup_path())?;
-        }
-
-        Ok(())
-    }
-
-    fn create_parent_startup_script(&self) -> Result<(), String> {
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(self.startup_path())
-            .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
-
-        file.write_all(self.start_enclave_command().as_bytes())
-            .map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-        file.write_all(ParentImageBuilder::connect_to_enclave_command().as_bytes())
-            .map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-        file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
-
-        Ok(())
-    }
-
-    fn start_enclave_command(&self) -> String {
-        let sanitized_nitro_file = format!("'{}'", self.nitro_file);
-
-        format!(
-            "\n\
-                ./parent --vsock-port 5006 & \n\
-                nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
-            sanitized_nitro_file)
-    }
-
-    fn connect_to_enclave_command() -> String {
-        "\n\
-         cat /var/log/nitro_enclaves/* \n\
-         ID=$(nitro-cli describe-enclaves | jq '.[0] | .EnclaveID') \n\
-         ID=\"${ID%\\\"}\" \n\
-         ID=\"${ID#\\\"}\" \n\
-         nitro-cli console --enclave-id $ID \n".to_string()
-    }
-
-    fn resources(&self) -> Vec<file::Resource> {
-        vec![
-            file::Resource {
-                name: "start-parent.sh".to_string(),
-                data: include_bytes!("resources/parent/start-parent.sh").to_vec(),
-                is_executable: true
+        Ok(ConverterArgs {
+            pull_repository: Repository {
+                image: client_image,
+                credentials: Credentials {
+                    username: pull_username,
+                    password: pull_password
+                }
             },
-            file::Resource {
-                name: "allocator.yaml".to_string(),
-                data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
-                is_executable: false
+            push_repository: Repository {
+                image: output_image,
+                credentials: Credentials {
+                    username: push_username,
+                    password: push_password
+                }
             },
-            file::Resource {
-                name: "parent".to_string(),
-                data: include_bytes!("resources/parent/parent").to_vec(),
-                is_executable: true
-            }
-        ]
-    }
-
-    fn requisites(&self) -> Vec<String> {
-        vec![
-            "allocator.yaml".to_string(),
-            "start-parent.sh".to_string(),
-            "parent".to_string()
-        ]
+            parent_image
+        })
     }
 }
 
-fn rust_log_env_var() -> String {
-    format!("RUST_LOG={}", {
-        if cfg!(debug_assertions) {
-            "debug"
+#[derive(Deserialize, Clone, Debug)]
+pub struct Repository {
+    pub image : String,
+
+    pub credentials : Credentials
+}
+
+impl Repository {
+    fn image_reference(&self) -> DockerReference {
+        DockerReference::from_str(&self.image).unwrap()
+    }
+}
+
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct Credentials {
+    pub username : String,
+
+    pub password : String
+}
+
+#[derive(Debug)]
+pub struct ConverterError {
+    pub message : String,
+
+    pub kind : ConverterErrorKind
+}
+
+#[derive(Debug)]
+pub enum ConverterErrorKind {
+    ImagePull,
+    ImagePush,
+    RequisitesCreation,
+    EnclaveImageCreation,
+    NitroFileCreation,
+    ParentImageCreation
+}
+
+impl fmt::Display for ConverterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(message : {}, kind : {:?})", self.message, self.kind)
+    }
+}
+
+impl Error for ConverterError { }
+
+pub async fn run(args: ConverterArgs) -> Result<String> {
+    let input_repository = DockerUtil::new(&args.pull_repository.credentials);
+
+    info!("Retrieving client image!");
+    let mut client_image_raw = args.pull_repository.image.clone();
+    let client_image = {
+        let result = DockerReference::from_str(&client_image_raw).unwrap();
+
+        if result.tag().is_none() && !result.has_digest() {
+            client_image_raw.push_str(":latest");
+            DockerReference::from_str(&client_image_raw).unwrap()
         } else {
-            "info"
+            result
         }
-    })
+    };
+    let input_image = if let Some(local_image) = input_repository.get_local_image(&client_image).await {
+        local_image
+    } else {
+        input_repository.get_remote_image(&client_image)
+            .await
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::ImagePull
+            })?
+    };
+
+    info!("Retrieving CMD from client image!");
+    let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
+
+    info!("Creating working directory!");
+    let temp_dir = TempDir::new().map_err(|err| ConverterError {
+        message: format!("Cannot create temp dir {:?}", err),
+        kind: ConverterErrorKind::RequisitesCreation
+    })?;
+
+    let enclave_builder = EnclaveImageBuilder {
+        client_image: args.pull_repository.image.clone(),
+        client_cmd : client_cmd[2..].to_vec(), // removes /bin/sh -c
+        dir : &temp_dir,
+    };
+
+    info!("Building enclave image!");
+    let nitro_image_result = enclave_builder.create_image(&input_repository)?;
+
+    let parent_builder = ParentImageBuilder {
+        output_image : args.push_repository.image.clone(),
+        parent_image : args.parent_image.clone(),
+        nitro_file : nitro_image_result.nitro_file,
+        dir : &temp_dir,
+    };
+
+    info!("Building parent image!");
+    parent_builder.create_image(&input_repository)?;
+
+    info!("Resulting image has been successfully created!");
+
+    let result_image = input_repository.get_local_image(&args.push_repository.image_reference())
+        .await
+        .expect("Failed to retrieve converted image");
+
+    let result_repository = DockerUtil::new(&args.push_repository.credentials);
+
+    info!("Pushing resulting image to {}!", args.push_repository.image);
+    result_repository.push_image(&result_image, &args.push_repository.image_reference())
+        .await
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImagePush
+        })?;
+
+    info!("Resulting image has been successfully pushed to {} !", args.push_repository.image);
+
+    Ok(nitro_image_result.measurements)
+}
+
+fn console_argument<'a, T : From<&'a str>>(matches : &'a ArgMatches, name : &str) -> T {
+    matches.value_of(name)
+        .map(|e| T::from(e))
+        .expect(&format!("Argument {} should be supplied", name))
+}
+
+fn console_argument_or_default<'a, T : From<&'a str>>(matches : &'a ArgMatches, name : &str, default : T) -> T {
+    matches.value_of(name)
+        .map(|e| T::from(e))
+        .unwrap_or(default)
 }

@@ -1,0 +1,14 @@
+[package]
+name = "nitro-enclaves-converter-api-model"
+version = "0.1.0"
+authors = ["Fortanix, Inc."]
+edition = "2018"
+
+[dependencies]
+client_generator_base = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
+model-macros = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
+model_types = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { git = "ssh://git@bitbucket.org/fortanix/serde-json.git", branch = "base64_bytes" }
+webservice-api-model = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
+rustc-serialize = "0.3"

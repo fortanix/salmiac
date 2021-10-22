@@ -1,0 +1,11 @@
+[package]
+name = "nitro-enclaves-converter-client-generator"
+version = "0.1.0"
+authors = ["Fortanix, Inc."]
+edition = "2018"
+
+[dependencies]
+api-model = { path = "../api-model", package = "nitro-enclaves-converter-api-model" }
+client_generator_base = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
+model_types = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
+webservice-client-generator = { git = "ssh://git@bitbucket.org/fortanix/roche.git" }
