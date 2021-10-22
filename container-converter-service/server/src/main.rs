@@ -42,11 +42,11 @@ fn main() -> Result<(), String> {
         .expect("Failed to parse port")
         .expect("Port argument must be specified");
 
-    let certificate_path = console_arguments.value_of("certificate-path")
+    let certificate_path = console_arguments.value_of("certificate-file")
         .map(|e| Path::new(e))
         .expect("Certificate path is required");
 
-    let key_path = console_arguments.value_of("key-path")
+    let key_path = console_arguments.value_of("key-file")
         .map(|e| Path::new(e))
         .expect("Key path is required");
 
