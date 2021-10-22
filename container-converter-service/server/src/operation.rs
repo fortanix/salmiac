@@ -1,19 +1,12 @@
-use iron::IronResult;
+use iron::{IronResult, Response, IronError};
+use iron::status::Status;
 
 use webservice::define_api;
 use webservice::session_lookup::NoAuthRequired;
 use container_converter::ConverterArgs;
+
 use crate::ConverterServer;
 use crate::Convert;
-
-macro_rules! define_api {
-    { $($operation_def:tt)* } => {
-        webservice::define_api_ex! {
-            (top_level_ext, operation_ext, operation_state_ext)
-            $($operation_def)*
-        }
-    };
-}
 
 define_api! {
     pub struct ConvertImage;
@@ -38,7 +31,16 @@ define_api! {
                     Ok(result)
                 }
                 Err(err) => {
-                    Ok(format!("{:?}", err))
+                    let error = format!("{:?}", err);
+
+                    let mut response = Response::new();
+                    response.status = Some(Status::InternalServerError);
+                    response.body = Some(Box::new(error));
+
+                    Err(IronError {
+                        error: Box::new(err),
+                        response
+                    })
                 }
             }
         }

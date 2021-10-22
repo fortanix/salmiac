@@ -7,6 +7,9 @@ use docker_image_reference::Reference as DockerReference;
 use crate::image::{DockerUtil};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 
+use std::fmt;
+use std::error::Error;
+
 pub mod image;
 pub mod file;
 pub mod image_builder;
@@ -104,6 +107,14 @@ pub enum ConverterErrorKind {
     NitroFileCreation,
     ParentImageCreation
 }
+
+impl fmt::Display for ConverterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(message : {}, kind : {:?})", self.message, self.kind)
+    }
+}
+
+impl Error for ConverterError { }
 
 pub async fn run(args: ConverterArgs) -> Result<String> {
     let input_repository = DockerUtil::new(&args.pull_repository.credentials);

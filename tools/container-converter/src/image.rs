@@ -11,7 +11,8 @@ use std::path::Path;
 use crate::Credentials;
 
 pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<String, String> {
-    let output = output_file.to_str().expect("Cannot convert nitro output path to string");
+    let output = output_file.to_str()
+        .ok_or(format!("Failed to cast path {:?} to string", output_file))?;
 
     let nitro_cli_args = [
         "build-enclave",
