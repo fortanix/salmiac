@@ -59,9 +59,13 @@ async fn main() -> Result<(), String> {
     let input_repository = DockerUtil::new(credentials.pull_username, credentials.pull_password);
 
     info!("Retrieving client image!");
-    let input_image = input_repository.get_remote_image(&client_image)
-        .await
-        .expect(&format!("Image {} not found", client_image_raw));
+    let input_image = if let Some(local_image) = input_repository.get_local_image(&client_image).await {
+        local_image
+    } else {
+        input_repository.get_remote_image(&client_image)
+            .await
+            .expect(&format!("Image {} not found", client_image_raw))
+    };
 
     info!("Retrieving CMD from client image!");
     let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
