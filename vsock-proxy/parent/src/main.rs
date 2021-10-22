@@ -17,7 +17,7 @@ async fn main() -> Result<(), String> {
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
     if let Err(e) = parent::run(vsock_port).await {
-        error!("Parent returns with failure: {}", e);
+        error!("Parent exits with failure: {}", e);
         process::exit(1);
     }
 

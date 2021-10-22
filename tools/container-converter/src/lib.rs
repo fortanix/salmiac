@@ -4,8 +4,9 @@ pub mod file;
 use file::UnixFile;
 use tempfile::TempDir;
 use log::{info};
+use serde_json::json;
 
-use crate::file::{DockerCopyArgs};
+use crate::file::{DockerCopyArgs, Resource};
 use image::{DockerUtil, create_nitro_image};
 
 use std::fs;
@@ -47,10 +48,12 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::Resource {
                 name: "start-enclave.sh".to_string(),
                 data: include_bytes!("resources/enclave/start-enclave.sh").to_vec(),
+                is_executable: true
             },
             file::Resource {
                 name: "enclave".to_string(),
                 data: include_bytes!("resources/enclave/enclave").to_vec(),
+                is_executable: true
             },
         ]
     }
@@ -70,7 +73,14 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
-        let copy = DockerCopyArgs::copy_to_home(self.requisites());
+        let requisites = {
+            let mut result = self.requisites();
+            result.push("enclave-settings.json".to_string());
+
+            result
+        };
+
+        let copy = DockerCopyArgs::copy_to_home(requisites);
 
         file::populate_docker_file(&mut docker_file,
                                    &self.client_image,
@@ -82,7 +92,31 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::log_docker_file(self.dir.path())?;
         }
 
-        file::create_resources(&self.resources(), self.dir.path())?;
+        let resources = {
+            let mut result = self.resources();
+
+            // This is a placeholder value, it will be changed to a proper type after PR
+            // https://bitbucket.org/fortanix/salmiac/pull-requests/23 is merged
+            let settings = json!({
+                "key_url": "www.google.com",
+                "key_domain": "localhost",
+                "key_path": "key.pem",
+                "certificate_path": "certificate.pem",
+            });
+
+            let data = serde_json::to_vec_pretty(&settings)
+                .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
+
+            result.push(Resource {
+                name: "enclave-settings.json".to_string(),
+                data,
+                is_executable: false
+            });
+
+            result
+        };
+
+        file::create_resources(&resources, self.dir.path())?;
 
         self.create_enclave_startup_script()?;
 
@@ -230,14 +264,17 @@ impl<'a> ParentImageBuilder<'a> {
             file::Resource {
                 name: "start-parent.sh".to_string(),
                 data: include_bytes!("resources/parent/start-parent.sh").to_vec(),
+                is_executable: true
             },
             file::Resource {
                 name: "allocator.yaml".to_string(),
                 data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
+                is_executable: false
             },
             file::Resource {
                 name: "parent".to_string(),
                 data: include_bytes!("resources/parent/parent").to_vec(),
+                is_executable: true
             }
         ]
     }
