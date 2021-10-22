@@ -108,14 +108,16 @@ async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), St
         let result = env::var("NODE_AGENT")
             .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
 
-        "http://".to_string() + &result
+        if !result.starts_with("http://") {
+            "http://".to_string() + &result
+        } else {
+            result
+        }
     };
 
     let certificate = em_app::request_issue_certificate(&node_agent_address, csr)
         .map_err(|err| format!("Failed to receive certificate {:?}", err))
         .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
-
-    debug!("Received certificate from node agent {}!", certificate);
 
     vsock.write_lv(&SetupMessages::Certificate(certificate)).await
 }

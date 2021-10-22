@@ -142,7 +142,8 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
 
 async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &Settings) -> Result<(), String> {
     let mut rng = Rdrand;
-    let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001).unwrap();
+    let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001)
+        .map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
 
     let csr = em_app::get_remote_attestation_csr(
         &settings.key_url,
@@ -151,8 +152,6 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &
         None,
         None)
         .map_err(|err| format!("Failed to get CSR. {:?}", err))?;
-
-    debug!("Sending CSR {} to parent!", csr);
 
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
