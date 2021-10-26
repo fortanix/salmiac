@@ -1,0 +1,24 @@
+[package]
+name = "enclave"
+version = "0.1.0"
+authors = ["NikitaShyrei <nikita.shyrei@fortanix.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+shared = { path = "../shared" }
+clap = "2.33"
+env_logger = "0.7"
+log = "0.4"
+nix = "0.15.0"
+futures = "0.3"
+tun = {version = "0.5.3" ,features = ["async"] }
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "time"] }
+tokio-vsock = "0.3.1"
+em-app = { git = "https://github.com/fortanix/rust-sgx", branch = "acruceru/em-app-update", features = ["nitro"] }
+mbedtls = "0.8.1"
+serde_json = "1.0.68"
+serde = { version = "1.0.127", features = ["derive"] }
+nsm-lib = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api", branch = "main" }
+nsm-io = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api", branch = "main" }

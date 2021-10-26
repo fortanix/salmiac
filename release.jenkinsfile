@@ -1,0 +1,11 @@
+pipeline {
+    agent { label 'sdkms-build-server' }
+
+    stages {
+        stage('Build') {
+            steps {
+                sh './ci.sh release'
+            }
+        }
+    }
+}
