@@ -17,3 +17,6 @@ cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/re
 
 cd ../tools/container-converter
 cargo build $cargo_build_flag
+
+cd ../../container-converter-service
+cargo build $cargo_build_flag

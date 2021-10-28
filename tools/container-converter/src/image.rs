@@ -3,16 +3,38 @@ use shiplift::{Docker, Image, RegistryAuth, PullOptions, TagOptions};
 use shiplift::image::{PushOptions, ImageDetails};
 use futures::StreamExt;
 use docker_image_reference::Reference as DockerReference;
+use serde::Deserialize;
+use api_model::AuthConfig;
 
 use std::process;
 use std::env;
 use std::fs;
 use std::path::Path;
-use crate::Credentials;
+use crate::{ConverterError, ConverterErrorKind};
 
-pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<String, String> {
+#[derive(Deserialize)]
+
+pub struct NitroCliOutput {
+    #[serde(rename(deserialize = "Measurements"))]
+    pub measurements: PCRList
+}
+
+#[derive(Deserialize)]
+pub struct PCRList {
+    #[serde(alias = "PCR0")]
+    pub pcr0: String,
+    #[serde(alias = "PCR1")]
+    pub pcr1: String,
+    #[serde(alias = "PCR2")]
+    pub pcr2: String,
+}
+
+pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<NitroCliOutput, ConverterError> {
     let output = output_file.to_str()
-        .ok_or(format!("Failed to cast path {:?} to string", output_file))?;
+        .ok_or(ConverterError {
+            message: format!("Failed to cast path {:?} to string", output_file),
+            kind: ConverterErrorKind::NitroFileCreation
+        })?;
 
     let nitro_cli_args = [
         "build-enclave",
@@ -25,11 +47,22 @@ pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<Stri
     let nitro_cli_command = process::Command::new("nitro-cli")
         .args(&nitro_cli_args)
         .output()
-        .map_err(|err| format!("Failed to execute nitro-cli {:?}", err));
+        .map_err(|err| ConverterError {
+            message: format!("Failure executing nitro-cli. {:?}", err),
+            kind: ConverterErrorKind::NitroFileCreation
+        })?;
 
-    nitro_cli_command.and_then(|output| {
-        process_output(output, "nitro-cli")
-    })
+    let process_output = process_output(nitro_cli_command, "nitro-cli")
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::NitroFileCreation,
+        })?;
+
+    serde_json::from_str::<NitroCliOutput>(&process_output)
+        .map_err(|err| ConverterError {
+            message: format!("Bad measurements. {:?}", err),
+            kind: ConverterErrorKind::NitroFileCreation
+        })
 }
 
 fn process_output(output : process::Output, process_name : &str) -> Result<String, String> {
@@ -61,13 +94,18 @@ pub struct ImageWithDetails<'a> {
 }
 
 impl DockerUtil {
-    pub fn new(credentials : &Credentials) -> Self {
+    pub fn new(credentials : &Option<AuthConfig>) -> Self {
         let docker = Docker::new();
 
-        let credentials = RegistryAuth::builder()
-            .username(&credentials.username)
-            .password(&credentials.password)
-            .build();
+        let credentials = {
+            let mut builder = RegistryAuth::builder();
+
+            if let Some(creds) = credentials {
+                builder.username(&creds.username);
+                builder.password(&creds.password);
+            }
+            builder.build()
+        };
 
         DockerUtil {
             docker,

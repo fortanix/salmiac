@@ -1,10 +1,12 @@
 use tempfile::TempDir;
 use log::{info};
 
-use crate::file::{DockerCopyArgs, UnixFile};
-use crate::image::{DockerUtil, create_nitro_image};
+use crate::file::{DockerCopyArgs, UnixFile, Resource};
+use crate::image::{DockerUtil, create_nitro_image, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::Result;
+use api_model::NitroEnclavesConversionRequestOptions;
+use api_model::CertificateConfig;
 
 use std::fs;
 use std::io::{Write};
@@ -15,13 +17,15 @@ pub struct EnclaveImageBuilder<'a> {
 
     pub client_cmd: Vec<String>,
 
-    pub dir: &'a TempDir
+    pub dir: &'a TempDir,
+
+    pub certificate_settings: CertificateConfig
 }
 
 pub struct EnclaveBuilderResult {
     pub nitro_file: String,
 
-    pub measurements: String
+    pub pcr_list: PCRList
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
@@ -44,17 +48,13 @@ impl<'a> EnclaveImageBuilder<'a> {
         let nitro_file = enclave_image_name.clone() + ".eif";
         let nitro_image_path = &self.dir.path().join(&nitro_file);
 
-        let measurements = create_nitro_image(&enclave_image_name, &nitro_image_path)
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::NitroFileCreation
-            })?;
+        let nitro_measurements = create_nitro_image(&enclave_image_name, &nitro_image_path)?;
 
         info!("Nitro image has been created!");
 
         Ok(EnclaveBuilderResult {
             nitro_file,
-            measurements
+            pcr_list: nitro_measurements.measurements
         })
     }
 
@@ -92,7 +92,14 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
-        let copy = DockerCopyArgs::copy_to_home(self.requisites());
+        let requisites = {
+            let mut result = self.requisites();
+
+            result.push("enclave-settings.json".to_string());
+
+            result
+        };
+        let copy = DockerCopyArgs::copy_to_home(requisites);
 
         file::populate_docker_file(&mut docker_file,
                                    &self.client_image,
@@ -104,7 +111,22 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::log_docker_file(self.dir.path())?;
         }
 
-        file::create_resources(&self.resources(), self.dir.path())?;
+        let resources = {
+            let mut result = self.resources();
+
+            let data = serde_json::to_vec(&self.certificate_settings)
+                .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
+
+            result.push(Resource {
+                name: "enclave-settings.json".to_string(),
+                data,
+                is_executable: false
+            });
+
+            result
+        };
+
+        file::create_resources(&resources, self.dir.path())?;
 
         self.create_enclave_startup_script()?;
 
@@ -155,10 +177,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         echo \"Devices end\" \n\
         echo \"Routes start\" \n\
         ip r \n\
-        echo \"Routes end\" \n\
-        echo \"ARP start\" \n\
-        ip neigh \n\
-        echo \"ARP end\" \n".to_string()
+        echo \"Routes end\" \n".to_string()
     }
 }
 
@@ -169,10 +188,16 @@ pub struct ParentImageBuilder<'a> {
 
     pub nitro_file: String,
 
-    pub dir: &'a TempDir
+    pub dir: &'a TempDir,
+
+    pub start_options: NitroEnclavesConversionRequestOptions
 }
 
 impl<'a> ParentImageBuilder<'a> {
+
+    const DEFAULT_CPU_COUNT : u8 = 2;
+
+    const DEFAULT_MEMORY_SIZE : u64 = 2048;
 
     fn startup_path(&self) -> PathBuf {
         self.dir.path().join("start-parent.sh")
@@ -248,19 +273,23 @@ impl<'a> ParentImageBuilder<'a> {
     fn start_enclave_command(&self) -> String {
         let sanitized_nitro_file = format!("'{}'", self.nitro_file);
 
-        if cfg!(debug_assertions) {
-            format!(
-                "\n\
-                ./parent --remote-port 8080 --vsock-port 5006 & \n\
-                nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
-                sanitized_nitro_file)
-        } else {
-            format!(
-                "\n\
-                ./parent --vsock-port 5006 & \n\
-                nitro-cli run-enclave --eif-path {} --cpu-count 2 --memory 2200 --debug-mode \n",
-                sanitized_nitro_file)
-        }
+        let cpu_count = self.start_options
+            .cpu_count.
+            unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT);
+
+        let memory_size = self.start_options
+            .mem_size
+            .as_ref()
+            .map(|e| e.to_inner())
+            .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
+
+        format!(
+            "\n\
+             ./parent --vsock-port 5006 & \n\
+             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} --debug-mode \n",
+            sanitized_nitro_file,
+            cpu_count,
+            memory_size)
     }
 
     fn connect_to_enclave_command() -> String {

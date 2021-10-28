@@ -4,9 +4,9 @@ use nix::ioctl_write_ptr;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tun::AsyncDevice;
-use serde::{Serialize, Deserialize};
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
+use api_model::CertificateConfig;
 
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value};
@@ -104,7 +104,7 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
     }
 }
 
-async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, enclave_settings : &Settings) -> Result<AsyncDevice, String> {
+async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, enclave_settings : &CertificateConfig) -> Result<AsyncDevice, String> {
     let async_tap_device = setup_enclave_networking(&parent_settings).await?;
 
     info!("Finished enclave network setup!");
@@ -154,14 +154,19 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
     Ok(tap_device)
 }
 
-async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &Settings) -> Result<(), String> {
+async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &CertificateConfig) -> Result<(), String> {
     let mut rng = Rdrand;
     let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001)
         .map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
 
+    let common_name = settings.subject
+        .as_ref()
+        .map(|e| e.as_str())
+        .unwrap_or("localhost");
+
     let csr = em_app::get_remote_attestation_csr(
-        &settings.key_url,
-        &settings.key_domain,
+        "localhost", //this param is not used for now
+        common_name,
         &mut key,
         None,
         None)
@@ -176,8 +181,18 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &
     let key_as_pem = key.write_private_pem_string()
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
-    create_key_file(Path::new(&settings.key_path), &key_as_pem)?;
-    create_key_file(Path::new(&settings.certificate_path), &certificate)
+    let key_path = settings.key_path
+        .as_ref()
+        .map(|e| e.as_str())
+        .unwrap_or("key");
+
+    let certificate_path = settings.cert_path
+        .as_ref()
+        .map(|e| e.as_str())
+        .unwrap_or("cert");
+
+    create_key_file(Path::new(key_path), &key_as_pem)?;
+    create_key_file(Path::new(certificate_path), &certificate)
 }
 
 async fn connect_to_parent_async(port : u32) -> Result<AsyncVsockStream, String> {
@@ -197,7 +212,7 @@ fn create_key_file(path : &Path, key : &str) -> Result<(), String> {
         .map_err(|err| format!("Failed to write data into key file {}. {:?}", path.display(), err))
 }
 
-fn read_enclave_settings(path : &Path) -> Result<Settings, String> {
+fn read_enclave_settings(path : &Path) -> Result<CertificateConfig, String> {
     let settings_raw = fs::read_to_string(path)
         .map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
 
@@ -309,15 +324,4 @@ impl Drop for NSMDevice {
     fn drop(&mut self) {
         nsm::nsm_lib_exit(self.descriptor);
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Settings {
-    pub key_url : String,
-
-    pub key_domain : String,
-
-    pub key_path : String,
-
-    pub certificate_path : String
 }

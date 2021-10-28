@@ -27,6 +27,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28ae2b3dec75a406790005a200b1bd89785afc02517a00ca99ecfe093ee9e6cf"
 
 [[package]]
+name = "api-model-parser"
+version = "0.1.0"
+dependencies = [
+ "cargo_toml",
+ "client_generator_base",
+ "codegen-annotations",
+ "convert_case",
+ "error-spanned",
+ "macro-helpers",
+ "model-macro-types",
+ "proc-macro2",
+ "quote",
+ "strum",
+ "syn",
+ "syn-inline-mod",
+ "thiserror",
+]
+
+[[package]]
 name = "async-channel"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -276,6 +295,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "631ae5198c9be5e753e5cc215e1bd73c2b466a3565173db433f52bb9d3e66dba"
 
 [[package]]
+name = "cargo_toml"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c3596addfb02dcdc06f5252ddda9f3785f9230f5827fb4284645240fa05ad92"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "toml 0.5.8",
+]
+
+[[package]]
 name = "cbindgen"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -287,10 +317,10 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "serde_json",
+ "serde_json 1.0.68",
  "syn",
  "tempfile",
- "toml",
+ "toml 0.5.8",
 ]
 
 [[package]]
@@ -328,7 +358,7 @@ checksum = "670ad68c9088c2a963aaa298cb369688cf3f9465ce5e2d4ca10e6e0098a1ce73"
 dependencies = [
  "libc",
  "num-integer",
- "num-traits",
+ "num-traits 0.2.14",
  "serde",
  "time",
  "winapi 0.3.9",
@@ -361,6 +391,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "client_generator_base"
+version = "0.1.0"
+dependencies = [
+ "strum",
+]
+
+[[package]]
+name = "clustering-api-model"
+version = "0.1.0"
+dependencies = [
+ "api-model-parser",
+ "model_types",
+ "serde",
+ "serde_json 1.0.68",
+ "uuid",
+ "webservice-api-model",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -370,6 +419,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "codegen-annotations"
+version = "0.1.0"
+
+[[package]]
 name = "concurrent-queue"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -377,6 +430,33 @@ checksum = "30ed07550be01594c6026cff2a1d7fe9c8f683caa798e12b68694ac9e88286a3"
 dependencies = [
  "cache-padded",
 ]
+
+[[package]]
+name = "convert_case"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
+
+[[package]]
+name = "diff"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "serde",
+ "serde_json 1.0.68",
+]
+
+[[package]]
+name = "dtoa"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56899898ce76aaf4a0f24d914c97ea6ed976d42fec6ad33fcbb0a1103e07b2b0"
+
+[[package]]
+name = "either"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "em-app"
@@ -397,7 +477,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_derive",
- "serde_json",
+ "serde_json 1.0.68",
  "url",
  "uuid",
  "yasna 0.3.2",
@@ -415,11 +495,11 @@ dependencies = [
  "hyper",
  "lazy_static",
  "log 0.3.9",
- "mime",
+ "mime 0.2.6",
  "serde",
  "serde_derive",
  "serde_ignored",
- "serde_json",
+ "serde_json 1.0.68",
  "url",
  "uuid",
 ]
@@ -436,11 +516,11 @@ dependencies = [
  "hyper",
  "lazy_static",
  "log 0.3.9",
- "mime",
+ "mime 0.2.6",
  "serde",
  "serde_derive",
  "serde_ignored",
- "serde_json",
+ "serde_json 1.0.68",
  "url",
  "uuid",
 ]
@@ -455,11 +535,12 @@ dependencies = [
  "futures 0.3.16",
  "log 0.4.14",
  "mbedtls",
+ "nitro-enclaves-converter-api-model",
  "nix 0.15.0",
  "nsm-io",
  "nsm-lib",
  "serde",
- "serde_json",
+ "serde_json 1.0.68",
  "shared",
  "tokio",
  "tokio-vsock",
@@ -490,6 +571,14 @@ dependencies = [
  "log 0.4.14",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "error-spanned"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "syn",
 ]
 
 [[package]]
@@ -722,7 +811,7 @@ dependencies = [
  "httparse",
  "language-tags",
  "log 0.3.9",
- "mime",
+ "mime 0.2.6",
  "num_cpus",
  "time",
  "traitobject",
@@ -778,12 +867,36 @@ dependencies = [
 
 [[package]]
 name = "ipnetwork"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02c3eaab3ac0ede60ffa41add21970a7df7d91772c03383aac6c2c3d53cc716b"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ipnetwork"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4088d739b183546b239688ddbc79891831df421773df95e236daf7867866d355"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "itertools"
+version = "0.7.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d47946d458e94a1b7bcabbf6521ea7c037062c81f534615abcad76e84d4970d"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itoa"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8324a32baf01e2ae060e9de58ed0bc2320c9a2833491ee36cd3b4c414de4db8c"
 
 [[package]]
 name = "itoa"
@@ -864,6 +977,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "macro-helpers"
+version = "0.1.0"
+dependencies = [
+ "error-spanned",
+ "proc-macro2",
+ "syn",
+]
+
+[[package]]
 name = "matches"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -919,6 +1041,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mime"
+version = "0.3.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
+
+[[package]]
 name = "mio"
 version = "0.6.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -969,6 +1097,62 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "model-macro-types"
+version = "0.1.0"
+dependencies = [
+ "convert_case",
+ "error-spanned",
+ "macro-helpers",
+ "proc-macro2",
+ "quote",
+ "strum",
+ "syn",
+ "thiserror",
+]
+
+[[package]]
+name = "model-macros"
+version = "0.1.0"
+dependencies = [
+ "error-spanned",
+ "macro-helpers",
+ "model-macro-types",
+ "proc-macro2",
+ "quote",
+ "strum",
+ "syn",
+ "thiserror",
+]
+
+[[package]]
+name = "model_codegen"
+version = "0.1.0"
+dependencies = [
+ "toml 0.2.1",
+]
+
+[[package]]
+name = "model_types"
+version = "0.1.0"
+dependencies = [
+ "api-model-parser",
+ "bitflags",
+ "chrono",
+ "client_generator_base",
+ "diff",
+ "ipnetwork 0.17.0",
+ "mime 0.3.16",
+ "model-macros",
+ "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
+ "serde-value",
+ "serde_json 1.0.2",
+ "time",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1045,6 +1229,24 @@ dependencies = [
  "libc",
  "log 0.4.14",
  "tokio",
+]
+
+[[package]]
+name = "nitro-enclaves-converter-api-model"
+version = "0.1.0"
+dependencies = [
+ "api-model-parser",
+ "client_generator_base",
+ "clustering-api-model",
+ "diff",
+ "model-macros",
+ "model_codegen",
+ "model_types",
+ "serde",
+ "serde_json 1.0.2",
+ "uuid",
+ "version-api-model",
+ "webservice-api-model",
 ]
 
 [[package]]
@@ -1135,7 +1337,7 @@ checksum = "090c7f9998ee0ff65aa5b723e4009f7b217707f1fb5ea551329cc4d6231fb304"
 dependencies = [
  "autocfg",
  "num-integer",
- "num-traits",
+ "num-traits 0.2.14",
 ]
 
 [[package]]
@@ -1145,7 +1347,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2cc698a63b549a70bc047073d2949cce27cd1c7b0a4a862d08a8031bc2801db"
 dependencies = [
  "autocfg",
- "num-traits",
+ "num-traits 0.2.14",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.1.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e5113e9fd4cc14ded8e499429f396a20f98c772a47cc8622a736e1ec843c31"
+dependencies = [
+ "num-traits 0.2.14",
 ]
 
 [[package]]
@@ -1174,6 +1385,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
 
 [[package]]
+name = "ordered-float"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97c9d06878b3a851e8026ef94bf7fef9ba93062cd412601da4d9cf369b1cc62d"
+dependencies = [
+ "num-traits 0.2.14",
+]
+
+[[package]]
 name = "parent"
 version = "0.1.0"
 dependencies = [
@@ -1181,7 +1401,7 @@ dependencies = [
  "em-app",
  "env_logger 0.7.1",
  "futures 0.3.16",
- "ipnetwork",
+ "ipnetwork 0.18.0",
  "log 0.4.14",
  "nix 0.15.0",
  "pcap",
@@ -1542,7 +1762,7 @@ dependencies = [
  "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_derive",
- "serde_json",
+ "serde_json 1.0.68",
  "url",
  "uuid",
 ]
@@ -1554,6 +1774,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1f72836d2aa753853178eda473a3b9d8e4eefdaf20523b919677e6de489f8f1"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float",
+ "serde",
 ]
 
 [[package]]
@@ -1597,11 +1827,23 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
+version = "1.0.2"
+source = "git+ssh://git@bitbucket.org/fortanix/serde-json.git?branch=base64_bytes#fd90ef0a3cc1d450d3247b720860ba48e78bcf57"
+dependencies = [
+ "dtoa",
+ "itoa 0.3.4",
+ "num-traits 0.1.43",
+ "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
+]
+
+[[package]]
+name = "serde_json"
 version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f690853975602e1bfe1ccbf50504d67174e3bcf340f23b5ea9992e0587a52d8"
 dependencies = [
- "itoa",
+ "itoa 0.4.8",
  "ryu",
  "serde",
 ]
@@ -1614,7 +1856,7 @@ dependencies = [
  "byteorder",
  "clap",
  "futures 0.3.16",
- "ipnetwork",
+ "ipnetwork 0.18.0",
  "log 0.4.14",
  "rtnetlink",
  "serde",
@@ -1690,6 +1932,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
 
 [[package]]
+name = "strum"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aaf86bbcfd1fa9670b7a129f64fc0c9fcbbfe4f1bc4210e9e98fe71ffc12cde2"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1698,6 +1961,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "syn-inline-mod"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0356188b235b38dc1357a13fa13b79319d80598028d549af5750e4b03a0fc47"
+dependencies = [
+ "proc-macro2",
+ "syn",
 ]
 
 [[package]]
@@ -1843,6 +2116,15 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "736b60249cb25337bc196faa43ee12c705e426f3d55c214d73a4e7be06f92cb4"
+dependencies = [
+ "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "toml"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31142970826733df8241ef35dc040ef98c679ab14d7c3e54d827099b3acecaa"
@@ -1949,6 +2231,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
+name = "version-api-model"
+version = "0.1.0"
+dependencies = [
+ "api-model-parser",
+ "client_generator_base",
+ "model_types",
+ "serde",
+]
+
+[[package]]
 name = "version_check"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1987,6 +2279,15 @@ name = "wasi"
 version = "0.10.2+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd6fbd9a79829dd1ad0cc20627bf1ed606756a7f77edff7b66b7064f9cb327c6"
+
+[[package]]
+name = "webservice-api-model"
+version = "0.1.0"
+dependencies = [
+ "client_generator_base",
+ "serde",
+ "uuid",
+]
 
 [[package]]
 name = "wepoll-ffi"

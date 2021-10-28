@@ -18,3 +18,5 @@ toml = "0.5.8"
 serde = { version = "1.0.127", features = ["derive"] }
 docker-image-reference = "0.1.0"
 serde_json = "1.0.68"
+api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
+model_types = { path = "../../../model/model_types" }
