@@ -124,11 +124,13 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
         pcr2: HexString::new(nitro_image_result.pcr_list.pcr2)
     });
 
+    let result_sha = image_short_id(&result_image.details.id);
+
     let result = NitroEnclavesConversionResponse {
         converted_image: ConvertedImageInfo {
             name: args.request.output_image.name,
-            sha: HexString::new(Vec::new()),
-            size: 0
+            sha: HexString::new(result_sha),
+            size: result_image.details.size as usize
         },
 
         config: NitroEnclavesConfig {
@@ -138,6 +140,15 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     };
 
     Ok(result)
+}
+
+// Extracts first 12 unique bytes of id
+fn image_short_id(id : &str) -> &str {
+    if id.starts_with("sha256:") {
+        &id[7..19]
+    } else {
+        &id[..12]
+    }
 }
 
 fn default_certificate_config() -> CertificateConfig {
