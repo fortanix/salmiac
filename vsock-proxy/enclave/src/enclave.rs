@@ -7,6 +7,7 @@ use tun::AsyncDevice;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use api_model::CertificateConfig;
+use api_model::shared::EnclaveSettings;
 
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value};
@@ -21,6 +22,7 @@ use std::time::Duration;
 use std::thread;
 use std::fs::File;
 use std::mem;
+use std::process::Command;
 
 const ENTROPY_BYTES_COUNT : usize = 126;
 const ENTROPY_REFRESH_PERIOD : u64 = 30;
@@ -42,7 +44,7 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
 
     let parent_settings = extract_enum_value!(msg, SetupMessages::Settings(s) => s)?;
 
-    let async_tap_device = setup_enclave(&mut parent_port, &parent_settings, &enclave_settings).await?;
+    let async_tap_device = setup_enclave(&mut parent_port, &parent_settings, &enclave_settings.certificate_config).await?;
 
     let entropy_loop = tokio::task::spawn_blocking(|| {
         start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD)
@@ -61,14 +63,45 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
 
     debug!("Started tap write loop!");
 
-    match tokio::try_join!(read_tap_loop, write_tap_loop, entropy_loop) {
-        Ok((read_returned, write_returned, entropy_returned)) => {
+    let client_program = tokio::task::spawn_blocking(move || {
+        start_client_program(&enclave_settings)
+    });
+
+    debug!("Started client program!");
+
+    match tokio::try_join!(read_tap_loop, write_tap_loop, entropy_loop, client_program) {
+        Ok((read_returned, write_returned, entropy_returned, client_program)) => {
             read_returned.map_err(|err| format!("Failure in tap read loop: {:?}", err))?;
             write_returned.map_err(|err| format!("Failure in tap write loop: {:?}", err))?;
-            entropy_returned
+            entropy_returned?;
+            client_program
         }
         Err(err) => {
             Err(format!("{:?}", err))
+        }
+    }
+}
+
+fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<(), String> {
+    let mut client_command = Command::new(enclave_settings.client_cmd.clone());
+
+    if !enclave_settings.client_cmd_args.is_empty() {
+        client_command.args(enclave_settings.client_cmd_args.clone());
+    }
+
+    let client_program = client_command.spawn()
+        .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+
+    match client_program.wait_with_output() {
+        Ok(output) if output.status.success() => {
+            println!("Client program exits successfully with status: {:?}", output.status);
+            Ok(())
+        }
+        Ok(output) => {
+            Err(format!("Client program exits with status: {:?}", output.status))
+        }
+        Err(err) => {
+            Err(format!("Error while waiting for client program to finish: {:?}", err))
         }
     }
 }
@@ -212,7 +245,7 @@ fn create_key_file(path : &Path, key : &str) -> Result<(), String> {
         .map_err(|err| format!("Failed to write data into key file {}. {:?}", path.display(), err))
 }
 
-fn read_enclave_settings(path : &Path) -> Result<CertificateConfig, String> {
+fn read_enclave_settings(path : &Path) -> Result<EnclaveSettings, String> {
     let settings_raw = fs::read_to_string(path)
         .map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
 

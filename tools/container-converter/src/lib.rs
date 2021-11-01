@@ -61,7 +61,20 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     };
 
     info!("Retrieving CMD from client image!");
-    let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
+    let client_cmd = input_image.details
+        .config
+        .cmd
+        .ok_or(ConverterError {
+            message: "Input image has no CMD clause.".to_string(),
+            kind: ConverterErrorKind::BadRequest
+        })?;
+
+    if client_cmd.len() < 3 {
+        return Err(ConverterError {
+            message: "Input image CMD clause is empty or not in the form of /bin/sh -c <client arguments>.".to_string(),
+            kind: ConverterErrorKind::BadRequest
+        })
+    }
 
     info!("Creating working directory!");
     let temp_dir = TempDir::new().map_err(|err| ConverterError {
@@ -77,7 +90,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
 
     let enclave_builder = EnclaveImageBuilder {
         client_image: args.request.input_image.name.clone(),
-        client_cmd : client_cmd[2..].to_vec(), // removes /bin/sh -c
+        client_cmd,
         dir : &temp_dir,
         certificate_settings
     };

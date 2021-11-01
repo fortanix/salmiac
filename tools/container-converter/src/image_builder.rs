@@ -7,6 +7,7 @@ use crate::{file, ConverterError, ConverterErrorKind};
 use crate::Result;
 use api_model::NitroEnclavesConversionRequestOptions;
 use api_model::CertificateConfig;
+use api_model::shared::EnclaveSettings;
 
 use std::fs;
 use std::io::{Write};
@@ -114,7 +115,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         let resources = {
             let mut result = self.resources();
 
-            let data = serde_json::to_vec(&self.certificate_settings)
+            let enclave_settings = self.create_enclave_settings();
+            let data = serde_json::to_vec(&enclave_settings)
                 .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
 
             result.push(Resource {
@@ -143,41 +145,23 @@ impl<'a> EnclaveImageBuilder<'a> {
             .open(&self.dir.path().join("start-enclave.sh"))
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
-        if cfg!(debug_assertions) {
-            file.write_all(EnclaveImageBuilder::debug_networking_command().as_bytes())
-                .map_err(|err| format!("Failed to write to file {:?}", err))?;
-        }
-
-        let cmd = EnclaveImageBuilder::client_cmd(&self.client_cmd);
-
-        file.write_all(cmd.as_bytes()).map_err(|err| format!("Failed to write to file {:?}", err))?;
-
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
     }
 
-    fn client_cmd(raw_client_cmd : &Vec<String>) -> String {
-        // todo: sanitize the user cmd before putting it into startup script.
-        // Escape chars like: ' ” \ or ;.
-        format!(
-            "\n\
-            # Client code starts here. \n\
-            {} \n",
-            raw_client_cmd.join(" "))
-    }
+    fn create_enclave_settings(&self) -> EnclaveSettings {
+        // In docker CMD is present in the form of /bin/sh -c <client program> <client arguments>,
+        // because of that we extract '/bin/sh` as a program that the enclave will run
+        // and everything else becomes an argument list
+        let client_cmd = self.client_cmd[0].clone();
+        let client_cmd_args = self.client_cmd[1..].to_vec();
 
-    fn debug_networking_command() -> String {
-        "\n\
-        # Debug code. \n\
-        # Dumps networking info to make sure that enclave is setup correctly \n\
-        sleep 30 \n\
-        echo \"Devices start\" \n\
-        ip a \n\
-        echo \"Devices end\" \n\
-        echo \"Routes start\" \n\
-        ip r \n\
-        echo \"Routes end\" \n".to_string()
+        EnclaveSettings {
+            client_cmd,
+            client_cmd_args,
+            certificate_config: self.certificate_settings.clone()
+        }
     }
 }
 
