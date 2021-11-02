@@ -27,6 +27,9 @@ pub struct PCRList {
     pub pcr1: String,
     #[serde(alias = "PCR2")]
     pub pcr2: String,
+    /// Only present if enclave file is built with signing certificate
+    #[serde(alias = "PCR8")]
+    pub pcr8: Option<String>,
 }
 
 pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<NitroCliOutput, ConverterError> {

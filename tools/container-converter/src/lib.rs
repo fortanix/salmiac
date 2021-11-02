@@ -135,7 +135,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
 
         config: NitroEnclavesConfig {
             measurements,
-            pcr8: HexString::new(Vec::new())
+            pcr8: HexString::new(nitro_image_result.pcr_list.pcr8.unwrap_or(String::new()))
         }
     };
 
