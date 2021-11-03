@@ -1,6 +1,6 @@
 use tempfile::TempDir;
 use log::info;
-use docker_image_reference::Reference as DockerReference;
+use docker_image_reference::{Reference as DockerReference};
 use model_types::HexString;
 use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, CertificateConfig, NitroEnclavesVersion, HashAlgorithm};
 use crate::image::{DockerUtil};
@@ -9,6 +9,7 @@ use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 use std::fmt;
 use std::error::Error;
 use std::collections::HashMap;
+use std::env;
 
 pub mod image;
 pub mod file;
@@ -45,23 +46,33 @@ impl Error for ConverterError { }
 const PARENT_IMAGE : &str = "parent-base";
 
 pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
+    if args.request.input_image.name == args.request.output_image.name {
+        return Err(ConverterError {
+            message: "Input and output images must be different".to_string(),
+            kind: ConverterErrorKind::BadRequest
+        })
+    }
+    let input_image_reference = docker_reference(&args.request.input_image.name)?;
+    let output_image_reference = output_docker_reference(&args.request.output_image.name)?;
+
     let input_repository = DockerUtil::new(&args.request.input_image.auth_config);
 
     info!("Retrieving client image!");
-    let input_image_reference = docker_reference(&args.request.input_image.name)?;
-    let input_image = if let Some(local_image) = input_repository.get_local_image(&input_image_reference).await {
-        local_image
-    } else {
-        input_repository.get_remote_image(&input_image_reference)
-            .await
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::ImagePull
-            })?
-    };
+    let input_image = input_repository.get_image(&input_image_reference)
+        .await
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImagePull
+        })?;
 
     info!("Retrieving CMD from client image!");
-    let client_cmd = input_image.details.config.cmd.expect("No CMD present in user image");
+    let client_cmd = input_image.details
+        .config
+        .cmd
+        .ok_or(ConverterError {
+            message: "No CMD present in user image".to_string(),
+            kind: ConverterErrorKind::RequisitesCreation
+        })?;
 
     info!("Creating working directory!");
     let temp_dir = TempDir::new().map_err(|err| ConverterError {
@@ -83,37 +94,39 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     };
 
     info!("Building enclave image!");
-    let nitro_image_result = enclave_builder.create_image(&input_repository)?;
+    let nitro_image_result = enclave_builder.create_image(&input_repository).await?;
+    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
 
     let parent_builder = ParentImageBuilder {
         output_image : args.request.output_image.name.clone(),
-        parent_image : PARENT_IMAGE.to_string(),
+        parent_image,
         nitro_file : nitro_image_result.nitro_file,
         dir : &temp_dir,
         start_options: args.nitro_enclaves_options
     };
 
     info!("Building parent image!");
-    parent_builder.create_image(&input_repository)?;
+    parent_builder.create_image(&input_repository).await?;
 
     info!("Resulting image has been successfully created!");
-
-    let output_reference = docker_reference(&args.request.output_image.name)?;
-    let result_image = input_repository.get_local_image(&output_reference)
+    let result_image = input_repository.get_image(&output_image_reference)
         .await
-        .expect("Failed to retrieve converted image");
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImagePull
+        })?;
 
     let result_repository = DockerUtil::new(&args.request.output_image.auth_config);
 
-    info!("Pushing resulting image to {}!", output_reference.to_string());
-    result_repository.push_image(&result_image, &output_reference)
+    info!("Pushing resulting image to {}!", output_image_reference.to_string());
+    result_repository.push_image(&result_image, &output_image_reference)
         .await
         .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::ImagePush
         })?;
 
-    info!("Resulting image has been successfully pushed to {} !", output_reference.to_string());
+    info!("Resulting image has been successfully pushed to {} !", output_image_reference.to_string());
 
     let mut measurements = HashMap::new();
 
@@ -166,4 +179,17 @@ fn docker_reference(image : &str) -> Result<DockerReference> {
             message: err.to_string(),
             kind: ConverterErrorKind::BadRequest
         })
+}
+
+fn output_docker_reference(image: &str) -> Result<DockerReference> {
+    docker_reference(image).and_then(|e| {
+        if e.tag().is_none() || e.has_digest() {
+            Err(ConverterError {
+                message: "Output image must have a tag and have no digest!".to_string(),
+                kind: ConverterErrorKind::BadRequest,
+            })
+        } else {
+            Ok(e)
+        }
+    })
 }

@@ -1243,7 +1243,7 @@ dependencies = [
 [[package]]
 name = "shiplift"
 version = "0.7.0"
-source = "git+https://github.com/charlolizard/shiplift#379679eb09ea3307a8a2318d99d9faaa0b9f8bdf"
+source = "git+https://github.com/charlolizard/shiplift?branch=no-gzip-on-build#7fe1c6623ae73bee5fd1d43008f09451ae1c03ab"
 dependencies = [
  "base64",
  "byteorder",
