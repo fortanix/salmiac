@@ -69,9 +69,9 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
             kind: ConverterErrorKind::BadRequest
         })?;
 
-    if client_cmd.len() < 3 {
+    if client_cmd.len() < 3 || !(client_cmd[0] == "/bin/sh" && client_cmd[1] == "-c") {
         return Err(ConverterError {
-            message: "Input image CMD clause is empty or not in the form of /bin/sh -c <client arguments>.".to_string(),
+            message: "Input is not in the form of /bin/sh -c <client arguments>.".to_string(),
             kind: ConverterErrorKind::BadRequest
         })
     }

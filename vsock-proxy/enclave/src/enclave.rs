@@ -23,11 +23,12 @@ use std::thread;
 use std::fs::File;
 use std::mem;
 use std::process::Command;
+use tokio::task::JoinError;
 
 const ENTROPY_BYTES_COUNT : usize = 126;
 const ENTROPY_REFRESH_PERIOD : u64 = 30;
 
-pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
+pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<i32, String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
@@ -69,20 +70,39 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<(), String> {
 
     debug!("Started client program!");
 
-    match tokio::try_join!(read_tap_loop, write_tap_loop, entropy_loop, client_program) {
-        Ok((read_returned, write_returned, entropy_returned, client_program)) => {
-            read_returned.map_err(|err| format!("Failure in tap read loop: {:?}", err))?;
-            write_returned.map_err(|err| format!("Failure in tap write loop: {:?}", err))?;
-            entropy_returned?;
-            client_program
-        }
-        Err(err) => {
-            Err(format!("{:?}", err))
-        }
+    // We wait for the first future to complete.
+    // Loop futures will never complete with success because they run forever
+    // and if the client program finishes then we are done.
+    tokio::select! {
+        result = read_tap_loop => {
+            handle_background_task_exit(result, "tap read loop")
+        },
+        result = write_tap_loop => {
+            handle_background_task_exit(result, "tap write loop")
+        },
+        result = entropy_loop => {
+            handle_background_task_exit(result, "entropy seed loop")
+        },
+        result = client_program => {
+            result.map_err(|err| format!("Join error in client program wait loop. {:?}", err))?
+        },
     }
 }
 
-fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<(), String> {
+fn handle_background_task_exit(result : Result<Result<(), String>, JoinError>, task_name : &str) -> Result<i32, String> {
+    match result {
+        Err(err) => {
+            Err(format!("Join error in {}. {:?}", task_name, err))?
+        }
+        Ok(Err(err)) => {
+            Err(err)
+        }
+        // Background tasks never exit with success
+        _ => { unreachable!() }
+    }
+}
+
+fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<i32, String> {
     let mut client_command = Command::new(enclave_settings.client_cmd.clone());
 
     if !enclave_settings.client_cmd_args.is_empty() {
@@ -93,12 +113,13 @@ fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<(), Strin
         .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
     match client_program.wait_with_output() {
-        Ok(output) if output.status.success() => {
-            println!("Client program exits successfully with status: {:?}", output.status);
-            Ok(())
+        Ok(output) if output.status.code().is_some() => {
+            let status = output.status.code().unwrap();
+
+            Ok(status)
         }
-        Ok(output) => {
-            Err(format!("Client program exits with status: {:?}", output.status))
+        Ok(_) => {
+            Err(format!("Client program terminated by signal."))
         }
         Err(err) => {
             Err(format!("Error while waiting for client program to finish: {:?}", err))

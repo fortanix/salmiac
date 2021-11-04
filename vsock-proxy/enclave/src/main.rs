@@ -1,7 +1,7 @@
 mod enclave;
 
 use clap::{ArgMatches, App, AppSettings, Arg};
-use log::error;
+use log::{error, info};
 
 use shared::{parse_console_argument, NumArg};
 
@@ -19,12 +19,16 @@ async fn main() -> Result<(), String> {
         .map(|e| Path::new(e))
         .expect("Path to a settings file must be provided");
 
-    if let Err(e) = enclave::run(vsock_port, &settings_path).await {
-        error!("Enclave exits with failure: {}", e);
-        process::exit(1);
+    match enclave::run(vsock_port, &settings_path).await {
+        Ok(code) => {
+            info!("Enclave exits with code: {}", code);
+            process::exit(code)
+        }
+        Err(e) => {
+            error!("Enclave exits with failure: {}", e);
+            process::exit(-1);
+        }
     }
-
-    Ok(())
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {
