@@ -12,6 +12,7 @@ use api_model::shared::EnclaveSettings;
 use std::fs;
 use std::io::{Write};
 use std::path::{PathBuf};
+use std::env;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: String,
@@ -31,7 +32,7 @@ pub struct EnclaveBuilderResult {
 
 impl<'a> EnclaveImageBuilder<'a> {
 
-    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<EnclaveBuilderResult> {
+    pub async fn create_image(&self, docker_util : &DockerUtil) -> Result<EnclaveBuilderResult> {
         self.create_requisites().map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
@@ -41,6 +42,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let enclave_image_name = self.enclave_image_name();
         docker_util.create_image(self.dir.path(), &enclave_image_name)
+            .await
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::EnclaveImageCreation
@@ -187,7 +189,7 @@ impl<'a> ParentImageBuilder<'a> {
         self.dir.path().join("start-parent.sh")
     }
 
-    pub fn create_image(&self, docker_util : &DockerUtil) -> Result<()> {
+    pub async fn create_image(&self, docker_util : &DockerUtil) -> Result<()> {
         self.create_requisites()
             .map_err(|message| ConverterError {
                 message,
@@ -196,6 +198,7 @@ impl<'a> ParentImageBuilder<'a> {
         info!("Parent prerequisites have been created!");
 
         docker_util.create_image(self.dir.path(), &self.output_image)
+            .await
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::ParentImageCreation
@@ -226,7 +229,26 @@ impl<'a> ParentImageBuilder<'a> {
             file::log_docker_file(self.dir.path())?;
         }
 
-        file::create_resources(&self.resources(), self.dir.path())?;
+        let allocator_settings = if let Ok(allocator_settings_path) = env::var("NITRO_ALLOCATOR") {
+            let data = fs::read(&allocator_settings_path)
+                .map_err(|err| format!("Failed reading allocator settings from {}. {:?}", allocator_settings_path, err))?;
+
+            file::Resource {
+                name: "allocator.yaml".to_string(),
+                data,
+                is_executable: false,
+            }
+        } else {
+            ParentImageBuilder::default_allocator_settings()
+        };
+
+        let resources = {
+            let mut result = self.resources();
+            result.push(allocator_settings);
+            result
+        };
+
+        file::create_resources(&resources, self.dir.path())?;
 
         self.create_parent_startup_script()?;
 
@@ -243,11 +265,15 @@ impl<'a> ParentImageBuilder<'a> {
             .open(self.startup_path())
             .map_err(|err| format!("Failed to open enclave startup script {:?}", err))?;
 
-        file.write_all(self.start_enclave_command().as_bytes())
+        let start_enclave_command = self.start_enclave_command();
+
+        file.write_all(start_enclave_command.as_bytes())
             .map_err(|err| format!("Failed to write to file {:?}", err))?;
 
-        file.write_all(ParentImageBuilder::connect_to_enclave_command().as_bytes())
-            .map_err(|err| format!("Failed to write to file {:?}", err))?;
+        if cfg!(debug_assertions) {
+            file.write_all(ParentImageBuilder::connect_to_enclave_command().as_bytes())
+                .map_err(|err| format!("Failed to write to file {:?}", err))?;
+        }
 
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
@@ -267,13 +293,19 @@ impl<'a> ParentImageBuilder<'a> {
             .map(|e| e.to_inner())
             .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
 
-        format!(
+        let result = format!(
             "\n\
              ./parent --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} --debug-mode \n",
+             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {}",
             sanitized_nitro_file,
             cpu_count,
-            memory_size)
+            memory_size);
+
+        if cfg!(debug_assertions) {
+            result + " --debug-mode  \n"
+        } else {
+            result + " \n"
+        }
     }
 
     fn connect_to_enclave_command() -> String {
@@ -293,16 +325,19 @@ impl<'a> ParentImageBuilder<'a> {
                 is_executable: true
             },
             file::Resource {
-                name: "allocator.yaml".to_string(),
-                data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
-                is_executable: false
-            },
-            file::Resource {
                 name: "parent".to_string(),
                 data: include_bytes!("resources/parent/parent").to_vec(),
                 is_executable: true
             }
         ]
+    }
+
+    fn default_allocator_settings() -> file::Resource {
+        file::Resource {
+            name: "allocator.yaml".to_string(),
+            data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
+            is_executable: false
+        }
     }
 
     fn requisites(&self) -> Vec<String> {

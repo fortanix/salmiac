@@ -1,5 +1,5 @@
-use log::{info, error};
-use shiplift::{Docker, Image, RegistryAuth, PullOptions, TagOptions};
+use log::{info, error, warn, debug};
+use shiplift::{Docker, Image, RegistryAuth, PullOptions, TagOptions, BuildOptions};
 use shiplift::image::{PushOptions, ImageDetails};
 use futures::StreamExt;
 use docker_image_reference::Reference as DockerReference;
@@ -27,6 +27,9 @@ pub struct PCRList {
     pub pcr1: String,
     #[serde(alias = "PCR2")]
     pub pcr2: String,
+    /// Only present if enclave file is built with signing certificate
+    #[serde(alias = "PCR8")]
+    pub pcr8: Option<String>,
 }
 
 pub fn create_nitro_image(image_name : &str, output_file : &Path) -> Result<NitroCliOutput, ConverterError> {
@@ -113,13 +116,23 @@ impl DockerUtil {
         }
     }
 
-    pub async fn get_remote_image(&self, image : &DockerReference<'_>) -> Result<ImageWithDetails<'_>, String> {
-        self.pull_image(image).await?;
-
-        Ok(self.get_local_image(image).await.expect("Failed to pull image"))
+    pub async fn get_image(&self, image : &DockerReference<'_>) -> Result<ImageWithDetails<'_>, String> {
+        if let Some(local_image) = self.get_local_image(&image).await {
+            Ok(local_image)
+        } else {
+            debug!("Image {} not found in local repository, pulling from remote.", image.to_string());
+            self.get_remote_image(image).await
+                .and_then(|e| e.ok_or(format!("Image {} not found.", image.to_string())))
+        }
     }
 
-    pub async fn get_local_image(&self, address : &DockerReference<'_>) -> Option<ImageWithDetails<'_>> {
+    async fn get_remote_image(&self, image : &DockerReference<'_>) -> Result<Option<ImageWithDetails<'_>>, String> {
+        self.pull_image(image).await?;
+
+        Ok(self.get_local_image(image).await)
+    }
+
+    async fn get_local_image(&self, address : &DockerReference<'_>) -> Option<ImageWithDetails<'_>> {
         let image = self.docker.images().get(address.name());
 
         match image.inspect().await {
@@ -129,7 +142,8 @@ impl DockerUtil {
                     details,
                 })
             }
-            Err(_) => {
+            Err(err) => {
+                warn!("Encountered error when searching for local image {}. {:?}. Assuming image not found.", address.to_string(), err);
                 None
             }
         }
@@ -178,26 +192,33 @@ impl DockerUtil {
             .map_err(|err| format!("Failed to push image {} into repo {}. Err: {:?}", image.details.id, repository, err))
     }
 
-    pub fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<String, String> {
+    pub async fn create_image(&self, docker_dir: &Path, image_tag: &str) -> Result<(), String> {
+        let path_as_string = docker_dir.as_os_str()
+            .to_str()
+            .ok_or(format!("Failed to convert path {} to UTF8 string.", docker_dir.display()))?;
+
+        let build_options = BuildOptions::builder(path_as_string)
+            .tag(image_tag)
+            .build();
+
         env::set_var("DOCKER_BUILDKIT", "1");
 
-        let dir = docker_dir.to_str().unwrap();
+        info!("Started building image");
 
-        let args = [
-            "build",
-            "-t",
-            image_tag,
-            dir,
-        ];
+        let mut stream = self.docker.images().build(&build_options);
+        while let Some(build_result) = stream.next().await {
+            match build_result {
+                Ok(output) => {
+                    info!("{:?}", output);
+                },
+                Err(e) => {
+                    error!("{:?}", e);
+                    return Err(format!("Docker build failed with: {}", e))
+                },
+            }
+        }
 
-        let docker = process::Command::new("/usr/bin/docker")
-            .args(&args)
-            .output()
-            .map_err(|err| format!("Failed to run docker {:?}", err));
-
-        docker.and_then(|output| {
-            process_output(output, "docker")
-        })
+        Ok(())
     }
 
     pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str, output_file : &str) -> Result<String, String> {
@@ -248,17 +269,5 @@ impl DockerUtil {
         }
 
         Ok(())
-    }
-}
-
-trait DockerImageURL {
-    fn repository_and_tag(&self) -> (&str, Option<&str>);
-}
-
-impl DockerImageURL for &str {
-    fn repository_and_tag(&self) -> (&str, Option<&str>) {
-        self.rfind(":")
-            .map(|pos| (&self[..pos], Some(&self[pos + 1..])))
-            .unwrap_or((&self, None))
     }
 }
