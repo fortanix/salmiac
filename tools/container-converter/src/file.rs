@@ -1,11 +1,9 @@
+use log::debug;
+
 use std::fs;
 use std::io::{Write, BufReader, BufRead};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-
-pub fn full_path(dir : &str, file : &str) -> String {
-    format!("{}/{}", dir, file)
-}
 
 pub struct Resource {
     pub name : String,
@@ -63,8 +61,6 @@ pub fn log_docker_file(dir : &Path) -> Result<(), String> {
 }
 
 pub fn log_file(path : &Path) -> Result<(), String> {
-    use log::debug;
-
     let file_name = path.file_name()
         .and_then(|e| e.to_str())
         .unwrap_or("<Unknown file>");
