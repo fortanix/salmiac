@@ -97,7 +97,7 @@ fn handle_background_task_exit(result : Result<Result<(), String>, JoinError>, t
         Ok(Err(err)) => {
             Err(err)
         }
-        // Background tasks never exit with success
+        // Background tasks never exits with success
         _ => { unreachable!() }
     }
 }
@@ -112,19 +112,12 @@ fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<i32, Stri
     let client_program = client_command.spawn()
         .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
-    match client_program.wait_with_output() {
-        Ok(output) if output.status.code().is_some() => {
-            let status = output.status.code().unwrap();
+    let output = client_program.wait_with_output()
+        .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
 
-            Ok(status)
-        }
-        Ok(_) => {
-            Err(format!("Client program terminated by signal."))
-        }
-        Err(err) => {
-            Err(format!("Error while waiting for client program to finish: {:?}", err))
-        }
-    }
+    output.status
+        .code()
+        .ok_or(format!("Client program terminated by signal."))
 }
 
 async fn read_from_tap_async(mut device: ReadHalf<AsyncDevice>, mut vsock : WriteHalf<AsyncVsockStream>, buf_len : u32) -> Result<(), String> {
