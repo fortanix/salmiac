@@ -12,7 +12,6 @@ use api_model::shared::EnclaveSettings;
 use std::fs;
 use std::io::{Write};
 use std::path::{PathBuf};
-use std::env;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: String,
@@ -92,7 +91,6 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     fn create_requisites(&self) -> std::result::Result<(), String> {
-
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
         let requisites = {
@@ -229,26 +227,7 @@ impl<'a> ParentImageBuilder<'a> {
             file::log_docker_file(self.dir.path())?;
         }
 
-        let allocator_settings = if let Ok(allocator_settings_path) = env::var("NITRO_ALLOCATOR") {
-            let data = fs::read(&allocator_settings_path)
-                .map_err(|err| format!("Failed reading allocator settings from {}. {:?}", allocator_settings_path, err))?;
-
-            file::Resource {
-                name: "allocator.yaml".to_string(),
-                data,
-                is_executable: false,
-            }
-        } else {
-            ParentImageBuilder::default_allocator_settings()
-        };
-
-        let resources = {
-            let mut result = self.resources();
-            result.push(allocator_settings);
-            result
-        };
-
-        file::create_resources(&resources, self.dir.path())?;
+        file::create_resources(&self.resources(), self.dir.path())?;
 
         self.create_parent_startup_script()?;
 
@@ -295,6 +274,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         let result = format!(
             "\n\
+             # Parent startup code \n\
              ./parent --vsock-port 5006 & \n\
              nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {}",
             sanitized_nitro_file,
@@ -332,17 +312,8 @@ impl<'a> ParentImageBuilder<'a> {
         ]
     }
 
-    fn default_allocator_settings() -> file::Resource {
-        file::Resource {
-            name: "allocator.yaml".to_string(),
-            data: include_bytes!("resources/parent/allocator.yaml").to_vec(),
-            is_executable: false
-        }
-    }
-
     fn requisites(&self) -> Vec<String> {
         vec![
-            "allocator.yaml".to_string(),
             "start-parent.sh".to_string(),
             "parent".to_string()
         ]
