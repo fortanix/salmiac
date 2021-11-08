@@ -5,6 +5,11 @@ pub mod socket;
 use clap::{
     ArgMatches
 };
+use serde::{
+    Serialize,
+    Deserialize
+};
+use tokio::task::JoinError;
 
 use std::num::ParseIntError;
 use std::borrow::Borrow;
@@ -92,4 +97,23 @@ macro_rules! extract_enum_value {
         x => Err(format!("Expected {:?} for enum variant, but got {:?}", stringify!($pattern), x)),
     }
   };
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum UserProgramExitStatus {
+    ExitCode(i32),
+    TerminatedBySignal
+}
+
+pub fn handle_background_task_exit(result : Result<Result<(), String>, JoinError>, task_name : &str) -> Result<UserProgramExitStatus, String> {
+    match result {
+        Err(err) => {
+            Err(format!("Join error in {}. {:?}", task_name, err))?
+        }
+        Ok(Err(err)) => {
+            Err(err)
+        }
+        // Background tasks never exits with success
+        _ => { unreachable!() }
+    }
 }
