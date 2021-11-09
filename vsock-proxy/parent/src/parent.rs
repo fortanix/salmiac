@@ -68,7 +68,7 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
     debug!("Started pcap write loop!");
 
-    let client_program = tokio::spawn(await_client_program_return(enclave_port));
+    let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
     tokio::select! {
         result = pcap_read_loop => {
@@ -77,13 +77,13 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
         result = pcap_write_loop => {
             handle_background_task_exit(result, "pcap write loop")
         },
-        result = client_program => {
-            result.map_err(|err| format!("Join error in client program wait loop. {:?}", err))?
+        result = user_program => {
+            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
         },
     }
 }
 
-async fn await_client_program_return(mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
+async fn await_user_program_return(mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     let msg : SetupMessages = vsock.read_lv().await?;
 
     extract_enum_value!(msg, SetupMessages::UserProgramExit(status) => status)

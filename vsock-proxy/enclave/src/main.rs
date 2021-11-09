@@ -1,7 +1,7 @@
 mod enclave;
 
 use clap::{ArgMatches, App, AppSettings, Arg};
-use log::{error, info};
+use log::{error, debug};
 
 use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
 
@@ -21,11 +21,11 @@ async fn main() -> Result<(), String> {
 
     match enclave::run(vsock_port, &settings_path).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
-            info!("User program exits with code: {}", code);
+            debug!("User program exits with code: {}", code);
             process::exit(code)
         }
         Ok(UserProgramExitStatus::TerminatedBySignal) => {
-            info!("User program is terminated by signal.");
+            debug!("User program is terminated by signal.");
             process::exit(-1);
         }
         Err(e) => {

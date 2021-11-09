@@ -63,7 +63,7 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
 
     debug!("Started tap write loop!");
 
-    let client_program = tokio::spawn(start_client_program(enclave_settings, parent_port));
+    let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));
 
     debug!("Started client program!");
 
@@ -80,13 +80,13 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
         result = entropy_loop => {
             handle_background_task_exit(result, "entropy seed loop")
         },
-        result = client_program => {
-            result.map_err(|err| format!("Join error in client program wait loop. {:?}", err))?
+        result = user_program => {
+            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
         },
     }
 }
 
-async fn start_client_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
+async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     let mut client_command = Command::new(enclave_settings.client_cmd.clone());
 
     if !enclave_settings.client_cmd_args.is_empty() {
