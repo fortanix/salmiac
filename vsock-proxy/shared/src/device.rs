@@ -16,7 +16,8 @@ pub enum SetupMessages {
     Settings(NetworkSettings),
     CSR(String),
     Certificate(String),
-    UserProgramExit(UserProgramExitStatus)
+    UserProgramExit(UserProgramExitStatus),
+    ApplicationConfigId(Option<String>)
 }
 
 #[repr(C)]

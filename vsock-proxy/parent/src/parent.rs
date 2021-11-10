@@ -1,7 +1,8 @@
 use ipnetwork::IpNetwork;
 use log::{
     debug,
-    info
+    info,
+    warn
 };
 use nix::net::if_::if_nametoindex;
 use pcap::{Active, Capture};
@@ -110,6 +111,10 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
 }
 
 async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), String> {
+    let app_config_id = get_app_config_id();
+
+    vsock.write_lv(&SetupMessages::ApplicationConfigId(app_config_id)).await?;
+
     let csr_msg: SetupMessages = vsock.read_lv().await?;
 
     let csr = extract_enum_value!(csr_msg, SetupMessages::CSR(csr) => csr)?;
@@ -262,4 +267,16 @@ async fn accept(listener: &mut AsyncVsockListener) -> Result<AsyncVsockStream, S
         .await
         .map(|r| r.0)
         .map_err(|err| format!("Accept from vsock failed: {:?}", err))
+}
+
+fn get_app_config_id() -> Option<String> {
+    match env::var("ENCLAVEOS_APPCONFIG_ID").or(env::var("APPCONFIG_ID")) {
+        Ok(result) => {
+            Some(result)
+        }
+        Err(err) => {
+            warn!("Failed reading env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID, assuming var is not set. {:?}", err);
+            None
+        }
+    }
 }
