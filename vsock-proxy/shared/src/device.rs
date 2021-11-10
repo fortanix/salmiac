@@ -6,6 +6,8 @@ use ipnetwork::IpNetwork;
 use tun::{AsyncDevice};
 use tun::platform::linux::Device as TapDevice;
 
+use crate::UserProgramExitStatus;
+
 use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -13,7 +15,8 @@ pub enum SetupMessages {
     SetupSuccessful,
     Settings(NetworkSettings),
     CSR(String),
-    Certificate(String)
+    Certificate(String),
+    UserProgramExit(UserProgramExitStatus)
 }
 
 #[repr(C)]

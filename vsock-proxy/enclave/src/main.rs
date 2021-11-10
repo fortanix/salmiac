@@ -1,9 +1,9 @@
 mod enclave;
 
 use clap::{ArgMatches, App, AppSettings, Arg};
-use log::{error, info};
+use log::{error, debug};
 
-use shared::{parse_console_argument, NumArg};
+use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
 
 use std::process;
 use std::path::Path;
@@ -20,9 +20,13 @@ async fn main() -> Result<(), String> {
         .expect("Path to a settings file must be provided");
 
     match enclave::run(vsock_port, &settings_path).await {
-        Ok(code) => {
-            info!("Enclave exits with code: {}", code);
+        Ok(UserProgramExitStatus::ExitCode(code)) => {
+            debug!("User program exits with code: {}", code);
             process::exit(code)
+        }
+        Ok(UserProgramExitStatus::TerminatedBySignal) => {
+            debug!("User program is terminated by signal.");
+            process::exit(-1);
         }
         Err(e) => {
             error!("Enclave exits with failure: {}", e);

@@ -15,7 +15,7 @@ use futures::stream::Fuse;
 
 use crate::packet_capture::{open_packet_capture, open_async_packet_capture};
 use shared::device::{NetworkSettings, SetupMessages};
-use shared::extract_enum_value;
+use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::netlink::{AddressMessageExt, LinkMessageExt, RouteMessageExt};
 use shared::{netlink, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing};
 use shared::VSOCK_PARENT_CID;
@@ -32,7 +32,7 @@ use std::net::IpAddr;
 use std::sync::mpsc::TryRecvError;
 use std::env;
 
-pub async fn run(vsock_port: u32) -> Result<(), String> {
+pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
 
     let mut enclave_listener = listen_to_parent(vsock_port)?;
@@ -68,15 +68,25 @@ pub async fn run(vsock_port: u32) -> Result<(), String> {
 
     debug!("Started pcap write loop!");
 
-    match tokio::try_join!(pcap_read_loop, pcap_write_loop) {
-        Ok((read_returned, write_returned)) => {
-            read_returned.map_err(|err| format!("Failure in pcap read loop: {:?}", err))?;
-            write_returned.map_err(|err| format!("Failure in pcap write loop: {:?}", err))
-        }
-        Err(err) => {
-            Err(format!("{:?}", err))
-        }
+    let user_program = tokio::spawn(await_user_program_return(enclave_port));
+
+    tokio::select! {
+        result = pcap_read_loop => {
+            handle_background_task_exit(result, "pcap read loop")
+        },
+        result = pcap_write_loop => {
+            handle_background_task_exit(result, "pcap write loop")
+        },
+        result = user_program => {
+            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+        },
     }
+}
+
+async fn await_user_program_return(mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
+    let msg : SetupMessages = vsock.read_lv().await?;
+
+    extract_enum_value!(msg, SetupMessages::UserProgramExit(status) => status)
 }
 
 async fn communicate_enclave_settings(network_settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {

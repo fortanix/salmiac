@@ -1,3 +1,4 @@
+use async_process::Command;
 use log::{debug, info};
 use nix::net::if_::if_nametoindex;
 use nix::ioctl_write_ptr;
@@ -10,7 +11,7 @@ use api_model::CertificateConfig;
 use api_model::shared::EnclaveSettings;
 
 use shared::device::{NetworkSettings, SetupMessages};
-use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value};
+use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 
 use std::net::IpAddr;
@@ -22,13 +23,11 @@ use std::time::Duration;
 use std::thread;
 use std::fs::File;
 use std::mem;
-use std::process::Command;
-use tokio::task::JoinError;
 
 const ENTROPY_BYTES_COUNT : usize = 126;
 const ENTROPY_REFRESH_PERIOD : u64 = 30;
 
-pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<i32, String> {
+pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramExitStatus, String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
@@ -64,9 +63,7 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<i32, String> 
 
     debug!("Started tap write loop!");
 
-    let client_program = tokio::task::spawn_blocking(move || {
-        start_client_program(&enclave_settings)
-    });
+    let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));
 
     debug!("Started client program!");
 
@@ -83,26 +80,13 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<i32, String> 
         result = entropy_loop => {
             handle_background_task_exit(result, "entropy seed loop")
         },
-        result = client_program => {
-            result.map_err(|err| format!("Join error in client program wait loop. {:?}", err))?
+        result = user_program => {
+            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
         },
     }
 }
 
-fn handle_background_task_exit(result : Result<Result<(), String>, JoinError>, task_name : &str) -> Result<i32, String> {
-    match result {
-        Err(err) => {
-            Err(format!("Join error in {}. {:?}", task_name, err))?
-        }
-        Ok(Err(err)) => {
-            Err(err)
-        }
-        // Background tasks never exits with success
-        _ => { unreachable!() }
-    }
-}
-
-fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<i32, String> {
+async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     let mut client_command = Command::new(enclave_settings.client_cmd.clone());
 
     if !enclave_settings.client_cmd_args.is_empty() {
@@ -112,12 +96,19 @@ fn start_client_program(enclave_settings : &EnclaveSettings) -> Result<i32, Stri
     let client_program = client_command.spawn()
         .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
-    let output = client_program.wait_with_output()
+    let output = client_program.output()
+        .await
         .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
 
-    output.status
-        .code()
-        .ok_or(format!("Client program terminated by signal."))
+    let result = if let Some(code) = output.status.code() {
+        UserProgramExitStatus::ExitCode(code)
+    } else {
+        UserProgramExitStatus::TerminatedBySignal
+    };
+
+    vsock.write_lv(&SetupMessages::UserProgramExit(result.clone())).await?;
+
+    Ok(result)
 }
 
 async fn read_from_tap_async(mut device: ReadHalf<AsyncDevice>, mut vsock : WriteHalf<AsyncVsockStream>, buf_len : u32) -> Result<(), String> {

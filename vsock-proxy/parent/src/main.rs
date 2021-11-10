@@ -2,9 +2,9 @@ mod parent;
 mod packet_capture;
 
 use clap::{ArgMatches, App, AppSettings, Arg};
-use log::error;
+use log::{error, info};
 
-use shared::{parse_console_argument, NumArg};
+use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
 
 use std::process;
 
@@ -16,12 +16,20 @@ async fn main() -> Result<(), String> {
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
-    if let Err(e) = parent::run(vsock_port).await {
-        error!("Parent exits with failure: {}", e);
-        process::exit(1);
+    match parent::run(vsock_port).await {
+        Ok(UserProgramExitStatus::ExitCode(code)) => {
+            info!("User program exits with code: {}", code);
+            process::exit(code)
+        }
+        Ok(UserProgramExitStatus::TerminatedBySignal) => {
+            info!("User program is terminated by signal.");
+            process::exit(-1);
+        }
+        Err(e) => {
+            error!("Parent exits with failure: {}", e);
+            process::exit(-1);
+        }
     }
-
-    Ok(())
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {
