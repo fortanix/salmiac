@@ -29,7 +29,9 @@ pub struct NetworkSettings {
 
     pub gateway_l3_address: IpAddr,
 
-    pub mtu : u32
+    pub mtu : u32,
+
+    pub dns_file : Vec<u8>
 }
 
 pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TapDevice, String> {
