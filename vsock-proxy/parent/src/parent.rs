@@ -32,6 +32,7 @@ use std::thread;
 use std::net::IpAddr;
 use std::sync::mpsc::TryRecvError;
 use std::env;
+use std::fs;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
@@ -166,11 +167,15 @@ async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSe
 
     let gateway_address = IpAddr::V4(vec_to_ip4(parent_gateway_address)?);
 
+    let dns_file = fs::read_to_string("/etc/resolv.conf")
+        .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?;
+
     let result = NetworkSettings {
         self_l2_address: mac_address,
         self_l3_address: ip_network,
         gateway_l3_address: gateway_address,
-        mtu
+        mtu,
+        dns_file : dns_file.into_bytes()
     };
 
     Ok(result)

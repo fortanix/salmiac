@@ -21,7 +21,6 @@ use std::io::{Write};
 use std::os::unix::io::{AsRawFd};
 use std::time::Duration;
 use std::thread;
-use std::fs::File;
 use std::mem;
 
 const ENTROPY_BYTES_COUNT : usize = 126;
@@ -189,6 +188,17 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
     netlink::add_default_gateway(&netlink_handle, as_ipv4).await?;
     info!("Gateway is set!");
 
+    fs::create_dir("/run/resolvconf")
+        .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
+
+    let mut dns_file = fs::File::create("/run/resolvconf/resolv.conf")
+        .map_err(|err| format!("Failed to create enclave /run/resolvconf/resolv.conf. {:?}", err))?;
+
+    dns_file.write_all(&parent_settings.dns_file)
+        .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
+
+    info!("Enclave DNS file has been populated!");
+
     Ok(tap_device)
 }
 
@@ -295,7 +305,7 @@ fn start_entropy_seeding_loop(entropy_bytes_count: usize, refresh_period: u64) -
         .map_err(|err| format!("Failure in entropy seeding loop. {:?}", err))?
 }
 
-fn seed_entropy(entropy_bytes_count: usize, nsm_device : &NSMDevice, random_device : &mut File) -> Result<(), String> {
+fn seed_entropy(entropy_bytes_count: usize, nsm_device : &NSMDevice, random_device : &mut fs::File) -> Result<(), String> {
     let mut count = 0 as usize;
 
     while count != entropy_bytes_count {
