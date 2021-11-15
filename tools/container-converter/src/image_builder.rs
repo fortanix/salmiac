@@ -6,8 +6,7 @@ use crate::image::{DockerUtil, create_nitro_image, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::Result;
 use api_model::NitroEnclavesConversionRequestOptions;
-use api_model::CertificateConfig;
-use api_model::shared::EnclaveSettings;
+use api_model::shared::{EnclaveSettings};
 
 use std::fs;
 use std::io::{Write};
@@ -16,11 +15,7 @@ use std::path::{PathBuf};
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: String,
 
-    pub client_cmd: Vec<String>,
-
     pub dir: &'a TempDir,
-
-    pub certificate_settings: CertificateConfig
 }
 
 pub struct EnclaveBuilderResult {
@@ -31,8 +26,8 @@ pub struct EnclaveBuilderResult {
 
 impl<'a> EnclaveImageBuilder<'a> {
 
-    pub async fn create_image(&self, docker_util : &DockerUtil) -> Result<EnclaveBuilderResult> {
-        self.create_requisites().map_err(|message| ConverterError {
+    pub async fn create_image(&self, docker_util : &DockerUtil, enclave_settings : EnclaveSettings) -> Result<EnclaveBuilderResult> {
+        self.create_requisites(enclave_settings).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
@@ -90,7 +85,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.dir.path().join("start-enclave.sh")
     }
 
-    fn create_requisites(&self) -> std::result::Result<(), String> {
+    fn create_requisites(&self, enclave_settings : EnclaveSettings) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
         let requisites = {
@@ -115,7 +110,6 @@ impl<'a> EnclaveImageBuilder<'a> {
         let resources = {
             let mut result = self.resources();
 
-            let enclave_settings = self.create_enclave_settings();
             let data = serde_json::to_vec(&enclave_settings)
                 .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
 
@@ -148,20 +142,6 @@ impl<'a> EnclaveImageBuilder<'a> {
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
-    }
-
-    fn create_enclave_settings(&self) -> EnclaveSettings {
-        // In docker CMD is present in the form of /bin/sh -c <client program> <client arguments>,
-        // because of that we extract '/bin/sh` as a program that the enclave will run
-        // and everything else becomes an argument list
-        let client_cmd = self.client_cmd[0].clone();
-        let client_cmd_args = self.client_cmd[1..].to_vec();
-
-        EnclaveSettings {
-            client_cmd,
-            client_cmd_args,
-            certificate_config: self.certificate_settings.clone()
-        }
     }
 }
 
