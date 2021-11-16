@@ -86,10 +86,10 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
 }
 
 async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
-    let mut client_command = Command::new(enclave_settings.client_cmd.clone());
+    let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
 
-    if !enclave_settings.client_cmd_args.is_empty() {
-        client_command.args(enclave_settings.client_cmd_args.clone());
+    if !enclave_settings.user_program_config.arguments.is_empty() {
+        client_command.args(enclave_settings.user_program_config.arguments.clone());
     }
 
     let client_program = client_command.spawn()

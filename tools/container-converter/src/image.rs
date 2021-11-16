@@ -4,7 +4,9 @@ use shiplift::image::{PushOptions, ImageDetails};
 use futures::StreamExt;
 use docker_image_reference::Reference as DockerReference;
 use serde::Deserialize;
+
 use api_model::AuthConfig;
+use api_model::shared::{UserProgramConfig};
 
 use std::process;
 use std::env;
@@ -94,6 +96,55 @@ pub struct DockerUtil {
 pub struct ImageWithDetails<'a> {
     pub image : Image<'a>,
     pub details : ImageDetails
+}
+
+impl <'a> ImageWithDetails<'a> {
+    pub fn create_user_program_config(&self) -> Result<UserProgramConfig, ConverterError> {
+        let config = &self.details.config;
+
+        if let Some(ref raw_entry_point) = config.entrypoint {
+            let (entry_point, mut entry_point_arguments) = ImageWithDetails::extract_entry_point_with_arguments(raw_entry_point)?;
+
+            let mut cmd_argument_list = config.cmd
+                .as_ref()
+                .unwrap_or(&Vec::new())
+                .clone();
+
+            entry_point_arguments.append(&mut cmd_argument_list);
+
+            Ok(UserProgramConfig {
+                entry_point,
+                arguments: entry_point_arguments
+            })
+        } else {
+            let cmd = config.cmd.as_ref().ok_or(ConverterError {
+                message: "Input image must have a CMD clause if ENTRYPOINT is not present.".to_string(),
+                kind: ConverterErrorKind::BadRequest
+            })?;
+
+            let (entry_point, arguments) = ImageWithDetails::extract_entry_point_with_arguments(cmd)?;
+
+            Ok(UserProgramConfig {
+                entry_point,
+                arguments
+            })
+        }
+    }
+
+    fn extract_entry_point_with_arguments(command : &Vec<String>) -> Result<(String, Vec<String>), ConverterError> {
+        if command.is_empty() {
+            return Err(ConverterError {
+                message : "CMD OR ENTRYPOINT cannot be empty".to_string(),
+                kind: ConverterErrorKind::BadRequest
+            })
+        }
+
+        if command.len() > 1 {
+            Ok((command[0].clone(), command[1..].to_vec()))
+        } else {
+            Ok((command[0].clone(), Vec::new()))
+        }
+    }
 }
 
 impl DockerUtil {

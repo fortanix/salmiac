@@ -1,5 +1,5 @@
 use tempfile::TempDir;
-use log::info;
+use log::{info, debug};
 use docker_image_reference::{Reference as DockerReference};
 use model_types::HexString;
 use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, CertificateConfig, NitroEnclavesVersion, HashAlgorithm};
@@ -10,6 +10,7 @@ use std::fmt;
 use std::error::Error;
 use std::collections::HashMap;
 use std::env;
+use api_model::shared::EnclaveSettings;
 
 pub mod image;
 pub mod file;
@@ -65,43 +66,32 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
             kind: ConverterErrorKind::ImagePull
         })?;
 
-    info!("Retrieving CMD from client image!");
-    let client_cmd = input_image.details
-        .config
-        .cmd
-        .ok_or(ConverterError {
-            message: "Input image has no CMD clause.".to_string(),
-            kind: ConverterErrorKind::BadRequest
-        })?;
-
-    if client_cmd.len() < 3 || !(client_cmd[0] == "/bin/sh" && client_cmd[1] == "-c") {
-        return Err(ConverterError {
-            message: "Input image CMD clause is not in the form of /bin/sh -c <client arguments>.".to_string(),
-            kind: ConverterErrorKind::BadRequest
-        })
-    }
-
     info!("Creating working directory!");
     let temp_dir = TempDir::new().map_err(|err| ConverterError {
         message: format!("Cannot create temp dir {:?}", err),
         kind: ConverterErrorKind::RequisitesCreation
     })?;
 
-    let certificate_settings = args.request.converter_options
+    let certificate_config = args.request.converter_options
         .certificates
         .first()
         .map(|e| e.clone())
         .unwrap_or(default_certificate_config());
 
+    let user_program_config = input_image.create_user_program_config()?;
+    debug!("User program config is: {:?}", user_program_config);
+
     let enclave_builder = EnclaveImageBuilder {
         client_image: args.request.input_image.name.clone(),
-        client_cmd,
         dir : &temp_dir,
-        certificate_settings
     };
 
     info!("Building enclave image!");
-    let nitro_image_result = enclave_builder.create_image(&input_repository).await?;
+    let enclave_settings = EnclaveSettings {
+        user_program_config,
+        certificate_config
+    };
+    let nitro_image_result = enclave_builder.create_image(&input_repository, enclave_settings).await?;
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
 
     let parent_builder = ParentImageBuilder {
