@@ -802,6 +802,7 @@ dependencies = [
  "serde",
  "serde-value",
  "serde_json 1.0.2",
+ "strum",
  "time",
  "url 1.7.2",
  "uuid",
