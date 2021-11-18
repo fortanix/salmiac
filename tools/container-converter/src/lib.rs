@@ -1,8 +1,8 @@
 use tempfile::TempDir;
-use log::{info, debug};
+use log::{info, debug, warn};
 use docker_image_reference::{Reference as DockerReference};
 use model_types::HexString;
-use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, CertificateConfig, NitroEnclavesVersion, HashAlgorithm};
+use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, CertificateConfig, NitroEnclavesVersion, HashAlgorithm, AuthConfig};
 use crate::image::{DockerUtil};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 
@@ -53,6 +53,10 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
             kind: ConverterErrorKind::BadRequest
         })
     }
+
+    info!("Retrieving requisite image!");
+    get_parent_base_image().await?;
+
     let input_image_reference = docker_reference(&args.request.input_image.name)?;
     let output_image_reference = output_docker_reference(&args.request.output_image.name)?;
 
@@ -189,4 +193,52 @@ fn output_docker_reference(image: &str) -> Result<DockerReference> {
             Ok(e)
         }
     })
+}
+
+async fn get_parent_base_image() -> Result<()> {
+    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
+    let username_var = env_var_or_none("PARENT_IMAGE_USERNAME");
+    let password_var = env_var_or_none("PARENT_IMAGE_PASSWORD");
+
+    let auth_config = match (username_var, password_var) {
+        (Some(username), Some(password)) => {
+            Some(AuthConfig {
+                username,
+                password,
+            })
+        }
+        _ => {
+            None
+        }
+    };
+
+    let repository = DockerUtil::new(&auth_config);
+    let parent_image_reference = DockerReference::from_str(&parent_image)
+        .map_err(|err| {
+            ConverterError {
+                message: format!("Requisite image {} address has bad format. {:?}", parent_image, err),
+                kind: ConverterErrorKind::BadRequest,
+            }
+        })?;
+
+    let _result = repository.get_image(&parent_image_reference)
+        .await
+        .map_err(|message| ConverterError {
+            message : format!("Failed retrieving requisite {} image. {:?}", parent_image, message),
+            kind: ConverterErrorKind::ImagePull
+        })?;
+
+    Ok(())
+}
+
+fn env_var_or_none(var_name : &str) -> Option<String> {
+    match env::var("PARENT_IMAGE_USER") {
+        Ok(e) => {
+            Some(e)
+        }
+        Err(err) => {
+            warn!("Failed reading env var {}, assuming var is not set. {:?}", var_name, err);
+            None
+        }
+    }
 }
