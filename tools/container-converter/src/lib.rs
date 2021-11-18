@@ -232,7 +232,7 @@ async fn get_parent_base_image() -> Result<()> {
 }
 
 fn env_var_or_none(var_name : &str) -> Option<String> {
-    match env::var("PARENT_IMAGE_USER") {
+    match env::var(var_name) {
         Ok(e) => {
             Some(e)
         }
