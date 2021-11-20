@@ -249,7 +249,7 @@ impl<'a> ParentImageBuilder<'a> {
         let memory_size = self.start_options
             .mem_size
             .as_ref()
-            .map(|e| e.to_inner())
+            .map(|e| e.to_mb())
             .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
 
         let result = format!(
