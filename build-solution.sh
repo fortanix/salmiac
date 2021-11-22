@@ -3,7 +3,7 @@
 cargo_build_flag=""
 vsock_proxy_bin_folder=""
 
-if [ "$1" = "release" ]; then
+if [ "$1" = "--release" ]; then
   cargo_build_flag="--release"
   vsock_proxy_bin_folder="release"
 else

@@ -8,7 +8,7 @@ ADD build-solution.sh /opt/salmiac/
 
 WORKDIR /opt/salmiac
 
-ARG RELEASE=debug
+ARG RELEASE=--debug
 RUN bash -x ./build-solution.sh $RELEASE
 
 FROM ubuntu-networking
