@@ -160,15 +160,6 @@ fn image_short_id(id : &str) -> &str {
     }
 }
 
-fn default_certificate_config() -> CertificateConfig {
-    let mut result= CertificateConfig::new();
-
-    result.key_path = Some("key".to_string());
-    result.cert_path = Some("cert".to_string());
-
-    result
-}
-
 fn docker_reference(image : &str) -> Result<DockerReference> {
     DockerReference::from_str(image)
         .map_err(|err| ConverterError {
