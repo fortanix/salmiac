@@ -252,11 +252,15 @@ impl<'a> ParentImageBuilder<'a> {
             .map(|e| e.to_mb())
             .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
 
+        // We start the parent side of the vsock proxy before running the enclave because we want it running
+        // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
+        // parent process so our container will stay running as long as the parent process stays running.
         let result = format!(
             "\n\
              # Parent startup code \n\
              ./parent --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {}",
+             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {}\n\
+             fg\n",
             sanitized_nitro_file,
             cpu_count,
             memory_size);
