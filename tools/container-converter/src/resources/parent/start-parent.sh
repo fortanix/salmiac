@@ -3,6 +3,10 @@
 # Its main purpose is to setup env vars for nitro tooling and pre-setup networking.
 # Enclave start and connection code is applied dynamically to the bottom of this file by the converter.
 
+# Allow job control in interactive mode. This is used by the code that is
+# appended to this script by the converter.
+set -m
+
 # Setup nitro environment
 source /etc/profile.d/nitro-cli-env.sh
 
