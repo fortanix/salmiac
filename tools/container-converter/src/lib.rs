@@ -2,7 +2,7 @@ use tempfile::TempDir;
 use log::{info, debug, warn};
 use docker_image_reference::{Reference as DockerReference};
 use model_types::HexString;
-use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, CertificateConfig, NitroEnclavesVersion, HashAlgorithm, AuthConfig};
+use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, NitroEnclavesVersion, HashAlgorithm, AuthConfig};
 use crate::image::{DockerUtil};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 
