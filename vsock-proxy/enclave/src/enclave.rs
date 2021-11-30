@@ -149,13 +149,17 @@ async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &Network
     let app_config_id_msg: SetupMessages = vsock.read_lv().await?;
     let app_config_id = extract_enum_value!(app_config_id_msg, SetupMessages::ApplicationConfigId(e) => e)?;
 
+    let mut num_certs : u64 = 0;
+    // Zero or more certificate requests.
     for cert in cert_settings {
         setup_enclave_certification(vsock, &app_config_id, &cert).await?;
+        num_certs += 1;
     }
 
-    info!("Finished enclave attestation!");
+    info!("Finished requesting {} certificates.", num_certs);
 
     vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
+    info!("Notified parent that setup was successful");
 
     Ok(async_tap_device)
 }

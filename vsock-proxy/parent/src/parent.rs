@@ -94,11 +94,9 @@ async fn await_user_program_return(mut vsock : AsyncVsockStream) -> Result<UserP
 async fn communicate_enclave_settings(network_settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
     communicate_network_settings(network_settings, vsock).await?;
 
-    communicate_certificate(vsock).await?;
+    communicate_certificates(vsock).await?;
 
-    let msg : SetupMessages = vsock.read_lv().await?;
-
-    extract_enum_value!(msg, SetupMessages::SetupSuccessful => ())
+    Ok(())
 }
 
 async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut AsyncVsockStream) -> Result<(), String> {
@@ -111,31 +109,47 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
     Ok(())
 }
 
-async fn communicate_certificate(vsock : &mut AsyncVsockStream) -> Result<(), String> {
+async fn communicate_certificates(vsock : &mut AsyncVsockStream) -> Result<(), String> {
     let app_config_id = get_app_config_id();
 
     vsock.write_lv(&SetupMessages::ApplicationConfigId(app_config_id)).await?;
 
-    let csr_msg: SetupMessages = vsock.read_lv().await?;
+    // Don't bother looking for a node agent address unless there's at least one certificate configured. This allows us to run
+    // with the NODE_AGENT environment variable being unset, if there are no configured certificates.
+    let mut node_agent_address : Option<String> = None;
 
-    let csr = extract_enum_value!(csr_msg, SetupMessages::CSR(csr) => csr)?;
+    // Process certificate requests until we get the SetupSuccessful message indicating that the enclave is done with
+    // setup. There can be any number of certificate requests, including 0.
+    loop {
+        let msg: SetupMessages = vsock.read_lv().await?;
 
-    let node_agent_address = {
-        let result = env::var("NODE_AGENT")
-            .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
+        match msg {
+            SetupMessages::SetupSuccessful => return Ok(()),
+            SetupMessages::CSR(csr) => {
+                let addr = match node_agent_address {
+                    Some(ref addr) => addr.clone(),
+                    None => {
+                        let result = env::var("NODE_AGENT").map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
 
-        if !result.starts_with("http://") {
-            "http://".to_string() + &result
-        } else {
-            result
-        }
-    };
+                        let addr = if !result.starts_with("http://") {
+                           "http://".to_string() + &result
+                        } else {
+                            result
+                        };
+                        node_agent_address = Some(addr.clone());
+                        addr
+                    },
+                };
+                let certificate = em_app::request_issue_certificate(&addr, csr)
+                .map_err(|err| format!("Failed to receive certificate {:?}", err))
+                .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
 
-    let certificate = em_app::request_issue_certificate(&node_agent_address, csr)
-        .map_err(|err| format!("Failed to receive certificate {:?}", err))
-        .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
-
-    vsock.write_lv(&SetupMessages::Certificate(certificate)).await
+                vsock.write_lv(&SetupMessages::Certificate(certificate)).await?;
+            },
+            other => return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
+                                        other)),
+        };
+    }
 }
 
 async fn get_network_settings(parent_device : &pcap::Device) -> Result<NetworkSettings, String> {
