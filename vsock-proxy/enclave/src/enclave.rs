@@ -141,16 +141,25 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
     }
 }
 
-async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, enclave_settings : &CertificateConfig) -> Result<AsyncDevice, String> {
+async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, cert_settings : &Vec<CertificateConfig>) -> Result<AsyncDevice, String> {
     let async_tap_device = setup_enclave_networking(&parent_settings).await?;
 
     info!("Finished enclave network setup!");
 
-    setup_enclave_certification(vsock, &enclave_settings).await?;
+    let app_config_id_msg: SetupMessages = vsock.read_lv().await?;
+    let app_config_id = extract_enum_value!(app_config_id_msg, SetupMessages::ApplicationConfigId(e) => e)?;
 
-    info!("Finished enclave attestation!");
+    let mut num_certs : u64 = 0;
+    // Zero or more certificate requests.
+    for cert in cert_settings {
+        setup_enclave_certification(vsock, &app_config_id, &cert).await?;
+        num_certs += 1;
+    }
+
+    info!("Finished requesting {} certificates.", num_certs);
 
     vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
+    info!("Notified parent that setup was successful");
 
     Ok(async_tap_device)
 }
@@ -202,16 +211,13 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
     Ok(tap_device)
 }
 
-async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &CertificateConfig) -> Result<(), String> {
-    let app_config_id_msg: SetupMessages = vsock.read_lv().await?;
-
-    let app_config_id = extract_enum_value!(app_config_id_msg, SetupMessages::ApplicationConfigId(e) => e)?;
-
+async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, app_config_id: &Option<String>,
+                                     cert_settings : &CertificateConfig) -> Result<(), String> {
     let mut rng = Rdrand;
     let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001)
         .map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
 
-    let common_name = settings.subject
+    let common_name = cert_settings.subject
         .as_ref()
         .map(|e| e.as_str())
         .unwrap_or("localhost");
@@ -233,12 +239,12 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, settings : &
     let key_as_pem = key.write_private_pem_string()
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
-    let key_path = settings.key_path
+    let key_path = cert_settings.key_path
         .as_ref()
         .map(|e| e.as_str())
         .unwrap_or("key");
 
-    let certificate_path = settings.cert_path
+    let certificate_path = cert_settings.cert_path
         .as_ref()
         .map(|e| e.as_str())
         .unwrap_or("cert");

@@ -2,7 +2,7 @@ use tempfile::TempDir;
 use log::{info, debug, warn};
 use docker_image_reference::{Reference as DockerReference};
 use model_types::HexString;
-use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, CertificateConfig, NitroEnclavesVersion, HashAlgorithm, AuthConfig};
+use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, NitroEnclavesVersion, HashAlgorithm, AuthConfig};
 use crate::image::{DockerUtil};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 
@@ -76,12 +76,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
         kind: ConverterErrorKind::RequisitesCreation
     })?;
 
-    let certificate_config = args.request.converter_options
-        .certificates
-        .first()
-        .map(|e| e.clone())
-        .unwrap_or(default_certificate_config());
-
+    
     let user_program_config = input_image.create_user_program_config()?;
     debug!("User program config is: {:?}", user_program_config);
 
@@ -93,7 +88,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
         user_program_config,
-        certificate_config
+        certificate_config: args.request.converter_options.certificates
     };
     let nitro_image_result = enclave_builder.create_image(&input_repository, enclave_settings).await?;
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
@@ -163,15 +158,6 @@ fn image_short_id(id : &str) -> &str {
     } else {
         &id[..12]
     }
-}
-
-fn default_certificate_config() -> CertificateConfig {
-    let mut result= CertificateConfig::new();
-
-    result.key_path = Some("key".to_string());
-    result.cert_path = Some("cert".to_string());
-
-    result
 }
 
 fn docker_reference(image : &str) -> Result<DockerReference> {
