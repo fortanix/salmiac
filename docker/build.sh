@@ -21,7 +21,7 @@ PRODUCT_DOCKER_BUILD_DIR="$(dirname ${BASH_SOURCE[0]})"
 
 pushd "$PRODUCT_DOCKER_BUILD_DIR"
 # build_docker_image will only do something for SGX release config
-build_docker_image $PRODUCT_BACKEND${VERSION_SUFFIX} \
+build_docker_image $PRODUCT_BACKEND \
     $ARTIFACTS_DIR/$PRODUCT_BACKEND_RUNNER \
     $ARTIFACTS_DIR/$PARENT_BASE_IMAGE
 popd
