@@ -7,12 +7,15 @@ use serde::Deserialize;
 
 use api_model::AuthConfig;
 use api_model::shared::{UserProgramConfig};
+use crate::{ConverterError, ConverterErrorKind};
 
 use std::process;
 use std::env;
 use std::fs;
 use std::path::Path;
-use crate::{ConverterError, ConverterErrorKind};
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::rc::Rc;
 
 #[derive(Deserialize)]
 
@@ -93,12 +96,12 @@ pub struct DockerUtil {
     credentials : RegistryAuth
 }
 
-pub struct ImageWithDetails<'a> {
-    pub image : Image<'a>,
+pub struct ImageWithDetails {
+    pub image : String,
     pub details : ImageDetails
 }
 
-impl <'a> ImageWithDetails<'a> {
+impl ImageWithDetails {
     pub fn create_user_program_config(&self) -> Result<UserProgramConfig, ConverterError> {
         let config = &self.details.config;
 
@@ -131,6 +134,10 @@ impl <'a> ImageWithDetails<'a> {
         }
     }
 
+    pub fn make_temporary(self, sender : Rc<Sender<String>>) -> TempImage {
+        TempImage(self, sender)
+    }
+
     fn extract_entry_point_with_arguments(command : &Vec<String>) -> Result<(String, Vec<String>), ConverterError> {
         if command.is_empty() {
             return Err(ConverterError {
@@ -143,6 +150,16 @@ impl <'a> ImageWithDetails<'a> {
             Ok((command[0].clone(), command[1..].to_vec()))
         } else {
             Ok((command[0].clone(), Vec::new()))
+        }
+    }
+}
+
+pub struct TempImage(pub ImageWithDetails, Rc<mpsc::Sender<String>>);
+
+impl Drop for TempImage {
+    fn drop(&mut self) {
+        if let Err(e) = self.1.send(self.0.image.clone()) {
+            warn!("Failed sending image {} to resource cleaner task. {:?}", self.0.image, e);
         }
     }
 }
@@ -167,7 +184,7 @@ impl DockerUtil {
         }
     }
 
-    pub async fn get_image(&self, image : &DockerReference<'_>) -> Result<ImageWithDetails<'_>, String> {
+    pub async fn get_image(&self, image : &DockerReference<'_>) -> Result<ImageWithDetails, String> {
         if let Some(local_image) = self.get_local_image(&image).await {
             Ok(local_image)
         } else {
@@ -177,19 +194,19 @@ impl DockerUtil {
         }
     }
 
-    async fn get_remote_image(&self, image : &DockerReference<'_>) -> Result<Option<ImageWithDetails<'_>>, String> {
+    async fn get_remote_image(&self, image : &DockerReference<'_>) -> Result<Option<ImageWithDetails>, String> {
         self.pull_image(image).await?;
 
         Ok(self.get_local_image(image).await)
     }
 
-    async fn get_local_image(&self, address : &DockerReference<'_>) -> Option<ImageWithDetails<'_>> {
+    async fn get_local_image(&self, address : &DockerReference<'_>) -> Option<ImageWithDetails> {
         let image = self.docker.images().get(address.to_string());
 
         match image.inspect().await {
             Ok(details) => {
                 Some(ImageWithDetails {
-                    image,
+                    image : address.to_string(),
                     details,
                 })
             }
@@ -220,7 +237,7 @@ impl DockerUtil {
         Ok(())
     }
 
-    pub async fn push_image(&self, image : &ImageWithDetails<'_>, address: &DockerReference<'_>) -> Result<(), String> {
+    pub async fn push_image(&self, image : &ImageWithDetails, address: &DockerReference<'_>) -> Result<(), String> {
         let repository = address.name();
         let mut tag_options = TagOptions::builder();
         tag_options.repo(repository);
@@ -233,7 +250,9 @@ impl DockerUtil {
             push_options.tag(tag_value.to_string());
         }
 
-        image.image.tag(&tag_options.build())
+        let image_interface = Image::new(&self.docker, image.image.clone());
+
+        image_interface.tag(&tag_options.build())
             .await
             .map_err(|err| format!("Failed to tag image {} with repo {}. Err {:?}", image.details.id, address, err))?;
 

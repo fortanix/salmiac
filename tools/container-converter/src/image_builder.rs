@@ -1,8 +1,9 @@
 use tempfile::TempDir;
 use log::{info};
+use docker_image_reference::{Reference as DockerReference};
 
 use crate::file::{DockerCopyArgs, UnixFile, Resource};
-use crate::image::{DockerUtil, create_nitro_image, PCRList};
+use crate::image::{DockerUtil, create_nitro_image, PCRList, ImageWithDetails};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::Result;
 use api_model::NitroEnclavesConversionRequestOptions;
@@ -13,7 +14,7 @@ use std::io::{Write};
 use std::path::{PathBuf};
 
 pub struct EnclaveImageBuilder<'a> {
-    pub client_image: String,
+    pub client_image: DockerReference<'a>,
 
     pub dir: &'a TempDir,
 }
@@ -21,12 +22,14 @@ pub struct EnclaveImageBuilder<'a> {
 pub struct EnclaveBuilderResult {
     pub nitro_file: String,
 
-    pub pcr_list: PCRList
+    pub pcr_list: PCRList,
+
+    pub enclave_image : ImageWithDetails
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
 
-    pub async fn create_image(&self, docker_util : &DockerUtil, enclave_settings : EnclaveSettings) -> Result<EnclaveBuilderResult> {
+    pub async fn create_image(&self, docker_util : &'a DockerUtil, enclave_settings : EnclaveSettings) -> Result<EnclaveBuilderResult> {
         self.create_requisites(enclave_settings).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
@@ -34,29 +37,42 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         info!("Enclave prerequisites have been created!");
 
-        let enclave_image_name = self.enclave_image_name();
-        docker_util.create_image(self.dir.path(), &enclave_image_name)
+        let enclave_image_string = self.enclave_image();
+        let enclave_image = DockerReference::from_str(&enclave_image_string).unwrap();
+
+        docker_util.create_image(self.dir.path(), &enclave_image.to_string())
             .await
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::EnclaveImageCreation
             })?;
 
-        let nitro_file = enclave_image_name.clone() + ".eif";
+        let enclave_image_result = docker_util.get_image(&enclave_image).await
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::ImagePull
+            })?;
+
+        let nitro_file = enclave_image.name().to_string() + ".eif";
         let nitro_image_path = &self.dir.path().join(&nitro_file);
 
-        let nitro_measurements = create_nitro_image(&enclave_image_name, &nitro_image_path)?;
+        let nitro_measurements = create_nitro_image(&enclave_image.to_string(), &nitro_image_path)?;
 
         info!("Nitro image has been created!");
 
         Ok(EnclaveBuilderResult {
             nitro_file,
-            pcr_list: nitro_measurements.measurements
+            pcr_list: nitro_measurements.measurements,
+            enclave_image : enclave_image_result
         })
     }
 
-    fn enclave_image_name(&self) -> String {
-        self.client_image.clone().replace("/", "-") + "-enclave"
+    fn enclave_image(&self) -> String {
+        let new_tag = self.client_image.tag()
+            .map(|e| e.to_string() + "-enclave")
+            .unwrap_or("enclave".to_string());
+
+        self.client_image.name().to_string() + ":" + &new_tag
     }
 
     fn resources(&self) -> Vec<file::Resource> {
@@ -98,7 +114,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let copy = DockerCopyArgs::copy_to_home(requisites);
 
         file::populate_docker_file(&mut docker_file,
-                                   &self.client_image,
+                                   &self.client_image.to_string(),
                                    &copy,
                                    "./start-enclave.sh",
                                    &rust_log_env_var())?;
@@ -193,6 +209,7 @@ impl<'a> ParentImageBuilder<'a> {
             result
         };
 
+        println!("DIR {}", self.dir.path().display());
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
         let copy = DockerCopyArgs::copy_to_home(all_requisites);
