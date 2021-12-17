@@ -21,12 +21,12 @@ pub struct EnclaveImageBuilder<'a> {
 }
 
 pub struct EnclaveBuilderResult {
-    pub nitro_file: String,
-
     pub pcr_list: PCRList,
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
+
+    pub const ENCLAVE_FILE_NAME : &'static str = "enclave.eif";
 
     pub async fn create_image(&self, docker_util : &'a DockerUtil, enclave_settings : EnclaveSettings, images_to_clean_snd: Sender<String>) -> Result<EnclaveBuilderResult> {
         self.create_requisites(enclave_settings).map_err(|message| ConverterError {
@@ -53,15 +53,13 @@ impl<'a> EnclaveImageBuilder<'a> {
             .await
             .map(|e| e.make_temporary(images_to_clean_snd))?;
 
-        let nitro_file = enclave_image_reference.name().to_string() + ".eif";
-        let nitro_image_path = &self.dir.path().join(&nitro_file);
+        let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
         let nitro_measurements = create_nitro_image(&enclave_image_reference, &nitro_image_path)?;
 
         info!("Nitro image has been created!");
 
         Ok(EnclaveBuilderResult {
-            nitro_file,
             pcr_list: nitro_measurements.pcr_list,
         })
     }
@@ -165,8 +163,6 @@ pub struct ParentImageBuilder<'a> {
 
     pub parent_image: String,
 
-    pub nitro_file: String,
-
     pub dir: &'a TempDir,
 
     pub start_options: NitroEnclavesConversionRequestOptions
@@ -204,7 +200,7 @@ impl<'a> ParentImageBuilder<'a> {
     fn create_requisites(&self) -> std::result::Result<(), String> {
         let all_requisites = {
             let mut result = self.requisites();
-            result.push(self.nitro_file.clone());
+            result.push(EnclaveImageBuilder::ENCLAVE_FILE_NAME.to_string());
             result
         };
 
@@ -255,7 +251,7 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn start_enclave_command(&self) -> String {
-        let sanitized_nitro_file = format!("'{}'", self.nitro_file);
+        let sanitized_nitro_file = format!("'{}'", EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
         let cpu_count = self.start_options
             .cpu_count.

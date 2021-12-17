@@ -122,7 +122,6 @@ async fn run0(args: NitroEnclavesConversionRequest, images_to_clean_snd: Sender<
     let parent_builder = ParentImageBuilder {
         output_image,
         parent_image,
-        nitro_file : nitro_image_result.nitro_file,
         dir : &temp_dir,
         start_options: args.nitro_enclaves_options
     };
