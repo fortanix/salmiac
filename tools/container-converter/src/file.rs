@@ -35,6 +35,7 @@ pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), S
 pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
     fs::OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(dir.join("Dockerfile"))
         .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))

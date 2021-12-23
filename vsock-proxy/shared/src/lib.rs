@@ -113,7 +113,7 @@ pub fn handle_background_task_exit(result : Result<Result<(), String>, JoinError
         Ok(Err(err)) => {
             Err(err)
         }
-        // Background tasks never exits with success
+        // Background tasks never exit with success
         _ => { unreachable!() }
     }
 }

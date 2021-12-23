@@ -1,16 +1,21 @@
 use tempfile::TempDir;
 use log::{info, debug, warn};
 use docker_image_reference::{Reference as DockerReference};
+use shiplift::{Image, Docker};
+
 use model_types::HexString;
 use api_model::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, ConvertedImageInfo, NitroEnclavesConfig, NitroEnclavesMeasurements, NitroEnclavesVersion, HashAlgorithm, AuthConfig};
-use crate::image::{DockerUtil};
+use api_model::shared::EnclaveSettings;
+use crate::image::{DockerUtil, PCRList, ImageWithDetails};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 
 use std::fmt;
 use std::error::Error;
 use std::collections::HashMap;
 use std::env;
-use api_model::shared::EnclaveSettings;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+
 
 pub mod image;
 pub mod file;
@@ -27,13 +32,14 @@ pub struct ConverterError {
 
 #[derive(Debug)]
 pub enum ConverterErrorKind {
-    ImagePull,
+    ImageGet,
     ImagePush,
     RequisitesCreation,
     EnclaveImageCreation,
     NitroFileCreation,
     ParentImageCreation,
-    BadRequest
+    BadRequest,
+    InternalError
 }
 
 impl fmt::Display for ConverterError {
@@ -47,6 +53,21 @@ impl Error for ConverterError { }
 const PARENT_IMAGE : &str = "parent-base";
 
 pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
+    let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
+    let local_repository = Docker::new();
+
+    let resource_cleaner = tokio::spawn(clean_docker_images(local_repository, images_to_clean_rcv));
+    let converter = tokio::spawn(run0(args, images_to_clean_snd));
+
+    let (result, _) = tokio::join!(converter, resource_cleaner);
+
+    result.map_err(|err| ConverterError {
+        message: format!("Join error in convert task. {:?}", err),
+        kind: ConverterErrorKind::InternalError
+    }).and_then(|e| e)
+}
+
+async fn run0(args: NitroEnclavesConversionRequest, images_to_clean_snd: Sender<String>) -> Result<NitroEnclavesConversionResponse> {
     if args.request.input_image.name == args.request.output_image.name {
         return Err(ConverterError {
             message: "Input and output images must be different".to_string(),
@@ -57,17 +78,18 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     info!("Retrieving requisite image!");
     get_parent_base_image().await?;
 
-    let input_image_reference = docker_reference(&args.request.input_image.name)?;
-    let output_image_reference = output_docker_reference(&args.request.output_image.name)?;
+    let client_image = docker_reference(&args.request.input_image.name)?;
+    let output_image = output_docker_reference(&args.request.output_image.name)?;
 
     let input_repository = DockerUtil::new(&args.request.input_image.auth_config);
 
     info!("Retrieving client image!");
-    let input_image = input_repository.get_image(&input_image_reference)
+    let input_image = input_repository.get_image(&client_image)
         .await
+        .map(|e| e.make_temporary(images_to_clean_snd.clone()))
         .map_err(|message| ConverterError {
             message,
-            kind: ConverterErrorKind::ImagePull
+            kind: ConverterErrorKind::ImageGet
         })?;
 
     info!("Creating working directory!");
@@ -75,13 +97,12 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
         message: format!("Cannot create temp dir {:?}", err),
         kind: ConverterErrorKind::RequisitesCreation
     })?;
-
     
-    let user_program_config = input_image.create_user_program_config()?;
+    let user_program_config = input_image.0.create_user_program_config()?;
     debug!("User program config is: {:?}", user_program_config);
 
     let enclave_builder = EnclaveImageBuilder {
-        client_image: args.request.input_image.name.clone(),
+        client_image,
         dir : &temp_dir,
     };
 
@@ -90,74 +111,91 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
         user_program_config,
         certificate_config: args.request.converter_options.certificates
     };
-    let nitro_image_result = enclave_builder.create_image(&input_repository, enclave_settings).await?;
+    let sender = images_to_clean_snd.clone();
+    let nitro_image_result = enclave_builder.create_image(
+        &input_repository,
+        enclave_settings,
+        sender).await?;
+
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
 
     let parent_builder = ParentImageBuilder {
-        output_image : args.request.output_image.name.clone(),
+        output_image,
         parent_image,
-        nitro_file : nitro_image_result.nitro_file,
         dir : &temp_dir,
         start_options: args.nitro_enclaves_options
     };
 
     info!("Building parent image!");
-    parent_builder.create_image(&input_repository).await?;
-
-    info!("Resulting image has been successfully created!");
-    let result_image = input_repository.get_image(&output_image_reference)
+    let result_image = parent_builder.create_image(&input_repository)
         .await
-        .map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::ImagePull
-        })?;
+        .map(|e| e.make_temporary(images_to_clean_snd.clone()))?;
 
     let result_repository = DockerUtil::new(&args.request.output_image.auth_config);
 
-    info!("Pushing resulting image to {}!", output_image_reference.to_string());
-    result_repository.push_image(&result_image, &output_image_reference)
+    info!("Pushing resulting image to {}!", &parent_builder.output_image.to_string());
+    result_repository.push_image(&result_image.0, &parent_builder.output_image)
         .await
         .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::ImagePush
         })?;
 
-    info!("Resulting image has been successfully pushed to {} !", output_image_reference.to_string());
+    info!("Resulting image has been successfully pushed to {} !", &parent_builder.output_image.to_string());
 
-    let mut measurements = HashMap::new();
-
-    measurements.insert(NitroEnclavesVersion::NitroEnclaves, NitroEnclavesMeasurements {
-        hash_algorithm: HashAlgorithm::Sha384,
-        pcr0: HexString::new(nitro_image_result.pcr_list.pcr0),
-        pcr1: HexString::new(nitro_image_result.pcr_list.pcr1),
-        pcr2: HexString::new(nitro_image_result.pcr_list.pcr2)
-    });
-
-    let result_sha = image_short_id(&result_image.details.id);
-
-    let result = NitroEnclavesConversionResponse {
-        converted_image: ConvertedImageInfo {
-            name: args.request.output_image.name,
-            sha: HexString::new(result_sha),
-            size: result_image.details.size as usize
-        },
-
-        config: NitroEnclavesConfig {
-            measurements,
-            pcr8: HexString::new(nitro_image_result.pcr_list.pcr8.unwrap_or(String::new()))
-        }
-    };
+    let result = create_response(&result_image.0, nitro_image_result.pcr_list);
 
     Ok(result)
 }
 
-// Extracts first 12 unique bytes of id
-fn image_short_id(id : &str) -> &str {
-    if id.starts_with("sha256:") {
-        &id[7..19]
-    } else {
-        &id[..12]
+fn create_response(image : &ImageWithDetails, pcr_list : PCRList) -> NitroEnclavesConversionResponse {
+    let mut measurements = HashMap::new();
+
+    measurements.insert(NitroEnclavesVersion::NitroEnclaves, NitroEnclavesMeasurements {
+        hash_algorithm: HashAlgorithm::Sha384,
+        pcr0: HexString::new(pcr_list.pcr0),
+        pcr1: HexString::new(pcr_list.pcr1),
+        pcr2: HexString::new(pcr_list.pcr2)
+    });
+
+    NitroEnclavesConversionResponse {
+        converted_image: ConvertedImageInfo {
+            name: image.name.clone(),
+            sha: HexString::new(image.short_id()),
+            size: image.details.size as usize
+        },
+
+        config: NitroEnclavesConfig {
+            measurements,
+            pcr8: HexString::new(pcr_list.pcr8.unwrap_or(String::new()))
+        }
     }
+}
+
+async fn clean_docker_images(docker : Docker, images_receiver: mpsc::Receiver<String>) -> Result<()> {
+    let mut received_images: Vec<String> = Vec::new();
+
+    // this loop will exit after all receivers have exited from
+    // the image convert function irregardless if the function
+    // exited normally or panicked.
+    while let Ok(image) = images_receiver.recv() {
+        received_images.push(image)
+    }
+
+    for image in received_images {
+        let image_interface = Image::new(&docker, image.clone());
+
+        match image_interface.delete().await {
+            Ok(_) => {
+                info!("Successfully cleaned intermediate image {}", image);
+            }
+            Err(e) => {
+                warn!("Error cleaning intermediate image {}. {:?}", image, e);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn docker_reference(image : &str) -> Result<DockerReference> {
@@ -211,7 +249,7 @@ async fn get_parent_base_image() -> Result<()> {
         .await
         .map_err(|message| ConverterError {
             message : format!("Failed retrieving requisite {} image. {:?}", parent_image, message),
-            kind: ConverterErrorKind::ImagePull
+            kind: ConverterErrorKind::ImageGet
         })?;
 
     Ok(())

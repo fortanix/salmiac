@@ -1,8 +1,9 @@
 use tempfile::TempDir;
 use log::{info};
+use docker_image_reference::{Reference as DockerReference};
 
 use crate::file::{DockerCopyArgs, UnixFile, Resource};
-use crate::image::{DockerUtil, create_nitro_image, PCRList};
+use crate::image::{DockerUtil, create_nitro_image, PCRList, ImageWithDetails};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::Result;
 use api_model::NitroEnclavesConversionRequestOptions;
@@ -10,23 +11,24 @@ use api_model::shared::{EnclaveSettings};
 
 use std::fs;
 use std::io::{Write};
-use std::path::{PathBuf};
+use std::path::{PathBuf, Path};
+use std::sync::mpsc::Sender;
 
 pub struct EnclaveImageBuilder<'a> {
-    pub client_image: String,
+    pub client_image: DockerReference<'a>,
 
     pub dir: &'a TempDir,
 }
 
 pub struct EnclaveBuilderResult {
-    pub nitro_file: String,
-
-    pub pcr_list: PCRList
+    pub pcr_list: PCRList,
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
 
-    pub async fn create_image(&self, docker_util : &DockerUtil, enclave_settings : EnclaveSettings) -> Result<EnclaveBuilderResult> {
+    pub const ENCLAVE_FILE_NAME : &'static str = "enclave.eif";
+
+    pub async fn create_image(&self, docker_util : &'a DockerUtil, enclave_settings : EnclaveSettings, images_to_clean_snd: Sender<String>) -> Result<EnclaveBuilderResult> {
         self.create_requisites(enclave_settings).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
@@ -34,29 +36,40 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         info!("Enclave prerequisites have been created!");
 
-        let enclave_image_name = self.enclave_image_name();
-        docker_util.create_image(self.dir.path(), &enclave_image_name)
-            .await
+        let enclave_image_str = self.enclave_image();
+        let enclave_image_reference = DockerReference::from_str(&enclave_image_str)
             .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::EnclaveImageCreation
+                message: format!("Failed to create enclave image reference. {:?}", message),
+                kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        let nitro_file = enclave_image_name.clone() + ".eif";
-        let nitro_image_path = &self.dir.path().join(&nitro_file);
+        // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
+        // After nitro-cli finishes we can safely reclaim it.
+        let _ = create_image(
+            docker_util,
+            &enclave_image_reference,
+            self.dir.path(),
+            ConverterErrorKind::EnclaveImageCreation)
+            .await
+            .map(|e| e.make_temporary(images_to_clean_snd))?;
 
-        let nitro_measurements = create_nitro_image(&enclave_image_name, &nitro_image_path)?;
+        let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
+
+        let nitro_measurements = create_nitro_image(&enclave_image_reference, &nitro_image_path)?;
 
         info!("Nitro image has been created!");
 
         Ok(EnclaveBuilderResult {
-            nitro_file,
-            pcr_list: nitro_measurements.measurements
+            pcr_list: nitro_measurements.pcr_list,
         })
     }
 
-    fn enclave_image_name(&self) -> String {
-        self.client_image.clone().replace("/", "-") + "-enclave"
+    fn enclave_image(&self) -> String {
+        let new_tag = self.client_image.tag()
+            .map(|e| e.to_string() + "-enclave")
+            .unwrap_or("enclave".to_string());
+
+        self.client_image.name().to_string() + ":" + &new_tag
     }
 
     fn resources(&self) -> Vec<file::Resource> {
@@ -98,7 +111,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let copy = DockerCopyArgs::copy_to_home(requisites);
 
         file::populate_docker_file(&mut docker_file,
-                                   &self.client_image,
+                                   &self.client_image.to_string(),
                                    &copy,
                                    "./start-enclave.sh",
                                    &rust_log_env_var())?;
@@ -146,11 +159,9 @@ impl<'a> EnclaveImageBuilder<'a> {
 }
 
 pub struct ParentImageBuilder<'a> {
-    pub output_image: String,
+    pub output_image: DockerReference<'a>,
 
     pub parent_image: String,
-
-    pub nitro_file: String,
 
     pub dir: &'a TempDir,
 
@@ -167,7 +178,7 @@ impl<'a> ParentImageBuilder<'a> {
         self.dir.path().join("start-parent.sh")
     }
 
-    pub async fn create_image(&self, docker_util : &DockerUtil) -> Result<()> {
+    pub async fn create_image(&self, docker_util : &DockerUtil) -> Result<ImageWithDetails> {
         self.create_requisites()
             .map_err(|message| ConverterError {
                 message,
@@ -175,21 +186,21 @@ impl<'a> ParentImageBuilder<'a> {
             })?;
         info!("Parent prerequisites have been created!");
 
-        docker_util.create_image(self.dir.path(), &self.output_image)
-            .await
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::ParentImageCreation
-            })?;
+        let result = create_image(
+            docker_util,
+            &self.output_image,
+            self.dir.path(),
+            ConverterErrorKind::ParentImageCreation).await?;
+
         info!("Parent image has been created!");
 
-        Ok(())
+        Ok(result)
     }
 
     fn create_requisites(&self) -> std::result::Result<(), String> {
         let all_requisites = {
             let mut result = self.requisites();
-            result.push(self.nitro_file.clone());
+            result.push(EnclaveImageBuilder::ENCLAVE_FILE_NAME.to_string());
             result
         };
 
@@ -240,7 +251,7 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn start_enclave_command(&self) -> String {
-        let sanitized_nitro_file = format!("'{}'", self.nitro_file);
+        let sanitized_nitro_file = format!("'{}'", EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
         let cpu_count = self.start_options
             .cpu_count.
@@ -300,6 +311,22 @@ impl<'a> ParentImageBuilder<'a> {
             "parent".to_string()
         ]
     }
+}
+
+async fn create_image(docker_util : &DockerUtil, image : &DockerReference<'_>, dir : &Path, kind : ConverterErrorKind) -> Result<ImageWithDetails> {
+    docker_util.create_image(dir, image)
+        .await
+        .map_err(|message| ConverterError {
+            message,
+            kind
+        })?;
+
+    docker_util.get_image(image)
+        .await
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImageGet
+        })
 }
 
 fn rust_log_env_var() -> String {
