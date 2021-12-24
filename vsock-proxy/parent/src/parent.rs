@@ -29,10 +29,11 @@ use shared::vec_to_ip4;
 use std::convert::TryFrom;
 use std::sync::mpsc;
 use std::thread;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
+use std::io::Cursor;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
@@ -230,7 +231,70 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
 
         for packet in packets {
 
-            enclave_stream.write_lv_bytes(packet.data()).await?;
+            let mut data = packet.into_data();
+
+            use etherparse::*;
+            use etherparse::InternetSlice::*;
+            use etherparse::TransportSlice::*;
+            let sliced_packet = SlicedPacket::from_ethernet(&data);
+
+            //print some informations about the sliced packet
+            let r = match sliced_packet {
+                Ok(value) => {
+                    match (value.ip, value.transport) {
+                        (Some(Ipv4(ip, _)), Some(Tcp(tcp))) => {
+                            if ip.source_addr() != Ipv4Addr::new(172,17,0,3) {
+                                //let payload = &tcp.slice()[(tcp.data_offset() as usize) * 4..];
+
+                                info!("Rewriting tcp packet. From {:?} to {:?}. Payload len {}. Data offset {}. Payload {:?}",
+                                      ip.source_addr(),
+                                      ip.destination_addr(),
+                                      value.payload.len(),
+                                      tcp.data_offset() * 4,
+                                      1);
+
+                                let checksum = tcp.calc_checksum_ipv4(&ip, value.payload)
+                                    .map_err(|err| format!("Failed calculating checksum. {:?}", err))?;
+
+                                let previous_checksum = tcp.checksum();
+
+
+
+
+                                let offset = unsafe {
+                                    tcp.slice()[16..]
+                                        .as_ptr()
+                                        .offset_from(data.as_ptr())
+                                        as usize
+                                };
+
+                                let new_checksum = tcp.checksum();
+
+                                info!("Old {}, New {}", previous_checksum, new_checksum);
+
+                                Some((offset, checksum))
+                            }
+                            else {
+                                None
+                            }
+                        },
+                        _ => None
+                    }
+                }
+                _ => None
+            };
+
+            if let Some((checksum_offset, checksum)) = r {
+                use byteorder::{WriteBytesExt, BigEndian};
+
+                let checksum_pos = &mut data[checksum_offset..];
+                Cursor::new(checksum_pos)
+                    .write_u16::<BigEndian>(checksum)
+                    .map_err(|err| format!("Cannot write checksum. {:?}", err))?;
+            }
+
+
+            enclave_stream.write_lv_bytes(&data).await?;
 
             count = log_packet_processing(count, PACKET_LOG_STEP, "parent pcap");
         }
