@@ -1,3 +1,6 @@
+use etherparse::SlicedPacket;
+use etherparse::InternetSlice::Ipv4;
+use etherparse::TransportSlice::Tcp;
 use ipnetwork::IpNetwork;
 use log::{
     debug,
@@ -29,11 +32,10 @@ use shared::vec_to_ip4;
 use std::convert::TryFrom;
 use std::sync::mpsc;
 use std::thread;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr};
 use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
-use std::io::Cursor;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
@@ -233,66 +235,7 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
 
             let mut data = packet.into_data();
 
-            use etherparse::*;
-            use etherparse::InternetSlice::*;
-            use etherparse::TransportSlice::*;
-            let sliced_packet = SlicedPacket::from_ethernet(&data);
-
-            //print some informations about the sliced packet
-            let r = match sliced_packet {
-                Ok(value) => {
-                    match (value.ip, value.transport) {
-                        (Some(Ipv4(ip, _)), Some(Tcp(tcp))) => {
-                            if ip.source_addr() != Ipv4Addr::new(172,17,0,3) {
-                                //let payload = &tcp.slice()[(tcp.data_offset() as usize) * 4..];
-
-                                info!("Rewriting tcp packet. From {:?} to {:?}. Payload len {}. Data offset {}. Payload {:?}",
-                                      ip.source_addr(),
-                                      ip.destination_addr(),
-                                      value.payload.len(),
-                                      tcp.data_offset() * 4,
-                                      1);
-
-                                let checksum = tcp.calc_checksum_ipv4(&ip, value.payload)
-                                    .map_err(|err| format!("Failed calculating checksum. {:?}", err))?;
-
-                                let previous_checksum = tcp.checksum();
-
-
-
-
-                                let offset = unsafe {
-                                    tcp.slice()[16..]
-                                        .as_ptr()
-                                        .offset_from(data.as_ptr())
-                                        as usize
-                                };
-
-                                let new_checksum = tcp.checksum();
-
-                                info!("Old {}, New {}", previous_checksum, new_checksum);
-
-                                Some((offset, checksum))
-                            }
-                            else {
-                                None
-                            }
-                        },
-                        _ => None
-                    }
-                }
-                _ => None
-            };
-
-            if let Some((checksum_offset, checksum)) = r {
-                use byteorder::{WriteBytesExt, BigEndian};
-
-                let checksum_pos = &mut data[checksum_offset..];
-                Cursor::new(checksum_pos)
-                    .write_u16::<BigEndian>(checksum)
-                    .map_err(|err| format!("Cannot write checksum. {:?}", err))?;
-            }
-
+            recompute_packet_checksum(&mut data)?;
 
             enclave_stream.write_lv_bytes(&data).await?;
 
@@ -362,4 +305,50 @@ fn get_app_config_id() -> Option<String> {
             None
         }
     }
+}
+
+fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
+    let ethernet_packet = SlicedPacket::from_ethernet(&data)
+        .map_err(|err| format!("Cannot parse ethernet packet. {:?}", err))?;
+
+    let checksum_result = match (ethernet_packet.ip, ethernet_packet.transport) {
+        (Some(Ipv4(ip_packet, _)), Some(Tcp(tcp_packet))) => {
+            let checksum = tcp_packet.calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
+                .map_err(|err| format!("Failed calculating checksum. {:?}", err))?;
+
+            // SAFETY:
+            // Both the starting and other pointer are in bounds of the same allocated object (`data`).
+            // Both pointers are derived from a pointer to the same object (`data`).
+            // The distance between the pointers, in bytes, is be an exact multiple of the size of u8 (trivial, as the size is 1).
+            // The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
+            // The distance doesn't wrap around “wrapping around” the address space.
+            let offset = unsafe {
+                tcp_packet.slice()[16..]
+                    .as_ptr()
+                    .offset_from(data.as_ptr())
+                    as usize
+            };
+
+            debug!("Computed new checksum for tcp packet. \
+             Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
+                   ip_packet.source_addr(),
+                   ip_packet.destination_addr(),
+                   ethernet_packet.payload.len(),
+                   tcp_packet.checksum(),
+                   checksum);
+
+            Some((offset, checksum))
+        }
+        _ => None
+    };
+
+    if let Some((checksum_offset, checksum)) = checksum_result {
+        let checksum_slice = &mut data[checksum_offset..=(checksum_offset+2)];
+        let checksum_bytes = checksum.to_be_bytes();
+
+        checksum_slice[0] = checksum_bytes[0];
+        checksum_slice[1] = checksum_bytes[1];
+    }
+
+    Ok(())
 }
