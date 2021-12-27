@@ -27,7 +27,7 @@ async fn main() -> Result<(), String> {
 
     match container_converter::run(request).await {
         Ok(response) => {
-            println!("{:?}", response.config.measurements);
+            println!("{:?}", response);
             Ok(())
         },
         Err(err) => {

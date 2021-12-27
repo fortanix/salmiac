@@ -143,33 +143,41 @@ async fn run0(args: NitroEnclavesConversionRequest, images_to_clean_snd: Sender<
 
     info!("Resulting image has been successfully pushed to {} !", &parent_builder.output_image.to_string());
 
-    let result = create_response(&result_image.0, nitro_image_result.pcr_list);
-
-    Ok(result)
+    create_response(&result_image.0, nitro_image_result.pcr_list)
 }
 
-fn create_response(image : &ImageWithDetails, pcr_list : PCRList) -> NitroEnclavesConversionResponse {
+fn create_response(image : &ImageWithDetails, pcr_list : PCRList) -> Result<NitroEnclavesConversionResponse> {
+    fn hex_response(arg : &str) -> Result<HexString> {
+        HexString::from_str(arg)
+            .map_err(|err| ConverterError {
+                message : format!("Failed converting string {} to hex string. {:?}", arg, err),
+                kind: ConverterErrorKind::InternalError
+            })
+    }
+
     let mut measurements = HashMap::new();
 
     measurements.insert(NitroEnclavesVersion::NitroEnclaves, NitroEnclavesMeasurements {
         hash_algorithm: HashAlgorithm::Sha384,
-        pcr0: HexString::new(pcr_list.pcr0),
-        pcr1: HexString::new(pcr_list.pcr1),
-        pcr2: HexString::new(pcr_list.pcr2)
+        pcr0: hex_response(&pcr_list.pcr0)?,
+        pcr1: hex_response(&pcr_list.pcr1)?,
+        pcr2: hex_response(&pcr_list.pcr2)?
     });
 
-    NitroEnclavesConversionResponse {
+    let result = NitroEnclavesConversionResponse {
         converted_image: ConvertedImageInfo {
             name: image.name.clone(),
-            sha: HexString::new(image.short_id()),
+            sha: hex_response(image.short_id())?,
             size: image.details.size as usize
         },
 
         config: NitroEnclavesConfig {
             measurements,
-            pcr8: HexString::new(pcr_list.pcr8.unwrap_or(String::new()))
+            pcr8: hex_response(&pcr_list.pcr8.unwrap_or_default())?
         }
-    }
+    };
+
+    Ok(result)
 }
 
 async fn clean_docker_images(docker : Docker, images_receiver: mpsc::Receiver<String>) -> Result<()> {
