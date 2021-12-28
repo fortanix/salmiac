@@ -37,6 +37,11 @@ use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
 
+// Position of a checksum field in TCP header according to rfc 793.
+const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
+
+const IPv4_CHECKSUM_FIELD_INDEX: usize = 10;
+
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
 
@@ -235,7 +240,12 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
 
             let mut data = packet.into_data();
 
-            recompute_packet_checksum(&mut data)?;
+            match recompute_packet_checksum(&mut data) {
+                Err(err) => {
+                    warn!("Failed recomputing checksum for a packet. {:?}", err);
+                }
+                _ => {}
+            }
 
             enclave_stream.write_lv_bytes(&data).await?;
 
@@ -311,10 +321,31 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
     let ethernet_packet = SlicedPacket::from_ethernet(&data)
         .map_err(|err| format!("Cannot parse ethernet packet. {:?}", err))?;
 
+    let ipv4_checksum_result = match ethernet_packet.ip {
+        Some(Ipv4(ip_packet, _)) => {
+            let checksum = ip_packet.to_header()
+                .calc_header_checksum()
+                .map_err(|err| format!("Failed calculating IPv4 checksum. {:?}", err))?;
+
+            let offset = checksum_offset_in_ethernet_packet(
+                data,
+                ip_packet.slice(),
+                IPv4_CHECKSUM_FIELD_INDEX);
+
+            Some((offset, checksum))
+        }
+        // Ipv6 packet doesn't have a checksum
+        _ => { None }
+    };
+
     let checksum_result = match (ethernet_packet.ip, ethernet_packet.transport) {
         (Some(Ipv4(ip_packet, _)), Some(Tcp(tcp_packet))) => {
+
             let checksum = tcp_packet.calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
                 .map_err(|err| format!("Failed calculating checksum. {:?}", err))?;
+
+            // Here we compute the offset of tcp checksum field relative to the start of ethernet packet
+            // We use this and a new checksum value to update tcp checksum within the ethernet packet.
 
             // SAFETY:
             // Both the starting and other pointer are in bounds of the same allocated object (`data`).
@@ -323,7 +354,7 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
             // The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
             // The distance doesn't wrap around “wrapping around” the address space.
             let offset = unsafe {
-                tcp_packet.slice()[16..]
+                tcp_packet.slice()[TCP_CHECKSUM_FIELD_INDEX..]
                     .as_ptr()
                     .offset_from(data.as_ptr())
                     as usize
@@ -342,13 +373,28 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
         _ => None
     };
 
-    if let Some((checksum_offset, checksum)) = checksum_result {
-        let checksum_slice = &mut data[checksum_offset..=(checksum_offset+2)];
-        let checksum_bytes = checksum.to_be_bytes();
+    if let Some((checksum_offset, checksum)) = ipv4_checksum_result {
+        update_checksum(data, checksum_offset, checksum)
+    }
 
-        checksum_slice[0] = checksum_bytes[0];
-        checksum_slice[1] = checksum_bytes[1];
+    if let Some((checksum_offset, checksum)) = checksum_result {
+        update_checksum(data, checksum_offset, checksum);
     }
 
     Ok(())
+}
+
+fn update_checksum(packet : &mut[u8], checksum_offset : usize, checksum : u16) -> () {
+    let checksum_slice = &mut packet[checksum_offset..];
+
+    checksum_slice.copy_from_slice(&checksum.to_be_bytes())
+}
+
+fn checksum_offset_in_ethernet_packet(ethernet_packet : &[u8], inner_packet : &[u8], checksum_index : usize) -> usize {
+    unsafe {
+        inner_packet[checksum_index..]
+            .as_ptr()
+            .offset_from(ethernet_packet.as_ptr())
+            as usize
+    }
 }
