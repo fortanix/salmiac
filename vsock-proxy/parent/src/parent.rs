@@ -1,6 +1,6 @@
 use etherparse::SlicedPacket;
 use etherparse::InternetSlice::Ipv4;
-use etherparse::TransportSlice::Tcp;
+use etherparse::TransportSlice::{Tcp, Unknown};
 use ipnetwork::IpNetwork;
 use log::{
     debug,
@@ -40,7 +40,7 @@ use std::fs;
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
 
-const IPv4_CHECKSUM_FIELD_INDEX: usize = 10;
+const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
@@ -321,16 +321,16 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
     let ethernet_packet = SlicedPacket::from_ethernet(&data)
         .map_err(|err| format!("Cannot parse ethernet packet. {:?}", err))?;
 
-    let ipv4_checksum_result = match ethernet_packet.ip {
-        Some(Ipv4(ip_packet, _)) => {
+    let l3_checksum = match ethernet_packet.ip {
+        Some(Ipv4(ref ip_packet, _)) => {
             let checksum = ip_packet.to_header()
                 .calc_header_checksum()
-                .map_err(|err| format!("Failed calculating IPv4 checksum. {:?}", err))?;
+                .map_err(|err| format!("Failed computing IPv4 checksum. {:?}", err))?;
 
             let offset = checksum_offset_in_ethernet_packet(
                 data,
                 ip_packet.slice(),
-                IPv4_CHECKSUM_FIELD_INDEX);
+                IPV4_CHECKSUM_FIELD_INDEX);
 
             Some((offset, checksum))
         }
@@ -338,27 +338,16 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
         _ => { None }
     };
 
-    let checksum_result = match (ethernet_packet.ip, ethernet_packet.transport) {
+    let l4_checksum = match (ethernet_packet.ip, ethernet_packet.transport) {
         (Some(Ipv4(ip_packet, _)), Some(Tcp(tcp_packet))) => {
 
             let checksum = tcp_packet.calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
-                .map_err(|err| format!("Failed calculating checksum. {:?}", err))?;
+                .map_err(|err| format!("Failed computing TCP checksum. {:?}", err))?;
 
-            // Here we compute the offset of tcp checksum field relative to the start of ethernet packet
-            // We use this and a new checksum value to update tcp checksum within the ethernet packet.
-
-            // SAFETY:
-            // Both the starting and other pointer are in bounds of the same allocated object (`data`).
-            // Both pointers are derived from a pointer to the same object (`data`).
-            // The distance between the pointers, in bytes, is be an exact multiple of the size of u8 (trivial, as the size is 1).
-            // The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
-            // The distance doesn't wrap around “wrapping around” the address space.
-            let offset = unsafe {
-                tcp_packet.slice()[TCP_CHECKSUM_FIELD_INDEX..]
-                    .as_ptr()
-                    .offset_from(data.as_ptr())
-                    as usize
-            };
+            let offset = checksum_offset_in_ethernet_packet(
+                data,
+                tcp_packet.slice(),
+                TCP_CHECKSUM_FIELD_INDEX);
 
             debug!("Computed new checksum for tcp packet. \
              Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
@@ -370,14 +359,18 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
 
             Some((offset, checksum))
         }
+        (_, Some(Unknown(protocol_number))) => {
+            warn!("Unsupported protocol {} detected when recomputing packet checksum!", protocol_number);
+            None
+        }
         _ => None
     };
 
-    if let Some((checksum_offset, checksum)) = ipv4_checksum_result {
+    if let Some((checksum_offset, checksum)) = l3_checksum {
         update_checksum(data, checksum_offset, checksum)
     }
 
-    if let Some((checksum_offset, checksum)) = checksum_result {
+    if let Some((checksum_offset, checksum)) = l4_checksum {
         update_checksum(data, checksum_offset, checksum);
     }
 
@@ -390,7 +383,18 @@ fn update_checksum(packet : &mut[u8], checksum_offset : usize, checksum : u16) -
     checksum_slice.copy_from_slice(&checksum.to_be_bytes())
 }
 
+/// Computes the offset of a checksum field inside inner packet relative to the start of ethernet packet
+/// # Arguments
+/// `ethernet_packet` reference to a start of ethernet packet
+/// `inner_packet` reference to a start of an inner packet within ethernet packet like IP or TCP.
+/// `checksum_index` index of a checksum field inside `inner_packet`
 fn checksum_offset_in_ethernet_packet(ethernet_packet : &[u8], inner_packet : &[u8], checksum_index : usize) -> usize {
+    // SAFETY:
+    // Both the starting and other pointer are in bounds of the same allocated object (`data`).
+    // Both pointers are derived from a pointer to the same object (`data`).
+    // The distance between the pointers, in bytes, is be an exact multiple of the size of u8 (trivial, as the size is 1).
+    // The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
+    // The distance doesn't wrap around “wrapping around” the address space.
     unsafe {
         inner_packet[checksum_index..]
             .as_ptr()
