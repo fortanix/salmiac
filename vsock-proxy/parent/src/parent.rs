@@ -30,12 +30,14 @@ use shared::socket::{
 use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
+use std::collections::HashSet;
 use std::sync::mpsc;
 use std::thread;
 use std::net::{IpAddr};
 use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
+use std::mem;
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -222,6 +224,7 @@ async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32)
 
 async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut enclave_stream: WriteHalf<AsyncVsockStream>) -> Result<(), String> {
     let mut count = 0 as u32;
+    let mut unsupported_protocols = HashSet::<u8>::new();
 
     loop {
         let packets = match capture.next().await {
@@ -241,8 +244,12 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
             let mut data = packet.into_data();
 
             match recompute_packet_checksum(&mut data) {
-                Err(err) => {
+                Err(ChecksumComputationError::Err(err)) => {
                     warn!("Failed recomputing checksum for a packet. {:?}", err);
+                }
+                Err(ChecksumComputationError::UnsupportedProtocol(protocol)) if !unsupported_protocols.contains(&protocol) => {
+                    warn!("Unsupported protocol {} encountered when recomputing checksum for a packet.", protocol);
+                    unsupported_protocols.insert(protocol);
                 }
                 _ => {}
             }
@@ -317,15 +324,20 @@ fn get_app_config_id() -> Option<String> {
     }
 }
 
-fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
+enum ChecksumComputationError {
+    UnsupportedProtocol(u8),
+    Err(String)
+}
+
+fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationError> {
     let ethernet_packet = SlicedPacket::from_ethernet(&data)
-        .map_err(|err| format!("Cannot parse ethernet packet. {:?}", err))?;
+        .map_err(|err| ChecksumComputationError::Err(format!("Cannot parse ethernet packet. {:?}", err)))?;
 
     let l3_checksum = match ethernet_packet.ip {
         Some(Ipv4(ref ip_packet, _)) => {
             let checksum = ip_packet.to_header()
                 .calc_header_checksum()
-                .map_err(|err| format!("Failed computing IPv4 checksum. {:?}", err))?;
+                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing IPv4 checksum. {:?}", err)))?;
 
             let offset = checksum_offset_in_ethernet_packet(
                 data,
@@ -342,7 +354,7 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
         (Some(Ipv4(ip_packet, _)), Some(Tcp(tcp_packet))) => {
 
             let checksum = tcp_packet.calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
-                .map_err(|err| format!("Failed computing TCP checksum. {:?}", err))?;
+                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing TCP checksum. {:?}", err)))?;
 
             let offset = checksum_offset_in_ethernet_packet(
                 data,
@@ -360,8 +372,7 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
             Some((offset, checksum))
         }
         (_, Some(Unknown(protocol_number))) => {
-            warn!("Unsupported protocol {} detected when recomputing packet checksum!", protocol_number);
-            None
+            return Err(ChecksumComputationError::UnsupportedProtocol(protocol_number));
         }
         _ => None
     };
@@ -378,7 +389,7 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), String> {
 }
 
 fn update_checksum(packet : &mut[u8], checksum_offset : usize, checksum : u16) -> () {
-    let checksum_slice = &mut packet[checksum_offset..];
+    let checksum_slice = &mut packet[checksum_offset..(checksum_offset + mem::size_of::<u16>())];
 
     checksum_slice.copy_from_slice(&checksum.to_be_bytes())
 }
