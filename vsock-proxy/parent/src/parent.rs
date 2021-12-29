@@ -342,7 +342,7 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationE
             let offset = checksum_offset_in_ethernet_packet(
                 data,
                 ip_packet.slice(),
-                IPV4_CHECKSUM_FIELD_INDEX);
+                IPV4_CHECKSUM_FIELD_INDEX)?;
 
             Some((offset, checksum))
         }
@@ -359,7 +359,7 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationE
             let offset = checksum_offset_in_ethernet_packet(
                 data,
                 tcp_packet.slice(),
-                TCP_CHECKSUM_FIELD_INDEX);
+                TCP_CHECKSUM_FIELD_INDEX)?;
 
             debug!("Computed new checksum for tcp packet. \
              Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
@@ -395,21 +395,43 @@ fn update_checksum(packet : &mut[u8], checksum_offset : usize, checksum : u16) -
 }
 
 /// Computes the offset of a checksum field inside inner packet relative to the start of ethernet packet
-/// # Arguments
+/// # Arguments:
 /// `ethernet_packet` reference to a start of ethernet packet
 /// `inner_packet` reference to a start of an inner packet within ethernet packet like IP or TCP.
 /// `checksum_index` index of a checksum field inside `inner_packet`
-fn checksum_offset_in_ethernet_packet(ethernet_packet : &[u8], inner_packet : &[u8], checksum_index : usize) -> usize {
-    // SAFETY:
-    // Both the starting and other pointer are in bounds of the same allocated object (`data`).
-    // Both pointers are derived from a pointer to the same object (`data`).
-    // The distance between the pointers, in bytes, is be an exact multiple of the size of u8 (trivial, as the size is 1).
-    // The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
-    // The distance doesn't wrap around “wrapping around” the address space.
-    unsafe {
-        inner_packet[checksum_index..]
-            .as_ptr()
-            .offset_from(ethernet_packet.as_ptr())
-            as usize
+/// # SAFETY:
+/// Both the starting and other pointer are in bounds of the same allocated object (`ethernet_packet`).
+/// Both pointers are derived from a pointer to the same object (`ethernet_packet`).
+/// The distance between the pointers, in bytes, is be an exact multiple of the size of u8 (trivial, as the size is 1).
+/// The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
+/// The distance doesn't wrap around “wrapping around” the address space.
+fn checksum_offset_in_ethernet_packet(ethernet_packet : &[u8], inner_packet : &[u8], checksum_index : usize) -> Result<usize, String> {
+    let ethernet_start_ptr = ethernet_packet.as_ptr();
+    let ethernet_end_ptr = ethernet_packet.last()
+        .ok_or("Ethernet packet cannot be empty!")?
+        as *const u8;
+
+    let inner_start_ptr = inner_packet.as_ptr();
+    let inner_end_ptr = inner_packet.last()
+        .ok_or("Inner packet cannot be empty!")?
+        as *const u8;
+
+    if ethernet_start_ptr <= inner_start_ptr && inner_end_ptr <= ethernet_end_ptr {
+        let result = unsafe {
+            inner_packet[checksum_index..]
+                .as_ptr()
+                .offset_from(ethernet_packet.as_ptr())
+                as usize
+        };
+
+        Ok(result)
+    } else {
+        Err(format!("Inner packet should be inside ethernet packet.\
+         Ethernet start address {}, end address {}.\
+         Inner packet start address {}, end address is {}",
+            ethernet_start_ptr,
+            ethernet_end_ptr,
+            inner_start_ptr,
+            inner_end_ptr));
     }
 }
