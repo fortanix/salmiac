@@ -339,11 +339,10 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationE
                 .calc_header_checksum()
                 .map_err(|err| ChecksumComputationError::Err(format!("Failed computing IPv4 checksum. {:?}", err)))?;
 
-            let offset = checksum_offset_in_ethernet_packet(
+            let offset = field_offset_in_packet(
                 data,
                 ip_packet.slice(),
-                IPV4_CHECKSUM_FIELD_INDEX)
-                .map_err(|err| ChecksumComputationError::Err(err))?;
+                IPV4_CHECKSUM_FIELD_INDEX);
 
             Some((offset, checksum))
         }
@@ -357,11 +356,10 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationE
             let checksum = tcp_packet.calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
                 .map_err(|err| ChecksumComputationError::Err(format!("Failed computing TCP checksum. {:?}", err)))?;
 
-            let offset = checksum_offset_in_ethernet_packet(
+            let offset = field_offset_in_packet(
                 data,
                 tcp_packet.slice(),
-                TCP_CHECKSUM_FIELD_INDEX)
-                .map_err(|err| ChecksumComputationError::Err(err))?;
+                TCP_CHECKSUM_FIELD_INDEX);
 
             debug!("Computed new checksum for tcp packet. \
              Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
@@ -396,44 +394,25 @@ fn update_checksum(packet : &mut[u8], checksum_offset : usize, checksum : u16) -
     checksum_slice.copy_from_slice(&checksum.to_be_bytes())
 }
 
-/// Computes the offset of a checksum field inside inner packet relative to the start of ethernet packet
-/// # Arguments:
-/// `ethernet_packet` reference to a start of ethernet packet
-/// `inner_packet` reference to a start of an inner packet within ethernet packet like IP or TCP.
-/// `checksum_index` index of a checksum field inside `inner_packet`
-/// # SAFETY:
-/// Both the starting and other pointer are in bounds of the same allocated object (`ethernet_packet`).
-/// Both pointers are derived from a pointer to the same object (`ethernet_packet`).
-/// The distance between the pointers, in bytes, is be an exact multiple of the size of u8 (trivial, as the size is 1).
-/// The distance between the pointers, in bytes, doesn't overflow an isize (packet size is less than isize::max_value()).
-/// The distance doesn't wrap around “wrapping around” the address space.
-fn checksum_offset_in_ethernet_packet(ethernet_packet : &[u8], inner_packet : &[u8], checksum_index : usize) -> Result<usize, String> {
-    let ethernet_start_ptr = ethernet_packet.as_ptr();
-    let ethernet_end_ptr = ethernet_packet.last()
-        .ok_or("Ethernet packet cannot be empty!")?
-        as *const u8;
-
-    let inner_start_ptr = inner_packet.as_ptr();
-    let inner_end_ptr = inner_packet.last()
-        .ok_or("Inner packet cannot be empty!")?
-        as *const u8;
-
-    if ethernet_start_ptr <= inner_start_ptr && inner_end_ptr <= ethernet_end_ptr {
-        let result = unsafe {
-            inner_packet[checksum_index..]
-                .as_ptr()
-                .offset_from(ethernet_packet.as_ptr())
-                as usize
-        };
-
-        Ok(result)
-    } else {
-        Err(format!("Inner packet should be inside ethernet packet.\
-         Ethernet start address {:?}, end address {:?}.\
-         Inner packet start address {:?}, end address is {:?}",
-            ethernet_start_ptr,
-            ethernet_end_ptr,
-            inner_start_ptr,
-            inner_end_ptr))
+/// Computes the offset of a field at index `header_field_index` in `header`
+/// relative to the start of `full_packet`.
+///
+/// # Panics
+/// Panics if `header` isn't contained within `full_packet` or if
+/// `header_field_index` isn't contained within `header`.
+fn field_offset_in_packet<'a>(full_packet: &'a [u8], header: &'a [u8], header_field_index: usize) -> usize {
+    assert!(full_packet.len() <= (isize::max_value() as usize)); // assertion 1
+    let full_packet = full_packet.as_ptr_range();
+    let field = header[header_field_index..].as_ptr_range();
+    assert!(full_packet.start <= field.start); // assertion 2
+    assert!(field.end <= full_packet.end); // assertion 3
+    // SAFETY, w.r.t. `field.start` and `full_packet.start`:
+    // Both pointers are in bounds of the same allocated object (`full_packet`, assertions 2 & 3).
+    // Both pointers are derived from a pointer to the same object (`full_packet`, assertions 2 & 3).
+    // The distance between the pointers, in bytes, is an exact multiple of the size of u8 (trivial, as the size is 1).
+    // The distance between the pointers, in bytes, doesn't overflow an isize (assertion 1).
+    // The distance between the pointers doesn't wrap around the address space (assertion 2).
+    unsafe {
+        field.start.offset_from(full_packet.start) as usize
     }
 }
