@@ -41,13 +41,15 @@ pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
         .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))
 }
 
-pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &DockerCopyArgs, cmd : &str, env : &str) -> Result<(), String> {
+pub fn populate_docker_file(file : &mut fs::File, image_name : &str, run : &str, copy : &DockerCopyArgs, env : &str, cmd : &str) -> Result<(), String> {
     let filled_contents = format!(
         "FROM {} \n\
-         COPY {} ./ \n\
+         RUN {} \n\
+         COPY {} \n\
          ENV {} \n\
          CMD  {} \n",
         image_name,
+        run,
         copy.to_string(),
         env,
         cmd
@@ -90,13 +92,6 @@ pub struct DockerCopyArgs {
 }
 
 impl DockerCopyArgs {
-    pub fn copy_to_home(items : Vec<String>) -> Self {
-        DockerCopyArgs {
-            items,
-            destination: "./".to_string()
-        }
-    }
-
     fn to_string(&self) -> String {
         format!("{} {}", self.items.join(" "), self.destination)
     }
