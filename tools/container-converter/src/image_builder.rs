@@ -135,7 +135,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         file::populate_docker_file(file,
                                    &self.client_image.to_string(),
-                                   &create_install_dir_cmd(),
                                    &copy,
                                    &rust_log_env_var(),
                                    &run_enclave_cmd)
@@ -211,7 +210,6 @@ impl<'a> ParentImageBuilder<'a> {
 
         file::populate_docker_file(file,
                                    &self.parent_image,
-                                   &create_install_dir_cmd(),
                                    &copy,
                                    &rust_log_env_var(),
                                    &run_parent_cmd)
@@ -240,7 +238,7 @@ impl<'a> ParentImageBuilder<'a> {
 
     fn start_enclave_command(&self) -> String {
         let sanitized_nitro_file = format!("'{}{}'", INSTALLATION_DIR, EnclaveImageBuilder::ENCLAVE_FILE_NAME);
-        let parent_startup_script = format!("{}parent", INSTALLATION_DIR);
+        let parent_bin = format!("{}parent", INSTALLATION_DIR);
 
         let cpu_count = self.start_options
             .cpu_count.
@@ -264,7 +262,7 @@ impl<'a> ParentImageBuilder<'a> {
              {} --vsock-port 5006 & \n\
              nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} {}\n\
              \n",
-            parent_startup_script,
+            parent_bin,
             sanitized_nitro_file,
             cpu_count,
             memory_size,
@@ -323,8 +321,4 @@ fn rust_log_env_var() -> String {
             "info"
         }
     })
-}
-
-fn create_install_dir_cmd() -> String {
-    format!("mkdir -p {}", INSTALLATION_DIR)
 }
