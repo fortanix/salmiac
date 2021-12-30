@@ -342,7 +342,8 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationE
             let offset = checksum_offset_in_ethernet_packet(
                 data,
                 ip_packet.slice(),
-                IPV4_CHECKSUM_FIELD_INDEX)?;
+                IPV4_CHECKSUM_FIELD_INDEX)
+                .map_err(|err| ChecksumComputationError::Err(err))?;
 
             Some((offset, checksum))
         }
@@ -359,7 +360,8 @@ fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationE
             let offset = checksum_offset_in_ethernet_packet(
                 data,
                 tcp_packet.slice(),
-                TCP_CHECKSUM_FIELD_INDEX)?;
+                TCP_CHECKSUM_FIELD_INDEX)
+                .map_err(|err| ChecksumComputationError::Err(err))?;
 
             debug!("Computed new checksum for tcp packet. \
              Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
@@ -427,11 +429,11 @@ fn checksum_offset_in_ethernet_packet(ethernet_packet : &[u8], inner_packet : &[
         Ok(result)
     } else {
         Err(format!("Inner packet should be inside ethernet packet.\
-         Ethernet start address {}, end address {}.\
-         Inner packet start address {}, end address is {}",
+         Ethernet start address {:?}, end address {:?}.\
+         Inner packet start address {:?}, end address is {:?}",
             ethernet_start_ptr,
             ethernet_end_ptr,
             inner_start_ptr,
-            inner_end_ptr));
+            inner_end_ptr))
     }
 }
