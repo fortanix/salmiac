@@ -247,9 +247,10 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
                 Err(ChecksumComputationError::Err(err)) => {
                     warn!("Failed recomputing checksum for a packet. {:?}", err);
                 }
-                Err(ChecksumComputationError::UnsupportedProtocol(protocol)) if !unsupported_protocols.contains(&protocol) => {
-                    warn!("Unsupported protocol {} encountered when recomputing checksum for a packet.", protocol);
-                    unsupported_protocols.insert(protocol);
+                Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
+                    if unsupported_protocols.insert(protocol) {
+                        warn!("Unsupported protocol {} encountered when recomputing checksum for a packet.", protocol);
+                    }
                 }
                 _ => {}
             }
