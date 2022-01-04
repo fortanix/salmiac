@@ -135,8 +135,16 @@ impl<'a> EnclaveImageBuilder<'a> {
 
             let enclave_settings_file = install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
 
-            let switch_user_cmd = if enclave_settings.user != "root" {
-                format!("export HOME=/home/{};", enclave_settings.user)
+            let user_name = {
+                if let Some(pos) = enclave_settings.user.find(":") {
+                    &enclave_settings.user[..pos]
+                } else {
+                    ""
+                }
+            };
+
+            let switch_user_cmd = if user_name != "root" {
+                format!("export HOME=/home/{};", user_name)
             } else {
                 String::new()
             };
