@@ -24,11 +24,13 @@ pub struct EnclaveBuilderResult {
     pub pcr_list: PCRList,
 }
 
-const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os/";
+const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 
 impl<'a> EnclaveImageBuilder<'a> {
 
-    pub const ENCLAVE_FILE_NAME : &'static str = "enclave.eif";
+    pub const ENCLAVE_FILE_NAME: &'static str = "enclave.eif";
+
+    const DEFAULT_ENCLAVE_SETTINGS_FILE: &'static str = "enclave-settings.json";
 
     pub async fn create_image(&self, docker_util : &'a DockerUtil, enclave_settings : EnclaveSettings, images_to_clean_snd: Sender<String>) -> Result<EnclaveBuilderResult> {
         self.create_requisites(enclave_settings).map_err(|message| ConverterError {
@@ -94,7 +96,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     fn create_requisites(&self, enclave_settings : EnclaveSettings) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
-        self.populate_docker_file(&mut docker_file)?;
+        self.populate_docker_file(&mut docker_file, &enclave_settings)?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(self.dir.path())?;
@@ -120,17 +122,29 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file : &mut fs::File) -> std::result::Result<(), String> {
+    fn populate_docker_file(&self, file : &mut fs::File, enclave_settings : &EnclaveSettings) -> std::result::Result<(), String> {
+        let install_dir_path = Path::new(INSTALLATION_DIR);
+
         let copy = DockerCopyArgs {
             items: self.requisites(),
-            destination: INSTALLATION_DIR.to_string()
+            destination: INSTALLATION_DIR.to_string() + "/"
         };
 
         let run_enclave_cmd = {
-            let enclave_bin = format!("{}enclave", INSTALLATION_DIR);
-            let enclave_settings = format!("{}enclave-settings.json", INSTALLATION_DIR);
+            let enclave_bin = install_dir_path.join("enclave");
 
-            format!("{} --vsock-port 5006 --settings-path {}", enclave_bin, enclave_settings)
+            let enclave_settings_file = install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
+
+            let switch_user_cmd = if enclave_settings.user != "root" {
+                format!("export HOME=/home/{};", enclave_settings.user)
+            } else {
+                String::new()
+            };
+
+            format!("{} {} --vsock-port 5006 --settings-path {}",
+                    switch_user_cmd,
+                    enclave_bin.display(),
+                    enclave_settings_file.display())
         };
 
         file::populate_docker_file(file,
@@ -203,10 +217,13 @@ impl<'a> ParentImageBuilder<'a> {
     fn populate_docker_file(&self, file: &mut fs::File) -> std::result::Result<(), String> {
         let copy = DockerCopyArgs {
             items: self.requisites(),
-            destination: INSTALLATION_DIR.to_string()
+            destination: INSTALLATION_DIR.to_string() + "/"
         };
 
-        let run_parent_cmd = format!("{}start-parent.sh", INSTALLATION_DIR);
+        let run_parent_cmd = Path::new(INSTALLATION_DIR)
+            .join("start-parent.sh")
+            .display()
+            .to_string();
 
         file::populate_docker_file(file,
                                    &self.parent_image,
@@ -226,19 +243,18 @@ impl<'a> ParentImageBuilder<'a> {
         file.write_all(start_enclave_command.as_bytes())
             .map_err(|err| format!("Failed to write to file {:?}", err))?;
 
-        if cfg!(debug_assertions) {
-            file.write_all(ParentImageBuilder::connect_to_enclave_command().as_bytes())
-                .map_err(|err| format!("Failed to write to file {:?}", err))?;
-        }
-
         file.set_execute().map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
 
         Ok(())
     }
 
     fn start_enclave_command(&self) -> String {
-        let sanitized_nitro_file = format!("'{}{}'", INSTALLATION_DIR, EnclaveImageBuilder::ENCLAVE_FILE_NAME);
-        let parent_bin = format!("{}parent", INSTALLATION_DIR);
+        let install_path = Path::new(INSTALLATION_DIR);
+        let nitro_file_path = install_path.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
+
+        let sanitized_nitro_file = format!("'{}'", nitro_file_path.display());
+
+        let parent_bin = install_path.join("parent");
 
         let cpu_count = self.start_options
             .cpu_count.
@@ -250,27 +266,28 @@ impl<'a> ParentImageBuilder<'a> {
             .map(|e| e.to_mb())
             .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
 
+        let (debug_mode, connect_to_enclave_cmd) = if cfg!(debug_assertions) {
+            ("--debug-mode", "nitro-cli console --enclave-name enclave")
+        } else {
+            ("", "")
+        };
+
         // We start the parent side of the vsock proxy before running the enclave because we want it running
         // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
         // parent process so our container will stay running as long as the parent process stays running.
-
-        let debug_mode = if cfg!(debug_assertions) { "--debug-mode" } else { "" };
-
         format!(
             "\n\
              # Parent startup code \n\
              {} --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} {}\n\
-             \n",
-            parent_bin,
+             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} {} \n\
+             {} \n\
+             fg \n",
+            parent_bin.display(),
             sanitized_nitro_file,
             cpu_count,
             memory_size,
-            debug_mode)
-    }
-
-    fn connect_to_enclave_command() -> String {
-        "nitro-cli console --enclave-name enclave \n".to_string()
+            debug_mode,
+            connect_to_enclave_cmd)
     }
 
     fn resources(&self) -> Vec<file::Resource> {

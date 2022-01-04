@@ -64,7 +64,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     result.map_err(|err| ConverterError {
         message: format!("Join error in convert task. {:?}", err),
         kind: ConverterErrorKind::InternalError
-    }).and_then(|e| e)
+    })?
 }
 
 async fn run0(args: NitroEnclavesConversionRequest, images_to_clean_snd: Sender<String>) -> Result<NitroEnclavesConversionResponse> {
@@ -109,7 +109,8 @@ async fn run0(args: NitroEnclavesConversionRequest, images_to_clean_snd: Sender<
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
         user_program_config,
-        certificate_config: args.request.converter_options.certificates
+        certificate_config: args.request.converter_options.certificates,
+        user: input_image.0.details.config.user.clone(),
     };
     let sender = images_to_clean_snd.clone();
     let nitro_image_result = enclave_builder.create_image(
