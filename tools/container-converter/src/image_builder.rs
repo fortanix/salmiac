@@ -143,7 +143,9 @@ impl<'a> EnclaveImageBuilder<'a> {
                 }
             };
 
-            let switch_user_cmd = if user_name != "root" {
+            // Quick fix for: https://fortanix.atlassian.net/browse/SALM-94
+            // Sets the home variable specifically for applications that require it to run
+            let switch_user_cmd = if user_name != "" && user_name != "root" {
                 format!("export HOME=/home/{};", user_name)
             } else {
                 String::new()
