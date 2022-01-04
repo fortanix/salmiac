@@ -1,3 +1,6 @@
+use etherparse::SlicedPacket;
+use etherparse::InternetSlice::Ipv4;
+use etherparse::TransportSlice::{Tcp, Unknown};
 use ipnetwork::IpNetwork;
 use log::{
     debug,
@@ -27,12 +30,19 @@ use shared::socket::{
 use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
+use std::collections::HashSet;
 use std::sync::mpsc;
 use std::thread;
-use std::net::IpAddr;
+use std::net::{IpAddr};
 use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
+use std::mem;
+
+// Position of a checksum field in TCP header according to rfc 793.
+const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
+
+const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
@@ -214,6 +224,7 @@ async fn get_ip_network(netlink_handle : &rtnetlink::Handle, device_index : u32)
 
 async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut enclave_stream: WriteHalf<AsyncVsockStream>) -> Result<(), String> {
     let mut count = 0 as u32;
+    let mut unsupported_protocols = HashSet::<u8>::new();
 
     loop {
         let packets = match capture.next().await {
@@ -230,7 +241,21 @@ async fn read_from_device_async(mut capture: Fuse<pcap_async::PacketStream>, mut
 
         for packet in packets {
 
-            enclave_stream.write_lv_bytes(packet.data()).await?;
+            let mut data = packet.into_data();
+
+            match recompute_packet_checksum(&mut data) {
+                Err(ChecksumComputationError::Err(err)) => {
+                    warn!("Failed recomputing checksum for a packet. {:?}", err);
+                }
+                Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
+                    if unsupported_protocols.insert(protocol) {
+                        warn!("Unsupported protocol {} encountered when recomputing checksum for a packet.", protocol);
+                    }
+                }
+                _ => {}
+            }
+
+            enclave_stream.write_lv_bytes(&data).await?;
 
             count = log_packet_processing(count, PACKET_LOG_STEP, "parent pcap");
         }
@@ -297,5 +322,98 @@ fn get_app_config_id() -> Option<String> {
             warn!("Failed reading env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID, assuming var is not set. {:?}", err);
             None
         }
+    }
+}
+
+enum ChecksumComputationError {
+    UnsupportedProtocol(u8),
+    Err(String)
+}
+
+fn recompute_packet_checksum(data : &mut[u8]) -> Result<(), ChecksumComputationError> {
+    let ethernet_packet = SlicedPacket::from_ethernet(&data)
+        .map_err(|err| ChecksumComputationError::Err(format!("Cannot parse ethernet packet. {:?}", err)))?;
+
+    let l3_checksum = match ethernet_packet.ip {
+        Some(Ipv4(ref ip_packet, _)) => {
+            let checksum = ip_packet.to_header()
+                .calc_header_checksum()
+                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing IPv4 checksum. {:?}", err)))?;
+
+            let offset = field_offset_in_packet(
+                data,
+                ip_packet.slice(),
+                IPV4_CHECKSUM_FIELD_INDEX);
+
+            Some((offset, checksum))
+        }
+        // Ipv6 packet doesn't have a checksum
+        _ => { None }
+    };
+
+    let l4_checksum = match (ethernet_packet.ip, ethernet_packet.transport) {
+        (Some(Ipv4(ip_packet, _)), Some(Tcp(tcp_packet))) => {
+
+            let checksum = tcp_packet.calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
+                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing TCP checksum. {:?}", err)))?;
+
+            let offset = field_offset_in_packet(
+                data,
+                tcp_packet.slice(),
+                TCP_CHECKSUM_FIELD_INDEX);
+
+            debug!("Computed new checksum for tcp packet. \
+             Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
+                   ip_packet.source_addr(),
+                   ip_packet.destination_addr(),
+                   ethernet_packet.payload.len(),
+                   tcp_packet.checksum(),
+                   checksum);
+
+            Some((offset, checksum))
+        }
+        (_, Some(Unknown(protocol_number))) => {
+            return Err(ChecksumComputationError::UnsupportedProtocol(protocol_number));
+        }
+        _ => None
+    };
+
+    if let Some((checksum_offset, checksum)) = l3_checksum {
+        update_checksum(data, checksum_offset, checksum)
+    }
+
+    if let Some((checksum_offset, checksum)) = l4_checksum {
+        update_checksum(data, checksum_offset, checksum);
+    }
+
+    Ok(())
+}
+
+fn update_checksum(packet : &mut[u8], checksum_offset : usize, checksum : u16) -> () {
+    let checksum_slice = &mut packet[checksum_offset..(checksum_offset + mem::size_of::<u16>())];
+
+    checksum_slice.copy_from_slice(&checksum.to_be_bytes())
+}
+
+/// Computes the offset of a field at index `header_field_index` in `header`
+/// relative to the start of `full_packet`.
+///
+/// # Panics
+/// Panics if `header` isn't contained within `full_packet` or if
+/// `header_field_index` isn't contained within `header`.
+fn field_offset_in_packet<'a>(full_packet: &'a [u8], header: &'a [u8], header_field_index: usize) -> usize {
+    assert!(full_packet.len() <= (isize::max_value() as usize)); // assertion 1
+    let full_packet = full_packet.as_ptr_range();
+    let field = header[header_field_index..].as_ptr_range();
+    assert!(full_packet.start <= field.start); // assertion 2
+    assert!(field.end <= full_packet.end); // assertion 3
+    // SAFETY, w.r.t. `field.start` and `full_packet.start`:
+    // Both pointers are in bounds of the same allocated object (`full_packet`, assertions 2 & 3).
+    // Both pointers are derived from a pointer to the same object (`full_packet`, assertions 2 & 3).
+    // The distance between the pointers, in bytes, is an exact multiple of the size of u8 (trivial, as the size is 1).
+    // The distance between the pointers, in bytes, doesn't overflow an isize (assertion 1).
+    // The distance between the pointers doesn't wrap around the address space (assertion 2).
+    unsafe {
+        field.start.offset_from(full_packet.start) as usize
     }
 }
