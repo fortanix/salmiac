@@ -139,7 +139,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 if let Some(pos) = enclave_settings.user.find(":") {
                     &enclave_settings.user[..pos]
                 } else {
-                    ""
+                    &enclave_settings.user
                 }
             };
 
@@ -277,6 +277,8 @@ impl<'a> ParentImageBuilder<'a> {
             .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
 
         let (debug_mode, connect_to_enclave_cmd) = if cfg!(debug_assertions) {
+            // todo: Change enclave name from a constant to a dynamic one
+            // when support for multiple enclaves will arrive
             ("--debug-mode", "nitro-cli console --enclave-name enclave")
         } else {
             ("", "")
