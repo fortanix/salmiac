@@ -14,8 +14,8 @@ source /etc/profile.d/nitro-cli-env.sh
 nitro-cli --version
 
 # Instruct the kernel to drop any incoming packets as
-# those will be handled by the parent program
+# those asdsawill be handled by the parent program
 iptables -A INPUT -m socket -j ACCEPT
 iptables -P INPUT DROP
 ip a
-ip link set dev eth0 mtu 2000
+ip link set dev eth0 mtu 1600
