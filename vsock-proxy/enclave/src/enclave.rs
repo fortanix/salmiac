@@ -1,5 +1,5 @@
 use async_process::Command;
-use log::{debug, info};
+use log::{debug, info, error};
 use nix::net::if_::if_nametoindex;
 use nix::ioctl_write_ptr;
 use tokio_vsock::VsockStream as AsyncVsockStream;
@@ -22,6 +22,10 @@ use std::os::unix::io::{AsRawFd};
 use std::time::Duration;
 use std::thread;
 use std::mem;
+use mbedtls::x509::Certificate;
+use std::sync::Arc;
+use em_app::CsrSigner;
+
 
 const ENTROPY_BYTES_COUNT : usize = 126;
 const ENTROPY_REFRESH_PERIOD : u64 = 30;
@@ -49,7 +53,7 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
         start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD)
     });
 
-    let (tap_read, tap_write) = io::split(async_tap_device);
+    let (tap_read, tap_write) = io::split(async_tap_device.tap_device);
     let (vsock_read, vsock_write) = io::split(parent_data_port);
 
     let mtu = parent_settings.mtu;
@@ -65,6 +69,11 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
     let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));
 
     debug!("Started client program!");
+
+    if let (Some(certificate), Some(key)) = (async_tap_device.certificate, async_tap_device.key) {
+        setup_corvin(certificate, key)?;
+        return Err("FINSIHED CORVIN".to_string())
+    }
 
     // We wait for the first future to complete.
     // Loop futures will never complete with success because they run forever
@@ -83,6 +92,29 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
             result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
         },
     }
+}
+
+fn setup_corvin(mut certificate : String, mut key : Pk) -> Result<(), String> {
+    info!("Setting up Corvin configuration");
+
+    certificate.push('\0');
+
+    let app_cert = Certificate::from_pem_multiple(&certificate.as_bytes())
+        .map_err(|e| format!("Parsing certificate failed: {:?}", e))?;
+
+    info!("Requesting application config");
+
+    let app_config = em_app::utils::get_runtime_configuration(
+        "test.otilia.dev",
+        9090,
+        Arc::new(app_cert),
+        Arc::new(key),
+        None,
+        None).map_err(|e| format!("Failed retrieving application configuration: {:?}", e))?;
+
+    error!("APP CONF IS {:?}", app_config);
+
+    Ok(())
 }
 
 async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
@@ -141,8 +173,8 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
     }
 }
 
-async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, cert_settings : &Vec<CertificateConfig>) -> Result<AsyncDevice, String> {
-    let async_tap_device = setup_enclave_networking(&parent_settings).await?;
+async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, cert_settings : &Vec<CertificateConfig>) -> Result<EnclaveSetupResult, String> {
+    let tap_device = setup_enclave_networking(&parent_settings).await?;
 
     info!("Finished enclave network setup!");
 
@@ -150,9 +182,16 @@ async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &Network
     let app_config_id = extract_enum_value!(app_config_id_msg, SetupMessages::ApplicationConfigId(e) => e)?;
 
     let mut num_certs : u64 = 0;
+
+    let mut certificate : Option<String> = None;
+    let mut key : Option<Pk> = None;
+
     // Zero or more certificate requests.
     for cert in cert_settings {
-        setup_enclave_certification(vsock, &app_config_id, &cert).await?;
+        let (cert, k) = setup_enclave_certification(vsock, &app_config_id, &cert).await?;
+        certificate = Some(cert);
+        key = Some(k);
+
         num_certs += 1;
     }
 
@@ -161,7 +200,19 @@ async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &Network
     vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
     info!("Notified parent that setup was successful");
 
-    Ok(async_tap_device)
+    Ok(EnclaveSetupResult {
+        tap_device,
+        certificate,
+        key
+    })
+}
+
+struct EnclaveSetupResult {
+    tap_device : AsyncDevice,
+
+    certificate : Option<String>,
+
+    key : Option<Pk>
 }
 
 async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
@@ -212,7 +263,7 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
 }
 
 async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, app_config_id: &Option<String>,
-                                     cert_settings : &CertificateConfig) -> Result<(), String> {
+                                     cert_settings : &CertificateConfig) -> Result<(String, Pk), String> {
     let mut rng = Rdrand;
     let mut key = Pk::generate_rsa(&mut rng, 3072, 0x10001)
         .map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
@@ -221,7 +272,7 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, app_config_i
         .as_ref()
         .map(|e| e.as_str())
         .unwrap_or("localhost");
-
+    info!("APPID IS {:?}", app_config_id);
     let csr = em_app::get_remote_attestation_csr(
         "localhost", //this param is not used for now
         common_name,
@@ -235,6 +286,8 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, app_config_i
     let certificate_msg: SetupMessages = vsock.read_lv().await?;
 
     let certificate = extract_enum_value!(certificate_msg, SetupMessages::Certificate(s) => s)?;
+
+    info!("CERTIFICATE IS {}", certificate);
 
     let key_as_pem = key.write_private_pem_string()
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
@@ -250,7 +303,9 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream, app_config_i
         .unwrap_or("cert");
 
     create_key_file(Path::new(key_path), &key_as_pem)?;
-    create_key_file(Path::new(certificate_path), &certificate)
+    create_key_file(Path::new(certificate_path), &certificate)?;
+
+    Ok((certificate, key))
 }
 
 async fn connect_to_parent_async(port : u32) -> Result<AsyncVsockStream, String> {
