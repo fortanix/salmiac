@@ -17,10 +17,16 @@ pub enum SetupMessages {
     CSR(String),
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
-    ApplicationConfigId(Option<String>)
+    ApplicationConfig(ApplicationConfiguration)
 }
 
-#[repr(C)]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApplicationConfiguration {
+    pub id: Option<String>,
+
+    pub ccm_backend_url: Option<String>
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkSettings {
     pub self_l2_address: [u8; 6],

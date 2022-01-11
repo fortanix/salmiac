@@ -18,7 +18,7 @@ use futures::{StreamExt};
 use futures::stream::Fuse;
 
 use crate::packet_capture::{open_packet_capture, open_async_packet_capture};
-use shared::device::{NetworkSettings, SetupMessages};
+use shared::device::{NetworkSettings, SetupMessages, ApplicationConfiguration};
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::netlink::{AddressMessageExt, LinkMessageExt, RouteMessageExt};
 use shared::{netlink, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing};
@@ -38,6 +38,7 @@ use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
 use std::mem;
+use shared::device::SetupMessages::ApplicationConfig;
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -120,9 +121,14 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
 }
 
 async fn communicate_certificates(vsock : &mut AsyncVsockStream) -> Result<(), String> {
-    let app_config_id = get_app_config_id();
+    {
+        let application_configuration = ApplicationConfiguration {
+            id : get_app_config_id(),
+            ccm_backend_url : env_var_or_none("CCM_BACKEND")
+        };
 
-    vsock.write_lv(&SetupMessages::ApplicationConfigId(app_config_id)).await?;
+        vsock.write_lv(&SetupMessages::ApplicationConfig(application_configuration)).await?;
+    }
 
     // Don't bother looking for a node agent address unless there's at least one certificate configured. This allows us to run
     // with the NODE_AGENT environment variable being unset, if there are no configured certificates.
@@ -139,7 +145,8 @@ async fn communicate_certificates(vsock : &mut AsyncVsockStream) -> Result<(), S
                 let addr = match node_agent_address {
                     Some(ref addr) => addr.clone(),
                     None => {
-                        let result = env::var("NODE_AGENT").map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
+                        let result = env::var("NODE_AGENT")
+                            .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
 
                         let addr = if !result.starts_with("http://") {
                            "http://".to_string() + &result
@@ -151,8 +158,8 @@ async fn communicate_certificates(vsock : &mut AsyncVsockStream) -> Result<(), S
                     },
                 };
                 let certificate = em_app::request_issue_certificate(&addr, csr)
-                .map_err(|err| format!("Failed to receive certificate {:?}", err))
-                .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
+                    .map_err(|err| format!("Failed to receive certificate {:?}", err))
+                    .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
 
                 vsock.write_lv(&SetupMessages::Certificate(certificate)).await?;
             },
@@ -324,6 +331,24 @@ fn get_app_config_id() -> Option<String> {
         }
     }
 }
+
+fn env_var_or_none(var_name : &str) -> Option<String> {
+    match env::var(var_name) {
+        Ok(result) => {
+            Some(result)
+        }
+        Err(err) => {
+            warn!("Failed reading env var {}, assuming var is not set. {:?}", var_name, err);
+            None
+        }
+    }
+}
+
+/*fn get_ccm_backend_url() -> Result<Option<String>, String> {
+    let raw_url = env_var_or_none("CCM_BACKEND")
+        .map(|e| )
+
+}*/
 
 enum ChecksumComputationError {
     UnsupportedProtocol(u8),
