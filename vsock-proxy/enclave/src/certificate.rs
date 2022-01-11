@@ -9,8 +9,6 @@ use shared::extract_enum_value;
 use crate::enclave::create_file;
 
 use std::path::Path;
-use std::fs;
-use std::io::{Write};
 
 const RSA_SIZE: u32 = 3072;
 

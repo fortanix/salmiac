@@ -2,16 +2,18 @@ use async_process::Command;
 use log::{debug, info};
 use nix::net::if_::if_nametoindex;
 use nix::ioctl_write_ptr;
-use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::{VsockStream as AsyncVsockStream};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::task::JoinHandle;
 use tun::AsyncDevice;
 
 use api_model::CertificateConfig;
 use api_model::shared::EnclaveSettings;
-
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use crate::certificate::{CertificateResult, request_certificate, write_certificate_info_to_file_system};
+use crate::corvin::{setup_application_configuration};
 
 use std::net::IpAddr;
 use std::path::{Path};
@@ -21,11 +23,6 @@ use std::os::unix::io::{AsRawFd};
 use std::time::Duration;
 use std::thread;
 use std::mem;
-use mbedtls::x509::Certificate;
-use std::sync::Arc;
-use crate::certificate::{CertificateResult, request_certificate, write_certificate_info_to_file_system};
-use crate::corvin::{setup_application_configuration};
-
 
 const ENTROPY_BYTES_COUNT : usize = 126;
 const ENTROPY_REFRESH_PERIOD : u64 = 30;
@@ -33,14 +30,13 @@ const ENTROPY_REFRESH_PERIOD : u64 = 30;
 pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramExitStatus, String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
-    info!("FUCK YOU !!!");
     debug!("Received enclave settings {:?}", enclave_settings);
 
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
     info!("Connected to parent!");
 
-    let parent_data_port = connect_to_parent_async(DATA_SOCKET).await?;
+    let parent_networking_port = connect_to_parent_async(DATA_SOCKET).await?;
 
     info!("Connected to parent to transmit data!");
 
@@ -54,18 +50,12 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
         start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD)
     });
 
-    let (tap_read, tap_write) = io::split(setup_result.tap_device);
-    let (vsock_read, vsock_write) = io::split(parent_data_port);
-
     let mtu = parent_settings.mtu;
 
-    let read_tap_loop = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
-
-    debug!("Started tap read loop!");
-
-    let write_tap_loop = tokio::spawn(write_to_tap_async(tap_write, vsock_read));
-
-    debug!("Started tap write loop!");
+    let (read_tap_loop, write_tap_loop) = start_tap_loops(
+        setup_result.tap_device,
+        parent_networking_port,
+        mtu);
 
     // We can request application configuration only after we start our tap loops,
     // because the function makes a network request
@@ -94,6 +84,21 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
             result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
         },
     }
+}
+
+fn start_tap_loops(tap_device : AsyncDevice, vsock : AsyncVsockStream, mtu : u32) -> (JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>) {
+    let (tap_read, tap_write) = io::split(tap_device);
+    let (vsock_read, vsock_write) = io::split(vsock);
+
+    let read_tap_loop = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
+
+    debug!("Started tap read loop!");
+
+    let write_tap_loop = tokio::spawn(write_to_tap_async(tap_write, vsock_read));
+
+    debug!("Started tap write loop!");
+
+    (read_tap_loop, write_tap_loop)
 }
 
 async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {

@@ -8,12 +8,13 @@ use log::{
     warn
 };
 use nix::net::if_::if_nametoindex;
-use pcap::{Active, Capture};
+use pcap::{Active, Capture, Device};
 use rtnetlink::packet::{RouteMessage};
 use tokio::io;
 use tokio::io::{WriteHalf, ReadHalf};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio_vsock::VsockListener as AsyncVsockListener;
+use tokio::task::JoinHandle;
 use futures::{StreamExt};
 use futures::stream::Fuse;
 
@@ -38,7 +39,6 @@ use std::sync::mpsc::TryRecvError;
 use std::env;
 use std::fs;
 use std::mem;
-use shared::device::SetupMessages::ApplicationConfig;
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -49,14 +49,14 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave!");
 
     let mut enclave_listener = listen_to_parent(vsock_port)?;
-    let mut data_listener = listen_to_parent(DATA_SOCKET)?;
+    let mut networking_listener = listen_to_parent(DATA_SOCKET)?;
 
-    let (enclave_port_result, enclave_data_port_result) = tokio::join!(
+    let (enclave_port_result, enclave_networking_port_result) = tokio::join!(
         accept(&mut enclave_listener),
-        accept(&mut data_listener));
+        accept(&mut networking_listener));
 
     let mut enclave_port = enclave_port_result?;
-    let enclave_data_port = enclave_data_port_result?;
+    let enclave_networking_port = enclave_networking_port_result?;
 
     info!("Connected to enclave!");
 
@@ -68,18 +68,10 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     let mtu = network_settings.mtu;
     communicate_enclave_settings(network_settings, &mut enclave_port).await?;
 
-    let read_capture = open_async_packet_capture(&parent_device.name, mtu)?;
-    let write_capture = open_packet_capture(parent_device)?;
-
-    let (vsock_read, vsock_write) = io::split(enclave_data_port);
-
-    let pcap_read_loop = tokio::spawn(read_from_device_async(read_capture, vsock_write));
-
-    debug!("Started pcap read loop!");
-
-    let pcap_write_loop = tokio::spawn(write_to_device_async(write_capture, vsock_read));
-
-    debug!("Started pcap write loop!");
+    let (pcap_read_loop, pcap_write_loop) = start_pcap_loops(
+        parent_device,
+        enclave_networking_port,
+        mtu)?;
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -94,6 +86,23 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
             result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
         },
     }
+}
+
+fn start_pcap_loops(network_device : Device, vsock : AsyncVsockStream, mtu : u32) -> Result<(JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>), String> {
+    let read_capture = open_async_packet_capture(&network_device.name, mtu)?;
+    let write_capture = open_packet_capture(network_device)?;
+
+    let (vsock_read, vsock_write) = io::split(vsock);
+
+    let pcap_read_loop = tokio::spawn(read_from_device_async(read_capture, vsock_write));
+
+    debug!("Started pcap read loop!");
+
+    let pcap_write_loop = tokio::spawn(write_to_device_async(write_capture, vsock_read));
+
+    debug!("Started pcap write loop!");
+
+    Ok((pcap_read_loop, pcap_write_loop))
 }
 
 async fn await_user_program_return(mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {

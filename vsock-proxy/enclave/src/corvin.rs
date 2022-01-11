@@ -7,15 +7,24 @@ use crate::enclave::create_file;
 
 use std::sync::Arc;
 use std::path::Path;
+use std::fs;
 
-pub fn setup_application_configuration(mut certificate_info : CertificateResult, ccm_backend_url : &str) -> Result<(), String> {
+const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/ro";
+
+pub fn setup_application_configuration(certificate_info : CertificateResult, ccm_backend_url : &str) -> Result<(), String> {
     info!("Setting up Corvin configuration");
 
     let app_config = request_application_configuration(certificate_info, ccm_backend_url)?;
+
+    debug!("Received application configuration {:?}", app_config);
+
     let data = serde_json::to_string(&app_config)
         .map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
 
-    create_file(Path::new("/opt/fortanix/enclave-os/app-config/ro/app-config.json"), &data)
+    fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
+        .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
+
+    create_file(Path::new(&format!("{}/app-config.json", APPLICATION_CONFIG_DIR)), &data)
 }
 
 fn request_application_configuration(mut certificate_info : CertificateResult, ccm_backend_url : &str) -> Result<RuntimeAppConfig, String> {
