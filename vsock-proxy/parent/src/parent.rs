@@ -131,9 +131,21 @@ async fn communicate_network_settings(settings : NetworkSettings, vsock : &mut A
 
 async fn communicate_certificates(vsock : &mut AsyncVsockStream) -> Result<(), String> {
     {
+        let ccm_backend_url = match get_ccm_backend_url() {
+            Some(Ok(x)) => {
+                Some(x)
+            }
+            Some(Err(err)) => {
+                return Err(err)
+            }
+            None => {
+                None
+            }
+        };
+
         let application_configuration = ApplicationConfiguration {
             id : get_app_config_id(),
-            ccm_backend_url : env_var_or_none("CCM_BACKEND")
+            ccm_backend_url
         };
 
         vsock.write_lv(&SetupMessages::ApplicationConfig(application_configuration)).await?;
@@ -353,11 +365,29 @@ fn env_var_or_none(var_name : &str) -> Option<String> {
     }
 }
 
-/*fn get_ccm_backend_url() -> Result<Option<String>, String> {
-    let raw_url = env_var_or_none("CCM_BACKEND")
-        .map(|e| )
+fn get_ccm_backend_url() -> Option<Result<String, String>> {
+    match env_var_or_none("CCM_BACKEND") {
+        Some(url) => {
+            let split : Vec<_> = url.split(":").collect();
 
-}*/
+            if split.len() != 2 {
+                return Some(Err("CCM_BACKEND should be in format <ip address>:<port>".to_string()))
+            }
+
+            match split[1].parse::<u16>() {
+                Err(err) => {
+                    Some(Err(format!("CCM_BACKEND port should be a number. {:?}", err)))
+                }
+                _ => {
+                    Some(Ok(url))
+                }
+            }
+        }
+        None => {
+            None
+        }
+    }
+}
 
 enum ChecksumComputationError {
     UnsupportedProtocol(u8),

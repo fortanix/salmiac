@@ -12,11 +12,9 @@ use std::fs;
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/ro";
 
 pub fn setup_application_configuration(certificate_info : CertificateResult, ccm_backend_url : &str) -> Result<(), String> {
-    info!("Setting up Corvin configuration");
+    info!("Setting up Corvin configuration.");
 
     let app_config = request_application_configuration(certificate_info, ccm_backend_url)?;
-
-    debug!("Received application configuration {:?}", app_config);
 
     let data = serde_json::to_string(&app_config)
         .map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
@@ -33,7 +31,7 @@ fn request_application_configuration(mut certificate_info : CertificateResult, c
     let app_cert = Certificate::from_pem_multiple(&certificate_info.certificate.as_bytes())
         .map_err(|e| format!("Parsing certificate failed: {:?}", e))?;
 
-    info!("Requesting application config");
+    info!("Requesting application configuration.");
 
     let (url, port) = {
         let split : Vec<_> = ccm_backend_url.split(":").collect();
