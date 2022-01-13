@@ -24,7 +24,36 @@ pub enum SetupMessages {
 pub struct ApplicationConfiguration {
     pub id: Option<String>,
 
-    pub ccm_backend_url: Option<String>
+    pub ccm_backend_url: Option<CCMBackendUrl>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CCMBackendUrl {
+    pub host: String,
+
+    pub port: u16
+}
+
+impl CCMBackendUrl {
+    pub fn new(url: &str) -> Result<Self, String> {
+        let split: Vec<_> = url.split(":").collect();
+
+        if split.len() != 2 {
+            return Err("CCM_BACKEND should be in format <ip address>:<port>".to_string());
+        }
+
+        match split[1].parse::<u16>() {
+            Err(err) => {
+                Err(format!("CCM_BACKEND port should be a number. {:?}", err))
+            }
+            Ok(port) => {
+                Ok(CCMBackendUrl {
+                    host: split[0].to_string(),
+                    port,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

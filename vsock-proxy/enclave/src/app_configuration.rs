@@ -1,17 +1,20 @@
 use mbedtls::x509::Certificate;
-use log::{debug, info};
+use log::{info};
 use em_app::utils::models::RuntimeAppConfig;
 
+use shared::device::CCMBackendUrl;
 use crate::certificate::CertificateResult;
-use crate::enclave::create_file;
+use crate::enclave::write_to_file;
 
 use std::sync::Arc;
 use std::path::Path;
 use std::fs;
 
-const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/ro";
+const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
 
-pub fn setup_application_configuration(certificate_info : CertificateResult, ccm_backend_url : &str) -> Result<(), String> {
+const APPLICATION_CONFIG_FILE: &str = "/opt/fortanix/enclave-os/app-config/rw/app-config.json";
+
+pub fn setup_application_configuration(certificate_info : CertificateResult, ccm_backend_url : &CCMBackendUrl) -> Result<(), String> {
     info!("Setting up Corvin configuration.");
 
     let app_config = request_application_configuration(certificate_info, ccm_backend_url)?;
@@ -22,10 +25,10 @@ pub fn setup_application_configuration(certificate_info : CertificateResult, ccm
     fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
         .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
 
-    create_file(Path::new(&format!("{}/app-config.json", APPLICATION_CONFIG_DIR)), &data)
+    write_to_file(Path::new(APPLICATION_CONFIG_FILE), &data)
 }
 
-fn request_application_configuration(mut certificate_info : CertificateResult, ccm_backend_url : &str) -> Result<RuntimeAppConfig, String> {
+fn request_application_configuration(mut certificate_info : CertificateResult, ccm_backend_url : &CCMBackendUrl) -> Result<RuntimeAppConfig, String> {
     certificate_info.certificate.push('\0');
 
     let app_cert = Certificate::from_pem_multiple(&certificate_info.certificate.as_bytes())
@@ -33,14 +36,9 @@ fn request_application_configuration(mut certificate_info : CertificateResult, c
 
     info!("Requesting application configuration.");
 
-    let (url, port) = {
-        let split : Vec<_> = ccm_backend_url.split(":").collect();
-        (split[0], split[1].parse::<u16>().unwrap())
-    };
-
     em_app::utils::get_runtime_configuration(
-        url,
-        port,
+        &ccm_backend_url.host,
+        ccm_backend_url.port,
         Arc::new(app_cert),
         Arc::new(certificate_info.key),
         None,

@@ -9,11 +9,11 @@ use tun::AsyncDevice;
 
 use api_model::CertificateConfig;
 use api_model::shared::EnclaveSettings;
-use shared::device::{NetworkSettings, SetupMessages};
+use shared::device::{NetworkSettings, SetupMessages, CCMBackendUrl};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use crate::certificate::{CertificateResult, request_certificate, write_certificate_info_to_file_system};
-use crate::corvin::{setup_application_configuration};
+use crate::app_configuration::{setup_application_configuration};
 
 use std::net::IpAddr;
 use std::path::{Path};
@@ -38,7 +38,7 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
 
     let parent_networking_port = connect_to_parent_async(DATA_SOCKET).await?;
 
-    info!("Connected to parent to transmit data!");
+    info!("Connected to parent to transmit network packets!");
 
     let msg : SetupMessages = parent_port.read_lv().await?;
 
@@ -158,12 +158,16 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
 }
 
 async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, cert_settings : &Vec<CertificateConfig>) -> Result<EnclaveSetupResult, String> {
+    let app_config_msg: SetupMessages = vsock.read_lv().await?;
+    let app_config = extract_enum_value!(app_config_msg, SetupMessages::ApplicationConfig(e) => e)?;
+
+    if !cert_settings.is_empty() && app_config.ccm_backend_url.is_none() {
+        return Err("CCM_BACKEND env var must be set when application requires a certificate!".to_string())
+    }
+
     let tap_device = setup_enclave_networking(&parent_settings).await?;
 
     info!("Finished enclave network setup!");
-
-    let app_config_msg: SetupMessages = vsock.read_lv().await?;
-    let app_config = extract_enum_value!(app_config_msg, SetupMessages::ApplicationConfig(e) => e)?;
 
     let certificate_info = setup_enclave_certification(vsock, &app_config.id, &cert_settings).await?;
 
@@ -182,7 +186,7 @@ struct EnclaveSetupResult {
 
     certificate_info : Option<CertificateResult>,
 
-    ccm_backend : Option<String>
+    ccm_backend : Option<CCMBackendUrl>
 }
 
 async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
@@ -380,13 +384,7 @@ impl Drop for NSMDevice {
     }
 }
 
-pub fn create_file(path : &Path, data: &str) -> Result<(), String> {
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(path)
-        .map_err(|err| format!("Failed to create file {}. {:?}", path.display(), err))?;
-
-    file.write_all(data.as_bytes())
+pub fn write_to_file(path : &Path, data: &str) -> Result<(), String> {
+    fs::write(path, data.as_bytes())
         .map_err(|err| format!("Failed to write data into file {}. {:?}", path.display(), err))
 }

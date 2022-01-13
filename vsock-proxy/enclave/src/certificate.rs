@@ -6,7 +6,7 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::device::SetupMessages;
 use shared::extract_enum_value;
-use crate::enclave::create_file;
+use crate::enclave::write_to_file;
 
 use std::path::Path;
 
@@ -55,14 +55,12 @@ pub async fn request_certificate(vsock : &mut AsyncVsockStream,
 pub fn write_certificate_info_to_file_system(key : &str, certificate : &str, settings : &CertificateConfig) -> Result<(), String> {
     let key_path = settings.key_path
         .as_ref()
-        .map(|e| e.as_str())
-        .unwrap_or("key");
+        .map_or( "key", |e| e.as_str());
 
     let certificate_path = settings.cert_path
         .as_ref()
-        .map(|e| e.as_str())
-        .unwrap_or("cert");
+        .map_or("cert", |e| e.as_str());
 
-    create_file(Path::new(key_path), &key)?;
-    create_file(Path::new(certificate_path), &certificate)
+    write_to_file(Path::new(key_path), &key)?;
+    write_to_file(Path::new(certificate_path), &certificate)
 }

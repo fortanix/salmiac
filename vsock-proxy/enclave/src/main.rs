@@ -1,6 +1,6 @@
 mod enclave;
 mod certificate;
-mod corvin;
+mod app_configuration;
 
 use clap::{ArgMatches, App, AppSettings, Arg};
 use log::{error, debug};
