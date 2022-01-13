@@ -24,7 +24,9 @@ pub enum SetupMessages {
 pub struct ApplicationConfiguration {
     pub id: Option<String>,
 
-    pub ccm_backend_url: Option<CCMBackendUrl>
+    pub ccm_backend_url: Option<CCMBackendUrl>,
+
+    pub skip_server_verify: bool
 }
 
 #[derive(Serialize, Deserialize, Debug)]

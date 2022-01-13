@@ -9,7 +9,7 @@ use tun::AsyncDevice;
 
 use api_model::CertificateConfig;
 use api_model::shared::EnclaveSettings;
-use shared::device::{NetworkSettings, SetupMessages, CCMBackendUrl};
+use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use crate::certificate::{CertificateResult, request_certificate, write_certificate_info_to_file_system};
@@ -40,11 +40,25 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
 
     info!("Connected to parent to transmit network packets!");
 
-    let msg : SetupMessages = parent_port.read_lv().await?;
+    let parent_settings = {
+        let msg : SetupMessages = parent_port.read_lv().await?;
+        extract_enum_value!(msg, SetupMessages::Settings(s) => s)?
+    };
 
-    let parent_settings = extract_enum_value!(msg, SetupMessages::Settings(s) => s)?;
+    let app_config = {
+        let app_config_msg: SetupMessages = parent_port.read_lv().await?;
+        extract_enum_value!(app_config_msg, SetupMessages::ApplicationConfig(e) => e)?
+    };
 
-    let setup_result = setup_enclave(&mut parent_port, &parent_settings, &enclave_settings.certificate_config).await?;
+    if !enclave_settings.certificate_config.is_empty() && app_config.ccm_backend_url.is_none() {
+        return Err("CCM_BACKEND env var must be set when application requires a certificate!".to_string())
+    }
+
+    let setup_result = setup_enclave(
+        &mut parent_port,
+        &parent_settings,
+        &enclave_settings.certificate_config,
+        &app_config.id).await?;
 
     let entropy_loop = tokio::task::spawn_blocking(|| {
         start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD)
@@ -59,8 +73,8 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
 
     // We can request application configuration only after we start our tap loops,
     // because the function makes a network request
-    if let (Some(certificate_info), Some(ccm_backend)) = (setup_result.certificate_info, setup_result.ccm_backend) {
-        setup_application_configuration(certificate_info, &ccm_backend)?;
+    if let (Some(certificate_info), Some(ccm_backend_url)) = (setup_result.certificate_info, app_config.ccm_backend_url) {
+        setup_application_configuration(certificate_info, &ccm_backend_url, app_config.skip_server_verify)?;
     }
 
     let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));
@@ -157,27 +171,19 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
     }
 }
 
-async fn setup_enclave(vsock : &mut AsyncVsockStream, parent_settings : &NetworkSettings, cert_settings : &Vec<CertificateConfig>) -> Result<EnclaveSetupResult, String> {
-    let app_config_msg: SetupMessages = vsock.read_lv().await?;
-    let app_config = extract_enum_value!(app_config_msg, SetupMessages::ApplicationConfig(e) => e)?;
-
-    if !cert_settings.is_empty() && app_config.ccm_backend_url.is_none() {
-        return Err("CCM_BACKEND env var must be set when application requires a certificate!".to_string())
-    }
-
-    let tap_device = setup_enclave_networking(&parent_settings).await?;
+async fn setup_enclave(vsock : &mut AsyncVsockStream, network_settings: &NetworkSettings, cert_configs: &Vec<CertificateConfig>, application_id: &Option<String>) -> Result<EnclaveSetupResult, String> {
+    let tap_device = setup_enclave_networking(&network_settings).await?;
 
     info!("Finished enclave network setup!");
 
-    let certificate_info = setup_enclave_certification(vsock, &app_config.id, &cert_settings).await?;
+    let certificate_info = setup_enclave_certification(vsock, application_id, &cert_configs).await?;
 
     vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
     info!("Notified parent that setup was successful");
 
     Ok(EnclaveSetupResult {
         tap_device,
-        certificate_info,
-        ccm_backend: app_config.ccm_backend_url
+        certificate_info
     })
 }
 
@@ -185,8 +191,6 @@ struct EnclaveSetupResult {
     tap_device : AsyncDevice,
 
     certificate_info : Option<CertificateResult>,
-
-    ccm_backend : Option<CCMBackendUrl>
 }
 
 async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {

@@ -17,5 +17,6 @@ nitro-cli --version
 # those will be handled by the parent program
 iptables -A INPUT -m socket -j ACCEPT
 iptables -P INPUT DROP
-ip a
+
+# This is a workaround for https://fortanix.atlassian.net/browse/SALM-112
 ip link set dev eth0 mtu 1600

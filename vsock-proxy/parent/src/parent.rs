@@ -31,6 +31,7 @@ use shared::socket::{
 use shared::vec_to_ip4;
 
 use std::convert::TryFrom;
+use std::str::FromStr;
 use std::collections::HashSet;
 use std::sync::mpsc;
 use std::thread;
@@ -135,9 +136,14 @@ async fn communicate_certificates(vsock : &mut AsyncVsockStream) -> Result<(), S
             .map(|e| CCMBackendUrl::new(&e))
             .transpose()?;
 
+        let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
+            .map_or(Ok(false), |e| bool::from_str(&e))
+            .map_err(|err| format!("Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}", err))?;
+
         let application_configuration = ApplicationConfiguration {
             id : get_app_config_id(),
-            ccm_backend_url
+            ccm_backend_url,
+            skip_server_verify
         };
 
         vsock.write_lv(&SetupMessages::ApplicationConfig(application_configuration)).await?;
