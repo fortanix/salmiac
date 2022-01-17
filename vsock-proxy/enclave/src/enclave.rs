@@ -1,33 +1,36 @@
 use async_process::Command;
 use log::{debug, info};
-use nix::net::if_::if_nametoindex;
 use nix::ioctl_write_ptr;
-use tokio_vsock::{VsockStream as AsyncVsockStream};
+use nix::net::if_::if_nametoindex;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
+use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
-use api_model::CertificateConfig;
+use crate::app_configuration::setup_application_configuration;
+use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
+use api_model::CertificateConfig;
 use shared::device::{NetworkSettings, SetupMessages};
-use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use crate::certificate::{CertificateResult, request_certificate, write_certificate_info_to_file_system};
-use crate::app_configuration::{setup_application_configuration};
+use shared::{
+    extract_enum_value, handle_background_task_exit, log_packet_processing, UserProgramExitStatus, DATA_SOCKET,
+    PACKET_LOG_STEP, VSOCK_PARENT_CID,
+};
 
-use std::net::IpAddr;
-use std::path::{Path};
 use std::fs;
-use std::io::{Write};
-use std::os::unix::io::{AsRawFd};
-use std::time::Duration;
-use std::thread;
+use std::io::Write;
 use std::mem;
+use std::net::IpAddr;
+use std::os::unix::io::AsRawFd;
+use std::path::Path;
+use std::thread;
+use std::time::Duration;
 
-const ENTROPY_BYTES_COUNT : usize = 126;
-const ENTROPY_REFRESH_PERIOD : u64 = 30;
+const ENTROPY_BYTES_COUNT: usize = 126;
+const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
-pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramExitStatus, String> {
+pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
@@ -41,7 +44,7 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
     info!("Connected to parent to transmit network packets!");
 
     let parent_settings = {
-        let msg : SetupMessages = parent_port.read_lv().await?;
+        let msg: SetupMessages = parent_port.read_lv().await?;
         extract_enum_value!(msg, SetupMessages::Settings(s) => s)?
     };
 
@@ -51,25 +54,22 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
     };
 
     if !enclave_settings.certificate_config.is_empty() && app_config.ccm_backend_url.is_none() {
-        return Err("CCM_BACKEND env var must be set when application requires a certificate!".to_string())
+        return Err("CCM_BACKEND env var must be set when application requires a certificate!".to_string());
     }
 
     let setup_result = setup_enclave(
         &mut parent_port,
         &parent_settings,
         &enclave_settings.certificate_config,
-        &app_config.id).await?;
+        &app_config.id,
+    )
+    .await?;
 
-    let entropy_loop = tokio::task::spawn_blocking(|| {
-        start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD)
-    });
+    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
 
     let mtu = parent_settings.mtu;
 
-    let (read_tap_loop, write_tap_loop) = start_tap_loops(
-        setup_result.tap_device,
-        parent_networking_port,
-        mtu);
+    let (read_tap_loop, write_tap_loop) = start_tap_loops(setup_result.tap_device, parent_networking_port, mtu);
 
     // We can request application configuration only after we start our tap loops,
     // because the function makes a network request
@@ -100,7 +100,11 @@ pub async fn run(vsock_port: u32, settings_path : &Path) -> Result<UserProgramEx
     }
 }
 
-fn start_tap_loops(tap_device : AsyncDevice, vsock : AsyncVsockStream, mtu : u32) -> (JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>) {
+fn start_tap_loops(
+    tap_device: AsyncDevice,
+    vsock: AsyncVsockStream,
+    mtu: u32,
+) -> (JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>) {
     let (tap_read, tap_write) = io::split(tap_device);
     let (vsock_read, vsock_write) = io::split(vsock);
 
@@ -115,17 +119,22 @@ fn start_tap_loops(tap_device : AsyncDevice, vsock : AsyncVsockStream, mtu : u32
     (read_tap_loop, write_tap_loop)
 }
 
-async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
+async fn start_user_program(
+    enclave_settings: EnclaveSettings,
+    mut vsock: AsyncVsockStream,
+) -> Result<UserProgramExitStatus, String> {
     let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
 
     if !enclave_settings.user_program_config.arguments.is_empty() {
         client_command.args(enclave_settings.user_program_config.arguments.clone());
     }
 
-    let client_program = client_command.spawn()
+    let client_program = client_command
+        .spawn()
         .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
-    let output = client_program.output()
+    let output = client_program
+        .output()
         .await
         .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
 
@@ -140,7 +149,11 @@ async fn start_user_program(enclave_settings : EnclaveSettings, mut vsock : Asyn
     Ok(result)
 }
 
-async fn read_from_tap_async(mut device: ReadHalf<AsyncDevice>, mut vsock : WriteHalf<AsyncVsockStream>, buf_len : u32) -> Result<(), String> {
+async fn read_from_tap_async(
+    mut device: ReadHalf<AsyncDevice>,
+    mut vsock: WriteHalf<AsyncVsockStream>,
+    buf_len: u32,
+) -> Result<(), String> {
     let mut buf = vec![0 as u8; buf_len as usize];
     let mut count = 0 as u32;
 
@@ -149,7 +162,8 @@ async fn read_from_tap_async(mut device: ReadHalf<AsyncDevice>, mut vsock : Writ
             .await
             .map_err(|err| format!("Cannot read from tap {:?}", err))?;
 
-        vsock.write_lv_bytes(&buf[..amount])
+        vsock
+            .write_lv_bytes(&buf[..amount])
             .await
             .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
 
@@ -157,7 +171,7 @@ async fn read_from_tap_async(mut device: ReadHalf<AsyncDevice>, mut vsock : Writ
     }
 }
 
-async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
     let mut count = 0 as u32;
 
     loop {
@@ -171,7 +185,12 @@ async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock : Read
     }
 }
 
-async fn setup_enclave(vsock : &mut AsyncVsockStream, network_settings: &NetworkSettings, cert_configs: &Vec<CertificateConfig>, application_id: &Option<String>) -> Result<EnclaveSetupResult, String> {
+async fn setup_enclave(
+    vsock: &mut AsyncVsockStream,
+    network_settings: &NetworkSettings,
+    cert_configs: &Vec<CertificateConfig>,
+    application_id: &Option<String>,
+) -> Result<EnclaveSetupResult, String> {
     let tap_device = setup_enclave_networking(&network_settings).await?;
 
     info!("Finished enclave network setup!");
@@ -183,17 +202,17 @@ async fn setup_enclave(vsock : &mut AsyncVsockStream, network_settings: &Network
 
     Ok(EnclaveSetupResult {
         tap_device,
-        certificate_info
+        certificate_info,
     })
 }
 
 struct EnclaveSetupResult {
-    tap_device : AsyncDevice,
+    tap_device: AsyncDevice,
 
-    certificate_info : Option<CertificateResult>,
+    certificate_info: Option<CertificateResult>,
 }
 
-async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
+async fn setup_enclave_networking(parent_settings: &NetworkSettings) -> Result<AsyncDevice, String> {
     use shared::netlink;
     use tun::Device;
 
@@ -206,7 +225,8 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
 
     debug!("Connected to netlink");
 
-    let tap_index = if_nametoindex(tap_device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
+    let tap_index =
+        if_nametoindex(tap_device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
 
     debug!("Tap index {}", tap_index);
 
@@ -215,24 +235,20 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
 
     let gateway_addr = parent_settings.gateway_l3_address;
     let as_ipv4 = match gateway_addr {
-        IpAddr::V4(e) => {
-            e
-        }
-        _ => {
-            return Err("Only IP v4 is supported for gateway".to_string())
-        }
+        IpAddr::V4(e) => e,
+        _ => return Err("Only IP v4 is supported for gateway".to_string()),
     };
 
     netlink::add_default_gateway(&netlink_handle, as_ipv4).await?;
     info!("Gateway is set!");
 
-    fs::create_dir("/run/resolvconf")
-        .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
+    fs::create_dir("/run/resolvconf").map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
     let mut dns_file = fs::File::create("/run/resolvconf/resolv.conf")
         .map_err(|err| format!("Failed to create enclave /run/resolvconf/resolv.conf. {:?}", err))?;
 
-    dns_file.write_all(&parent_settings.dns_file)
+    dns_file
+        .write_all(&parent_settings.dns_file)
         .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
 
     info!("Enclave DNS file has been populated!");
@@ -240,18 +256,20 @@ async fn setup_enclave_networking(parent_settings : &NetworkSettings) -> Result<
     Ok(tap_device)
 }
 
-async fn setup_enclave_certification(vsock : &mut AsyncVsockStream,
-                                     app_config_id : &Option<String>,
-                                     cert_settings : &Vec<CertificateConfig>) -> Result<Option<CertificateResult>, String> {
-
-    let mut num_certs : u64 = 0;
+async fn setup_enclave_certification(
+    vsock: &mut AsyncVsockStream,
+    app_config_id: &Option<String>,
+    cert_settings: &Vec<CertificateConfig>,
+) -> Result<Option<CertificateResult>, String> {
+    let mut num_certs: u64 = 0;
     let mut first_certificate: Option<CertificateResult> = None;
 
     // Zero or more certificate requests.
     for cert in cert_settings {
         let mut certificate_result = request_certificate(vsock, cert, app_config_id).await?;
 
-        let key_as_pem = certificate_result.key
+        let key_as_pem = certificate_result
+            .key
             .write_private_pem_string()
             .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
@@ -269,24 +287,22 @@ async fn setup_enclave_certification(vsock : &mut AsyncVsockStream,
     Ok(first_certificate)
 }
 
-async fn connect_to_parent_async(port : u32) -> Result<AsyncVsockStream, String> {
+async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
     AsyncVsockStream::connect(VSOCK_PARENT_CID, port)
         .await
         .map_err(|err| format!("Failed to connect to parent: {:?}", err))
 }
 
-fn read_enclave_settings(path : &Path) -> Result<EnclaveSettings, String> {
-    let settings_raw = fs::read_to_string(path)
-        .map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
+fn read_enclave_settings(path: &Path) -> Result<EnclaveSettings, String> {
+    let settings_raw = fs::read_to_string(path).map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
 
-    serde_json::from_str(&settings_raw)
-        .map_err(|err| format!("Failed to deserialize enclave settings. {:?}", err))
+    serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave settings. {:?}", err))
 }
 
 // Linux ioctl #define RNDADDTOENTCNT	_IOW( 'R', 0x01, int )
 ioctl_write_ptr!(set_entropy, 'R' as u8, 0x01, u32);
 
-const GET_RANDOM_MAX_OUTPUT : usize = 256;
+const GET_RANDOM_MAX_OUTPUT: usize = 256;
 
 // This is a workaround for indefinite blocking when someone tries to read from /dev/random device.
 // The reason for blocking is that as of now the enclave doesn’t provide any entropy for the random device
@@ -311,11 +327,12 @@ fn start_entropy_seeding_loop(entropy_bytes_count: usize, refresh_period: u64) -
         }
     });
 
-    result.join()
+    result
+        .join()
         .map_err(|err| format!("Failure in entropy seeding loop. {:?}", err))?
 }
 
-fn seed_entropy(entropy_bytes_count: usize, nsm_device : &NSMDevice, random_device : &mut fs::File) -> Result<(), String> {
+fn seed_entropy(entropy_bytes_count: usize, nsm_device: &NSMDevice, random_device: &mut fs::File) -> Result<(), String> {
     let mut count = 0 as usize;
 
     while count != entropy_bytes_count {
@@ -329,18 +346,17 @@ fn seed_entropy(entropy_bytes_count: usize, nsm_device : &NSMDevice, random_devi
         };
 
         match unsafe { nsm::nsm_get_random(nsm_device.descriptor, buf.as_mut_ptr(), &mut buf_len) } {
-            nsm_io::ErrorCode::Success => {},
-            err => {
-                return Err(format!("Failed to get random from nsm. {:?}", err))
-            }
+            nsm_io::ErrorCode::Success => {}
+            err => return Err(format!("Failed to get random from nsm. {:?}", err)),
         }
 
         if buf_len == 0 {
-            return Err(format!("Nsm returned 0 entropy"))
+            return Err(format!("Nsm returned 0 entropy"));
         }
 
         // write new entropy seed into /dev/random
-        random_device.write_all(&mut buf)
+        random_device
+            .write_all(&mut buf)
             .map_err(|err| format!("Failed to write entropy to /dev/random. {:?}", err))?;
 
         let entropy_bits = (buf_len * 8) as u32;
@@ -349,12 +365,8 @@ fn seed_entropy(entropy_bytes_count: usize, nsm_device : &NSMDevice, random_devi
         // by calling a proper ioctl on /dev/random as described here:
         // https://man7.org/linux/man-pages/man4/random.4.html
         match unsafe { set_entropy(random_device.as_raw_fd(), &entropy_bits) } {
-            Ok(result_code) if result_code < 0 => {
-                return Err(format!("Ioctl exited with code: {}", result_code))
-            },
-            Err(err) => {
-                return Err(format!("Ioctl exited with error: {:?}", err))
-            },
+            Ok(result_code) if result_code < 0 => return Err(format!("Ioctl exited with code: {}", result_code)),
+            Err(err) => return Err(format!("Ioctl exited with error: {:?}", err)),
             _ => {}
         }
         count += buf_len;
@@ -365,7 +377,7 @@ fn seed_entropy(entropy_bytes_count: usize, nsm_device : &NSMDevice, random_devi
 
 // Wraps NSM descriptor to implement Drop
 struct NSMDevice {
-    descriptor : i32
+    descriptor: i32,
 }
 
 impl NSMDevice {
@@ -373,12 +385,10 @@ impl NSMDevice {
         let descriptor = nsm::nsm_lib_init();
 
         if descriptor < 0 {
-            return Err(format!("Failed initializing nsm lib. Returned {}", descriptor))
+            return Err(format!("Failed initializing nsm lib. Returned {}", descriptor));
         }
 
-        Ok(NSMDevice {
-            descriptor
-        })
+        Ok(NSMDevice { descriptor })
     }
 }
 
@@ -388,7 +398,6 @@ impl Drop for NSMDevice {
     }
 }
 
-pub fn write_to_file(path : &Path, data: &str) -> Result<(), String> {
-    fs::write(path, data.as_bytes())
-        .map_err(|err| format!("Failed to write data into file {}. {:?}", path.display(), err))
+pub fn write_to_file(path: &Path, data: &str) -> Result<(), String> {
+    fs::write(path, data.as_bytes()).map_err(|err| format!("Failed to write data into file {}. {:?}", path.display(), err))
 }

@@ -15,15 +15,14 @@ fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
     let content = fs::read(path)?;
     let content = str::from_utf8(&content).map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
 
-    let pems = content
-        .char_indices()
-        .filter_map(|(idx, _c)| {
-            let sub = &content[idx..];
-            if sub.starts_with(begin) {
-                sub.split_inclusive(end).next()
-            } else {
-                None
-            }});
+    let pems = content.char_indices().filter_map(|(idx, _c)| {
+        let sub = &content[idx..];
+        if sub.starts_with(begin) {
+            sub.split_inclusive(end).next()
+        } else {
+            None
+        }
+    });
 
     for pem in pems {
         if let Some(der) = pem::pem_to_der(pem, None) {
@@ -37,11 +36,14 @@ fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
         println!("Collected {} root certificates", certs.len());
         Ok(certs)
     } else {
-        Err(Error::new(ErrorKind::NotFound, "Failed to collect any root certificates, please specify `ROOT_CERTIFICATE_DIR` correctly"))
+        Err(Error::new(
+            ErrorKind::NotFound,
+            "Failed to collect any root certificates, please specify `ROOT_CERTIFICATE_DIR` correctly",
+        ))
     }
 }
 
-fn main() -> io::Result<()>{
+fn main() -> io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let mut cert_list = Vec::new();
     let dir_location = if let Some(path) = env::var_os("ROOT_CERTIFICATE_DIR") {
@@ -53,15 +55,24 @@ fn main() -> io::Result<()>{
     for cert_file in ca_certificates.filter_map(|f| f.ok()) {
         match read_certificates(cert_file.path()) {
             Ok(mut cert) => cert_list.append(&mut cert),
-            Err(e) => eprintln!("Failed to read certificate {}: {}",
-                                cert_file.path().into_os_string().into_string().unwrap_or(String::from("<parse error>")),
-                                e),
+            Err(e) => eprintln!(
+                "Failed to read certificate {}: {}",
+                cert_file
+                    .path()
+                    .into_os_string()
+                    .into_string()
+                    .unwrap_or(String::from("<parse error>")),
+                e
+            ),
         }
     }
     if cert_list.len() != 0 {
         println!("{} root certificates found", cert_list.len());
     } else {
-        eprintln!("No root certificates found in \"{}\"", dir_location.into_string().unwrap_or(String::from("<parse error>")));
+        eprintln!(
+            "No root certificates found in \"{}\"",
+            dir_location.into_string().unwrap_or(String::from("<parse error>"))
+        );
         return Err(Error::new(ErrorKind::NotFound, "Didn't find any root certificates"));
     }
     let serialized_data: Vec<u8> = serde_cbor::to_vec(&cert_list).expect("Serialization Failed");

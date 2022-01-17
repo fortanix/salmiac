@@ -1,10 +1,7 @@
-use serde::{
-    Serialize,
-    Deserialize
-};
 use ipnetwork::IpNetwork;
-use tun::{AsyncDevice};
+use serde::{Deserialize, Serialize};
 use tun::platform::linux::Device as TapDevice;
+use tun::AsyncDevice;
 
 use crate::UserProgramExitStatus;
 
@@ -17,7 +14,7 @@ pub enum SetupMessages {
     CSR(String),
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
-    ApplicationConfig(ApplicationConfiguration)
+    ApplicationConfig(ApplicationConfiguration),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -26,14 +23,14 @@ pub struct ApplicationConfiguration {
 
     pub ccm_backend_url: Option<CCMBackendUrl>,
 
-    pub skip_server_verify: bool
+    pub skip_server_verify: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CCMBackendUrl {
     pub host: String,
 
-    pub port: u16
+    pub port: u16,
 }
 
 impl CCMBackendUrl {
@@ -45,15 +42,11 @@ impl CCMBackendUrl {
         }
 
         match split[1].parse::<u16>() {
-            Err(err) => {
-                Err(format!("CCM_BACKEND port should be a number. {:?}", err))
-            }
-            Ok(port) => {
-                Ok(CCMBackendUrl {
-                    host: split[0].to_string(),
-                    port,
-                })
-            }
+            Err(err) => Err(format!("CCM_BACKEND port should be a number. {:?}", err)),
+            Ok(port) => Ok(CCMBackendUrl {
+                host: split[0].to_string(),
+                port,
+            }),
         }
     }
 }
@@ -66,25 +59,24 @@ pub struct NetworkSettings {
 
     pub gateway_l3_address: IpAddr,
 
-    pub mtu : u32,
+    pub mtu: u32,
 
-    pub dns_file : Vec<u8>
+    pub dns_file: Vec<u8>,
 }
 
-pub fn create_tap_device(parent_settings : &NetworkSettings) -> Result<TapDevice, String> {
-    tun::create(&tap_device_config(parent_settings))
-        .map_err(|err| format!("Cannot create tap device {:?}", err))
+pub fn create_tap_device(parent_settings: &NetworkSettings) -> Result<TapDevice, String> {
+    tun::create(&tap_device_config(parent_settings)).map_err(|err| format!("Cannot create tap device {:?}", err))
 }
 
-pub fn create_async_tap_device(parent_settings : &NetworkSettings) -> Result<AsyncDevice, String> {
-    tun::create_as_async(&tap_device_config(parent_settings))
-        .map_err(|err| format!("Cannot create async tap device {:?}", err))
+pub fn create_async_tap_device(parent_settings: &NetworkSettings) -> Result<AsyncDevice, String> {
+    tun::create_as_async(&tap_device_config(parent_settings)).map_err(|err| format!("Cannot create async tap device {:?}", err))
 }
 
-fn tap_device_config(parent_settings : &NetworkSettings) -> tun::Configuration {
+fn tap_device_config(parent_settings: &NetworkSettings) -> tun::Configuration {
     let mut config = tun::Configuration::default();
 
-    config.address(parent_settings.self_l3_address.ip())
+    config
+        .address(parent_settings.self_l3_address.ip())
         .netmask(parent_settings.self_l3_address.mask())
         .layer(tun::Layer::L2)
         .mtu(parent_settings.mtu as i32)
