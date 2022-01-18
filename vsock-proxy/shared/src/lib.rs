@@ -16,6 +16,8 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+pub const ETHERNET_HEADER_SIZE: u32 = 14;
+
 pub fn vec_to_ip4(vec : &[u8]) -> Result<Ipv4Addr, String> {
     let as_array = <[u8; 4]>::try_from(&vec[..])
         .map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
