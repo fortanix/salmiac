@@ -13,7 +13,7 @@ fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
     let begin = "-----BEGIN CERTIFICATE-----\n";
     let end = "-----END CERTIFICATE-----\n";
     let mut certs = Vec::new();
-    let content = fs::read(path)?;
+    let content = fs::read(path.clone())?;
     let content = str::from_utf8(&content).map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
 
     let pems = content.char_indices().filter_map(|(idx, _c)| {

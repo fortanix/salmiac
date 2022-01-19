@@ -14,10 +14,7 @@ use api_model::CertificateConfig;
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::{VSOCK_PARENT_CID, DATA_SOCKET, PACKET_LOG_STEP, log_packet_processing, extract_enum_value, handle_background_task_exit, UserProgramExitStatus, MAX_ETHERNET_HEADER_SIZE};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{
-    extract_enum_value, handle_background_task_exit, log_packet_processing, UserProgramExitStatus, DATA_SOCKET,
-    PACKET_LOG_STEP, VSOCK_PARENT_CID,
-};
+
 
 use std::fs;
 use std::io::Write;
