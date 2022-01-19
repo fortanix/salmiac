@@ -1,12 +1,14 @@
+mod app_configuration;
+mod certificate;
 mod enclave;
 
-use clap::{ArgMatches, App, AppSettings, Arg};
-use log::{error, debug};
+use clap::{App, AppSettings, Arg, ArgMatches};
+use log::{debug, error};
 
 use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
 
-use std::process;
 use std::path::Path;
+use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
@@ -15,7 +17,8 @@ async fn main() -> Result<(), String> {
     let matches = console_arguments();
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
-    let settings_path = matches.value_of("settings-path")
+    let settings_path = matches
+        .value_of("settings-path")
         .map(|e| Path::new(e))
         .expect("Path to a settings file must be provided");
 

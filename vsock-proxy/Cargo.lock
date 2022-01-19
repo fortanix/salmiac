@@ -471,7 +471,7 @@ dependencies = [
  "mbedtls",
  "nsm-driver",
  "nsm-io",
- "pkix",
+ "pkix 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-serialize 0.3.24 (git+https://github.com/jethrogb/rustc-serialize.git?branch=portability)",
  "sdkms",
  "serde",
@@ -540,7 +540,9 @@ dependencies = [
  "nix 0.15.0",
  "nsm-io",
  "nsm-lib",
+ "pkix 0.1.1",
  "serde",
+ "serde_cbor",
  "serde_json 1.0.68",
  "shared",
  "tokio",
@@ -1522,6 +1524,19 @@ name = "pkg-config"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
+
+[[package]]
+name = "pkix"
+version = "0.1.1"
+dependencies = [
+ "bit-vec 0.6.3",
+ "chrono",
+ "lazy_static",
+ "num-bigint",
+ "num-integer",
+ "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "yasna 0.3.2",
+]
 
 [[package]]
 name = "pkix"

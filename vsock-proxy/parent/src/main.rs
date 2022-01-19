@@ -1,7 +1,7 @@
-mod parent;
 mod packet_capture;
+mod parent;
 
-use clap::{ArgMatches, App, AppSettings, Arg};
+use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info};
 
 use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
@@ -42,7 +42,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .help("vsock port")
                 .validator(u32::validate_arg)
                 .takes_value(true)
-                .required(true)
+                .required(true),
         );
 
     result.get_matches()
