@@ -4,7 +4,7 @@ use log::info;
 use pcap::{Active, Capture};
 use pcap_async::{Config, Handle};
 
-use shared::ETHERNET_HEADER_SIZE;
+use shared::MAX_ETHERNET_HEADER_SIZE;
 
 pub fn open_packet_capture(device : pcap::Device) -> Result<Capture<Active>, String> {
     let device_name = device.name.clone();
@@ -34,7 +34,7 @@ fn open_async_packet_capture0(device_name: &str, config: Config) -> Result<Fuse<
 
 fn async_packet_capture_config(mtu: u32) -> Config {
     let mut config = Config::default();
-    config.with_snaplen(ETHERNET_HEADER_SIZE + mtu);
+    config.with_snaplen(MAX_ETHERNET_HEADER_SIZE + mtu);
     config.with_blocking(false);
 
     // We capture only incoming packets inside the parent, however by default pcap captures

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::str;
 
 fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
+    // todo: Allow all valid certificate formats according to https://datatracker.ietf.org/doc/html/rfc7468
     let begin = "-----BEGIN CERTIFICATE-----\n";
     let end = "-----END CERTIFICATE-----\n";
     let mut certs = Vec::new();
@@ -26,8 +27,13 @@ fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
 
     for pem in pems {
         if let Some(der) = pem::pem_to_der(pem, None) {
-            if let Ok(_) = Certificate::from_der(&der) {
-                certs.push(der);
+            match Certificate::from_der(&der) {
+                Ok(_) => {
+                    certs.push(der);
+                }
+                Err(err) => {
+                    println!("WARN: invalid certificate found in file {}. {:?}", path.display(), err)
+                }
             }
         }
     }
