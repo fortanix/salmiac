@@ -57,10 +57,9 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
     let network_settings = get_network_settings(&parent_device).await?;
 
-    let mtu = network_settings.mtu;
     communicate_enclave_settings(network_settings, &mut enclave_port).await?;
 
-    let (pcap_read_loop, pcap_write_loop) = start_pcap_loops(parent_device, enclave_networking_port, mtu)?;
+    let (pcap_read_loop, pcap_write_loop) = start_pcap_loops(parent_device, enclave_networking_port)?;
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -79,10 +78,9 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
 fn start_pcap_loops(
     network_device: Device,
-    vsock: AsyncVsockStream,
-    mtu: u32,
+    vsock: AsyncVsockStream
 ) -> Result<(JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>), String> {
-    let read_capture = open_async_packet_capture(&network_device.name, mtu)?;
+    let read_capture = open_async_packet_capture(&network_device.name)?;
     let write_capture = open_packet_capture(network_device)?;
 
     let (vsock_read, vsock_write) = io::split(vsock);

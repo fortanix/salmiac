@@ -4,8 +4,6 @@ use log::info;
 use pcap::{Active, Capture};
 use pcap_async::{Config, Handle};
 
-use shared::MAX_ETHERNET_HEADER_SIZE;
-
 pub fn open_packet_capture(device : pcap::Device) -> Result<Capture<Active>, String> {
     let device_name = device.name.clone();
     let capture = Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))?;
@@ -15,8 +13,8 @@ pub fn open_packet_capture(device : pcap::Device) -> Result<Capture<Active>, Str
     capture.open().map_err(|err| format!("Cannot open capture {:?}", err))
 }
 
-pub fn open_async_packet_capture(device_name: &str, mtu: u32) -> Result<Fuse<pcap_async::PacketStream>, String> {
-    open_async_packet_capture0(device_name, async_packet_capture_config(mtu))
+pub fn open_async_packet_capture(device_name: &str) -> Result<Fuse<pcap_async::PacketStream>, String> {
+    open_async_packet_capture0(device_name, async_packet_capture_config())
 }
 
 fn open_async_packet_capture0(device_name: &str, config: Config) -> Result<Fuse<pcap_async::PacketStream>, String> {
@@ -32,9 +30,9 @@ fn open_async_packet_capture0(device_name: &str, config: Config) -> Result<Fuse<
         .map_err(|err| format!("Cannot open async capture {:?}", err))
 }
 
-fn async_packet_capture_config(mtu: u32) -> Config {
+fn async_packet_capture_config() -> Config {
     let mut config = Config::default();
-    config.with_snaplen(MAX_ETHERNET_HEADER_SIZE + mtu);
+
     config.with_blocking(false);
 
     // We capture only incoming packets inside the parent, however by default pcap captures
