@@ -78,7 +78,7 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
 fn start_pcap_loops(
     network_device: Device,
-    vsock: AsyncVsockStream
+    vsock: AsyncVsockStream,
 ) -> Result<(JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>), String> {
     let read_capture = open_async_packet_capture(&network_device.name)?;
     let write_capture = open_packet_capture(network_device)?;
@@ -249,32 +249,42 @@ async fn read_from_device_async(
 
     loop {
         let packets = match capture.next().await {
-            Some(Ok(packet)) => packet,
+            Some(Ok(packets)) => packets,
             Some(Err(e)) => return Err(format!("Failed to read packet from pcap {:?}", e)),
             None => return Ok(()),
         };
 
         for packet in packets {
-            let mut data = packet.into_data();
+            if packet.actual_length() == packet.original_length() {
+                let mut data = packet.into_data();
 
-            match recompute_packet_checksum(&mut data) {
-                Err(ChecksumComputationError::Err(err)) => {
-                    warn!("Failed recomputing checksum for a packet. {:?}", err);
-                }
-                Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
-                    if unsupported_protocols.insert(protocol) {
-                        warn!(
-                            "Unsupported protocol {} encountered when recomputing checksum for a packet.",
-                            protocol
-                        );
+                match recompute_packet_checksum(&mut data) {
+                    Err(ChecksumComputationError::Err(err)) => {
+                        warn!("Failed recomputing checksum for a packet. {:?}", err);
                     }
+                    Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
+                        if unsupported_protocols.insert(protocol) {
+                            warn!(
+                                "Unsupported protocol {} encountered when recomputing checksum for a packet.",
+                                protocol
+                            );
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
+
+                enclave_stream.write_lv_bytes(&data).await?;
+
+                count = log_packet_processing(count, PACKET_LOG_STEP, "parent pcap");
+            } else {
+                warn!(
+                    "Dropped PCAP captured packet! \
+                        Reason: captured packet length ({} bytes) \
+                        is different than the inbound packet length ({} bytes).",
+                    packet.actual_length(),
+                    packet.original_length()
+                );
             }
-
-            enclave_stream.write_lv_bytes(&data).await?;
-
-            count = log_packet_processing(count, PACKET_LOG_STEP, "parent pcap");
         }
     }
 }

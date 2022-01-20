@@ -4,7 +4,7 @@ use log::info;
 use pcap::{Active, Capture};
 use pcap_async::{Config, Handle};
 
-pub fn open_packet_capture(device : pcap::Device) -> Result<Capture<Active>, String> {
+pub fn open_packet_capture(device: pcap::Device) -> Result<Capture<Active>, String> {
     let device_name = device.name.clone();
     let capture = Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))?;
 
