@@ -1,7 +1,8 @@
-use em_app::utils::models::RuntimeAppConfig;
+use em_app::utils::models::{RuntimeAppConfig, ApplicationConfigExtra};
 use log::info;
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::x509::Certificate;
+use mbedtls::pk::Pk;
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
@@ -10,25 +11,129 @@ use shared::device::CCMBackendUrl;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use mbedtls::pk::Pk;
-use em_app::utils::models;
 
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
 
 const APPLICATION_CONFIG_FILE: &str = "/opt/fortanix/enclave-os/app-config/rw/app-config.json";
 
-macro_rules! dataset_dir { () => { "/opt/fortanix/enclave-os/app-config/rw/{}/{}/dataset" }; }
+macro_rules! dataset_dir {
+    () => {
+        "/opt/fortanix/enclave-os/app-config/rw/{}/{}/dataset"
+    };
+}
 
 const CREDENTIALS_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
+
+pub fn setup_application_configuration(
+    certificate_info: CertificateResult,
+    ccm_backend_url: &CCMBackendUrl,
+    skip_server_verify: bool,
+) -> Result<(), String> {
+    info!("Setting up application configuration.");
+
+    let em_app_credentials = EmAppCredentials::new(certificate_info, skip_server_verify)?;
+    let app_config = request_application_configuration(ccm_backend_url, &em_app_credentials)?;
+
+    let data =
+        serde_json::to_string(&app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
+
+    fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
+        .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
+
+    write_to_file(Path::new(APPLICATION_CONFIG_FILE), &data);
+
+    get_credentials(&app_config.extra, &em_app_credentials)
+}
+
+fn request_application_configuration(
+    ccm_backend_url: &CCMBackendUrl,
+    credentials: &EmAppCredentials,
+) -> Result<RuntimeAppConfig, String> {
+    info!("Requesting application configuration.");
+
+    em_app::utils::get_runtime_configuration(
+        &ccm_backend_url.host,
+        ccm_backend_url.port,
+        credentials.certificate.clone(),
+        credentials.key.clone(),
+        credentials.root_certificate.clone(),
+        None,
+    )
+    .map_err(|e| format!("Failed retrieving application configuration: {:?}", e))
+}
+
+fn get_credentials(config: &ApplicationConfigExtra, credentials: &EmAppCredentials) -> Result<(), String> {
+    let connections_map = config
+        .connections
+        .as_ref()
+        .ok_or("Missing connections field in runtime config")?;
+
+    for (port, connections) in connections_map {
+        for (name, object) in connections {
+            if let Some(dataset) = &object.dataset {
+                if let Some(sdkms_credentials) = &dataset.credentials.sdkms {
+                    let response = em_app::utils::get_sdkms_dataset(
+                        sdkms_credentials.credentials_url.clone(),
+                        sdkms_credentials.credentials_key_name.clone(),
+                        sdkms_credentials.sdkms_app_id,
+                        credentials.certificate.clone(),
+                        credentials.key.clone(),
+                        credentials.root_certificate.clone(),
+                        None,
+                    )
+                    .map_err(|e| format!("Failed retrieving dataset: {:?}", e))?;
+
+                    let dir = format!(dataset_dir!(), port, name);
+                    let dataset_dir = Path::new(&dir);
+                    let credentials_file
+
+                    fs::create_dir_all(dataset_dir).map_err(|err| format!("Failed to data set directory. {:?}", err))?;
+
+                    fs::write(dataset_dir.join(CREDENTIALS_FILE), &response.to_vec()).map_err(|err| {
+                        format!(
+                            "Failed to write data into file {}. {:?}",
+                            dataset_dir.join(CREDENTIALS_FILE).display(),
+                            err
+                        )
+                    })?;
+
+                    fs::write(dataset_dir.join(LOCATION_FILE), dataset.location.as_bytes()).map_err(|err| {
+                        format!(
+                            "Failed to write data into file {}. {:?}",
+                            dataset_dir.join(CREDENTIALS_FILE).display(),
+                            err
+                        )
+                    })?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_root_certificates() -> MbedtlsList<Certificate> {
+    let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
+
+    let ca_cert_list: Vec<Vec<u8>> =
+        serde_cbor::from_slice(&file_contents[..]).expect("Failed deserializing root certificate list");
+
+    let mut result = MbedtlsList::<Certificate>::new();
+    for i in ca_cert_list {
+        result.push(Certificate::from_der(&i).expect("Failed parsing ca certificate"));
+    }
+
+    result
+}
 
 struct EmAppCredentials {
     certificate: Arc<MbedtlsList<Certificate>>,
 
     key: Arc<Pk>,
 
-    root_certificate: Option<Arc<MbedtlsList<Certificate>>>
+    root_certificate: Option<Arc<MbedtlsList<Certificate>>>,
 }
 
 impl EmAppCredentials {
@@ -53,95 +158,7 @@ impl EmAppCredentials {
         Ok(EmAppCredentials {
             certificate,
             key,
-            root_certificate
+            root_certificate,
         })
-
     }
-}
-
-pub fn setup_application_configuration(
-    certificate_info: CertificateResult,
-    ccm_backend_url: &CCMBackendUrl,
-    skip_server_verify: bool,
-) -> Result<(), String> {
-    info!("Setting up application configuration.");
-
-    let em_app_credentials = EmAppCredentials::new(certificate_info, skip_server_verify)?;
-    let app_config = request_application_configuration(ccm_backend_url, &em_app_credentials)?;
-
-    let data =
-        serde_json::to_string(&app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
-
-    fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
-        .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
-
-    write_to_file(Path::new(APPLICATION_CONFIG_FILE), &data);
-
-    get_credentials(&app_config.extra, &em_app_credentials)
-}
-
-fn request_application_configuration(ccm_backend_url: &CCMBackendUrl, credentials: &EmAppCredentials) -> Result<RuntimeAppConfig, String> {
-    info!("Requesting application configuration.");
-
-    em_app::utils::get_runtime_configuration(
-        &ccm_backend_url.host,
-        ccm_backend_url.port,
-        credentials.certificate.clone(),
-        credentials.key.clone(),
-        credentials.root_certificate.clone(),
-        None,
-    )
-    .map_err(|e| format!("Failed retrieving application configuration: {:?}", e))
-}
-
-fn get_credentials(config: &models::ApplicationConfigExtra, credentials: &EmAppCredentials) -> Result<(), String> {
-    let connections_map = config.connections
-        .as_ref()
-        .ok_or("Missing connections field in runtime config")?;
-
-    for (port, connections) in connections_map {
-        for (name, object) in connections {
-
-            if let Some(dataset) = &object.dataset {
-                if let Some(sdkms_credentials) = &dataset.credentials.sdkms {
-                    let response = em_app::utils::get_sdkms_dataset(sdkms_credentials.credentials_url.clone(),
-                                                                    sdkms_credentials.credentials_key_name.clone(),
-                                                                    sdkms_credentials.sdkms_app_id,
-                                                                    credentials.certificate.clone(),
-                                                                    credentials.key.clone(),
-                                                                    credentials.root_certificate.clone(),
-                                                                    None)
-                        .map_err(|e| format!("Failed retrieving dataset: {:?}", e))?;
-
-                    let dir = format!(dataset_dir!(), port, name);
-                    let dataset_dir = Path::new(&dir);
-
-                    fs::create_dir_all(dataset_dir)
-                        .map_err(|err| format!("Failed to data set directory. {:?}", err))?;
-
-                    fs::write(dataset_dir.join(CREDENTIALS_FILE), &response.to_vec())
-                        .map_err(|err| format!("Failed to write data into file {}. {:?}", dataset_dir.join(CREDENTIALS_FILE).display(), err))?;
-
-                    fs::write(dataset_dir.join(LOCATION_FILE), dataset.location.as_bytes())
-                        .map_err(|err| format!("Failed to write data into file {}. {:?}", dataset_dir.join(CREDENTIALS_FILE).display(), err))?;
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn read_root_certificates() -> MbedtlsList<Certificate> {
-    let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
-
-    let ca_cert_list: Vec<Vec<u8>> =
-        serde_cbor::from_slice(&file_contents[..]).expect("Failed deserializing root certificate list");
-
-    let mut result = MbedtlsList::<Certificate>::new();
-    for i in ca_cert_list {
-        result.push(Certificate::from_der(&i).expect("Failed parsing ca certificate"));
-    }
-
-    result
 }

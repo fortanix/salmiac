@@ -43,15 +43,8 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     info!("Connected to parent to transmit network packets!");
 
-    let parent_settings = {
-        let msg: SetupMessages = parent_port.read_lv().await?;
-        extract_enum_value!(msg, SetupMessages::Settings(s) => s)?
-    };
-
-    let app_config = {
-        let app_config_msg: SetupMessages = parent_port.read_lv().await?;
-        extract_enum_value!(app_config_msg, SetupMessages::ApplicationConfig(e) => e)?
-    };
+    let parent_settings = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::Settings(s) => s)?;
+    let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
     if !enclave_settings.certificate_config.is_empty() && app_config.ccm_backend_url.is_none() {
         return Err("CCM_BACKEND env var must be set when application requires a certificate!".to_string());

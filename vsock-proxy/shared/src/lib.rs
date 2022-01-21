@@ -11,6 +11,8 @@ use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::ParseIntError;
 
+// 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
+// plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
 pub const MAX_ETHERNET_HEADER_SIZE: u32 = 22;
 
 pub fn vec_to_ip4(vec: &[u8]) -> Result<Ipv4Addr, String> {

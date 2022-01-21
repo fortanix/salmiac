@@ -97,9 +97,7 @@ fn start_pcap_loops(
 }
 
 async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
-    let msg: SetupMessages = vsock.read_lv().await?;
-
-    extract_enum_value!(msg, SetupMessages::UserProgramExit(status) => status)
+    extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)
 }
 
 async fn communicate_enclave_settings(network_settings: NetworkSettings, vsock: &mut AsyncVsockStream) -> Result<(), String> {

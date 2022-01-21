@@ -26,8 +26,8 @@ pub async fn request_certificate(
     app_config_id: &Option<String>,
 ) -> Result<CertificateResult, String> {
     let mut rng = Rdrand;
-    let mut key =
-        Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
+    let mut key = Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT)
+        .map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
 
     let common_name = cert_settings.subject.as_ref().map(|e| e.as_str()).unwrap_or("localhost");
 
@@ -42,9 +42,7 @@ pub async fn request_certificate(
 
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
-    let certificate_msg: SetupMessages = vsock.read_lv().await?;
-
-    let certificate = extract_enum_value!(certificate_msg, SetupMessages::Certificate(s) => s)?;
+    let certificate = extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)?;
 
     Ok(CertificateResult { certificate, key })
 }
