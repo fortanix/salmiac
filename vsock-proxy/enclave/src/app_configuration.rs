@@ -22,7 +22,13 @@ macro_rules! dataset_dir {
     };
 }
 
-const CREDENTIALS_FILE: &str = "credentials.bin";
+macro_rules! application_dir {
+    () => {
+        "/opt/fortanix/enclave-os/app-config/rw/{}/{}/application"
+    };
+}
+
+const DATASET_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
 
@@ -34,26 +40,19 @@ pub fn setup_application_configuration(
     info!("Setting up application configuration.");
 
     let em_app_credentials = EmAppCredentials::new(certificate_info, skip_server_verify)?;
-    let app_config = request_application_configuration(ccm_backend_url, &em_app_credentials)?;
 
-    let data =
-        serde_json::to_string(&app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
+    let app_config = setup_runtime_configuration(ccm_backend_url, &em_app_credentials)?;
 
-    fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
-        .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
-
-    write_to_file(Path::new(APPLICATION_CONFIG_FILE), &data);
-
-    get_credentials(&app_config.extra, &em_app_credentials)
+    setup_datasets(&app_config.extra, &em_app_credentials)
 }
 
-fn request_application_configuration(
+fn setup_runtime_configuration(
     ccm_backend_url: &CCMBackendUrl,
     credentials: &EmAppCredentials,
 ) -> Result<RuntimeAppConfig, String> {
     info!("Requesting application configuration.");
 
-    em_app::utils::get_runtime_configuration(
+    let app_config = em_app::utils::get_runtime_configuration(
         &ccm_backend_url.host,
         ccm_backend_url.port,
         credentials.certificate.clone(),
@@ -61,10 +60,23 @@ fn request_application_configuration(
         credentials.root_certificate.clone(),
         None,
     )
-    .map_err(|e| format!("Failed retrieving application configuration: {:?}", e))
+    .map_err(|e| format!("Failed retrieving application configuration: {:?}", e))?;
+
+    let data =
+        serde_json::to_string(&app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
+
+    fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
+        .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
+
+    write_to_file(Path::new(APPLICATION_CONFIG_FILE), &data)
+        .map_err(|err| format!("Failed to write data to application config file. {:?}", err))?;
+
+    Ok(app_config)
 }
 
-fn get_credentials(config: &ApplicationConfigExtra, credentials: &EmAppCredentials) -> Result<(), String> {
+fn setup_datasets(config: &ApplicationConfigExtra, credentials: &EmAppCredentials) -> Result<(), String> {
+    info!("Requesting application data sets.");
+
     let connections_map = config
         .connections
         .as_ref()
@@ -87,26 +99,43 @@ fn get_credentials(config: &ApplicationConfigExtra, credentials: &EmAppCredentia
 
                     let dir = format!(dataset_dir!(), port, name);
                     let dataset_dir = Path::new(&dir);
-                    let credentials_file
+                    let dataset_file = dataset_dir.join(DATASET_FILE);
+                    let location_file = dataset_dir.join(LOCATION_FILE);
 
-                    fs::create_dir_all(dataset_dir).map_err(|err| format!("Failed to data set directory. {:?}", err))?;
+                    fs::create_dir_all(dataset_dir)
+                        .map_err(|err| format!("Failed to create data set directory. {:?}", err))?;
 
-                    fs::write(dataset_dir.join(CREDENTIALS_FILE), &response.to_vec()).map_err(|err| {
+                    fs::write(dataset_file.clone(), &response).map_err(|err| {
                         format!(
-                            "Failed to write data into file {}. {:?}",
-                            dataset_dir.join(CREDENTIALS_FILE).display(),
+                            "Failed to write data set into a file {}. {:?}",
+                            dataset_file.display(),
                             err
                         )
                     })?;
 
-                    fs::write(dataset_dir.join(LOCATION_FILE), dataset.location.as_bytes()).map_err(|err| {
+                    fs::write(location_file.clone(), &dataset.location).map_err(|err| {
                         format!(
-                            "Failed to write data into file {}. {:?}",
-                            dataset_dir.join(CREDENTIALS_FILE).display(),
+                            "Failed to write location into a file {}. {:?}",
+                            location_file.display(),
                             err
                         )
                     })?;
                 }
+            } else if let Some(application) = &object.application {
+                let dir = format!(application_dir!(), port, name);
+                let application_dir = Path::new(&dir);
+                let location_file = application_dir.join(LOCATION_FILE);
+
+                fs::create_dir_all(application_dir)
+                    .map_err(|err| format!("Failed to create application directory. {:?}", err))?;
+
+                fs::write(location_file.clone(), &application.workflow_domain).map_err(|err| {
+                    format!(
+                        "Failed to write workflow domain into a file {}. {:?}",
+                        location_file.display(),
+                        err
+                    )
+                })?;
             }
         }
     }
