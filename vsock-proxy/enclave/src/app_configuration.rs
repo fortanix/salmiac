@@ -28,7 +28,7 @@ macro_rules! application_dir {
     };
 }
 
-const DATASET_FILE: &str = "credentials.bin";
+const CREDENTIALS_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
 
@@ -99,7 +99,7 @@ fn setup_datasets(config: &ApplicationConfigExtra, credentials: &EmAppCredential
 
                     let dir = format!(dataset_dir!(), port, name);
                     let dataset_dir = Path::new(&dir);
-                    let dataset_file = dataset_dir.join(DATASET_FILE);
+                    let dataset_file = dataset_dir.join(CREDENTIALS_FILE);
                     let location_file = dataset_dir.join(LOCATION_FILE);
 
                     fs::create_dir_all(dataset_dir)
