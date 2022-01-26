@@ -7,7 +7,7 @@ use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
-use crate::app_configuration::setup_application_configuration;
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
@@ -67,7 +67,8 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     // We can request application configuration only after we start our tap loops,
     // because the function makes a network request
     if let (Some(certificate_info), Some(ccm_backend_url)) = (setup_result.certificate_info, app_config.ccm_backend_url) {
-        setup_application_configuration(certificate_info, &ccm_backend_url, app_config.skip_server_verify)?;
+        let api = Box::new(EmAppApplicationConfiguration::new());
+        setup_application_configuration(certificate_info, &ccm_backend_url, app_config.skip_server_verify, api)?;
     }
 
     let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));

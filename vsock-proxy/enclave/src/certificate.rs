@@ -26,8 +26,8 @@ pub async fn request_certificate(
     app_config_id: &Option<String>,
 ) -> Result<CertificateResult, String> {
     let mut rng = Rdrand;
-    let mut key = Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT)
-        .map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
+    let mut key =
+        Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
 
     let common_name = cert_settings.subject.as_ref().map(|e| e.as_str()).unwrap_or("localhost");
 

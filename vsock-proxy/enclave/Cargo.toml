@@ -25,6 +25,8 @@ serde_cbor = "0.11.2"
 nsm-lib = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api", branch = "main" }
 nsm-io = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api", branch = "main" }
 api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
+sdkms = { git = "https://github.com/fortanix/sdkms-client-rust.git", branch = "uuid-compat", default-features = false }
+em-client = { git = "https://github.com/fortanix/em-client-rust", branch = "acruceru/api-update", default-features = false, features = ["client"] }
 
 [build-dependencies]
 pkix = { path = "../../../common/pkix" }
