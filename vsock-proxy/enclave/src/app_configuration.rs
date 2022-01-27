@@ -350,17 +350,83 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 
 #[cfg(test)]
 mod tests {
-    use em_app::utils::models::{
-        ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset,
-        ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials,
-    };
+    use em_app::utils::models::{ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset, ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig};
     use sdkms::api_model::Blob;
 
-    use crate::app_configuration::{setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, SdkmsDataset};
+    use crate::app_configuration::{setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, SdkmsDataset, RuntimeConfiguration, setup_runtime_configuration, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE};
 
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap};
     use std::fs;
     use std::path::Path;
+    use shared::device::CCMBackendUrl;
+
+    const VALID_RUNTIME_CONF: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"path\": {
+				    \"contents\": \"contents\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"],
+            \"workflow\": {
+                \"workflow_id\": \"35de225c-cfef-4f1b-b0bc-287b58f55244\",
+                \"app_name\": \"app-1\",
+                \"port_map\": {
+                    \"input\": {
+                        \"input-1\": {
+                            \"dataset\": {
+                                \"id\": \"611ff8ce-3cc7-4f26-8a28-4327446cd800\"
+                            }
+                        }
+                    },
+                    \"output\": {
+                        \"output-1\": {
+                            \"dataset\": {
+                                \"id\": \"7dda9870-b394-4ff2-aa73-e9971b1857f9\"
+                            }
+                        }
+                    }
+                }
+		    }
+        },
+        \"extra\": {
+            \"connections\": {
+                \"input\": {
+                    \"input-1\": {
+                        \"dataset\": {
+                            \"location\": \"https://path/to/test\",
+                            \"credentials\": {
+                                \"sdkms\": {
+                                    \"credentials_url\": \"https://apps.sdkms.test.fortanix.com\",
+                                    \"credentials_key_name\": \"611ff8ce-3cc7-4f26-8a28-4327446cd800-credentials\",
+                                    \"sdkms_app_id\": \"8afcd4d6-2483-4a68-bc92-0ec53a4e97dc\"
+                                }
+                            }
+                        }
+                    }
+                },
+                \"output\": {
+                    \"output-1\": {
+                        \"dataset\": {
+                            \"location\": \"https://path/to/test\",
+                            \"credentials\": {
+                                \"sdkms\": {
+                                    \"credentials_url\": \"https://apps.sdkms.test.fortanix.com\",
+                                    \"credentials_key_name\": \"7dda9870-b394-4ff2-aa73-e9971b1857f9-credentials\",
+                                    \"sdkms_app_id\": \"8afcd4d6-2483-4a68-bc92-0ec53a4e97dc\"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ";
 
     struct TempDir<'a>(pub &'a Path);
 
@@ -372,6 +438,12 @@ mod tests {
 
     struct MockDataSet {}
 
+    impl RuntimeConfiguration for MockDataSet {
+        fn get_runtime_configuration(&self, _ccm_backend_url: &CCMBackendUrl, _credentials: &EmAppCredentials) -> Result<RuntimeAppConfig, String> {
+            Ok(serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json"))
+        }
+    }
+
     impl SdkmsDataset for MockDataSet {
         fn get_dataset(
             &self,
@@ -380,6 +452,34 @@ mod tests {
         ) -> Result<Blob, String> {
             Ok(Blob::from("OK"))
         }
+    }
+
+    #[test]
+    fn setup_runtime_config_correct_json() {
+        let config: RuntimeAppConfig = run_setup_runtime_configuration();
+
+        let reference: RuntimeAppConfig = serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json");
+
+        assert_eq!(config, reference);
+    }
+
+    fn run_setup_runtime_configuration() -> RuntimeAppConfig {
+        let backend_url = CCMBackendUrl {
+            host: String::new(),
+            port: 0
+        };
+
+        let credentials = EmAppCredentials::mock();
+        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet {});
+
+        let _temp_dir = TempDir(&Path::new(APPLICATION_CONFIG_DIR));
+
+        let result = setup_runtime_configuration(&backend_url, &credentials, &api);
+        assert!(result.is_ok(), "{:?}", result);
+
+        let raw_config = fs::read_to_string(Path::new(APPLICATION_CONFIG_FILE)).expect("Failed reading app config");
+
+        serde_json::from_str(&raw_config).expect("Failed deserializing app config json from file")
     }
 
     #[test]
