@@ -120,7 +120,13 @@ async fn communicate_network_settings(settings: NetworkSettings, vsock: &mut Asy
 
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
     {
-        let ccm_backend_url = env_var_or_none("CCM_BACKEND").map(|e| CCMBackendUrl::new(&e)).transpose()?;
+        let ccm_backend_url = env_var_or_none("CCM_BACKEND")
+            .map(|e| CCMBackendUrl::new(&e))
+            .transpose()?;
+
+        if ccm_backend_url.is_none() {
+            info!("CCM_BACKEND variable is not set, running without runtime application configuration!");
+        }
 
         let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
             .map_or(Ok(false), |e| bool::from_str(&e))
@@ -346,10 +352,8 @@ fn get_app_config_id() -> Option<String> {
     match env::var("ENCLAVEOS_APPCONFIG_ID").or(env::var("APPCONFIG_ID")) {
         Ok(result) => Some(result),
         Err(err) => {
-            warn!(
-                "Failed reading env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID, assuming var is not set. {:?}",
-                err
-            );
+            warn!("Failed reading env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID, assuming var is not set. {:?}", err);
+            info!("ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID variables are not set, running without runtime application configuration!");
             None
         }
     }
