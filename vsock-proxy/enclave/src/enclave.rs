@@ -60,14 +60,13 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let (read_tap_loop, write_tap_loop) = start_tap_loops(setup_result.tap_device, parent_networking_port, mtu);
 
-    // We can request application configuration only if we know ccm backend url and have an application id.
+    // We can request application configuration only if we know application id.
     // Also we can run configuration retrieval function only after we start our tap loops,
     // because the function makes a network request
-    if let (Some(certificate_info), Some(ccm_backend_url), Some(_)) =
-        (setup_result.certificate_info, app_config.ccm_backend_url, app_config.id)
+    if let (Some(certificate_info), Some(_)) = (setup_result.certificate_info, app_config.id)
     {
         let api = Box::new(EmAppApplicationConfiguration::new());
-        setup_application_configuration(certificate_info, &ccm_backend_url, app_config.skip_server_verify, api)?;
+        setup_application_configuration(certificate_info, &app_config.ccm_backend_url, app_config.skip_server_verify, api)?;
     }
 
     let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));

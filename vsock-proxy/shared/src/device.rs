@@ -21,7 +21,7 @@ pub enum SetupMessages {
 pub struct ApplicationConfiguration {
     pub id: Option<String>,
 
-    pub ccm_backend_url: Option<CCMBackendUrl>,
+    pub ccm_backend_url: CCMBackendUrl,
 
     pub skip_server_verify: bool,
 }
@@ -47,6 +47,15 @@ impl CCMBackendUrl {
                 host: split[0].to_string(),
                 port,
             }),
+        }
+    }
+}
+
+impl Default for CCMBackendUrl {
+    fn default() -> Self {
+        CCMBackendUrl {
+            host: "ccm.fortanix.com".to_string(),
+            port: 443
         }
     }
 }

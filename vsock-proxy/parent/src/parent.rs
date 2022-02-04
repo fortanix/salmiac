@@ -121,14 +121,9 @@ async fn communicate_network_settings(settings: NetworkSettings, vsock: &mut Asy
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
     {
         let ccm_backend_url = env_var_or_none("CCM_BACKEND")
-            .map(|e| CCMBackendUrl::new(&e))
-            .transpose()?;
+            .map_or(Ok(CCMBackendUrl::default()), |e| CCMBackendUrl::new(&e))?;
 
         let id = get_app_config_id();
-
-        if ccm_backend_url.is_none() && id.is_some() {
-            return Err("CCM_BACKEND env var must be provided if you also provide ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID vars".to_string());
-        }
 
         let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
             .map_or(Ok(false), |e| bool::from_str(&e))
