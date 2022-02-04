@@ -124,8 +124,10 @@ async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), St
             .map(|e| CCMBackendUrl::new(&e))
             .transpose()?;
 
-        if ccm_backend_url.is_none() {
-            info!("CCM_BACKEND variable is not set, running without runtime application configuration!");
+        let id = get_app_config_id();
+
+        if ccm_backend_url.is_none() && id.is_some() {
+            return Err("CCM_BACKEND env var must be provided if you also provide ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID vars".to_string());
         }
 
         let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
@@ -133,7 +135,7 @@ async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), St
             .map_err(|err| format!("Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}", err))?;
 
         let application_configuration = ApplicationConfiguration {
-            id: get_app_config_id(),
+            id,
             ccm_backend_url,
             skip_server_verify,
         };
@@ -353,7 +355,6 @@ fn get_app_config_id() -> Option<String> {
         Ok(result) => Some(result),
         Err(err) => {
             warn!("Failed reading env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID, assuming var is not set. {:?}", err);
-            info!("ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID variables are not set, running without runtime application configuration!");
             None
         }
     }
