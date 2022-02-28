@@ -1,6 +1,6 @@
 use em_app::utils::models::{ApplicationConfigExtra, RuntimeAppConfig};
 use em_client::models::ApplicationConfigSdkmsCredentials;
-use log::info;
+use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
@@ -10,6 +10,8 @@ use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
 use shared::device::CCMBackendUrl;
 
+use em_app::utils::models;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,7 +48,9 @@ pub fn setup_application_configuration(
 
     let app_config = setup_runtime_configuration(ccm_backend_url, &em_app_credentials, &api.runtime_config_api())?;
 
-    setup_datasets(&app_config.extra, &em_app_credentials, &api.dataset_api())
+    setup_datasets(&app_config.extra, &em_app_credentials, &api.dataset_api())?;
+
+    setup_app_configs(&app_config.config.app_config)
 }
 
 fn setup_runtime_configuration(
@@ -123,6 +127,29 @@ fn setup_datasets(
                     )
                 })?;
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
+    for (file, contents_opt) in config_map {
+        if !file.starts_with(APPLICATION_CONFIG_DIR) {
+            return Err(format!(
+                "Invalid application config detected. Config file must point to {} dir",
+                APPLICATION_CONFIG_DIR
+            ));
+        }
+
+        if let Some(encoded_contents) = &contents_opt.contents {
+            let decoded_contents = base64::decode(encoded_contents)
+                .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
+
+            fs::write(&file, &decoded_contents)
+                .map_err(|err| format!("Failed to write application config contents a file {}. {:?}", file, err))?;
+        } else {
+            warn!("Found application config {} with no contents. File won't be created!", file)
         }
     }
 
@@ -350,15 +377,21 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 
 #[cfg(test)]
 mod tests {
-    use em_app::utils::models::{ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset, ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig};
+    use em_app::utils::models::{
+        ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset,
+        ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
+    };
     use sdkms::api_model::Blob;
 
-    use crate::app_configuration::{setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, SdkmsDataset, RuntimeConfiguration, setup_runtime_configuration, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE};
+    use crate::app_configuration::{
+        setup_datasets, setup_runtime_configuration, ApplicationFiles, DataSetFiles, EmAppCredentials, RuntimeConfiguration,
+        SdkmsDataset, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE,
+    };
 
-    use std::collections::{BTreeMap};
+    use shared::device::CCMBackendUrl;
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;
-    use shared::device::CCMBackendUrl;
 
     const VALID_RUNTIME_CONF: &'static str = "\
     {
@@ -439,7 +472,11 @@ mod tests {
     struct MockDataSet {}
 
     impl RuntimeConfiguration for MockDataSet {
-        fn get_runtime_configuration(&self, _ccm_backend_url: &CCMBackendUrl, _credentials: &EmAppCredentials) -> Result<RuntimeAppConfig, String> {
+        fn get_runtime_configuration(
+            &self,
+            _ccm_backend_url: &CCMBackendUrl,
+            _credentials: &EmAppCredentials,
+        ) -> Result<RuntimeAppConfig, String> {
             Ok(serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json"))
         }
     }
@@ -466,7 +503,7 @@ mod tests {
     fn run_setup_runtime_configuration() -> RuntimeAppConfig {
         let backend_url = CCMBackendUrl {
             host: String::new(),
-            port: 0
+            port: 0,
         };
 
         let credentials = EmAppCredentials::mock();

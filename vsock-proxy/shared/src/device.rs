@@ -55,7 +55,7 @@ impl Default for CCMBackendUrl {
     fn default() -> Self {
         CCMBackendUrl {
             host: "ccm.fortanix.com".to_string(),
-            port: 443
+            port: 443,
         }
     }
 }
