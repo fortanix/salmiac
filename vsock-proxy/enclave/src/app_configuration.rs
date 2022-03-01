@@ -147,7 +147,7 @@ fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigCont
                 .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
 
             fs::write(&file, &decoded_contents)
-                .map_err(|err| format!("Failed to write application config contents a file {}. {:?}", file, err))?;
+                .map_err(|err| format!("Failed to write application config contents to file {}. {:?}", file, err))?;
         } else {
             warn!("Found application config {} with no contents. File won't be created!", file)
         }
@@ -384,8 +384,8 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::app_configuration::{
-        setup_datasets, setup_runtime_configuration, ApplicationFiles, DataSetFiles, EmAppCredentials, RuntimeConfiguration,
-        SdkmsDataset, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE,
+        setup_app_configs, setup_datasets, setup_runtime_configuration, ApplicationFiles, DataSetFiles, EmAppCredentials,
+        RuntimeConfiguration, SdkmsDataset, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE,
     };
 
     use shared::device::CCMBackendUrl;
@@ -461,6 +461,40 @@ mod tests {
     }
     ";
 
+    const VALID_APP_CONF: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt\": {
+				    \"contents\": \"SGVsbG8gV29ybGQ=\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"]
+        },
+        \"extra\": { }
+    }
+    ";
+
+    const APP_CONF_INCORRECT_FILE_PATH: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"/opt/my/personal/folder/app_conf.txt\": {
+				    \"contents\": \"SGVsbG8gV29ybGQ=\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"]
+        },
+        \"extra\": { }
+    }
+    ";
+
     struct TempDir<'a>(pub &'a Path);
 
     impl<'a> Drop for TempDir<'a> {
@@ -469,7 +503,9 @@ mod tests {
         }
     }
 
-    struct MockDataSet {}
+    struct MockDataSet {
+        pub json_data: &'static str,
+    }
 
     impl RuntimeConfiguration for MockDataSet {
         fn get_runtime_configuration(
@@ -477,7 +513,7 @@ mod tests {
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
         ) -> Result<RuntimeAppConfig, String> {
-            Ok(serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json"))
+            Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
         }
     }
 
@@ -493,23 +529,21 @@ mod tests {
 
     #[test]
     fn setup_runtime_config_correct_json() {
-        let config: RuntimeAppConfig = run_setup_runtime_configuration();
+        let config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_RUNTIME_CONF);
 
         let reference: RuntimeAppConfig = serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json");
 
         assert_eq!(config, reference);
     }
 
-    fn run_setup_runtime_configuration() -> RuntimeAppConfig {
+    fn run_setup_runtime_configuration(json_data: &'static str) -> RuntimeAppConfig {
         let backend_url = CCMBackendUrl {
             host: String::new(),
             port: 0,
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet {});
-
-        let _temp_dir = TempDir(&Path::new(APPLICATION_CONFIG_DIR));
+        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet { json_data });
 
         let result = setup_runtime_configuration(&backend_url, &credentials, &api);
         assert!(result.is_ok(), "{:?}", result);
@@ -523,7 +557,9 @@ mod tests {
     fn setup_datasets_should_fail_when_no_connections_are_present() {
         let config = ApplicationConfigExtra { connections: None };
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {});
+        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+            json_data: VALID_APP_CONF,
+        });
 
         let result = setup_datasets(&config, &credentials, &api);
         assert!(
@@ -562,7 +598,9 @@ mod tests {
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {});
+        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+            json_data: VALID_APP_CONF,
+        });
 
         let files = DataSetFiles::new("test_location", "test_port");
         let _temp_dir = TempDir(&files.dataset_dir);
@@ -600,7 +638,9 @@ mod tests {
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {});
+        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+            json_data: VALID_APP_CONF,
+        });
 
         let files = ApplicationFiles::new("test_location", "test_port");
         let _temp_dir = TempDir(&files.application_dir);
@@ -611,5 +651,28 @@ mod tests {
         let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
 
         assert_eq!(location, "test_workflow");
+    }
+
+    #[test]
+    fn setup_application_configurations_correct_pass() {
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_APP_CONF);
+
+        assert_eq!(runtime_config.config.app_config.is_empty(), false);
+
+        setup_app_configs(&runtime_config.config.app_config).expect("Failed setting up runtime app config");
+
+        let result =
+            fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt").expect("Failed reading app config file");
+
+        assert_eq!(result, "Hello World")
+    }
+
+    #[test]
+    fn setup_application_configurations_incorrect_file_path() {
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(APP_CONF_INCORRECT_FILE_PATH);
+
+        assert_eq!(runtime_config.config.app_config.is_empty(), false);
+
+        assert!(setup_app_configs(&runtime_config.config.app_config).is_err());
     }
 }
