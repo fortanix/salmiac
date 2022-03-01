@@ -135,18 +135,27 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
     for (file, contents_opt) in config_map {
+        let path = Path::new(file);
+
         if !file.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
-                "Invalid application config detected. Config file must point to {} dir",
-                APPLICATION_CONFIG_DIR
+                "Invalid application config detected. Config file {} must point to {} dir",
+                file, APPLICATION_CONFIG_DIR
             ));
         }
+
+        let dir = path.parent().ok_or(format!(
+            "Invalid application config detected. Config file {} must have a directory part",
+            file
+        ))?;
 
         if let Some(encoded_contents) = &contents_opt.contents {
             let decoded_contents = base64::decode(encoded_contents)
                 .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
 
-            fs::write(&file, &decoded_contents)
+            fs::create_dir_all(dir).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
+
+            fs::write(&path, &decoded_contents)
                 .map_err(|err| format!("Failed to write application config contents to file {}. {:?}", file, err))?;
         } else {
             warn!("Found application config {} with no contents. File won't be created!", file)
@@ -384,8 +393,8 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::app_configuration::{
-        setup_app_configs, setup_datasets, setup_runtime_configuration, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE,
+        setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials,
+        RuntimeConfiguration, SdkmsDataset
     };
 
     use shared::device::CCMBackendUrl;
@@ -478,6 +487,23 @@ mod tests {
     }
     ";
 
+    const VALID_APP_CONF_ADDITIONAL_FOLDER: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt\": {
+				    \"contents\": \"SGVsbG8gV29ybGQ=\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"]
+        },
+        \"extra\": { }
+    }
+    ";
+
     const APP_CONF_INCORRECT_FILE_PATH: &'static str = "\
     {
         \"config\": {
@@ -545,12 +571,10 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet { json_data });
 
-        let result = setup_runtime_configuration(&backend_url, &credentials, &api);
+        let result = api.get_runtime_configuration(&backend_url, &credentials);
         assert!(result.is_ok(), "{:?}", result);
 
-        let raw_config = fs::read_to_string(Path::new(APPLICATION_CONFIG_FILE)).expect("Failed reading app config");
-
-        serde_json::from_str(&raw_config).expect("Failed deserializing app config json from file")
+        result.unwrap()
     }
 
     #[test]
@@ -663,6 +687,20 @@ mod tests {
 
         let result =
             fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt").expect("Failed reading app config file");
+
+        assert_eq!(result, "Hello World")
+    }
+
+    #[test]
+    fn setup_application_configurations_additional_folder_correct_pass() {
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_APP_CONF_ADDITIONAL_FOLDER);
+
+        assert_eq!(runtime_config.config.app_config.is_empty(), false);
+
+        setup_app_configs(&runtime_config.config.app_config).expect("Failed setting up runtime app config");
+
+        let result = fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt")
+            .expect("Failed reading app config file");
 
         assert_eq!(result, "Hello World")
     }
