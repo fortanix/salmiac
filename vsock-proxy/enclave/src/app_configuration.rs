@@ -13,7 +13,7 @@ use shared::device::CCMBackendUrl;
 use em_app::utils::models;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
@@ -135,16 +135,20 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        let path = Path::new(file);
+        if !file.is_ascii() {
+            return Err("Only ascii paths are supported".to_string());
+        }
 
-        if !file.starts_with(APPLICATION_CONFIG_DIR) {
+        let file_path = normalize_path(Path::new(file))?;
+
+        if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
                 "Invalid application config detected. Config file {} must point to {} dir",
                 file, APPLICATION_CONFIG_DIR
             ));
         }
 
-        let dir = path.parent().ok_or(format!(
+        let dir = file_path.parent().ok_or(format!(
             "Invalid application config detected. Config file {} must have a directory part",
             file
         ))?;
@@ -155,7 +159,7 @@ fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigCont
 
             fs::create_dir_all(dir).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
 
-            fs::write(&path, &decoded_contents)
+            fs::write(&file_path, &decoded_contents)
                 .map_err(|err| format!("Failed to write application config contents to file {}. {:?}", file, err))?;
         } else {
             warn!("Found application config {} with no contents. File won't be created!", file)
@@ -219,6 +223,42 @@ fn read_root_certificates() -> MbedtlsList<Certificate> {
     }
 
     result
+}
+
+fn normalize_path(path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err(format!("Relative paths are not allowed. Path in question {}", path.display()));
+    }
+
+    if !path.has_root() {
+        return Err(format!("Path must start at root. Path in question {}", path.display()));
+    }
+
+    let mut result = PathBuf::from("/");
+
+    for component in path.components() {
+        match component {
+            Component::RootDir => (),
+            Component::Normal(folder) => result.push(folder),
+            Component::ParentDir => {
+                result.pop();
+            }
+            Component::Prefix(_) => {
+                return Err(format!(
+                    "Prefixes in path are not supported. Path in question {}",
+                    path.display()
+                ));
+            }
+            Component::CurDir => {
+                return Err(format!(
+                    "Current dir in path is supported. Path in question {}",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 pub trait ApplicationConfiguration {
@@ -393,8 +433,8 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::app_configuration::{
-        setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset
+        normalize_path, setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials,
+        RuntimeConfiguration, SdkmsDataset,
     };
 
     use shared::device::CCMBackendUrl;
@@ -712,5 +752,15 @@ mod tests {
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
         assert!(setup_app_configs(&runtime_config.config.app_config).is_err());
+    }
+
+    #[test]
+    fn normalize_path_correct_path() {
+        assert!(normalize_path(&Path::new("a/b/c")).is_err());
+
+        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a////b")).unwrap().as_path());
+        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/./././b")).unwrap().as_path());
+        assert_eq!(Path::new("/b"), normalize_path(&Path::new("/a/../b")).unwrap().as_path());
+        assert_eq!(Path::new("/a/b/c"), normalize_path(&Path::new("/a//.///b/d/.///../c")).unwrap().as_path());
     }
 }
