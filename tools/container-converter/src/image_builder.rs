@@ -235,10 +235,14 @@ impl<'a> ParentImageBuilder<'a> {
             .display()
             .to_string();
 
+        let env_vars = rust_log_env_var() + " " +
+            &(ParentImageBuilder::cpu_count_env_var(self)) + " " +
+            &(ParentImageBuilder::mem_size_env_var(self));
+
         file::populate_docker_file(file,
                                    &self.parent_image,
                                    &copy,
-                                   &rust_log_env_var(),
+                                   &env_vars,
                                    &run_parent_cmd)
     }
 
@@ -266,16 +270,6 @@ impl<'a> ParentImageBuilder<'a> {
 
         let parent_bin = install_path.join("parent");
 
-        let cpu_count = self.start_options
-            .cpu_count.
-            unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT);
-
-        let memory_size = self.start_options
-            .mem_size
-            .as_ref()
-            .map(|e| e.to_mb())
-            .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
-
         let (debug_mode, connect_to_enclave_cmd) = if cfg!(debug_assertions) {
             // todo: Change enclave name from a constant to a dynamic one
             // when support for multiple enclaves will arrive
@@ -291,13 +285,11 @@ impl<'a> ParentImageBuilder<'a> {
             "\n\
              # Parent startup code \n\
              {} --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} {} \n\
+             nitro-cli run-enclave --eif-path {} --cpu-count $CPU_COUNT --memory $MEM_SIZE {} \n\
              {} \n\
              fg \n",
             parent_bin.display(),
             sanitized_nitro_file,
-            cpu_count,
-            memory_size,
             debug_mode,
             connect_to_enclave_cmd)
     }
@@ -323,6 +315,20 @@ impl<'a> ParentImageBuilder<'a> {
             "parent".to_string(),
             EnclaveImageBuilder::ENCLAVE_FILE_NAME.to_string()
         ]
+    }
+
+    fn cpu_count_env_var(&self) -> String {
+        format!("CPU_COUNT={}", self.start_options
+            .cpu_count.
+            unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT))
+    }
+
+    fn mem_size_env_var(&self) -> String {
+        format!("MEM_SIZE={}", self.start_options
+            .mem_size
+            .as_ref()
+            .map(|e| e.to_mb())
+            .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE))
     }
 }
 
