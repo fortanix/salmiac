@@ -135,7 +135,7 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        let file_path = normalize_path(Path::new(file))
+        let file_path = normalize_path(&file)
             .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
 
         if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
@@ -222,9 +222,15 @@ fn read_root_certificates() -> MbedtlsList<Certificate> {
     result
 }
 
-fn normalize_path(path: &Path) -> Result<PathBuf, String> {
+fn normalize_path(raw_path: &str) -> Result<PathBuf, String> {
+    if raw_path.ends_with("/") || raw_path.ends_with("/.") {
+        return Err(format!("Can't normalize path {}. The path ends with '/' or '/.'.", raw_path));
+    }
+
+    let path = Path::new(raw_path);
+
     if !path.has_root() {
-        return Err(format!("Path must be absolute. Path in question {}", path.display()));
+        return Err(format!("Can't normalize path {}. Path must be absolute. ", path.display()));
     }
 
     let mut result = PathBuf::from("/");
@@ -234,17 +240,20 @@ fn normalize_path(path: &Path) -> Result<PathBuf, String> {
             Component::RootDir => (),
             Component::Normal(folder) => result.push(folder),
             Component::ParentDir => {
-                result.pop();
+                return Err(format!(
+                    "Can't normalize path {}. Parent dir (..) symbol is not supported.",
+                    path.display()
+                ));
             }
             Component::Prefix(_) => {
                 return Err(format!(
-                    "Prefixes in path are not supported. Path in question {}",
+                    "Can't normalize path {}. Prefixes in path are not supported.",
                     path.display()
                 ));
             }
             Component::CurDir => {
                 return Err(format!(
-                    "Current dir in path is not supported. Path in question {}",
+                    "Can't normalize path {}. Current dir in path is not supported.",
                     path.display()
                 ));
             }
@@ -749,29 +758,28 @@ mod tests {
 
     #[test]
     fn normalize_path_correct_pass() {
-        assert!(normalize_path(&Path::new("a/b/c")).is_err());
-
-        assert_eq!(Path::new("/❤/✈/☆"), normalize_path(&Path::new("/❤/✈/☆")).unwrap().as_path());
+        assert_eq!(Path::new("/❤/✈/☆"), normalize_path("/❤/✈/☆").unwrap().as_path());
         assert_eq!(
             Path::new("/air/✈/plane"),
-            normalize_path(&Path::new("/air/✈/plane")).unwrap().as_path()
+            normalize_path("/air/✈/plane").unwrap().as_path()
         );
 
-        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a////b")).unwrap().as_path());
-        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/./././b")).unwrap().as_path());
-        assert_eq!(Path::new("/b"), normalize_path(&Path::new("/a/../b")).unwrap().as_path());
+        assert_eq!(Path::new("/a/b"), normalize_path("/a////b").unwrap().as_path());
+        assert_eq!(Path::new("/a/b"), normalize_path("/a/./././b").unwrap().as_path());
+        assert_eq!(Path::new("/..."), normalize_path("/...").unwrap().as_path());
+        assert_eq!(Path::new("/a."), normalize_path("/a.").unwrap().as_path());
+        assert_eq!(Path::new("/a.."), normalize_path("/a..").unwrap().as_path());
+
         assert_eq!(
-            Path::new("/a/b/c"),
-            normalize_path(&Path::new("/a//.///b/d/.///../c")).unwrap().as_path()
+            Path::new("/a/b/d/c"),
+            normalize_path("/a//.///b/d/.///./c").unwrap().as_path()
         );
 
-        assert_eq!(Path::new("/a/b/c"), normalize_path(&Path::new("/a/b/c/")).unwrap().as_path());
-        assert_eq!(Path::new("/a/b/c"), normalize_path(&Path::new("/a/b/c/.")).unwrap().as_path());
-        assert_eq!(
-            Path::new("/a/b/c"),
-            normalize_path(&Path::new("/a/b/c/./")).unwrap().as_path()
-        );
-        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/b/c/..")).unwrap().as_path());
-        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/b/c/../")).unwrap().as_path());
+        assert!(normalize_path("a/b/c").is_err());
+        assert!(normalize_path("/.").is_err());
+        assert!(normalize_path("/a/../b").is_err());
+        assert!(normalize_path("/a/b/c/").is_err());
+        assert!(normalize_path("/a/b/c/.").is_err());
+        assert!(normalize_path("/a/b/c/..").is_err());
     }
 }
