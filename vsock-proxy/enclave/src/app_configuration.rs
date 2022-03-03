@@ -135,11 +135,8 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        if !file.is_ascii() {
-            return Err("Only ascii paths are supported".to_string());
-        }
-
-        let file_path = normalize_path(Path::new(file))?;
+        let file_path = normalize_path(Path::new(file))
+            .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
 
         if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
@@ -226,12 +223,8 @@ fn read_root_certificates() -> MbedtlsList<Certificate> {
 }
 
 fn normalize_path(path: &Path) -> Result<PathBuf, String> {
-    if !path.is_absolute() {
-        return Err(format!("Relative paths are not allowed. Path in question {}", path.display()));
-    }
-
     if !path.has_root() {
-        return Err(format!("Path must start at root. Path in question {}", path.display()));
+        return Err(format!("Path must be absolute. Path in question {}", path.display()));
     }
 
     let mut result = PathBuf::from("/");
@@ -251,7 +244,7 @@ fn normalize_path(path: &Path) -> Result<PathBuf, String> {
             }
             Component::CurDir => {
                 return Err(format!(
-                    "Current dir in path is supported. Path in question {}",
+                    "Current dir in path is not supported. Path in question {}",
                     path.display()
                 ));
             }
@@ -532,7 +525,7 @@ mod tests {
         \"config\": {
             \"app_config\": {
                 \"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt\": {
-				    \"contents\": \"SGVsbG8gV29ybGQ=\"
+				    \"contents\": \"RGVhZCBCZWVm\"
 			    }
             },
 		    \"labels\": {
@@ -549,7 +542,7 @@ mod tests {
         \"config\": {
             \"app_config\": {
                 \"/opt/my/personal/folder/app_conf.txt\": {
-				    \"contents\": \"SGVsbG8gV29ybGQ=\"
+				    \"contents\": \"QkFBQUFBQUQ=\"
 			    }
             },
 		    \"labels\": {
@@ -742,7 +735,7 @@ mod tests {
         let result = fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt")
             .expect("Failed reading app config file");
 
-        assert_eq!(result, "Hello World")
+        assert_eq!(result, "Dead Beef")
     }
 
     #[test]
@@ -755,12 +748,30 @@ mod tests {
     }
 
     #[test]
-    fn normalize_path_correct_path() {
+    fn normalize_path_correct_pass() {
         assert!(normalize_path(&Path::new("a/b/c")).is_err());
+
+        assert_eq!(Path::new("/❤/✈/☆"), normalize_path(&Path::new("/❤/✈/☆")).unwrap().as_path());
+        assert_eq!(
+            Path::new("/air/✈/plane"),
+            normalize_path(&Path::new("/air/✈/plane")).unwrap().as_path()
+        );
 
         assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a////b")).unwrap().as_path());
         assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/./././b")).unwrap().as_path());
         assert_eq!(Path::new("/b"), normalize_path(&Path::new("/a/../b")).unwrap().as_path());
-        assert_eq!(Path::new("/a/b/c"), normalize_path(&Path::new("/a//.///b/d/.///../c")).unwrap().as_path());
+        assert_eq!(
+            Path::new("/a/b/c"),
+            normalize_path(&Path::new("/a//.///b/d/.///../c")).unwrap().as_path()
+        );
+
+        assert_eq!(Path::new("/a/b/c"), normalize_path(&Path::new("/a/b/c/")).unwrap().as_path());
+        assert_eq!(Path::new("/a/b/c"), normalize_path(&Path::new("/a/b/c/.")).unwrap().as_path());
+        assert_eq!(
+            Path::new("/a/b/c"),
+            normalize_path(&Path::new("/a/b/c/./")).unwrap().as_path()
+        );
+        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/b/c/..")).unwrap().as_path());
+        assert_eq!(Path::new("/a/b"), normalize_path(&Path::new("/a/b/c/../")).unwrap().as_path());
     }
 }
