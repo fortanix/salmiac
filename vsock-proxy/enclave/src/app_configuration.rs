@@ -135,8 +135,8 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        let file_path = normalize_path(&file)
-            .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
+        let file_path =
+            normalize_path(&file).map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
 
         if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
@@ -150,16 +150,19 @@ fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigCont
             file
         ))?;
 
+        fs::create_dir_all(dir).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
+
         if let Some(encoded_contents) = &contents_opt.contents {
             let decoded_contents = base64::decode(encoded_contents)
                 .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
 
-            fs::create_dir_all(dir).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
-
             fs::write(&file_path, &decoded_contents)
                 .map_err(|err| format!("Failed to write application config contents to file {}. {:?}", file, err))?;
         } else {
-            warn!("Found application config {} with no contents. File won't be created!", file)
+            warn!(
+                "Found application config {} with no contents. Created file will be empty.",
+                file
+            )
         }
     }
 
@@ -246,10 +249,10 @@ fn normalize_path(raw_path: &str) -> Result<PathBuf, String> {
                 ));
             }
             Component::Prefix(_) => {
-                return Err(format!(
-                    "Can't normalize path {}. Prefixes in path are not supported.",
+                panic!(
+                    "Prefix should not be present in path normalization. Application config path is {}",
                     path.display()
-                ));
+                );
             }
             Component::CurDir => {
                 return Err(format!(
@@ -759,10 +762,7 @@ mod tests {
     #[test]
     fn normalize_path_correct_pass() {
         assert_eq!(Path::new("/❤/✈/☆"), normalize_path("/❤/✈/☆").unwrap().as_path());
-        assert_eq!(
-            Path::new("/air/✈/plane"),
-            normalize_path("/air/✈/plane").unwrap().as_path()
-        );
+        assert_eq!(Path::new("/air/✈/plane"), normalize_path("/air/✈/plane").unwrap().as_path());
 
         assert_eq!(Path::new("/a/b"), normalize_path("/a////b").unwrap().as_path());
         assert_eq!(Path::new("/a/b"), normalize_path("/a/./././b").unwrap().as_path());
