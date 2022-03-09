@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 async-process = "1.2.0"
+base64 = "0.13.0"
 shared = { path = "../shared" }
 clap = "2.33"
 env_logger = "0.7"
