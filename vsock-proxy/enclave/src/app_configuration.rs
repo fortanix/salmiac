@@ -1,6 +1,6 @@
 use em_app::utils::models::{ApplicationConfigExtra, RuntimeAppConfig};
 use em_client::models::ApplicationConfigSdkmsCredentials;
-use log::info;
+use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
@@ -10,8 +10,10 @@ use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
 use shared::device::CCMBackendUrl;
 
+use em_app::utils::models;
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
@@ -46,7 +48,9 @@ pub fn setup_application_configuration(
 
     let app_config = setup_runtime_configuration(ccm_backend_url, &em_app_credentials, &api.runtime_config_api())?;
 
-    setup_datasets(&app_config.extra, &em_app_credentials, &api.dataset_api())
+    setup_datasets(&app_config.extra, &em_app_credentials, &api.dataset_api())?;
+
+    setup_app_configs(&app_config.config.app_config)
 }
 
 fn setup_runtime_configuration(
@@ -129,6 +133,42 @@ fn setup_datasets(
     Ok(())
 }
 
+fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
+    for (file, contents_opt) in config_map {
+        let file_path =
+            normalize_path(&file).map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
+
+        if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
+            return Err(format!(
+                "Invalid application config detected. Config file {} must point to {} dir",
+                file, APPLICATION_CONFIG_DIR
+            ));
+        }
+
+        let dir = file_path.parent().ok_or(format!(
+            "Invalid application config detected. Config file {} must have a directory part",
+            file
+        ))?;
+
+        fs::create_dir_all(dir).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
+
+        if let Some(encoded_contents) = &contents_opt.contents {
+            let decoded_contents = base64::decode(encoded_contents)
+                .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
+
+            fs::write(&file_path, &decoded_contents)
+                .map_err(|err| format!("Failed to write application config contents to file {}. {:?}", file, err))?;
+        } else {
+            warn!(
+                "Found application config {} with no contents. Created file will be empty.",
+                file
+            )
+        }
+    }
+
+    Ok(())
+}
+
 struct DataSetFiles {
     pub dataset_dir: PathBuf,
 
@@ -183,6 +223,47 @@ fn read_root_certificates() -> MbedtlsList<Certificate> {
     }
 
     result
+}
+
+fn normalize_path(raw_path: &str) -> Result<PathBuf, String> {
+    if raw_path.ends_with("/") || raw_path.ends_with("/.") {
+        return Err(format!("Can't normalize path {}. The path ends with '/' or '/.'.", raw_path));
+    }
+
+    let path = Path::new(raw_path);
+
+    if !path.has_root() {
+        return Err(format!("Can't normalize path {}. Path must be absolute. ", path.display()));
+    }
+
+    let mut result = PathBuf::from("/");
+
+    for component in path.components() {
+        match component {
+            Component::RootDir => (),
+            Component::Normal(folder) => result.push(folder),
+            Component::ParentDir => {
+                return Err(format!(
+                    "Can't normalize path {}. Parent dir (..) symbol is not supported.",
+                    path.display()
+                ));
+            }
+            Component::Prefix(_) => {
+                panic!(
+                    "Prefix should not be present in path normalization. Application config path is {}",
+                    path.display()
+                );
+            }
+            Component::CurDir => {
+                return Err(format!(
+                    "Can't normalize path {}. Current dir in path is not supported.",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 pub trait ApplicationConfiguration {
@@ -350,15 +431,21 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 
 #[cfg(test)]
 mod tests {
-    use em_app::utils::models::{ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset, ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig};
+    use em_app::utils::models::{
+        ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset,
+        ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
+    };
     use sdkms::api_model::Blob;
 
-    use crate::app_configuration::{setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, SdkmsDataset, RuntimeConfiguration, setup_runtime_configuration, APPLICATION_CONFIG_DIR, APPLICATION_CONFIG_FILE};
+    use crate::app_configuration::{
+        normalize_path, setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials,
+        RuntimeConfiguration, SdkmsDataset,
+    };
 
-    use std::collections::{BTreeMap};
+    use shared::device::CCMBackendUrl;
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;
-    use shared::device::CCMBackendUrl;
 
     const VALID_RUNTIME_CONF: &'static str = "\
     {
@@ -428,6 +515,57 @@ mod tests {
     }
     ";
 
+    const VALID_APP_CONF: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt\": {
+				    \"contents\": \"SGVsbG8gV29ybGQ=\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"]
+        },
+        \"extra\": { }
+    }
+    ";
+
+    const VALID_APP_CONF_ADDITIONAL_FOLDER: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt\": {
+				    \"contents\": \"RGVhZCBCZWVm\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"]
+        },
+        \"extra\": { }
+    }
+    ";
+
+    const APP_CONF_INCORRECT_FILE_PATH: &'static str = "\
+    {
+        \"config\": {
+            \"app_config\": {
+                \"/opt/my/personal/folder/app_conf.txt\": {
+				    \"contents\": \"QkFBQUFBQUQ=\"
+			    }
+            },
+		    \"labels\": {
+			    \"location\": \"East US\"
+		    },
+		    \"zone_ca\": [\"cert\"]
+        },
+        \"extra\": { }
+    }
+    ";
+
     struct TempDir<'a>(pub &'a Path);
 
     impl<'a> Drop for TempDir<'a> {
@@ -436,11 +574,17 @@ mod tests {
         }
     }
 
-    struct MockDataSet {}
+    struct MockDataSet {
+        pub json_data: &'static str,
+    }
 
     impl RuntimeConfiguration for MockDataSet {
-        fn get_runtime_configuration(&self, _ccm_backend_url: &CCMBackendUrl, _credentials: &EmAppCredentials) -> Result<RuntimeAppConfig, String> {
-            Ok(serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json"))
+        fn get_runtime_configuration(
+            &self,
+            _ccm_backend_url: &CCMBackendUrl,
+            _credentials: &EmAppCredentials,
+        ) -> Result<RuntimeAppConfig, String> {
+            Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
         }
     }
 
@@ -456,37 +600,35 @@ mod tests {
 
     #[test]
     fn setup_runtime_config_correct_json() {
-        let config: RuntimeAppConfig = run_setup_runtime_configuration();
+        let config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_RUNTIME_CONF);
 
         let reference: RuntimeAppConfig = serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json");
 
         assert_eq!(config, reference);
     }
 
-    fn run_setup_runtime_configuration() -> RuntimeAppConfig {
+    fn run_setup_runtime_configuration(json_data: &'static str) -> RuntimeAppConfig {
         let backend_url = CCMBackendUrl {
             host: String::new(),
-            port: 0
+            port: 0,
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet {});
+        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet { json_data });
 
-        let _temp_dir = TempDir(&Path::new(APPLICATION_CONFIG_DIR));
-
-        let result = setup_runtime_configuration(&backend_url, &credentials, &api);
+        let result = api.get_runtime_configuration(&backend_url, &credentials);
         assert!(result.is_ok(), "{:?}", result);
 
-        let raw_config = fs::read_to_string(Path::new(APPLICATION_CONFIG_FILE)).expect("Failed reading app config");
-
-        serde_json::from_str(&raw_config).expect("Failed deserializing app config json from file")
+        result.unwrap()
     }
 
     #[test]
     fn setup_datasets_should_fail_when_no_connections_are_present() {
         let config = ApplicationConfigExtra { connections: None };
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {});
+        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+            json_data: VALID_APP_CONF,
+        });
 
         let result = setup_datasets(&config, &credentials, &api);
         assert!(
@@ -525,7 +667,9 @@ mod tests {
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {});
+        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+            json_data: VALID_APP_CONF,
+        });
 
         let files = DataSetFiles::new("test_location", "test_port");
         let _temp_dir = TempDir(&files.dataset_dir);
@@ -563,7 +707,9 @@ mod tests {
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {});
+        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+            json_data: VALID_APP_CONF,
+        });
 
         let files = ApplicationFiles::new("test_location", "test_port");
         let _temp_dir = TempDir(&files.application_dir);
@@ -574,5 +720,66 @@ mod tests {
         let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
 
         assert_eq!(location, "test_workflow");
+    }
+
+    #[test]
+    fn setup_application_configurations_correct_pass() {
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_APP_CONF);
+
+        assert_eq!(runtime_config.config.app_config.is_empty(), false);
+
+        setup_app_configs(&runtime_config.config.app_config).expect("Failed setting up runtime app config");
+
+        let result =
+            fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt").expect("Failed reading app config file");
+
+        assert_eq!(result, "Hello World")
+    }
+
+    #[test]
+    fn setup_application_configurations_additional_folder_correct_pass() {
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_APP_CONF_ADDITIONAL_FOLDER);
+
+        assert_eq!(runtime_config.config.app_config.is_empty(), false);
+
+        setup_app_configs(&runtime_config.config.app_config).expect("Failed setting up runtime app config");
+
+        let result = fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt")
+            .expect("Failed reading app config file");
+
+        assert_eq!(result, "Dead Beef")
+    }
+
+    #[test]
+    fn setup_application_configurations_incorrect_file_path() {
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(APP_CONF_INCORRECT_FILE_PATH);
+
+        assert_eq!(runtime_config.config.app_config.is_empty(), false);
+
+        assert!(setup_app_configs(&runtime_config.config.app_config).is_err());
+    }
+
+    #[test]
+    fn normalize_path_correct_pass() {
+        assert_eq!(Path::new("/❤/✈/☆"), normalize_path("/❤/✈/☆").unwrap().as_path());
+        assert_eq!(Path::new("/air/✈/plane"), normalize_path("/air/✈/plane").unwrap().as_path());
+
+        assert_eq!(Path::new("/a/b"), normalize_path("/a////b").unwrap().as_path());
+        assert_eq!(Path::new("/a/b"), normalize_path("/a/./././b").unwrap().as_path());
+        assert_eq!(Path::new("/..."), normalize_path("/...").unwrap().as_path());
+        assert_eq!(Path::new("/a."), normalize_path("/a.").unwrap().as_path());
+        assert_eq!(Path::new("/a.."), normalize_path("/a..").unwrap().as_path());
+
+        assert_eq!(
+            Path::new("/a/b/d/c"),
+            normalize_path("/a//.///b/d/.///./c").unwrap().as_path()
+        );
+
+        assert!(normalize_path("a/b/c").is_err());
+        assert!(normalize_path("/.").is_err());
+        assert!(normalize_path("/a/../b").is_err());
+        assert!(normalize_path("/a/b/c/").is_err());
+        assert!(normalize_path("/a/b/c/.").is_err());
+        assert!(normalize_path("/a/b/c/..").is_err());
     }
 }

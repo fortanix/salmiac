@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use crate::file::{DockerCopyArgs, Resource, UnixFile};
 use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
 use crate::Result;
-use crate::{file, ConverterError, ConverterErrorKind, ImageToClean, ImageType};
+use crate::{file, ConverterError, ConverterErrorKind};
 use api_model::shared::EnclaveSettings;
 use api_model::NitroEnclavesConversionRequestOptions;
 
@@ -237,7 +237,15 @@ impl<'a> ParentImageBuilder<'a> {
 
         let run_parent_cmd = Path::new(INSTALLATION_DIR).join("start-parent.sh").display().to_string();
 
-        file::populate_docker_file(file, &self.parent_image, &copy, &rust_log_env_var(), &run_parent_cmd)
+        let env_vars = rust_log_env_var()
+            + " "
+            + &(self.cpu_count_env_var())
+            + " "
+            + &(self.mem_size_env_var())
+            + " "
+            + &(self.eos_debug_env_var());
+
+        file::populate_docker_file(file, &self.parent_image, &copy, &env_vars, &run_parent_cmd)
     }
 
     fn create_parent_startup_script(&self) -> std::result::Result<(), String> {
@@ -259,28 +267,13 @@ impl<'a> ParentImageBuilder<'a> {
 
     fn start_enclave_command(&self) -> String {
         let install_path = Path::new(INSTALLATION_DIR);
-        let nitro_file_path = install_path.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
-
-        let sanitized_nitro_file = format!("'{}'", nitro_file_path.display());
-
         let parent_bin = install_path.join("parent");
 
-        let cpu_count = self.start_options.cpu_count.unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT);
-
-        let memory_size = self
-            .start_options
-            .mem_size
-            .as_ref()
-            .map(|e| e.to_mb())
-            .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE);
-
-        let (debug_mode, connect_to_enclave_cmd) = if cfg!(debug_assertions) {
-            // todo: Change enclave name from a constant to a dynamic one
-            // when support for multiple enclaves will arrive
-            ("--debug-mode", "nitro-cli console --enclave-name enclave")
-        } else {
-            ("", "")
-        };
+        // Construct two sets of commands for the parent start up script:
+        // dbg_cmd runs the enclave in debug mode and prints enclave logs
+        // to console. cmd simply runs the enclave with no additional
+        // logging
+        let (dbg_cmd, cmd) = self.get_nitro_run_commands(&install_path);
 
         // We start the parent side of the vsock proxy before running the enclave because we want it running
         // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
@@ -289,15 +282,13 @@ impl<'a> ParentImageBuilder<'a> {
             "\n\
              # Parent startup code \n\
              {} --vsock-port 5006 & \n\
-             nitro-cli run-enclave --eif-path {} --cpu-count {} --memory {} {} \n\
-             {} \n\
+             dbg_cmd=\"{}\" \n\
+             cmd=\"{}\" \n\
+             if [ -n \"$ENCLAVEOS_DEBUG\" ] ; then eval \"$dbg_cmd\" ; else eval \"$cmd\" ; fi; \n\
              fg \n",
             parent_bin.display(),
-            sanitized_nitro_file,
-            cpu_count,
-            memory_size,
-            debug_mode,
-            connect_to_enclave_cmd
+            dbg_cmd,
+            cmd
         )
     }
 
@@ -322,6 +313,53 @@ impl<'a> ParentImageBuilder<'a> {
             "parent".to_string(),
             EnclaveImageBuilder::ENCLAVE_FILE_NAME.to_string(),
         ]
+    }
+
+    fn eos_debug_env_var(&self) -> String {
+        format!("ENCLAVEOS_DEBUG={}", {
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                ""
+            }
+        })
+    }
+
+    fn cpu_count_env_var(&self) -> String {
+        format!(
+            "CPU_COUNT={}",
+            self.start_options.cpu_count.unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT)
+        )
+    }
+
+    fn mem_size_env_var(&self) -> String {
+        format!(
+            "MEM_SIZE={}",
+            self.start_options
+                .mem_size
+                .as_ref()
+                .map(|e| e.to_mb())
+                .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE)
+        )
+    }
+
+    fn get_nitro_run_commands(&self, install_path: &Path) -> (String, String) {
+        let nitro_file_path = install_path.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
+        let sanitized_nitro_file = format!("'{}'", nitro_file_path.display());
+
+        let nitro_run_cmd = format!(
+            "nitro-cli run-enclave --eif-path {} --cpu-count \
+                                           $CPU_COUNT --memory $MEM_SIZE",
+            sanitized_nitro_file
+        );
+
+        // --enclave-name here is the name of the .eif file which is fixed to "enclave"
+        let dbg_cmd = format!(
+            "{} --debug-mode \n\
+                                      nitro-cli console --enclave-name enclave ",
+            nitro_run_cmd
+        );
+        return (dbg_cmd, nitro_run_cmd);
     }
 }
 
