@@ -5,7 +5,7 @@ use serde::Deserialize;
 use shiplift::image::{ImageDetails, PushOptions};
 use shiplift::{BuildOptions, Docker, Image, PullOptions, RegistryAuth, TagOptions};
 
-use crate::{ConverterError, ConverterErrorKind, ImageToClean, ImageType};
+use crate::{ConverterError, ConverterErrorKind, ImageToClean, ImageKind};
 use api_model::shared::UserProgramConfig;
 use api_model::AuthConfig;
 
@@ -122,10 +122,10 @@ impl ImageWithDetails {
         }
     }
 
-    pub fn make_temporary(self, type_: ImageType, sender: Sender<ImageToClean>) -> TempImage {
+    pub fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage {
         TempImage {
             image: self,
-            type_,
+            kind,
             sender,
         }
     }
@@ -162,7 +162,7 @@ impl ImageWithDetails {
 pub struct TempImage {
     pub image: ImageWithDetails,
 
-    pub type_: ImageType,
+    pub kind: ImageKind,
 
     pub sender: mpsc::Sender<ImageToClean>,
 }
@@ -171,7 +171,7 @@ impl Drop for TempImage {
     fn drop(&mut self) {
         let result = ImageToClean {
             name: self.image.name.clone(),
-            type_: self.type_.clone(),
+            kind: self.kind.clone(),
         };
 
         if let Err(e) = self.sender.send(result) {

@@ -4,7 +4,7 @@ use tempfile::TempDir;
 
 use crate::file::{DockerCopyArgs, Resource, UnixFile};
 use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
-use crate::Result;
+use crate::{Result, ImageKind, ImageToClean};
 use crate::{file, ConverterError, ConverterErrorKind};
 use api_model::shared::EnclaveSettings;
 use api_model::NitroEnclavesConversionRequestOptions;
@@ -59,7 +59,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             ConverterErrorKind::EnclaveImageCreation,
         )
         .await
-        .map(|e| e.make_temporary(ImageType::Intermediate, images_to_clean_snd))?;
+        .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
         let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 

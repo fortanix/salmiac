@@ -94,7 +94,7 @@ async fn run0(
     let input_image = input_repository
         .get_image(&client_image)
         .await
-        .map(|e| e.make_temporary(ImageType::Input, images_to_clean_snd.clone()))
+        .map(|e| e.make_temporary(ImageKind::Input, images_to_clean_snd.clone()))
         .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::ImageGet,
@@ -138,7 +138,7 @@ async fn run0(
     let result_image = parent_builder
         .create_image(&input_repository)
         .await
-        .map(|e| e.make_temporary(ImageType::Result, images_to_clean_snd.clone()))?;
+        .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
 
     let result_repository = DockerUtil::new(&args.request.output_image.auth_config);
 
@@ -198,24 +198,24 @@ fn create_response(image: &ImageWithDetails, pcr_list: PCRList) -> Result<NitroE
 pub struct ImageToClean {
     pub name: String,
 
-    pub type_: ImageType,
+    pub kind: ImageKind,
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug, Ord, PartialOrd)]
-pub enum ImageType {
+pub enum ImageKind {
     Input,
     Intermediate,
     Result,
 }
 
-impl FromStr for ImageType {
+impl FromStr for ImageKind {
     type Err = String;
 
-    fn from_str(input: &str) -> std::result::Result<ImageType, Self::Err> {
+    fn from_str(input: &str) -> std::result::Result<ImageKind, Self::Err> {
         match &*input.trim().to_lowercase() {
-            "input" => Ok(ImageType::Input),
-            "intermediate" => Ok(ImageType::Intermediate),
-            "result" => Ok(ImageType::Result),
+            "input" => Ok(ImageKind::Input),
+            "intermediate" => Ok(ImageKind::Intermediate),
+            "result" => Ok(ImageKind::Result),
             _ => Err(format!("Unknown ImageType enum value: '{}'", input).to_string()),
         }
     }
@@ -224,7 +224,7 @@ impl FromStr for ImageType {
 async fn clean_docker_images(
     docker: Docker,
     images_receiver: mpsc::Receiver<ImageToClean>,
-    preserve: HashSet<ImageType>,
+    preserve: HashSet<ImageKind>,
 ) -> Result<()> {
     let mut received_images: Vec<String> = Vec::new();
 
@@ -232,7 +232,7 @@ async fn clean_docker_images(
     // the image convert function irregardless if the function
     // exited normally or panicked.
     while let Ok(image) = images_receiver.recv() {
-        if !preserve.contains(&image.type_) {
+        if !preserve.contains(&image.kind) {
             received_images.push(image.name)
         }
     }
@@ -310,12 +310,12 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
     }
 }
 
-fn preserve_images_list() -> Result<HashSet<ImageType>> {
-    let mut result: HashSet<ImageType> = HashSet::new();
+fn preserve_images_list() -> Result<HashSet<ImageKind>> {
+    let mut result: HashSet<ImageKind> = HashSet::new();
 
     if let Some(raw_list) = env_var_or_none("PRESERVE_IMAGES") {
         for e in raw_list.split(",") {
-            let image_type = ImageType::from_str(e).map_err(|err| ConverterError {
+            let image_type = ImageKind::from_str(e).map_err(|err| ConverterError {
                 message: format!("PRESERVE_IMAGES list contains incorrect item. {:?}", err),
                 kind: ConverterErrorKind::BadRequest,
             })?;
@@ -329,7 +329,7 @@ fn preserve_images_list() -> Result<HashSet<ImageType>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{preserve_images_list, ImageType};
+    use crate::{preserve_images_list, ImageKind};
     use std::env;
 
     #[test]
@@ -339,7 +339,7 @@ mod tests {
         let mut result = preserve_images_list();
 
         assert!(result.is_ok());
-        assert!(result.unwrap().into_iter().collect::<Vec<ImageType>>().is_empty());
+        assert!(result.unwrap().into_iter().collect::<Vec<ImageKind>>().is_empty());
 
         env::set_var("PRESERVE_IMAGES", "result");
 
@@ -347,8 +347,8 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(
-            vec![ImageType::Result],
-            result.unwrap().into_iter().collect::<Vec<ImageType>>()
+            vec![ImageKind::Result],
+            result.unwrap().into_iter().collect::<Vec<ImageKind>>()
         );
 
         env::set_var("PRESERVE_IMAGES", "reSuLt, inTermediaTe, INPUT");
@@ -357,10 +357,10 @@ mod tests {
 
         assert!(result.is_ok());
         {
-            let mut left = vec![ImageType::Result, ImageType::Intermediate, ImageType::Input];
+            let mut left = vec![ImageKind::Result, ImageKind::Intermediate, ImageKind::Input];
             left.sort();
 
-            let mut right = result.unwrap().into_iter().collect::<Vec<ImageType>>();
+            let mut right = result.unwrap().into_iter().collect::<Vec<ImageKind>>();
             right.sort();
 
             assert_eq!(left, right);
