@@ -1,20 +1,18 @@
-use em_app::utils::models::{ApplicationConfigExtra, RuntimeAppConfig};
-use em_client::models::ApplicationConfigSdkmsCredentials;
+use em_app::utils::models::{ApplicationConfigExtra, RuntimeAppConfig, ApplicationConfigContents, ApplicationConfigSdkmsCredentials};
 use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
-use sdkms::api_model::Blob;
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
 use shared::device::CCMBackendUrl;
 
-use em_app::utils::models;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use sdkms::api_model::Blob;
 
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
 
@@ -133,7 +131,7 @@ fn setup_datasets(
     Ok(())
 }
 
-fn setup_app_configs(config_map: &BTreeMap<String, models::ApplicationConfigContents>) -> Result<(), String> {
+fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>) -> Result<(), String> {
     for (file, contents_opt) in config_map {
         let file_path =
             normalize_path(&file).map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
