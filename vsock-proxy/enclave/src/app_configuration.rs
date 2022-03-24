@@ -1,4 +1,6 @@
-use em_app::utils::models::{ApplicationConfigExtra, RuntimeAppConfig, ApplicationConfigContents, ApplicationConfigSdkmsCredentials};
+use em_app::utils::models::{
+    ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
+};
 use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
@@ -8,11 +10,11 @@ use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
 use shared::device::CCMBackendUrl;
 
+use sdkms::api_model::Blob;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use sdkms::api_model::Blob;
 
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
 
