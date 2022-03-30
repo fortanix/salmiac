@@ -20,4 +20,4 @@ ipnetwork = { version = "0.18.0", features = ["serde"] }
 tokio-vsock = "0.3.1"
 futures = "0.3"
 pcap-async = "0.4.1"
-em-app = { git = "https://github.com/fortanix/rust-sgx", branch = "acruceru/em-app-update", features = ["nitro"] }
+em-app = { git = "https://github.com/fortanix/rust-sgx" }
