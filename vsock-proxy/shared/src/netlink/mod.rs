@@ -1,12 +1,16 @@
+pub mod route;
+pub mod arp;
+
 use futures::stream::TryStreamExt;
 use futures::TryStream;
-use rtnetlink::packet::{AddressMessage, LinkMessage, RouteMessage, RtnlMessage};
+use rtnetlink::packet::{AddressMessage, LinkMessage, RtnlMessage};
 use rtnetlink::proto::Connection;
-use rtnetlink::IpVersion;
+use ipnetwork::{IpNetwork, Ipv4Network};
 
 use crate::vec_to_ip4;
-use ipnetwork::{IpNetwork, Ipv4Network};
-use std::net::Ipv4Addr;
+use crate::find_map;
+
+use std::ops::Deref;
 
 const FAMILY_INET: u8 = 2;
 
@@ -63,34 +67,6 @@ pub async fn set_link(handle: &rtnetlink::Handle, device_index: u32, mac_address
         .map_err(|err| format!("Failed to set MAC address {:?}", err))
 }
 
-pub async fn add_default_gateway(handle: &rtnetlink::Handle, address: Ipv4Addr) -> Result<(), String> {
-    handle
-        .route()
-        .add()
-        .v4()
-        .gateway(address)
-        .execute()
-        .await
-        .map_err(|err| format!("Failed to create default gateway {:?}", err))
-}
-
-pub async fn get_default_route_for_device(
-    handle: &rtnetlink::Handle,
-    device_index: u32,
-) -> Result<Option<RouteMessage>, String> {
-    let mut routes = handle.route().get(IpVersion::V4).execute();
-
-    while let Some(route) = next_in_stream(&mut routes).await? {
-        // default route has no destination or /0 destination
-        if route.output_interface() == Some(device_index) && route.destination_prefix().map_or(true, |(_, prefix)| prefix == 0)
-        {
-            return Ok(Some(route));
-        }
-    }
-
-    Ok(None)
-}
-
 pub trait AddressMessageExt {
     fn ip_network(&self) -> Result<IpNetwork, String>;
 
@@ -98,19 +74,6 @@ pub trait AddressMessageExt {
 }
 
 impl AddressMessageExt for AddressMessage {
-    fn address(&self) -> Option<&[u8]> {
-        use rtnetlink::packet::rtnl::address::nlas::Nla;
-
-        self.nlas.iter().find_map(|nla| {
-            if let Nla::Address(v) = nla {
-                let result: &[u8] = &v;
-                Some(result)
-            } else {
-                None
-            }
-        })
-    }
-
     fn ip_network(&self) -> Result<IpNetwork, String> {
         let address = self
             .address()
@@ -121,6 +84,12 @@ impl AddressMessageExt for AddressMessage {
             Ipv4Network::new(address, self.header.prefix_len).map_err(|err| format!("Cannot create ip network {:?}", err))?;
 
         Ok(IpNetwork::V4(result))
+    }
+
+    fn address(&self) -> Option<&[u8]> {
+        use rtnetlink::packet::rtnl::address::nlas::Nla;
+
+        find_map!(&self.nlas, Nla::Address(v) => v.deref())
     }
 }
 
@@ -134,55 +103,20 @@ impl LinkMessageExt for LinkMessage {
     fn address(&self) -> Option<&[u8]> {
         use rtnetlink::packet::rtnl::link::nlas::Nla;
 
-        self.nlas.iter().find_map(|nla| {
-            if let Nla::Address(v) = nla {
-                let result: &[u8] = &v;
-                Some(result)
-            } else {
-                None
-            }
-        })
+        find_map!(&self.nlas, Nla::Address(v) => v.deref())
     }
 
     fn mtu(&self) -> Option<u32> {
         use rtnetlink::packet::rtnl::link::nlas::Nla;
 
-        self.nlas
-            .iter()
-            .find_map(|nla| if let Nla::Mtu(result) = nla { Some(*result) } else { None })
+        find_map!(&self.nlas, Nla::Mtu(result) => *result)
     }
 }
 
-pub trait RouteMessageExt {
-    fn raw_gateway(&self) -> Option<&[u8]>;
-}
-
-impl RouteMessageExt for RouteMessage {
-    fn raw_gateway(&self) -> Option<&[u8]> {
-        use rtnetlink::packet::nlas::route::Nla;
-
-        self.nlas.iter().find_map(|nla| {
-            if let Nla::Gateway(v) = nla {
-                let result: &[u8] = &v;
-                Some(result)
-            } else {
-                None
-            }
-        })
-    }
-}
-
-pub trait NeighbourMessageExt {
-    fn link_local_address(&self) -> Option<&[u8]>;
-
-    fn destination(&self) -> Option<&[u8]>;
-
-    fn has_destination_for_address(&self, address: &[u8]) -> bool;
-}
 
 async fn next_in_stream<T, S>(stream: &mut S) -> Result<Option<T>, String>
-where
-    S: TryStream<Ok = T, Error = rtnetlink::Error> + Unpin,
+    where
+        S: TryStream<Ok = T, Error = rtnetlink::Error> + Unpin,
 {
     stream
         .try_next()
