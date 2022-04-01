@@ -1,13 +1,13 @@
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
-use etherparse::TransportSlice::{Tcp, Unknown, Udp};
+use etherparse::TransportSlice::{Tcp, Udp, Unknown};
 use futures::stream::Fuse;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
 use pcap::{Active, Capture, Device};
-use rtnetlink::packet::{NUD_PERMANENT};
+use rtnetlink::packet::NUD_PERMANENT;
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
@@ -22,6 +22,8 @@ use shared::VSOCK_PARENT_CID;
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::{log_packet_processing, netlink, DATA_SOCKET, PACKET_LOG_STEP};
 
+use shared::netlink::arp::ARPEntry;
+use shared::netlink::route::{Gateway, Route};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::env;
@@ -31,8 +33,6 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
 use std::thread;
-use shared::netlink::arp::ARPEntry;
-use shared::netlink::route::{Route, Gateway};
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -163,8 +163,7 @@ async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), St
 }
 
 async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    let ccm_backend_url =
-        env_var_or_none("CCM_BACKEND").map_or(Ok(CCMBackendUrl::default()), |e| CCMBackendUrl::new(&e))?;
+    let ccm_backend_url = env_var_or_none("CCM_BACKEND").map_or(Ok(CCMBackendUrl::default()), |e| CCMBackendUrl::new(&e))?;
 
     let id = get_app_config_id();
 
@@ -211,15 +210,13 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
 
     let get_routes_result = netlink::route::get_routes(&netlink_handle, parent_device_index, rtnetlink::IpVersion::V4).await?;
 
-    let gateway = get_routes_result.gateway
+    let gateway = get_routes_result
+        .gateway
         .map(|e| Gateway::try_from(&e))
         .expect("Parent must have a gateway!")?;
 
     let routes = {
-        let result: Result<Vec<Route>, String> = get_routes_result.routes
-            .iter()
-            .map(Route::try_from)
-            .collect();
+        let result: Result<Vec<Route>, String> = get_routes_result.routes.iter().map(Route::try_from).collect();
 
         result?
     };
@@ -233,7 +230,7 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
         dns_file: dns_file.into_bytes(),
         gateway,
         routes,
-        arp_entries
+        arp_entries,
     };
 
     Ok(result)
@@ -255,14 +252,13 @@ async fn get_ip_network(netlink_handle: &rtnetlink::Handle, device_index: u32) -
 async fn get_preset_arp_entries(netlink_handle: &rtnetlink::Handle) -> Result<Vec<ARPEntry>, String> {
     let neighbours = netlink::arp::get_neighbours(&netlink_handle).await?;
 
-    let arp_entries_it = neighbours.iter()
-        .filter_map(|neighbour| {
-            if neighbour.header.state & NUD_PERMANENT != 0 {
-                Some(ARPEntry::try_from(neighbour))
-            } else {
-                None
-            }
-        });
+    let arp_entries_it = neighbours.iter().filter_map(|neighbour| {
+        if neighbour.header.state & NUD_PERMANENT != 0 {
+            Some(ARPEntry::try_from(neighbour))
+        } else {
+            None
+        }
+    });
 
     arp_entries_it.collect()
 }

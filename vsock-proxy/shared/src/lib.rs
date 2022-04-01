@@ -109,11 +109,9 @@ macro_rules! extract_enum_value {
 #[macro_export]
 macro_rules! find_map {
     ($value:expr, $pattern:pat => $extracted_value:expr) => {
-        $value.iter().find_map(|e| {
-            match e {
-                $pattern => Some($extracted_value),
-                _ => None
-            }
+        $value.iter().find_map(|e| match e {
+            $pattern => Some($extracted_value),
+            _ => None,
         })
     };
 }

@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use tun::platform::linux::Device as TapDevice;
 use tun::AsyncDevice;
 
-use crate::{UserProgramExitStatus};
+use crate::UserProgramExitStatus;
 
-use crate::netlink::route::{Route, Gateway};
-use crate::netlink::arp::{ARPEntry};
+use crate::netlink::arp::ARPEntry;
+use crate::netlink::route::{Gateway, Route};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -75,7 +75,7 @@ pub struct NetworkSettings {
 
     pub routes: Vec<Route>,
 
-    pub arp_entries: Vec<ARPEntry>
+    pub arp_entries: Vec<ARPEntry>,
 }
 
 pub fn create_tap_device(parent_settings: &NetworkSettings) -> Result<TapDevice, String> {

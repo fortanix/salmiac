@@ -1,12 +1,12 @@
-use rtnetlink::packet::{RouteMessage, RTN_UNICAST, AF_INET};
+use rtnetlink::packet::{RouteMessage, AF_INET, RTN_UNICAST};
 use serde::{Deserialize, Serialize};
 
-use crate::netlink::next_in_stream;
 use crate::extract_enum_value;
+use crate::netlink::next_in_stream;
 
-use std::net::{IpAddr};
-use std::convert::TryFrom;
 use ipnetwork::{Ipv4Network, Ipv6Network};
+use std::convert::TryFrom;
+use std::net::IpAddr;
 
 pub async fn add_route(handle: &rtnetlink::Handle, device_index: u32, route: &Route) -> Result<(), String> {
     let request = handle
@@ -29,9 +29,12 @@ pub async fn add_route(handle: &rtnetlink::Handle, device_index: u32, route: &Ro
                 result = result.destination_prefix(destination.network(), destination.prefix());
             }
 
-            result.execute()
-                .await
-                .map_err(|err| format!("Failed to add V4 route {:?} for device index {}. {:?}", route, device_index, err))
+            result.execute().await.map_err(|err| {
+                format!(
+                    "Failed to add V4 route {:?} for device index {}. {:?}",
+                    route, device_index, err
+                )
+            })
         }
         RouteAddress::V6(route_address) => {
             let mut result = request.v6();
@@ -44,9 +47,12 @@ pub async fn add_route(handle: &rtnetlink::Handle, device_index: u32, route: &Ro
                 result = result.destination_prefix(destination.network(), destination.prefix());
             }
 
-            result.execute()
-                .await
-                .map_err(|err| format!("Failed to add V6 route {:?} for device index {}. {:?}", route, device_index, err))
+            result.execute().await.map_err(|err| {
+                format!(
+                    "Failed to add V6 route {:?} for device index {}. {:?}",
+                    route, device_index, err
+                )
+            })
         }
     }
 }
@@ -60,30 +66,32 @@ pub async fn add_gateway(handle: &rtnetlink::Handle, gateway: &Gateway) -> Resul
         .table(gateway.table);
 
     match gateway.l3_address {
-        IpAddr::V4(l3_address) => {
-            request.v4()
-                .gateway(l3_address)
-                .execute()
-                .await
-                .map_err(|err| format!("Failed to add V4 gateway {:?}. {:?}", gateway, err))
-        }
-        IpAddr::V6(l3_address) => {
-            request.v6()
-                .gateway(l3_address)
-                .execute()
-                .await
-                .map_err(|err| format!("Failed to add V6 gateway {:?}. {:?}", gateway, err))
-        }
+        IpAddr::V4(l3_address) => request
+            .v4()
+            .gateway(l3_address)
+            .execute()
+            .await
+            .map_err(|err| format!("Failed to add V4 gateway {:?}. {:?}", gateway, err)),
+        IpAddr::V6(l3_address) => request
+            .v6()
+            .gateway(l3_address)
+            .execute()
+            .await
+            .map_err(|err| format!("Failed to add V6 gateway {:?}. {:?}", gateway, err)),
     }
 }
 
 pub struct GetRoutesResult {
     pub routes: Vec<RouteMessage>,
 
-    pub gateway: Option<RouteMessage>
+    pub gateway: Option<RouteMessage>,
 }
 
-pub async fn get_routes(handle: &rtnetlink::Handle, device_index: u32, version: rtnetlink::IpVersion) -> Result<GetRoutesResult, String> {
+pub async fn get_routes(
+    handle: &rtnetlink::Handle,
+    device_index: u32,
+    version: rtnetlink::IpVersion,
+) -> Result<GetRoutesResult, String> {
     let mut routes_stream = handle.route().get(version).execute();
     let mut routes: Vec<RouteMessage> = Vec::new();
     let mut gateway: Option<RouteMessage> = None;
@@ -99,10 +107,7 @@ pub async fn get_routes(handle: &rtnetlink::Handle, device_index: u32, version: 
         }
     }
 
-    Ok(GetRoutesResult {
-        routes,
-        gateway
-    })
+    Ok(GetRoutesResult { routes, gateway })
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -113,13 +118,13 @@ pub struct Route {
 
     pub table: u8,
 
-    pub address: RouteAddress
+    pub address: RouteAddress,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RouteAddress {
     V4(RouteAddressV4),
-    V6(RouteAddressV6)
+    V6(RouteAddressV6),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -144,14 +149,13 @@ pub struct Gateway {
 
     pub table: u8,
 
-    pub l3_address: IpAddr
+    pub l3_address: IpAddr,
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum IpVersion {
     V4,
-    V6
+    V6,
 }
 
 impl TryFrom<&RouteMessage> for Route {
@@ -163,14 +167,12 @@ impl TryFrom<&RouteMessage> for Route {
                 Some((addr, prefix)) => {
                     let ipv4 = extract_enum_value!(addr, IpAddr::V4(e) => e)?;
 
-                    let result = Ipv4Network::new(ipv4, prefix)
-                        .map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
+                    let result =
+                        Ipv4Network::new(ipv4, prefix).map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
 
                     Ok(Some(result))
                 }
-                _ => {
-                    Ok(None)
-                }
+                _ => Ok(None),
             }
         }
 
@@ -179,26 +181,24 @@ impl TryFrom<&RouteMessage> for Route {
                 Some((addr, prefix)) => {
                     let ipv6 = extract_enum_value!(addr, IpAddr::V6(e) => e)?;
 
-                    let result = Ipv6Network::new(ipv6, prefix)
-                        .map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
+                    let result =
+                        Ipv6Network::new(ipv6, prefix).map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
 
                     Ok(Some(result))
                 }
-                _ => {
-                    Ok(None)
-                }
+                _ => Ok(None),
             }
         }
 
         let address = if route.header.address_family == (AF_INET as u8) {
             RouteAddress::V4(RouteAddressV4 {
                 source_l3_address: v4_network(route.source_prefix())?,
-                destination_l3_address: v4_network(route.destination_prefix())?
+                destination_l3_address: v4_network(route.destination_prefix())?,
             })
         } else {
             RouteAddress::V6(RouteAddressV6 {
                 source_l3_address: v6_network(route.source_prefix())?,
-                destination_l3_address: v6_network(route.destination_prefix())?
+                destination_l3_address: v6_network(route.destination_prefix())?,
             })
         };
 
@@ -206,7 +206,7 @@ impl TryFrom<&RouteMessage> for Route {
             protocol: route.header.protocol,
             scope: route.header.scope,
             table: route.header.table,
-            address
+            address,
         })
     }
 }
@@ -221,7 +221,7 @@ impl TryFrom<&RouteMessage> for Gateway {
             protocol: route.header.protocol,
             scope: route.header.scope,
             table: route.header.table,
-            l3_address
+            l3_address,
         })
     }
 }

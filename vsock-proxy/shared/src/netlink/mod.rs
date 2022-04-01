@@ -1,14 +1,14 @@
-pub mod route;
 pub mod arp;
+pub mod route;
 
 use futures::stream::TryStreamExt;
 use futures::TryStream;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use rtnetlink::packet::{AddressMessage, LinkMessage, RtnlMessage};
 use rtnetlink::proto::Connection;
-use ipnetwork::{IpNetwork, Ipv4Network};
 
-use crate::vec_to_ip4;
 use crate::find_map;
+use crate::vec_to_ip4;
 
 use std::ops::Deref;
 
@@ -113,10 +113,9 @@ impl LinkMessageExt for LinkMessage {
     }
 }
 
-
 async fn next_in_stream<T, S>(stream: &mut S) -> Result<Option<T>, String>
-    where
-        S: TryStream<Ok = T, Error = rtnetlink::Error> + Unpin,
+where
+    S: TryStream<Ok = T, Error = rtnetlink::Error> + Unpin,
 {
     stream
         .try_next()

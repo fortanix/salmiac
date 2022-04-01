@@ -1,17 +1,18 @@
-use rtnetlink::packet::{NeighbourMessage};
+use rtnetlink::packet::NeighbourMessage;
 use rtnetlink::IpVersion;
 use serde::{Deserialize, Serialize};
 
-use crate::vec_to_ip4;
 use crate::find_map;
 use crate::netlink::next_in_stream;
+use crate::vec_to_ip4;
 
 use std::convert::TryFrom;
-use std::net::{IpAddr};
+use std::net::IpAddr;
 use std::ops::Deref;
 
 pub async fn add_neighbour(handle: &rtnetlink::Handle, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String> {
-    handle.neighbours()
+    handle
+        .neighbours()
         .add(device_index, arp_entry.l3_address)
         .link_local_address(&arp_entry.l2_address)
         .state(arp_entry.state)
@@ -23,13 +24,9 @@ pub async fn add_neighbour(handle: &rtnetlink::Handle, device_index: u32, arp_en
 }
 
 pub async fn get_neighbours(handle: &rtnetlink::Handle) -> Result<Vec<NeighbourMessage>, String> {
-    let mut neighbours = handle
-        .neighbours()
-        .get()
-        .set_family(IpVersion::V4)
-        .execute();
+    let mut neighbours = handle.neighbours().get().set_family(IpVersion::V4).execute();
 
-    let mut result : Vec<NeighbourMessage> = Vec::new();
+    let mut result: Vec<NeighbourMessage> = Vec::new();
     while let Some(neighbour) = next_in_stream(&mut neighbours).await? {
         result.push(neighbour);
     }
@@ -47,19 +44,21 @@ pub struct ARPEntry {
 
     pub flags: u8,
 
-    pub ntype: u8
+    pub ntype: u8,
 }
 
 impl TryFrom<&NeighbourMessage> for ARPEntry {
     type Error = String;
 
     fn try_from(neighbour: &NeighbourMessage) -> Result<Self, Self::Error> {
-        let l2_address = neighbour.l2_address()
+        let l2_address = neighbour
+            .l2_address()
             .map(|e| <[u8; 6]>::try_from(&e[..]))
             .expect("ARP entry should have a link local address!")
             .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
 
-        let destination = neighbour.destination()
+        let destination = neighbour
+            .destination()
             .map(|e| vec_to_ip4(e))
             .expect("ARP entry should have a destination!")
             .map_err(|err| format!("Cannot convert destination to IpAddr {:?}", err))?;
@@ -69,7 +68,7 @@ impl TryFrom<&NeighbourMessage> for ARPEntry {
             l3_address: IpAddr::V4(destination),
             state: neighbour.header.state,
             flags: neighbour.header.flags,
-            ntype: neighbour.header.ntype
+            ntype: neighbour.header.ntype,
         })
     }
 }
