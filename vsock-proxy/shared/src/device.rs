@@ -71,11 +71,11 @@ pub struct NetworkSettings {
 
     pub dns_file: Vec<u8>,
 
-    pub gateway: Gateway,
+    pub gateway: Option<Gateway>,
 
     pub routes: Vec<Route>,
 
-    pub arp_entries: Vec<ARPEntry>,
+    pub static_arp_entries: Vec<ARPEntry>,
 }
 
 pub fn create_tap_device(parent_settings: &NetworkSettings) -> Result<TapDevice, String> {

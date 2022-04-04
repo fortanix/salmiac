@@ -213,7 +213,7 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
     let gateway = get_routes_result
         .gateway
         .map(|e| Gateway::try_from(&e))
-        .expect("Parent must have a gateway!")?;
+        .transpose()?;
 
     let routes = {
         let result: Result<Vec<Route>, String> = get_routes_result.routes.iter().map(Route::try_from).collect();
@@ -221,7 +221,7 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
         result?
     };
 
-    let arp_entries = get_preset_arp_entries(&netlink_handle).await?;
+    let static_arp_entries = get_static_arp_entries(&netlink_handle).await?;
 
     let result = NetworkSettings {
         self_l2_address: mac_address,
@@ -230,7 +230,7 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
         dns_file: dns_file.into_bytes(),
         gateway,
         routes,
-        arp_entries,
+        static_arp_entries,
     };
 
     Ok(result)
@@ -249,7 +249,7 @@ async fn get_ip_network(netlink_handle: &rtnetlink::Handle, device_index: u32) -
     }
 }
 
-async fn get_preset_arp_entries(netlink_handle: &rtnetlink::Handle) -> Result<Vec<ARPEntry>, String> {
+async fn get_static_arp_entries(netlink_handle: &rtnetlink::Handle) -> Result<Vec<ARPEntry>, String> {
     let neighbours = netlink::arp::get_neighbours(&netlink_handle).await?;
 
     let arp_entries_it = neighbours.iter().filter_map(|neighbour| {
@@ -422,16 +422,6 @@ fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumComputationE
 
             let offset = field_offset_in_packet(data, tcp_packet.slice(), TCP_CHECKSUM_FIELD_INDEX);
 
-            debug!(
-                "Computed new checksum for tcp packet. \
-             Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
-                ip_packet.source_addr(),
-                ip_packet.destination_addr(),
-                ethernet_packet.payload.len(),
-                tcp_packet.checksum(),
-                checksum
-            );
-
             Some((offset, checksum))
         }
         (Some(Ipv4(ip_packet, _)), Some(Udp(udp_packet))) => {
@@ -440,16 +430,6 @@ fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumComputationE
                 .map_err(|err| ChecksumComputationError::Err(format!("Failed computing UDP checksum. {:?}", err)))?;
 
             let offset = field_offset_in_packet(data, udp_packet.slice(), UDP_CHECKSUM_FIELD_INDEX);
-
-            debug!(
-                "Computed new checksum for udp packet. \
-             Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
-                ip_packet.source_addr(),
-                ip_packet.destination_addr(),
-                ethernet_packet.payload.len(),
-                udp_packet.checksum(),
-                checksum
-            );
 
             Some((offset, checksum))
         }

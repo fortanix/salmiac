@@ -227,15 +227,23 @@ async fn setup_enclave_networking(parent_settings: &NetworkSettings) -> Result<A
     netlink::set_link(&netlink_handle, tap_index, &parent_settings.self_l2_address).await?;
     info!("MAC address for tap is set!");
 
+    // It is required that we add routes first and than the gateway
+    // Kernel allows us to add the gateway only if there is a reachable route for gateway's address in the routing table.
+    // Without said the route(s) the kernel will return NETWORK_UNREACHABLE status code for our add_gateway function.
     for route in &parent_settings.routes {
         netlink::route::add_route(&netlink_handle, tap_index, route).await?;
         info!("Added route {:?}!", route);
     }
 
-    netlink::route::add_gateway(&netlink_handle, &parent_settings.gateway).await?;
-    info!("Gateway {:?} is set!", parent_settings.gateway);
+    if let Some(gateway) = &parent_settings.gateway {
+        netlink::route::add_gateway(&netlink_handle, gateway).await?;
+        info!("Gateway {:?} is set!", parent_settings.gateway);
+    }
 
-    for arp_entry in &parent_settings.arp_entries {
+    // It might be the case when parent's neighbour resolution depends on a static manually inserted ARP entries
+    // and not on protocol's capability to automatically learn neighbours. In this case we have to manually copy
+    // those entries from parent as it becomes the only way for the enclave to know it's neighbours.
+    for arp_entry in &parent_settings.static_arp_entries {
         netlink::arp::add_neighbour(&netlink_handle, tap_index, arp_entry).await?;
 
         info!("ARP entry {:?} is set!", arp_entry);

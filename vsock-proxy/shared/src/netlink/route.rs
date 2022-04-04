@@ -215,7 +215,7 @@ impl TryFrom<&RouteMessage> for Gateway {
     type Error = String;
 
     fn try_from(route: &RouteMessage) -> Result<Self, Self::Error> {
-        let l3_address = route.gateway().ok_or("Parent must have a gateway")?;
+        let l3_address = route.gateway().ok_or("Gateway route must have a gateway address.")?;
 
         Ok(Self {
             protocol: route.header.protocol,

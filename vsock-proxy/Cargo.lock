@@ -558,7 +558,7 @@ dependencies = [
 [[package]]
 name = "etherparse"
 version = "0.10.1"
-source = "git+https://github.com/charlolizard/etherparse?branch=udp_checksum_from_slice#f7d1ee7ddd5705d674bf93d23c621a5408c4f30a"
+source = "git+https://github.com/fortanix/etherparse?branch=udp_checksum_from_slice#f7d1ee7ddd5705d674bf93d23c621a5408c4f30a"
 
 [[package]]
 name = "event-listener"
