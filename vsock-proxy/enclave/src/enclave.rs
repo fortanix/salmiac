@@ -14,14 +14,13 @@ use api_model::CertificateConfig;
 use shared::device::{NetworkSettings, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{
-    extract_enum_value, handle_background_task_exit, log_packet_processing, UserProgramExitStatus, DATA_SOCKET,
+    extract_enum_value, handle_background_task_exit, log_packet_processing, netlink, UserProgramExitStatus, DATA_SOCKET,
     MAX_ETHERNET_HEADER_SIZE, PACKET_LOG_STEP, VSOCK_PARENT_CID,
 };
 
 use std::fs;
 use std::io::Write;
 use std::mem;
-use std::net::IpAddr;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
@@ -209,7 +208,6 @@ struct EnclaveSetupResult {
 }
 
 async fn setup_enclave_networking(parent_settings: &NetworkSettings) -> Result<AsyncDevice, String> {
-    use shared::netlink;
     use tun::Device;
 
     let tap_device = shared::device::create_async_tap_device(&parent_settings)?;
@@ -229,14 +227,27 @@ async fn setup_enclave_networking(parent_settings: &NetworkSettings) -> Result<A
     netlink::set_link(&netlink_handle, tap_index, &parent_settings.self_l2_address).await?;
     info!("MAC address for tap is set!");
 
-    let gateway_addr = parent_settings.gateway_l3_address;
-    let as_ipv4 = match gateway_addr {
-        IpAddr::V4(e) => e,
-        _ => return Err("Only IP v4 is supported for gateway".to_string()),
-    };
+    // It is required that we add routes first and than the gateway
+    // Kernel allows us to add the gateway only if there is a reachable route for gateway's address in the routing table.
+    // Without said the route(s) the kernel will return NETWORK_UNREACHABLE status code for our add_gateway function.
+    for route in &parent_settings.routes {
+        netlink::route::add_route(&netlink_handle, tap_index, route).await?;
+        info!("Added route {:?}!", route);
+    }
 
-    netlink::add_default_gateway(&netlink_handle, as_ipv4).await?;
-    info!("Gateway is set!");
+    if let Some(gateway) = &parent_settings.gateway {
+        netlink::route::add_gateway(&netlink_handle, gateway).await?;
+        info!("Gateway {:?} is set!", parent_settings.gateway);
+    }
+
+    // It might be the case when parent's neighbour resolution depends on a static manually inserted ARP entries
+    // and not on protocol's capability to automatically learn neighbours. In this case we have to manually copy
+    // those entries from parent as it becomes the only way for the enclave to know it's neighbours.
+    for arp_entry in &parent_settings.static_arp_entries {
+        netlink::arp::add_neighbour(&netlink_handle, tap_index, arp_entry).await?;
+
+        info!("ARP entry {:?} is set!", arp_entry);
+    }
 
     fs::create_dir("/run/resolvconf").map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 

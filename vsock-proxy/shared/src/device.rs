@@ -5,7 +5,8 @@ use tun::AsyncDevice;
 
 use crate::UserProgramExitStatus;
 
-use std::net::IpAddr;
+use crate::netlink::arp::ARPEntry;
+use crate::netlink::route::{Gateway, Route};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -66,11 +67,15 @@ pub struct NetworkSettings {
 
     pub self_l3_address: IpNetwork,
 
-    pub gateway_l3_address: IpAddr,
-
     pub mtu: u32,
 
     pub dns_file: Vec<u8>,
+
+    pub gateway: Option<Gateway>,
+
+    pub routes: Vec<Route>,
+
+    pub static_arp_entries: Vec<ARPEntry>,
 }
 
 pub fn create_tap_device(parent_settings: &NetworkSettings) -> Result<TapDevice, String> {

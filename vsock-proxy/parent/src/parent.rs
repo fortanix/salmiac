@@ -1,13 +1,13 @@
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
-use etherparse::TransportSlice::{Tcp, Unknown};
+use etherparse::TransportSlice::{Tcp, Udp, Unknown};
 use futures::stream::Fuse;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
 use pcap::{Active, Capture, Device};
-use rtnetlink::packet::RouteMessage;
+use rtnetlink::packet::NUD_PERMANENT;
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
@@ -16,19 +16,19 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 
 use crate::packet_capture::{open_async_packet_capture, open_packet_capture};
 use shared::device::{ApplicationConfiguration, CCMBackendUrl, NetworkSettings, SetupMessages};
-use shared::netlink::{AddressMessageExt, LinkMessageExt, RouteMessageExt};
+use shared::netlink::{AddressMessageExt, LinkMessageExt};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::vec_to_ip4;
 use shared::VSOCK_PARENT_CID;
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::{log_packet_processing, netlink, DATA_SOCKET, PACKET_LOG_STEP};
 
+use shared::netlink::arp::ARPEntry;
+use shared::netlink::route::{Gateway, Route};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::env;
 use std::fs;
 use std::mem;
-use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
@@ -36,6 +36,8 @@ use std::thread;
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
+
+const UDP_CHECKSUM_FIELD_INDEX: usize = 6;
 
 const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
@@ -119,26 +121,7 @@ async fn communicate_network_settings(settings: NetworkSettings, vsock: &mut Asy
 }
 
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    {
-        let ccm_backend_url =
-            env_var_or_none("CCM_BACKEND").map_or(Ok(CCMBackendUrl::default()), |e| CCMBackendUrl::new(&e))?;
-
-        let id = get_app_config_id();
-
-        let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
-            .map_or(Ok(false), |e| bool::from_str(&e))
-            .map_err(|err| format!("Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}", err))?;
-
-        let application_configuration = ApplicationConfiguration {
-            id,
-            ccm_backend_url,
-            skip_server_verify,
-        };
-
-        vsock
-            .write_lv(&SetupMessages::ApplicationConfig(application_configuration))
-            .await?;
-    }
+    send_application_configuration(vsock).await?;
 
     // Don't bother looking for a node agent address unless there's at least one certificate configured. This allows us to run
     // with the NODE_AGENT environment variable being unset, if there are no configured certificates.
@@ -179,6 +162,26 @@ async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), St
     }
 }
 
+async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<(), String> {
+    let ccm_backend_url = env_var_or_none("CCM_BACKEND").map_or(Ok(CCMBackendUrl::default()), |e| CCMBackendUrl::new(&e))?;
+
+    let id = get_app_config_id();
+
+    let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
+        .map_or(Ok(false), |e| bool::from_str(&e))
+        .map_err(|err| format!("Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}", err))?;
+
+    let application_configuration = ApplicationConfiguration {
+        id,
+        ccm_backend_url,
+        skip_server_verify,
+    };
+
+    vsock
+        .write_lv(&SetupMessages::ApplicationConfig(application_configuration))
+        .await
+}
+
 async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSettings, String> {
     let (_netlink_connection, netlink_handle) = netlink::connect();
     tokio::spawn(_netlink_connection);
@@ -187,10 +190,6 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
 
     let parent_device_index = if_nametoindex(parent_device.name.as_str())
         .map_err(|err| format!("Cannot find index for device {}, error {:?}", parent_device.name, err))?;
-
-    let parent_gateway = get_gateway(&netlink_handle, parent_device_index).await?;
-
-    let parent_gateway_address = parent_gateway.raw_gateway().expect("No default gateway was found in parent!");
 
     let parent_link = netlink::get_link_for_device(&netlink_handle, parent_device_index)
         .await?
@@ -206,26 +205,35 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
 
     let ip_network = get_ip_network(&netlink_handle, parent_device_index).await?;
 
-    let gateway_address = IpAddr::V4(vec_to_ip4(parent_gateway_address)?);
-
     let dns_file =
         fs::read_to_string("/etc/resolv.conf").map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?;
+
+    let get_routes_result = netlink::route::get_routes(&netlink_handle, parent_device_index, rtnetlink::IpVersion::V4).await?;
+
+    let gateway = get_routes_result
+        .gateway
+        .map(|e| Gateway::try_from(&e))
+        .transpose()?;
+
+    let routes = {
+        let result: Result<Vec<Route>, String> = get_routes_result.routes.iter().map(Route::try_from).collect();
+
+        result?
+    };
+
+    let static_arp_entries = get_static_arp_entries(&netlink_handle).await?;
 
     let result = NetworkSettings {
         self_l2_address: mac_address,
         self_l3_address: ip_network,
-        gateway_l3_address: gateway_address,
         mtu,
         dns_file: dns_file.into_bytes(),
+        gateway,
+        routes,
+        static_arp_entries,
     };
 
     Ok(result)
-}
-
-async fn get_gateway(netlink_handle: &rtnetlink::Handle, device_index: u32) -> Result<RouteMessage, String> {
-    netlink::get_default_route_for_device(&netlink_handle, device_index)
-        .await
-        .and_then(|e| e.ok_or(format!("No default gateway was found in parent!")))
 }
 
 async fn get_ip_network(netlink_handle: &rtnetlink::Handle, device_index: u32) -> Result<IpNetwork, String> {
@@ -239,6 +247,20 @@ async fn get_ip_network(netlink_handle: &rtnetlink::Handle, device_index: u32) -
     } else {
         addresses[0].ip_network()
     }
+}
+
+async fn get_static_arp_entries(netlink_handle: &rtnetlink::Handle) -> Result<Vec<ARPEntry>, String> {
+    let neighbours = netlink::arp::get_neighbours(&netlink_handle).await?;
+
+    let arp_entries_it = neighbours.iter().filter_map(|neighbour| {
+        if neighbour.header.state & NUD_PERMANENT != 0 {
+            Some(ARPEntry::try_from(neighbour))
+        } else {
+            None
+        }
+    });
+
+    arp_entries_it.collect()
 }
 
 async fn read_from_device_async(
@@ -400,15 +422,14 @@ fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumComputationE
 
             let offset = field_offset_in_packet(data, tcp_packet.slice(), TCP_CHECKSUM_FIELD_INDEX);
 
-            debug!(
-                "Computed new checksum for tcp packet. \
-             Source {:?}, destination {:?}, payload len {}, old checksum {}, new checksum {}",
-                ip_packet.source_addr(),
-                ip_packet.destination_addr(),
-                ethernet_packet.payload.len(),
-                tcp_packet.checksum(),
-                checksum
-            );
+            Some((offset, checksum))
+        }
+        (Some(Ipv4(ip_packet, _)), Some(Udp(udp_packet))) => {
+            let checksum = udp_packet
+                .calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
+                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing UDP checksum. {:?}", err)))?;
+
+            let offset = field_offset_in_packet(data, udp_packet.slice(), UDP_CHECKSUM_FIELD_INDEX);
 
             Some((offset, checksum))
         }
