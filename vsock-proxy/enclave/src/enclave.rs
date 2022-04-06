@@ -231,8 +231,14 @@ async fn setup_enclave_networking(parent_settings: &NetworkSettings) -> Result<A
     // Kernel allows us to add the gateway only if there is a reachable route for gateway's address in the routing table.
     // Without said the route(s) the kernel will return NETWORK_UNREACHABLE status code for our add_gateway function.
     for route in &parent_settings.routes {
-        netlink::route::add_route(&netlink_handle, tap_index, route).await?;
-        info!("Added route {:?}!", route);
+        match netlink::route::add_route(&netlink_handle, tap_index, route).await {
+            Err(e) => {
+                log::warn!("Failed adding route {:?}", e);
+            },
+            _ => {
+                info!("Added route {:?}!", route);
+            }
+        }
     }
 
     if let Some(gateway) = &parent_settings.gateway {
