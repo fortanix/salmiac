@@ -12,8 +12,8 @@ shared = { path = "../shared" }
 clap = "2.33"
 env_logger = "0.7"
 log = "0.4"
-nix = "0.15.0"
-pcap = { version = "0.8.1" }
+nix = "0.23.1"
+pcap = "0.9.1"
 rtnetlink = "0.8.0"
 tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread"] }
 ipnetwork = { version = "0.18.0", features = ["serde"] }

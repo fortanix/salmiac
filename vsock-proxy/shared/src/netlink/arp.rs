@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use rtnetlink::packet::NeighbourMessage;
 use rtnetlink::IpVersion;
 use serde::{Deserialize, Serialize};
@@ -5,33 +6,46 @@ use serde::{Deserialize, Serialize};
 use crate::find_map;
 use crate::netlink::next_in_stream;
 use crate::vec_to_ip4;
+use crate::netlink::Netlink;
 
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::ops::Deref;
 
-pub async fn add_neighbour(handle: &rtnetlink::Handle, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String> {
-    handle
-        .neighbours()
-        .add(device_index, arp_entry.l3_address)
-        .link_local_address(&arp_entry.l2_address)
-        .state(arp_entry.state)
-        .flags(arp_entry.flags)
-        .ntype(arp_entry.ntype)
-        .execute()
-        .await
-        .map_err(|err| format!("Failed to create ARP entry {:?}", err))
+#[async_trait]
+pub trait NetlinkARP {
+    async fn add_neighbour_for_device(&self, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String>;
+
+    async fn get_neighbours_for_device(&self, device_index: u32) -> Result<Vec<NeighbourMessage>, String>;
 }
 
-pub async fn get_neighbours(handle: &rtnetlink::Handle) -> Result<Vec<NeighbourMessage>, String> {
-    let mut neighbours = handle.neighbours().get().set_family(IpVersion::V4).execute();
-
-    let mut result: Vec<NeighbourMessage> = Vec::new();
-    while let Some(neighbour) = next_in_stream(&mut neighbours).await? {
-        result.push(neighbour);
+#[async_trait]
+impl NetlinkARP for Netlink {
+    async fn add_neighbour_for_device(&self, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String> {
+        self.handle
+            .neighbours()
+            .add(device_index, arp_entry.l3_address)
+            .link_local_address(&arp_entry.l2_address)
+            .state(arp_entry.state)
+            .flags(arp_entry.flags)
+            .ntype(arp_entry.ntype)
+            .execute()
+            .await
+            .map_err(|err| format!("Failed to create ARP entry {:?}", err))
     }
 
-    Ok(result)
+    async fn get_neighbours_for_device(&self, device_index: u32) -> Result<Vec<NeighbourMessage>, String> {
+        let mut neighbours = self.handle.neighbours().get().set_family(IpVersion::V4).execute();
+
+        let mut result: Vec<NeighbourMessage> = Vec::new();
+        while let Some(neighbour) = next_in_stream(&mut neighbours).await? {
+            if neighbour.header.ifindex == device_index {
+                result.push(neighbour);
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
