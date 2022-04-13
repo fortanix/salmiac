@@ -1,9 +1,9 @@
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice::{Tcp, Udp, Unknown};
+use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::Fuse;
 use futures::StreamExt;
-use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
@@ -12,11 +12,11 @@ use rtnetlink::packet::NUD_PERMANENT;
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
-use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream};
 use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream};
 
 use crate::packet_capture::{open_async_packet_capture, open_packet_capture};
-use shared::device::{ApplicationConfiguration, CCMBackendUrl, NetworkDeviceSettings, SetupMessages, GlobalNetworkSettings};
+use shared::device::{ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::{LinkMessageExt, Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
@@ -24,7 +24,7 @@ use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitSta
 use shared::{log_packet_processing, PACKET_LOG_STEP};
 
 use shared::netlink::arp::{ARPEntry, NetlinkARP};
-use shared::netlink::route::{Gateway, Route, NetlinkRoute};
+use shared::netlink::route::{Gateway, NetlinkRoute, Route};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::env;
@@ -87,8 +87,7 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<Vec<(Device, Vsock
 async fn setup_network_devices(enclave_port: &mut AsyncVsockStream) -> Result<Vec<(Device, VsockStream)>, String> {
     let netlink = Netlink::new();
 
-    let devices = pcap::Device::list()
-        .map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
+    let devices = pcap::Device::list().map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
 
     let mut device_settings: Vec<NetworkDeviceSettings> = Vec::new();
     let mut device_listeners: Vec<AsyncVsockListener> = Vec::new();
@@ -101,15 +100,20 @@ async fn setup_network_devices(enclave_port: &mut AsyncVsockStream) -> Result<Ve
                 Ok(settings) => {
                     device_listeners.push(listen_to_parent(settings.index)?);
                     device_settings.push(settings);
-                },
+                }
                 Err(e) => {
-                    warn!("Failed retrieving network settings for device {}, device won't be setup! {}", device_name, e)
+                    warn!(
+                        "Failed retrieving network settings for device {}, device won't be setup! {}",
+                        device_name, e
+                    )
                 }
             };
         }
     }
 
-    enclave_port.write_lv(&SetupMessages::NetworkDeviceSettings(device_settings)).await?;
+    enclave_port
+        .write_lv(&SetupMessages::NetworkDeviceSettings(device_settings))
+        .await?;
 
     let mut device_streams: Vec<VsockStream> = Vec::new();
 
@@ -123,16 +127,15 @@ async fn setup_network_devices(enclave_port: &mut AsyncVsockStream) -> Result<Ve
 }
 
 async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
-    let dns_file =
-        fs::read_to_string("/etc/resolv.conf")
-            .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?
-            .into_bytes();
+    let dns_file = fs::read_to_string("/etc/resolv.conf")
+        .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?
+        .into_bytes();
 
-    let network_settings = GlobalNetworkSettings {
-        dns_file
-    };
+    let network_settings = GlobalNetworkSettings { dns_file };
 
-    enclave_port.write_lv(&SetupMessages::GlobalNetworkSettings(network_settings)).await?;
+    enclave_port
+        .write_lv(&SetupMessages::GlobalNetworkSettings(network_settings))
+        .await?;
 
     debug!("Sent global network settings to the enclave!");
 
@@ -223,7 +226,8 @@ async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Resul
     let device_index = if_nametoindex(device.name.as_str())
         .map_err(|err| format!("Cannot find index for device {}, error {:?}", device.name, err))?;
 
-    let device_link = netlink.get_link_for_device(device_index)
+    let device_link = netlink
+        .get_link_for_device(device_index)
         .await?
         .expect(&format!("Device {} must have a link!", device.name));
 
@@ -245,7 +249,9 @@ async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Resul
             &device.addresses[0]
         };
 
-        let netmask = address.netmask.expect(&*format!("Device {} address must have a netmask.", &device.name));
+        let netmask = address
+            .netmask
+            .expect(&*format!("Device {} address must have a netmask.", &device.name));
 
         IpNetwork::with_netmask(address.addr, netmask)
             .map_err(|err| format!("Cannot create ip network for device {}. {:?}", &device.name, err))?
@@ -253,16 +259,10 @@ async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Resul
 
     let get_routes_result = netlink.get_routes_for_device(device_index, rtnetlink::IpVersion::V4).await?;
 
-    let gateway = get_routes_result
-        .gateway
-        .map(|e| Gateway::try_from(&e))
-        .transpose()?;
+    let gateway = get_routes_result.gateway.map(|e| Gateway::try_from(&e)).transpose()?;
 
     let routes = {
-        let result: Result<Vec<Route>, String> = get_routes_result.routes
-            .iter()
-            .map(Route::try_from)
-            .collect();
+        let result: Result<Vec<Route>, String> = get_routes_result.routes.iter().map(Route::try_from).collect();
 
         result?
     };

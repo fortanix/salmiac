@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::find_map;
 use crate::netlink::next_in_stream;
-use crate::vec_to_ip4;
 use crate::netlink::Netlink;
+use crate::vec_to_ip4;
 
 use std::convert::TryFrom;
 use std::net::IpAddr;

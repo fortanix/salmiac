@@ -8,14 +8,14 @@ use rtnetlink::packet::{LinkMessage, RtnlMessage};
 use rtnetlink::proto::Connection;
 use tokio::task::JoinHandle;
 
-use crate::{find_map};
+use crate::find_map;
 
 use std::ops::Deref;
 
 pub struct Netlink {
     handle: rtnetlink::Handle,
 
-    _connection: JoinHandle<()>
+    _connection: JoinHandle<()>,
 }
 
 impl Netlink {
@@ -26,10 +26,7 @@ impl Netlink {
 
         let _connection = tokio::spawn(connection);
 
-        Netlink {
-            handle,
-            _connection
-        }
+        Netlink { handle, _connection }
     }
 }
 

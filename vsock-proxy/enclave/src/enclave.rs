@@ -1,28 +1,29 @@
 use async_process::Command;
+use futures::StreamExt;
 use log::{debug, info};
 use nix::ioctl_write_ptr;
 use nix::net::if_::if_nametoindex;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
-use tokio_vsock::{VsockStream as AsyncVsockStream};
+use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 use tun::Device;
-use futures::StreamExt;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
 use shared::device::{NetworkDeviceSettings, SetupMessages};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{
-    extract_enum_value, handle_background_task_exit, log_packet_processing, UserProgramExitStatus,
-    MAX_ETHERNET_HEADER_SIZE, PACKET_LOG_STEP, VSOCK_PARENT_CID,
-};
-use shared::netlink::{Netlink, NetlinkCommon};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
+use shared::netlink::{Netlink, NetlinkCommon};
+use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use shared::{
+    extract_enum_value, handle_background_task_exit, log_packet_processing, UserProgramExitStatus, MAX_ETHERNET_HEADER_SIZE,
+    PACKET_LOG_STEP, VSOCK_PARENT_CID,
+};
 
+use futures::stream::FuturesUnordered;
 use std::fs;
 use std::io::Write;
 use std::mem;
@@ -30,7 +31,6 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use futures::stream::FuturesUnordered;
 
 const ENTROPY_BYTES_COUNT: usize = 126;
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
@@ -46,12 +46,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
-    let setup_result = setup_enclave(
-        &mut parent_port,
-        &enclave_settings.certificate_config,
-        &app_config.id,
-    )
-    .await?;
+    let setup_result = setup_enclave(&mut parent_port, &enclave_settings.certificate_config, &app_config.id).await?;
 
     let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
 
@@ -194,7 +189,7 @@ async fn setup_enclave(
 
     Ok(EnclaveSetupResult {
         tap_devices: taps,
-        certificate_info
+        certificate_info,
     })
 }
 
@@ -209,7 +204,7 @@ struct TapDeviceInfo {
 
     pub tap: AsyncDevice,
 
-    pub mtu: u32
+    pub mtu: u32,
 }
 
 async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<Vec<TapDeviceInfo>, String> {
@@ -228,7 +223,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
         result.push(TapDeviceInfo {
             vsock,
             tap,
-            mtu: device_settings.mtu
+            mtu: device_settings.mtu,
         });
     }
 
@@ -254,9 +249,14 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     let tap_index =
         if_nametoindex(tap_device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
 
-    info!("Setting up device with index {} and settings {:?}.", tap_index, parent_settings);
+    info!(
+        "Setting up device with index {} and settings {:?}.",
+        tap_index, parent_settings
+    );
 
-    netlink.set_link_for_device(tap_index, &parent_settings.self_l2_address).await?;
+    netlink
+        .set_link_for_device(tap_index, &parent_settings.self_l2_address)
+        .await?;
     debug!("MAC address for tap is set!");
 
     // It is required that we add routes first and than the gateway
@@ -266,7 +266,7 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
         match netlink.add_route_for_device(tap_index, route).await {
             Err(e) => {
                 log::warn!("Failed adding route {:?}", e);
-            },
+            }
             _ => {
                 info!("Added route {:?}!", route);
             }

@@ -127,12 +127,8 @@ pub fn handle_background_task_exit(
     task_name: &str,
 ) -> Result<UserProgramExitStatus, String> {
     match result {
-       Some(Err(err)) => {
-           Err(format!("Background task {} finished with error. {:?}", task_name, err))?
-       },
-        Some(Ok(Err(err))) => {
-            Err(format!("Background task {} finished with error. {}", task_name, err))?
-        }
+        Some(Err(err)) => Err(format!("Background task {} finished with error. {:?}", task_name, err))?,
+        Some(Ok(Err(err))) => Err(format!("Background task {} finished with error. {}", task_name, err))?,
         // Background tasks never exit with success, they run for the whole duration of the program
         _ => {
             unreachable!()

@@ -21,9 +21,9 @@ pub trait NetlinkRoute {
 
 #[async_trait]
 impl NetlinkRoute for Netlink {
-
     async fn add_route_for_device(&self, device_index: u32, route: &Route) -> Result<(), String> {
-        let request = self.handle
+        let request = self
+            .handle
             .route()
             .add()
             .output_interface(device_index)
@@ -72,7 +72,8 @@ impl NetlinkRoute for Netlink {
     }
 
     async fn add_gateway(&self, gateway: &Gateway) -> Result<(), String> {
-        let request = self.handle
+        let request = self
+            .handle
             .route()
             .add()
             .scope(gateway.scope)
@@ -95,12 +96,7 @@ impl NetlinkRoute for Netlink {
         }
     }
 
-
-    async fn get_routes_for_device(
-        &self,
-        device_index: u32,
-        version: rtnetlink::IpVersion,
-    ) -> Result<GetRoutesResult, String> {
+    async fn get_routes_for_device(&self, device_index: u32, version: rtnetlink::IpVersion) -> Result<GetRoutesResult, String> {
         let mut routes_stream = self.handle.route().get(version).execute();
         let mut routes: Vec<RouteMessage> = Vec::new();
         let mut gateway: Option<RouteMessage> = None;
