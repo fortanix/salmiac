@@ -43,11 +43,11 @@ const UDP_CHECKSUM_FIELD_INDEX: usize = 6;
 const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
-    info!("Awaiting confirmation from enclave!");
+    info!("Awaiting confirmation from enclave.");
 
     let mut enclave_port = create_vsock_stream(vsock_port).await?;
 
-    info!("Connected to enclave!");
+    info!("Connected to enclave.");
 
     let devices = setup_parent(&mut enclave_port).await?;
 
@@ -62,13 +62,17 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
-    tokio::select! {
-        result = background_tasks.next() => {
-            handle_background_task_exit(result, "pcap loop")
-        },
-        result = user_program => {
-            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-        },
+    if !background_tasks.is_empty() {
+        tokio::select! {
+            result = background_tasks.next() => {
+                handle_background_task_exit(result, "pcap loop")
+            },
+            result = user_program => {
+                result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+            },
+        }
+    } else {
+        user_program.await.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
 }
 
@@ -137,7 +141,7 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
         .write_lv(&SetupMessages::GlobalNetworkSettings(network_settings))
         .await?;
 
-    debug!("Sent global network settings to the enclave!");
+    debug!("Sent global network settings to the enclave.");
 
     Ok(())
 }
@@ -229,15 +233,15 @@ async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Resul
     let device_link = netlink
         .get_link_for_device(device_index)
         .await?
-        .expect(&format!("Device {} must have a link!", device.name));
+        .expect(&format!("Device {} must have a link.", device.name));
 
     let mac_address = device_link
         .address()
         .map(|e| <[u8; 6]>::try_from(&e[..]))
-        .expect("Parent link should have an address!")
+        .expect("Parent link should have an address.")
         .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
 
-    let mtu = device_link.mtu().expect("Parent device should have an MTU!");
+    let mtu = device_link.mtu().expect("Parent device should have an MTU.");
 
     let ip_network = {
         let address = if device.addresses.len() != 1 {

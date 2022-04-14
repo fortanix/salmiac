@@ -42,15 +42,16 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
-    info!("Connected to parent!");
+    info!("Connected to parent.");
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
     let setup_result = setup_enclave(&mut parent_port, &enclave_settings.certificate_config, &app_config.id).await?;
 
-    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
-
     let mut background_tasks = FuturesUnordered::new();
+
+    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
+    background_tasks.push(entropy_loop);
 
     for tap_device in setup_result.tap_devices {
         let (read_tap_loop, write_tap_loop) = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
@@ -74,21 +75,22 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));
 
-    debug!("Started client program!");
+    debug!("Started client program.");
 
     // We wait for the first future to complete.
-    // Loop futures will never complete with success because they run forever
+    // `background_tasks` will never complete as they run for the whole duration of the program
     // and if the client program finishes then we are done.
-    tokio::select! {
-        result = background_tasks.next() => {
-            handle_background_task_exit(result, "tap loop")
-        },
-        result = entropy_loop => {
-            handle_background_task_exit(Some(result), "entropy seed loop")
-        },
-        result = user_program => {
-            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-        },
+    if !background_tasks.is_empty() {
+        tokio::select! {
+            result = background_tasks.next() => {
+                handle_background_task_exit(result, "tap loops and entropy loop")
+            },
+            result = user_program => {
+                result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+            },
+        }
+    } else {
+        user_program.await.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
 }
 
@@ -180,7 +182,7 @@ async fn setup_enclave(
 ) -> Result<EnclaveSetupResult, String> {
     let taps = setup_enclave_networking(vsock).await?;
 
-    info!("Finished enclave networking setup!");
+    info!("Finished enclave networking setup.");
 
     let certificate_info = setup_enclave_certification(vsock, application_id, &cert_configs).await?;
 
@@ -218,7 +220,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
         let tap = setup_network_device(device_settings, &netlink).await?;
         let vsock = connect_to_parent_async(device_settings.index).await?;
 
-        info!("Device {} is connected and ready!", device_settings.index);
+        info!("Device {} is connected and ready.", device_settings.index);
 
         result.push(TapDeviceInfo {
             vsock,
@@ -238,7 +240,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
         .write_all(&global_settings.dns_file)
         .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
 
-    info!("Enclave DNS file has been populated!");
+    info!("Enclave DNS file has been populated.");
 
     Ok(result)
 }
@@ -257,7 +259,6 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     netlink
         .set_link_for_device(tap_index, &parent_settings.self_l2_address)
         .await?;
-    debug!("MAC address for tap is set!");
 
     // It is required that we add routes first and than the gateway
     // Kernel allows us to add the gateway only if there is a reachable route for gateway's address in the routing table.
@@ -268,14 +269,14 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
                 log::warn!("Failed adding route {:?}", e);
             }
             _ => {
-                info!("Added route {:?}!", route);
+                info!("Added route {:?}.", route);
             }
         }
     }
 
     if let Some(gateway) = &parent_settings.gateway {
         netlink.add_gateway(gateway).await?;
-        debug!("Gateway {:?} is set!", parent_settings.gateway);
+        debug!("Gateway {:?} is set.", parent_settings.gateway);
     }
 
     // It might be the case when parent's neighbour resolution depends on a static manually inserted ARP entries
@@ -284,7 +285,7 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     for arp_entry in &parent_settings.static_arp_entries {
         netlink.add_neighbour_for_device(tap_index, arp_entry).await?;
 
-        debug!("ARP entry {:?} is set!", arp_entry);
+        debug!("ARP entry {:?} is set.", arp_entry);
     }
 
     Ok(tap_device)
