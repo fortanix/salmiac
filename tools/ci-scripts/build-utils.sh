@@ -15,6 +15,7 @@ if [ -z "${DOCKER_REGISTRY}" ]; then
 fi
 
 # Set default values
+RELEASE_OPT=--debug
 ROCHE_MODE=ci-sgx
 ENCLAVE_SIGNING_KEY="$repo_root"/salmiac/debug-enclave-signing.pem
 # Note: This is base path for Metering artifacts. VERSION is also appended to this.
