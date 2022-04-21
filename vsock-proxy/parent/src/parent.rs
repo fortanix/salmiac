@@ -1,6 +1,7 @@
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice::{Tcp, Udp, Unknown};
+use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::Fuse;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
@@ -11,19 +12,19 @@ use rtnetlink::packet::NUD_PERMANENT;
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
-use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream};
 
 use crate::packet_capture::{open_async_packet_capture, open_packet_capture};
-use shared::device::{ApplicationConfiguration, CCMBackendUrl, NetworkSettings, SetupMessages};
-use shared::netlink::{AddressMessageExt, LinkMessageExt};
+use shared::device::{ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NetworkDeviceSettings, SetupMessages};
+use shared::netlink::{LinkMessageExt, Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
-use shared::{log_packet_processing, netlink, DATA_SOCKET, PACKET_LOG_STEP};
+use shared::{log_packet_processing, PACKET_LOG_STEP};
 
-use shared::netlink::arp::ARPEntry;
-use shared::netlink::route::{Gateway, Route};
+use shared::netlink::arp::{ARPEntry, NetlinkARP};
+use shared::netlink::route::{Gateway, NetlinkRoute, Route};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::env;
@@ -42,40 +43,107 @@ const UDP_CHECKSUM_FIELD_INDEX: usize = 6;
 const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
-    info!("Awaiting confirmation from enclave!");
+    info!("Awaiting confirmation from enclave.");
 
-    let mut enclave_listener = listen_to_parent(vsock_port)?;
-    let mut networking_listener = listen_to_parent(DATA_SOCKET)?;
+    let mut enclave_port = create_vsock_stream(vsock_port).await?;
 
-    let (enclave_port_result, enclave_networking_port_result) =
-        tokio::join!(accept(&mut enclave_listener), accept(&mut networking_listener));
+    info!("Connected to enclave.");
 
-    let mut enclave_port = enclave_port_result?;
-    let enclave_networking_port = enclave_networking_port_result?;
+    let devices = setup_parent(&mut enclave_port).await?;
 
-    info!("Connected to enclave!");
+    let mut background_tasks = FuturesUnordered::new();
 
-    let parent_device = pcap::Device::lookup().map_err(|err| format!("Cannot find device for packet capture {:?}", err))?;
+    for e in devices {
+        let res = start_pcap_loops(e.0, e.1)?;
 
-    let network_settings = get_network_settings(&parent_device).await?;
-
-    communicate_enclave_settings(network_settings, &mut enclave_port).await?;
-
-    let (pcap_read_loop, pcap_write_loop) = start_pcap_loops(parent_device, enclave_networking_port)?;
+        background_tasks.push(res.0);
+        background_tasks.push(res.1);
+    }
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
-    tokio::select! {
-        result = pcap_read_loop => {
-            handle_background_task_exit(result, "pcap read loop")
-        },
-        result = pcap_write_loop => {
-            handle_background_task_exit(result, "pcap write loop")
-        },
-        result = user_program => {
-            result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-        },
+    if !background_tasks.is_empty() {
+        tokio::select! {
+            result = background_tasks.next() => {
+                handle_background_task_exit(result, "pcap loop")
+            },
+            result = user_program => {
+                result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+            },
+        }
+    } else {
+        user_program.await.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
+}
+
+async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<Vec<(Device, VsockStream)>, String> {
+    send_application_configuration(vsock).await?;
+
+    let devices = setup_network_devices(vsock).await?;
+
+    send_global_network_settings(vsock).await?;
+
+    communicate_certificates(vsock).await?;
+
+    Ok(devices)
+}
+
+async fn setup_network_devices(enclave_port: &mut AsyncVsockStream) -> Result<Vec<(Device, VsockStream)>, String> {
+    let netlink = Netlink::new();
+
+    let devices = pcap::Device::list().map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
+
+    let mut device_settings: Vec<NetworkDeviceSettings> = Vec::new();
+    let mut device_listeners: Vec<AsyncVsockListener> = Vec::new();
+
+    for device in &devices {
+        let device_name = device.name.clone();
+
+        if device_name != "lo" && device_name != "any" {
+            match get_network_settings(device, &netlink).await {
+                Ok(settings) => {
+                    device_listeners.push(listen_to_parent(settings.index)?);
+                    device_settings.push(settings);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed retrieving network settings for device {}, device won't be setup! {}",
+                        device_name, e
+                    )
+                }
+            };
+        }
+    }
+
+    enclave_port
+        .write_lv(&SetupMessages::NetworkDeviceSettings(device_settings))
+        .await?;
+
+    let mut device_streams: Vec<VsockStream> = Vec::new();
+
+    for mut listener in device_listeners {
+        device_streams.push(accept(&mut listener).await?);
+    }
+
+    let result = devices.into_iter().zip(device_streams.into_iter()).collect();
+
+    Ok(result)
+}
+
+async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
+    let dns_file = fs::read_to_string("/etc/resolv.conf")
+        .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?
+        .into_bytes();
+
+    let network_settings = GlobalNetworkSettings { dns_file };
+
+    enclave_port
+        .write_lv(&SetupMessages::GlobalNetworkSettings(network_settings))
+        .await?;
+
+    debug!("Sent global network settings to the enclave.");
+
+    Ok(())
 }
 
 fn start_pcap_loops(
@@ -89,11 +157,7 @@ fn start_pcap_loops(
 
     let pcap_read_loop = tokio::spawn(read_from_device_async(read_capture, vsock_write));
 
-    debug!("Started pcap read loop!");
-
     let pcap_write_loop = tokio::spawn(write_to_device_async(write_capture, vsock_read));
-
-    debug!("Started pcap write loop!");
 
     Ok((pcap_read_loop, pcap_write_loop))
 }
@@ -102,27 +166,7 @@ async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<UserPr
     extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)
 }
 
-async fn communicate_enclave_settings(network_settings: NetworkSettings, vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    communicate_network_settings(network_settings, vsock).await?;
-
-    communicate_certificates(vsock).await?;
-
-    Ok(())
-}
-
-async fn communicate_network_settings(settings: NetworkSettings, vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    debug!("Read network settings from parent {:?}", settings);
-
-    vsock.write_lv(&SetupMessages::Settings(settings)).await?;
-
-    debug!("Sent network settings to the enclave!");
-
-    Ok(())
-}
-
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    send_application_configuration(vsock).await?;
-
     // Don't bother looking for a node agent address unless there's at least one certificate configured. This allows us to run
     // with the NODE_AGENT environment variable being unset, if there are no configured certificates.
     let mut node_agent_address: Option<String> = None;
@@ -182,38 +226,44 @@ async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<
         .await
 }
 
-async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSettings, String> {
-    let (_netlink_connection, netlink_handle) = netlink::connect();
-    tokio::spawn(_netlink_connection);
+async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Result<NetworkDeviceSettings, String> {
+    let device_index = if_nametoindex(device.name.as_str())
+        .map_err(|err| format!("Cannot find index for device {}, error {:?}", device.name, err))?;
 
-    debug!("Connected to netlink");
-
-    let parent_device_index = if_nametoindex(parent_device.name.as_str())
-        .map_err(|err| format!("Cannot find index for device {}, error {:?}", parent_device.name, err))?;
-
-    let parent_link = netlink::get_link_for_device(&netlink_handle, parent_device_index)
+    let device_link = netlink
+        .get_link_for_device(device_index)
         .await?
-        .expect(&format!("Device {} must have a link!", parent_device.name));
+        .expect(&format!("Device {} must have a link.", device.name));
 
-    let mac_address = parent_link
+    let mac_address = device_link
         .address()
         .map(|e| <[u8; 6]>::try_from(&e[..]))
-        .expect("Parent link should have an address!")
+        .expect("Parent link should have an address.")
         .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
 
-    let mtu = parent_link.mtu().expect("Parent device should have an MTU!");
+    let mtu = device_link.mtu().expect("Parent device should have an MTU.");
 
-    let ip_network = get_ip_network(&netlink_handle, parent_device_index).await?;
+    let ip_network = {
+        let address = if device.addresses.len() != 1 {
+            return Err(format!(
+                "Device with index {} should have only one inet address",
+                device_index
+            ));
+        } else {
+            &device.addresses[0]
+        };
 
-    let dns_file =
-        fs::read_to_string("/etc/resolv.conf").map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?;
+        let netmask = address
+            .netmask
+            .expect(&*format!("Device {} address must have a netmask.", &device.name));
 
-    let get_routes_result = netlink::route::get_routes(&netlink_handle, parent_device_index, rtnetlink::IpVersion::V4).await?;
+        IpNetwork::with_netmask(address.addr, netmask)
+            .map_err(|err| format!("Cannot create ip network for device {}. {:?}", &device.name, err))?
+    };
 
-    let gateway = get_routes_result
-        .gateway
-        .map(|e| Gateway::try_from(&e))
-        .transpose()?;
+    let get_routes_result = netlink.get_routes_for_device(device_index, rtnetlink::IpVersion::V4).await?;
+
+    let gateway = get_routes_result.gateway.map(|e| Gateway::try_from(&e)).transpose()?;
 
     let routes = {
         let result: Result<Vec<Route>, String> = get_routes_result.routes.iter().map(Route::try_from).collect();
@@ -221,13 +271,13 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
         result?
     };
 
-    let static_arp_entries = get_static_arp_entries(&netlink_handle).await?;
+    let static_arp_entries = get_static_arp_entries(&netlink, device_index).await?;
 
-    let result = NetworkSettings {
+    let result = NetworkDeviceSettings {
+        index: device_index,
         self_l2_address: mac_address,
         self_l3_address: ip_network,
         mtu,
-        dns_file: dns_file.into_bytes(),
         gateway,
         routes,
         static_arp_entries,
@@ -236,21 +286,8 @@ async fn get_network_settings(parent_device: &pcap::Device) -> Result<NetworkSet
     Ok(result)
 }
 
-async fn get_ip_network(netlink_handle: &rtnetlink::Handle, device_index: u32) -> Result<IpNetwork, String> {
-    let addresses = netlink::get_inet_addresses_for_device(netlink_handle, device_index).await?;
-
-    if addresses.len() != 1 {
-        Err(format!(
-            "Device with index {} should have only one inet address",
-            device_index
-        ))
-    } else {
-        addresses[0].ip_network()
-    }
-}
-
-async fn get_static_arp_entries(netlink_handle: &rtnetlink::Handle) -> Result<Vec<ARPEntry>, String> {
-    let neighbours = netlink::arp::get_neighbours(&netlink_handle).await?;
+async fn get_static_arp_entries(netlink: &Netlink, device_index: u32) -> Result<Vec<ARPEntry>, String> {
+    let neighbours = netlink.get_neighbours_for_device(device_index).await?;
 
     let arp_entries_it = neighbours.iter().filter_map(|neighbour| {
         if neighbour.header.state & NUD_PERMANENT != 0 {
@@ -352,6 +389,12 @@ async fn write_to_device_async(
 
         count = log_packet_processing(count, PACKET_LOG_STEP, "parent vsock");
     }
+}
+
+async fn create_vsock_stream(port: u32) -> Result<AsyncVsockStream, String> {
+    let mut socket = listen_to_parent(port)?;
+
+    accept(&mut socket).await
 }
 
 fn listen_to_parent(port: u32) -> Result<AsyncVsockListener, String> {
