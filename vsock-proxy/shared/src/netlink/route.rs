@@ -1,83 +1,118 @@
+use async_trait::async_trait;
 use rtnetlink::packet::{RouteMessage, AF_INET, RTN_UNICAST};
 use serde::{Deserialize, Serialize};
 
 use crate::extract_enum_value;
 use crate::netlink::next_in_stream;
+use crate::netlink::Netlink;
 
 use ipnetwork::{Ipv4Network, Ipv6Network};
 use std::convert::TryFrom;
 use std::net::IpAddr;
 
-pub async fn add_route(handle: &rtnetlink::Handle, device_index: u32, route: &Route) -> Result<(), String> {
-    let request = handle
-        .route()
-        .add()
-        .output_interface(device_index)
-        .scope(route.scope)
-        .protocol(route.protocol)
-        .table(route.table);
+#[async_trait]
+pub trait NetlinkRoute {
+    async fn add_route_for_device(&self, device_index: u32, route: &Route) -> Result<(), String>;
 
-    match &route.address {
-        RouteAddress::V4(route_address) => {
-            let mut result = request.v4();
+    async fn add_gateway(&self, gateway: &Gateway) -> Result<(), String>;
 
-            if let Some(source) = route_address.source_l3_address {
-                result = result.source_prefix(source.network(), source.prefix());
-            }
-
-            if let Some(destination) = route_address.destination_l3_address {
-                result = result.destination_prefix(destination.network(), destination.prefix());
-            }
-
-            result.execute().await.map_err(|err| {
-                format!(
-                    "Failed to add V4 route {:?} for device index {}. {:?}",
-                    route, device_index, err
-                )
-            })
-        }
-        RouteAddress::V6(route_address) => {
-            let mut result = request.v6();
-
-            if let Some(source) = route_address.source_l3_address {
-                result = result.source_prefix(source.network(), source.prefix());
-            }
-
-            if let Some(destination) = route_address.destination_l3_address {
-                result = result.destination_prefix(destination.network(), destination.prefix());
-            }
-
-            result.execute().await.map_err(|err| {
-                format!(
-                    "Failed to add V6 route {:?} for device index {}. {:?}",
-                    route, device_index, err
-                )
-            })
-        }
-    }
+    async fn get_routes_for_device(&self, device_index: u32, version: rtnetlink::IpVersion) -> Result<GetRoutesResult, String>;
 }
 
-pub async fn add_gateway(handle: &rtnetlink::Handle, gateway: &Gateway) -> Result<(), String> {
-    let request = handle
-        .route()
-        .add()
-        .scope(gateway.scope)
-        .protocol(gateway.protocol)
-        .table(gateway.table);
+#[async_trait]
+impl NetlinkRoute for Netlink {
+    async fn add_route_for_device(&self, device_index: u32, route: &Route) -> Result<(), String> {
+        let request = self
+            .handle
+            .route()
+            .add()
+            .output_interface(device_index)
+            .scope(route.scope)
+            .protocol(route.protocol)
+            .table(route.table);
 
-    match gateway.l3_address {
-        IpAddr::V4(l3_address) => request
-            .v4()
-            .gateway(l3_address)
-            .execute()
-            .await
-            .map_err(|err| format!("Failed to add V4 gateway {:?}. {:?}", gateway, err)),
-        IpAddr::V6(l3_address) => request
-            .v6()
-            .gateway(l3_address)
-            .execute()
-            .await
-            .map_err(|err| format!("Failed to add V6 gateway {:?}. {:?}", gateway, err)),
+        match &route.address {
+            RouteAddress::V4(route_address) => {
+                let mut result = request.v4();
+
+                if let Some(source) = route_address.source_l3_address {
+                    result = result.source_prefix(source.network(), source.prefix());
+                }
+
+                if let Some(destination) = route_address.destination_l3_address {
+                    result = result.destination_prefix(destination.network(), destination.prefix());
+                }
+
+                result.execute().await.map_err(|err| {
+                    format!(
+                        "Failed to add V4 route {:?} for device index {}. {:?}",
+                        route, device_index, err
+                    )
+                })
+            }
+            RouteAddress::V6(route_address) => {
+                let mut result = request.v6();
+
+                if let Some(source) = route_address.source_l3_address {
+                    result = result.source_prefix(source.network(), source.prefix());
+                }
+
+                if let Some(destination) = route_address.destination_l3_address {
+                    result = result.destination_prefix(destination.network(), destination.prefix());
+                }
+
+                result.execute().await.map_err(|err| {
+                    format!(
+                        "Failed to add V6 route {:?} for device index {}. {:?}",
+                        route, device_index, err
+                    )
+                })
+            }
+        }
+    }
+
+    async fn add_gateway(&self, gateway: &Gateway) -> Result<(), String> {
+        let request = self
+            .handle
+            .route()
+            .add()
+            .scope(gateway.scope)
+            .protocol(gateway.protocol)
+            .table(gateway.table);
+
+        match gateway.l3_address {
+            IpAddr::V4(l3_address) => request
+                .v4()
+                .gateway(l3_address)
+                .execute()
+                .await
+                .map_err(|err| format!("Failed to add V4 gateway {:?}. {:?}", gateway, err)),
+            IpAddr::V6(l3_address) => request
+                .v6()
+                .gateway(l3_address)
+                .execute()
+                .await
+                .map_err(|err| format!("Failed to add V6 gateway {:?}. {:?}", gateway, err)),
+        }
+    }
+
+    async fn get_routes_for_device(&self, device_index: u32, version: rtnetlink::IpVersion) -> Result<GetRoutesResult, String> {
+        let mut routes_stream = self.handle.route().get(version).execute();
+        let mut routes: Vec<RouteMessage> = Vec::new();
+        let mut gateway: Option<RouteMessage> = None;
+
+        while let Some(route) = next_in_stream(&mut routes_stream).await? {
+            if route.output_interface() == Some(device_index) && route.header.kind == RTN_UNICAST {
+                // default route has no destination or /0 destination
+                if route.destination_prefix().map_or(true, |(_, prefix)| prefix == 0) {
+                    gateway = Some(route);
+                } else {
+                    routes.push(route);
+                }
+            }
+        }
+
+        Ok(GetRoutesResult { routes, gateway })
     }
 }
 
@@ -85,29 +120,6 @@ pub struct GetRoutesResult {
     pub routes: Vec<RouteMessage>,
 
     pub gateway: Option<RouteMessage>,
-}
-
-pub async fn get_routes(
-    handle: &rtnetlink::Handle,
-    device_index: u32,
-    version: rtnetlink::IpVersion,
-) -> Result<GetRoutesResult, String> {
-    let mut routes_stream = handle.route().get(version).execute();
-    let mut routes: Vec<RouteMessage> = Vec::new();
-    let mut gateway: Option<RouteMessage> = None;
-
-    while let Some(route) = next_in_stream(&mut routes_stream).await? {
-        if route.output_interface() == Some(device_index) && route.header.kind == RTN_UNICAST {
-            // default route has no destination or /0 destination
-            if route.destination_prefix().map_or(true, |(_, prefix)| prefix == 0) {
-                gateway = Some(route);
-            } else {
-                routes.push(route);
-            }
-        }
-    }
-
-    Ok(GetRoutesResult { routes, gateway })
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -123,13 +123,13 @@ pub enum UserProgramExitStatus {
 }
 
 pub fn handle_background_task_exit(
-    result: Result<Result<(), String>, JoinError>,
+    result: Option<Result<Result<(), String>, JoinError>>,
     task_name: &str,
 ) -> Result<UserProgramExitStatus, String> {
     match result {
-        Err(err) => Err(format!("Join error in {}. {:?}", task_name, err))?,
-        Ok(Err(err)) => Err(err),
-        // Background tasks never exit with success
+        Some(Err(err)) => Err(format!("Background task {} finished with error. {:?}", task_name, err))?,
+        Some(Ok(Err(err))) => Err(format!("Background task {} finished with error. {}", task_name, err))?,
+        // Background tasks never exit with success, they run for the whole duration of the program
         _ => {
             unreachable!()
         }

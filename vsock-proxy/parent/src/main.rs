@@ -12,6 +12,8 @@ use std::process;
 async fn main() -> Result<(), String> {
     env_logger::init();
 
+    use pcap::{Active, Capture, Device};
+
     let matches = console_arguments();
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");

@@ -11,7 +11,8 @@ use crate::netlink::route::{Gateway, Route};
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
     SetupSuccessful,
-    Settings(NetworkSettings),
+    NetworkDeviceSettings(Vec<NetworkDeviceSettings>),
+    GlobalNetworkSettings(GlobalNetworkSettings),
     CSR(String),
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
@@ -62,14 +63,14 @@ impl Default for CCMBackendUrl {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct NetworkSettings {
+pub struct NetworkDeviceSettings {
+    pub index: u32,
+
     pub self_l2_address: [u8; 6],
 
     pub self_l3_address: IpNetwork,
 
     pub mtu: u32,
-
-    pub dns_file: Vec<u8>,
 
     pub gateway: Option<Gateway>,
 
@@ -78,15 +79,20 @@ pub struct NetworkSettings {
     pub static_arp_entries: Vec<ARPEntry>,
 }
 
-pub fn create_tap_device(parent_settings: &NetworkSettings) -> Result<TapDevice, String> {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GlobalNetworkSettings {
+    pub dns_file: Vec<u8>,
+}
+
+pub fn create_tap_device(parent_settings: &NetworkDeviceSettings) -> Result<TapDevice, String> {
     tun::create(&tap_device_config(parent_settings)).map_err(|err| format!("Cannot create tap device {:?}", err))
 }
 
-pub fn create_async_tap_device(parent_settings: &NetworkSettings) -> Result<AsyncDevice, String> {
+pub fn create_async_tap_device(parent_settings: &NetworkDeviceSettings) -> Result<AsyncDevice, String> {
     tun::create_as_async(&tap_device_config(parent_settings)).map_err(|err| format!("Cannot create async tap device {:?}", err))
 }
 
-fn tap_device_config(parent_settings: &NetworkSettings) -> tun::Configuration {
+fn tap_device_config(parent_settings: &NetworkDeviceSettings) -> tun::Configuration {
     let mut config = tun::Configuration::default();
 
     config
