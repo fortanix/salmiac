@@ -1326,18 +1326,6 @@ dependencies = [
 [[package]]
 name = "nsm-driver"
 version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
-dependencies = [
- "libc",
- "log 0.4.14",
- "nix 0.15.0",
- "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
- "serde_cbor",
-]
-
-[[package]]
-name = "nsm-driver"
-version = "0.1.0"
 source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
 dependencies = [
  "libc",
@@ -1348,9 +1336,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "nsm-io"
+name = "nsm-driver"
 version = "0.1.0"
 source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
+dependencies = [
+ "libc",
+ "log 0.4.14",
+ "nix 0.15.0",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
+ "serde_cbor",
+]
+
+[[package]]
+name = "nsm-io"
+version = "0.1.0"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
 dependencies = [
  "libc",
  "log 0.4.14",
@@ -1363,7 +1363,7 @@ dependencies = [
 [[package]]
 name = "nsm-io"
 version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
 dependencies = [
  "libc",
  "log 0.4.14",
