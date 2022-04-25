@@ -85,6 +85,9 @@ macro_rules! impl_numarg(
 )+););
 impl_numarg!(u32);
 
+/// Deconstructs enum using provided pattern expression `$pattern` => `$extracted_value`
+/// # Returns
+/// `Ok($extracted_value)` if `$value` matches `$pattern` and `Err` otherwise
 #[macro_export]
 macro_rules! extract_enum_value {
     ($value:expr, $pattern:pat => $extracted_value:expr) => {
@@ -99,6 +102,20 @@ macro_rules! extract_enum_value {
     };
 }
 
+/// Finds first value in iterable `$value` that matches provided pattern expression `pattern` => `extracted_value`
+/// The type of `$value`must implement `IntoIterator` for this macros to work
+/// # Returns
+/// `Some($extracted_value)` if `$value` contains an element that matches `$pattern` and `None` otherwise
+#[macro_export]
+macro_rules! find_map {
+    ($value:expr, $pattern:pat => $extracted_value:expr) => {
+        $value.iter().find_map(|e| match e {
+            $pattern => Some($extracted_value),
+            _ => None,
+        })
+    };
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum UserProgramExitStatus {
     ExitCode(i32),
@@ -106,13 +123,13 @@ pub enum UserProgramExitStatus {
 }
 
 pub fn handle_background_task_exit(
-    result: Result<Result<(), String>, JoinError>,
+    result: Option<Result<Result<(), String>, JoinError>>,
     task_name: &str,
 ) -> Result<UserProgramExitStatus, String> {
     match result {
-        Err(err) => Err(format!("Join error in {}. {:?}", task_name, err))?,
-        Ok(Err(err)) => Err(err),
-        // Background tasks never exit with success
+        Some(Err(err)) => Err(format!("Background task {} finished with error. {:?}", task_name, err))?,
+        Some(Ok(Err(err))) => Err(format!("Background task {} finished with error. {}", task_name, err))?,
+        // Background tasks never exit with success, they run for the whole duration of the program
         _ => {
             unreachable!()
         }
