@@ -4,7 +4,7 @@ use etherparse::TransportSlice::{Tcp, Udp, Unknown};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::Fuse;
 use futures::StreamExt;
-use ipnetwork::IpNetwork;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
 use pcap::{Active, Capture, Device};
@@ -14,9 +14,11 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream};
+use tun::{AsyncDevice};
+
 
 use crate::packet_capture::{open_async_packet_capture, open_packet_capture};
-use shared::device::{ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NetworkDeviceSettings, SetupMessages};
+use shared::device::{ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NetworkDeviceSettings, SetupMessages, FSNetworkDeviceSettings, start_tap_loops, create_async_tap_device, tap_device_config};
 use shared::netlink::{LinkMessageExt, Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
@@ -34,6 +36,8 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
 use std::thread;
+use std::net::{Ipv4Addr, IpAddr};
+use std::process::Command;
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -42,6 +46,10 @@ const UDP_CHECKSUM_FIELD_INDEX: usize = 6;
 
 const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
+const FS_TAP_MTU: u32 = 9001;
+
+const FS_TAP_NETWORK_SIZE: u8 = 30;
+
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave.");
 
@@ -49,18 +57,13 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
     info!("Connected to enclave.");
 
-    let devices = setup_parent(&mut enclave_port).await?;
+    let setup_result = setup_parent(&mut enclave_port).await?;
 
-    let mut background_tasks = FuturesUnordered::new();
-
-    for e in devices {
-        let res = start_pcap_loops(e.0, e.1)?;
-
-        background_tasks.push(res.0);
-        background_tasks.push(res.1);
-    }
+    let mut background_tasks = start_background_tasks(setup_result)?;
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
+
+    info!("Started web server");
 
     if !background_tasks.is_empty() {
         tokio::select! {
@@ -76,33 +79,146 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     }
 }
 
-async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<Vec<(Device, VsockStream)>, String> {
+fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+    let mut result = FuturesUnordered::new();
+
+    for paired_device in parent_setup_result.network_devices {
+        let res = start_pcap_loops(paired_device.pcap, paired_device.vsock)?;
+
+        result.push(res.read_handle);
+        result.push(res.write_handle);
+    }
+
+    let fs_device = parent_setup_result.file_system_tap;
+    let fs_tap_loops = start_tap_loops(fs_device.tap, fs_device.vsock, FS_TAP_MTU);
+
+    result.push(fs_tap_loops.read_handle);
+    result.push(fs_tap_loops.write_handle);
+
+    Ok(result)
+}
+
+struct ParentSetupResult {
+    network_devices: Vec<PairedPcapDevice>,
+
+    file_system_tap: PairedTapDevice
+}
+
+async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
-    let devices = setup_network_devices(vsock).await?;
+    let (network_devices, settings_list) = list_network_devices().await?;
+    let network_addresses_in_use = settings_list.iter()
+        .map(|e| e.self_l3_address)
+        .collect();
+
+    let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
 
     send_global_network_settings(vsock).await?;
 
     communicate_certificates(vsock).await?;
 
-    Ok(devices)
+    let file_system_tap = {
+        let (parent_address, enclave_address) = choose_network_addresses_for_fs_taps(network_addresses_in_use)?;
+
+        setup_file_system_tap_devices(vsock, parent_address, enclave_address).await?
+    };
+
+    Ok(ParentSetupResult {
+        network_devices: paired_network_devices,
+        file_system_tap
+    })
 }
 
-async fn setup_network_devices(enclave_port: &mut AsyncVsockStream) -> Result<Vec<(Device, VsockStream)>, String> {
-    let netlink = Netlink::new();
+async fn setup_file_system_tap_devices(enclave_port: &mut AsyncVsockStream, parent_address: IpNetwork, enclave_address: IpNetwork) -> Result<PairedTapDevice, String> {
+    let device = create_async_tap_device(&tap_device_config(&parent_address, FS_TAP_MTU))?;
 
+    use tun::Device;
+    let tap_index =
+        if_nametoindex(device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
+
+    let mut listener = listen_to_parent(tap_index)?;
+
+    let fs_tap_settings = FSNetworkDeviceSettings {
+        vsock_port_number: tap_index,
+        l3_address: enclave_address,
+        mtu: FS_TAP_MTU,
+    };
+
+    enclave_port
+        .write_lv(&SetupMessages::FSNetworkDeviceSettings(fs_tap_settings))
+        .await?;
+
+    let vsock = accept(&mut listener).await?;
+
+    Ok(PairedTapDevice {
+        tap: device,
+        vsock
+    })
+}
+
+fn choose_network_addresses_for_fs_taps(in_use: Vec<IpNetwork>) -> Result<(IpNetwork, IpNetwork), String> {
+    /// `expect` in `IpNetwork` constructor will never fail because netmask size is always <= 32
+    let private_networks : [IpNetwork; 3] = [
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10,0,0,0), FS_TAP_NETWORK_SIZE).expect("")),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(172,16,0,0), FS_TAP_NETWORK_SIZE).expect("")),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(192,168,0,0), FS_TAP_NETWORK_SIZE).expect(""))
+    ];
+
+    let mut parent_tap_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+    let mut enclave_tap_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+
+    for private_network in private_networks {
+        for address in private_network.iter() {
+            if address != private_network.network() && !in_use.iter().any(|e| e.contains(address)) {
+                if parent_tap_address == Ipv4Addr::UNSPECIFIED {
+                    parent_tap_address = address;
+                }
+                else if enclave_tap_address == Ipv4Addr::UNSPECIFIED {
+                    enclave_tap_address = address;
+                } else {
+                    let parent_network = IpNetwork::new(parent_tap_address,FS_TAP_NETWORK_SIZE).expect("");
+                    let enclave_network = IpNetwork::new(enclave_tap_address, FS_TAP_NETWORK_SIZE).expect("");
+
+                    return Ok((parent_network, enclave_network))
+                }
+            }
+        }
+    }
+
+    Err(format!("Couldn't find 2 free addresses for file system tap devices among {:?} private networks", private_networks))
+}
+
+struct RichPcapDevice {
+    pub device: Device,
+
+    pub settings: NetworkDeviceSettings
+}
+
+struct PairedPcapDevice {
+    pub pcap: Device,
+
+    pub vsock: VsockStream
+}
+
+struct PairedTapDevice {
+    pub tap: AsyncDevice,
+
+    pub vsock: VsockStream
+}
+
+async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDeviceSettings>), String> {
+    let netlink = Netlink::new();
     let devices = pcap::Device::list().map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
 
     let mut device_settings: Vec<NetworkDeviceSettings> = Vec::new();
-    let mut device_listeners: Vec<AsyncVsockListener> = Vec::new();
 
     for device in &devices {
         let device_name = device.name.clone();
 
         if device_name != "lo" && device_name != "any" {
-            match get_network_settings(device, &netlink).await {
+            match get_network_settings_for_device(device, &netlink).await {
                 Ok(settings) => {
-                    device_listeners.push(listen_to_parent(settings.index)?);
                     device_settings.push(settings);
                 }
                 Err(e) => {
@@ -115,17 +231,33 @@ async fn setup_network_devices(enclave_port: &mut AsyncVsockStream) -> Result<Ve
         }
     }
 
+    Ok((devices, device_settings))
+}
+
+async fn setup_network_devices(enclave_port: &mut AsyncVsockStream, devices: Vec<Device>, settings_list: Vec<NetworkDeviceSettings>) -> Result<Vec<PairedPcapDevice>, String> {
+    let mut device_listeners = Vec::new();
+
+    for settings in &settings_list {
+        device_listeners.push(listen_to_parent(settings.vsock_port_number)?);
+    }
+
     enclave_port
-        .write_lv(&SetupMessages::NetworkDeviceSettings(device_settings))
+        .write_lv(&SetupMessages::NetworkDeviceSettings(settings_list))
         .await?;
 
-    let mut device_streams: Vec<VsockStream> = Vec::new();
+    let mut device_streams = Vec::new();
 
     for mut listener in device_listeners {
         device_streams.push(accept(&mut listener).await?);
     }
 
-    let result = devices.into_iter().zip(device_streams.into_iter()).collect();
+    let result = devices.into_iter()
+        .zip(device_streams.into_iter())
+        .map(|e| PairedPcapDevice {
+            pcap: e.0,
+            vsock: e.1
+        })
+        .collect();
 
     Ok(result)
 }
@@ -146,20 +278,29 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
     Ok(())
 }
 
+pub struct PcapLoopsResult {
+    pub read_handle: JoinHandle<Result<(), String>>,
+
+    pub write_handle: JoinHandle<Result<(), String>>
+}
+
 fn start_pcap_loops(
     network_device: Device,
     vsock: AsyncVsockStream,
-) -> Result<(JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>), String> {
+) -> Result<PcapLoopsResult, String> {
     let read_capture = open_async_packet_capture(&network_device.name)?;
     let write_capture = open_packet_capture(network_device)?;
 
     let (vsock_read, vsock_write) = io::split(vsock);
 
-    let pcap_read_loop = tokio::spawn(read_from_device_async(read_capture, vsock_write));
+    let read_handle = tokio::spawn(read_from_device_async(read_capture, vsock_write));
 
-    let pcap_write_loop = tokio::spawn(write_to_device_async(write_capture, vsock_read));
+    let write_handle = tokio::spawn(write_to_device_async(write_capture, vsock_read));
 
-    Ok((pcap_read_loop, pcap_write_loop))
+    Ok(PcapLoopsResult {
+        read_handle,
+        write_handle
+    })
 }
 
 async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
@@ -177,7 +318,7 @@ async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), St
         let msg: SetupMessages = vsock.read_lv().await?;
 
         match msg {
-            SetupMessages::SetupSuccessful => return Ok(()),
+            SetupMessages::NoMoreCertificates => return Ok(()),
             SetupMessages::CSR(csr) => {
                 let addr = match node_agent_address {
                     Some(ref addr) => addr.clone(),
@@ -226,7 +367,7 @@ async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<
         .await
 }
 
-async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Result<NetworkDeviceSettings, String> {
+async fn get_network_settings_for_device(device: &pcap::Device, netlink: &Netlink) -> Result<NetworkDeviceSettings, String> {
     let device_index = if_nametoindex(device.name.as_str())
         .map_err(|err| format!("Cannot find index for device {}, error {:?}", device.name, err))?;
 
@@ -274,7 +415,7 @@ async fn get_network_settings(device: &pcap::Device, netlink: &Netlink) -> Resul
     let static_arp_entries = get_static_arp_entries(&netlink, device_index).await?;
 
     let result = NetworkDeviceSettings {
-        index: device_index,
+        vsock_port_number: device_index,
         self_l2_address: mac_address,
         self_l3_address: ip_network,
         mtu,

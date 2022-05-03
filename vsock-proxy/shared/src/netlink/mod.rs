@@ -69,14 +69,6 @@ impl NetlinkCommon for Netlink {
     }
 }
 
-pub fn connect() -> (Connection<RtnlMessage>, rtnetlink::Handle) {
-    let (connection, handle, _) = rtnetlink::new_connection()
-        .map_err(|err| format!("{:?}", err))
-        .expect("Failed to connect to netlink");
-
-    (connection, handle)
-}
-
 pub trait LinkMessageExt {
     fn address(&self) -> Option<&[u8]>;
 

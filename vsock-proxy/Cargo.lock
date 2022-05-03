@@ -522,6 +522,7 @@ dependencies = [
  "em-app",
  "env_logger 0.7.1",
  "futures 0.3.16",
+ "ipnetwork 0.18.0",
  "log 0.4.14",
  "mbedtls",
  "nitro-enclaves-converter-api-model",
@@ -1461,6 +1462,7 @@ dependencies = [
 name = "parent"
 version = "0.1.0"
 dependencies = [
+ "async-process",
  "clap",
  "em-app",
  "env_logger 0.7.1",
@@ -1475,6 +1477,7 @@ dependencies = [
  "shared",
  "tokio",
  "tokio-vsock",
+ "tun",
 ]
 
 [[package]]
@@ -2037,6 +2040,7 @@ dependencies = [
  "serde_cbor",
  "threadpool",
  "tokio",
+ "tokio-vsock",
  "tun",
 ]
 

@@ -8,14 +8,15 @@ use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 use tun::Device;
+use ipnetwork::{IpNetwork, Ipv4Network};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
-use shared::device::{NetworkDeviceSettings, SetupMessages};
+use shared::device::{NetworkDeviceSettings, SetupMessages, start_tap_loops, create_async_tap_device, tap_device_config};
 use shared::netlink::arp::NetlinkARP;
-use shared::netlink::route::NetlinkRoute;
+use shared::netlink::route::{NetlinkRoute, Gateway, Route, RouteAddressV4};
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{
@@ -31,8 +32,11 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
+use std::net::{Ipv4Addr, IpAddr};
+use std::convert::From;
 
 const ENTROPY_BYTES_COUNT: usize = 126;
+
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
 pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
@@ -48,17 +52,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let setup_result = setup_enclave(&mut parent_port, &enclave_settings.certificate_config, &app_config.id).await?;
 
-    let mut background_tasks = FuturesUnordered::new();
-
-    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
-    background_tasks.push(entropy_loop);
-
-    for tap_device in setup_result.tap_devices {
-        let (read_tap_loop, write_tap_loop) = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
-
-        background_tasks.push(read_tap_loop);
-        background_tasks.push(write_tap_loop);
-    }
+    let mut background_tasks = start_background_tasks(setup_result.tap_devices, setup_result.file_system_tap);
 
     // We can request application configuration only if we know application id.
     // Also we can run configuration retrieval function only after we start our tap loops,
@@ -94,19 +88,26 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     }
 }
 
-fn start_tap_loops(
-    tap_device: AsyncDevice,
-    vsock: AsyncVsockStream,
-    mtu: u32,
-) -> (JoinHandle<Result<(), String>>, JoinHandle<Result<(), String>>) {
-    let (tap_read, tap_write) = io::split(tap_device);
-    let (vsock_read, vsock_write) = io::split(vsock);
+fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>, file_system_tap: TapDeviceInfo) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
+    let mut result = FuturesUnordered::new();
 
-    let read_tap_loop = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
+    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
+    result.push(entropy_loop);
 
-    let write_tap_loop = tokio::spawn(write_to_tap_async(tap_write, vsock_read));
+    for tap_device in tap_devices {
+        let res = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
 
-    (read_tap_loop, write_tap_loop)
+        result.push(res.read_handle);
+        result.push(res.write_handle);
+    }
+
+    let fs_tap = file_system_tap;
+    let res = start_tap_loops(fs_tap.tap, fs_tap.vsock, fs_tap.mtu);
+
+    result.push(res.read_handle);
+    result.push(res.write_handle);
+
+    result
 }
 
 async fn start_user_program(
@@ -139,59 +140,39 @@ async fn start_user_program(
     Ok(result)
 }
 
-async fn read_from_tap_async(
-    mut device: ReadHalf<AsyncDevice>,
-    mut vsock: WriteHalf<AsyncVsockStream>,
-    buf_len: u32,
-) -> Result<(), String> {
-    let mut buf = vec![0 as u8; (MAX_ETHERNET_HEADER_SIZE + buf_len) as usize];
-    let mut count = 0 as u32;
-
-    loop {
-        let amount = AsyncReadExt::read(&mut device, &mut buf)
-            .await
-            .map_err(|err| format!("Cannot read from tap {:?}", err))?;
-
-        vsock
-            .write_lv_bytes(&buf[..amount])
-            .await
-            .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
-
-        count = log_packet_processing(count, PACKET_LOG_STEP, "enclave tap");
-    }
-}
-
-async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
-    let mut count = 0 as u32;
-
-    loop {
-        let packet = vsock.read_lv_bytes().await?;
-
-        AsyncWriteExt::write_all(&mut device, &packet)
-            .await
-            .map_err(|err| format!("Cannot write to tap {:?}", err))?;
-
-        count = log_packet_processing(count, PACKET_LOG_STEP, "enclave vsock");
-    }
-}
-
 async fn setup_enclave(
     vsock: &mut AsyncVsockStream,
     cert_configs: &Vec<CertificateConfig>,
     application_id: &Option<String>,
 ) -> Result<EnclaveSetupResult, String> {
-    let taps = setup_enclave_networking(vsock).await?;
-
-    info!("Finished enclave networking setup.");
+    let tap_devices = setup_enclave_networking(vsock).await?;
+    info!("Finished networking setup.");
 
     let certificate_info = setup_enclave_certification(vsock, application_id, &cert_configs).await?;
 
-    vsock.write_lv(&SetupMessages::SetupSuccessful).await?;
-    info!("Notified parent that setup was successful");
+    let file_system_tap = setup_file_system_tap_device(vsock).await?;
+    info!("Finished file system tap device setup.");
 
     Ok(EnclaveSetupResult {
-        tap_devices: taps,
+        tap_devices,
         certificate_info,
+        file_system_tap
+    })
+}
+
+async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<TapDeviceInfo, String> {
+    let configuration = extract_enum_value!(vsock.read_lv().await?, SetupMessages::FSNetworkDeviceSettings(e) => e)?;
+
+    let tap = create_async_tap_device(&tap_device_config(&configuration.l3_address, configuration.mtu))?;
+
+    let fs_vsock = connect_to_parent_async(configuration.vsock_port_number).await?;
+
+    info!("FS Device {} is connected and ready.", configuration.vsock_port_number);
+
+    Ok(TapDeviceInfo {
+        vsock: fs_vsock,
+        tap,
+        mtu: configuration.mtu
     })
 }
 
@@ -199,6 +180,8 @@ struct EnclaveSetupResult {
     tap_devices: Vec<TapDeviceInfo>,
 
     certificate_info: Option<CertificateResult>,
+
+    file_system_tap: TapDeviceInfo
 }
 
 struct TapDeviceInfo {
@@ -218,9 +201,10 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     for device_settings in &device_settings_list {
         let tap = setup_network_device(device_settings, &netlink).await?;
-        let vsock = connect_to_parent_async(device_settings.index).await?;
+        info!("Trying to eonnect on port {}", device_settings.vsock_port_number);
+        let vsock = connect_to_parent_async(device_settings.vsock_port_number).await?;
 
-        info!("Device {} is connected and ready.", device_settings.index);
+        info!("Device {} is connected and ready.", device_settings.vsock_port_number);
 
         result.push(TapDeviceInfo {
             vsock,
@@ -240,13 +224,13 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
         .write_all(&global_settings.dns_file)
         .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
 
-    info!("Enclave DNS file has been populated.");
+    debug!("Enclave DNS file has been populated.");
 
     Ok(result)
 }
 
 async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: &Netlink) -> Result<AsyncDevice, String> {
-    let tap_device = shared::device::create_async_tap_device(&parent_settings)?;
+    let tap_device = create_async_tap_device(&tun::Configuration::from(parent_settings))?;
 
     let tap_index =
         if_nametoindex(tap_device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
@@ -262,7 +246,7 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
 
     // It is required that we add routes first and than the gateway
     // Kernel allows us to add the gateway only if there is a reachable route for gateway's address in the routing table.
-    // Without said the route(s) the kernel will return NETWORK_UNREACHABLE status code for our add_gateway function.
+    // Without said route(s) the kernel will return NETWORK_UNREACHABLE status code for our add_gateway function.
     for route in &parent_settings.routes {
         match netlink.add_route_for_device(tap_index, route).await {
             Err(e) => {
@@ -316,6 +300,8 @@ async fn setup_enclave_certification(
 
         num_certs += 1;
     }
+
+    vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
 
     info!("Finished requesting {} certificates.", num_certs);
 
