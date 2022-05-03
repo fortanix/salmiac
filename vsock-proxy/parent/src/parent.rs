@@ -26,16 +26,15 @@ use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 use shared::{log_packet_processing, PACKET_LOG_STEP};
-
 use shared::netlink::arp::{ARPEntry, NetlinkARP};
 use shared::netlink::route::{Gateway, NetlinkRoute, Route};
+
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::env;
 use std::fs;
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr};
-use std::process::Command;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
@@ -86,7 +85,7 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 fn start_background_tasks(
     parent_setup_result: ParentSetupResult,
 ) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
-    let mut result = FuturesUnordered::new();
+    let result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
         let res = start_pcap_loops(paired_device.pcap, paired_device.vsock)?;
@@ -163,7 +162,7 @@ async fn setup_file_system_tap_devices(
 }
 
 fn choose_network_addresses_for_fs_taps(in_use: Vec<IpNetwork>) -> Result<(IpNetwork, IpNetwork), String> {
-    /// `expect` in `IpNetwork` constructor will never fail because netmask size is always <= 32
+    // `expect` in `IpNetwork` constructor will never fail because netmask size is always <= 32
     let private_networks: [IpNetwork; 3] = [
         IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_SIZE).expect("")),
         IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(172, 16, 0, 0), FS_TAP_NETWORK_SIZE).expect("")),
@@ -194,12 +193,6 @@ fn choose_network_addresses_for_fs_taps(in_use: Vec<IpNetwork>) -> Result<(IpNet
         "Couldn't find 2 free addresses for file system tap devices among {:?} private networks",
         private_networks
     ))
-}
-
-struct RichPcapDevice {
-    pub device: Device,
-
-    pub settings: NetworkDeviceSettings,
 }
 
 struct PairedPcapDevice {

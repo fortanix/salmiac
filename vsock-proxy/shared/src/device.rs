@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
-use tun::platform::linux::Device as TapDevice;
 use tun::AsyncDevice;
 
 use crate::{log_packet_processing, UserProgramExitStatus, MAX_ETHERNET_HEADER_SIZE, PACKET_LOG_STEP};

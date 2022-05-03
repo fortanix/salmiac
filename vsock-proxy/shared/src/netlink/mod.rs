@@ -4,8 +4,7 @@ pub mod route;
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use futures::TryStream;
-use rtnetlink::packet::{LinkMessage, RtnlMessage};
-use rtnetlink::proto::Connection;
+use rtnetlink::packet::{LinkMessage};
 use tokio::task::JoinHandle;
 
 use crate::find_map;

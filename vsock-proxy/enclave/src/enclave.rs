@@ -1,10 +1,9 @@
 use async_process::Command;
 use futures::StreamExt;
-use ipnetwork::{IpNetwork, Ipv4Network};
+use futures::stream::FuturesUnordered;
 use log::{debug, info};
 use nix::ioctl_write_ptr;
 use nix::net::if_::if_nametoindex;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
@@ -16,20 +15,17 @@ use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::NetlinkARP;
-use shared::netlink::route::{Gateway, NetlinkRoute, Route, RouteAddressV4};
+use shared::netlink::route::{NetlinkRoute};
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{
-    extract_enum_value, handle_background_task_exit, log_packet_processing, UserProgramExitStatus, MAX_ETHERNET_HEADER_SIZE,
-    PACKET_LOG_STEP, VSOCK_PARENT_CID,
+    extract_enum_value, handle_background_task_exit, UserProgramExitStatus, VSOCK_PARENT_CID,
 };
 
-use futures::stream::FuturesUnordered;
 use std::convert::From;
 use std::fs;
 use std::io::Write;
 use std::mem;
-use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
@@ -94,7 +90,7 @@ fn start_background_tasks(
     tap_devices: Vec<TapDeviceInfo>,
     file_system_tap: TapDeviceInfo,
 ) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
-    let mut result = FuturesUnordered::new();
+    let result = FuturesUnordered::new();
 
     let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
     result.push(entropy_loop);
