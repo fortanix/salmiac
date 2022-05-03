@@ -1,13 +1,13 @@
+use crate::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
-use tun::platform::linux::Device as TapDevice;
-use crate::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use tun::AsyncDevice;
 use tokio_vsock::VsockStream as AsyncVsockStream;
+use tun::platform::linux::Device as TapDevice;
+use tun::AsyncDevice;
 
-use crate::{UserProgramExitStatus, MAX_ETHERNET_HEADER_SIZE, log_packet_processing, PACKET_LOG_STEP};
+use crate::{log_packet_processing, UserProgramExitStatus, MAX_ETHERNET_HEADER_SIZE, PACKET_LOG_STEP};
 
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
@@ -124,14 +124,10 @@ impl From<&NetworkDeviceSettings> for tun::Configuration {
 pub struct TapLoopsResult {
     pub read_handle: JoinHandle<Result<(), String>>,
 
-    pub write_handle: JoinHandle<Result<(), String>>
+    pub write_handle: JoinHandle<Result<(), String>>,
 }
 
-pub fn start_tap_loops(
-    tap_device: AsyncDevice,
-    vsock: AsyncVsockStream,
-    mtu: u32,
-) -> TapLoopsResult {
+pub fn start_tap_loops(tap_device: AsyncDevice, vsock: AsyncVsockStream, mtu: u32) -> TapLoopsResult {
     let (tap_read, tap_write) = io::split(tap_device);
     let (vsock_read, vsock_write) = io::split(vsock);
 
@@ -141,7 +137,7 @@ pub fn start_tap_loops(
 
     TapLoopsResult {
         read_handle,
-        write_handle
+        write_handle,
     }
 }
 

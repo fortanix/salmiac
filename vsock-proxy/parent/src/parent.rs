@@ -14,11 +14,13 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream};
-use tun::{AsyncDevice};
-
+use tun::AsyncDevice;
 
 use crate::packet_capture::{open_async_packet_capture, open_packet_capture};
-use shared::device::{ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NetworkDeviceSettings, SetupMessages, FSNetworkDeviceSettings, start_tap_loops, create_async_tap_device, tap_device_config};
+use shared::device::{
+    create_async_tap_device, start_tap_loops, tap_device_config, ApplicationConfiguration, CCMBackendUrl,
+    FSNetworkDeviceSettings, GlobalNetworkSettings, NetworkDeviceSettings, SetupMessages,
+};
 use shared::netlink::{LinkMessageExt, Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
@@ -32,12 +34,12 @@ use std::convert::TryFrom;
 use std::env;
 use std::fs;
 use std::mem;
+use std::net::{IpAddr, Ipv4Addr};
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
 use std::thread;
-use std::net::{Ipv4Addr, IpAddr};
-use std::process::Command;
 
 // Position of a checksum field in TCP header according to rfc 793.
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -75,11 +77,15 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
             },
         }
     } else {
-        user_program.await.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+        user_program
+            .await
+            .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
 }
 
-fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+fn start_background_tasks(
+    parent_setup_result: ParentSetupResult,
+) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let mut result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
@@ -101,16 +107,14 @@ fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<Futu
 struct ParentSetupResult {
     network_devices: Vec<PairedPcapDevice>,
 
-    file_system_tap: PairedTapDevice
+    file_system_tap: PairedTapDevice,
 }
 
 async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
-    let network_addresses_in_use = settings_list.iter()
-        .map(|e| e.self_l3_address)
-        .collect();
+    let network_addresses_in_use = settings_list.iter().map(|e| e.self_l3_address).collect();
 
     let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
 
@@ -126,11 +130,15 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
 
     Ok(ParentSetupResult {
         network_devices: paired_network_devices,
-        file_system_tap
+        file_system_tap,
     })
 }
 
-async fn setup_file_system_tap_devices(enclave_port: &mut AsyncVsockStream, parent_address: IpNetwork, enclave_address: IpNetwork) -> Result<PairedTapDevice, String> {
+async fn setup_file_system_tap_devices(
+    enclave_port: &mut AsyncVsockStream,
+    parent_address: IpNetwork,
+    enclave_address: IpNetwork,
+) -> Result<PairedTapDevice, String> {
     let device = create_async_tap_device(&tap_device_config(&parent_address, FS_TAP_MTU))?;
 
     use tun::Device;
@@ -151,18 +159,15 @@ async fn setup_file_system_tap_devices(enclave_port: &mut AsyncVsockStream, pare
 
     let vsock = accept(&mut listener).await?;
 
-    Ok(PairedTapDevice {
-        tap: device,
-        vsock
-    })
+    Ok(PairedTapDevice { tap: device, vsock })
 }
 
 fn choose_network_addresses_for_fs_taps(in_use: Vec<IpNetwork>) -> Result<(IpNetwork, IpNetwork), String> {
     /// `expect` in `IpNetwork` constructor will never fail because netmask size is always <= 32
-    let private_networks : [IpNetwork; 3] = [
-        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10,0,0,0), FS_TAP_NETWORK_SIZE).expect("")),
-        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(172,16,0,0), FS_TAP_NETWORK_SIZE).expect("")),
-        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(192,168,0,0), FS_TAP_NETWORK_SIZE).expect(""))
+    let private_networks: [IpNetwork; 3] = [
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_SIZE).expect("")),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(172, 16, 0, 0), FS_TAP_NETWORK_SIZE).expect("")),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(192, 168, 0, 0), FS_TAP_NETWORK_SIZE).expect("")),
     ];
 
     let mut parent_tap_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
@@ -173,38 +178,40 @@ fn choose_network_addresses_for_fs_taps(in_use: Vec<IpNetwork>) -> Result<(IpNet
             if address != private_network.network() && !in_use.iter().any(|e| e.contains(address)) {
                 if parent_tap_address == Ipv4Addr::UNSPECIFIED {
                     parent_tap_address = address;
-                }
-                else if enclave_tap_address == Ipv4Addr::UNSPECIFIED {
+                } else if enclave_tap_address == Ipv4Addr::UNSPECIFIED {
                     enclave_tap_address = address;
                 } else {
-                    let parent_network = IpNetwork::new(parent_tap_address,FS_TAP_NETWORK_SIZE).expect("");
+                    let parent_network = IpNetwork::new(parent_tap_address, FS_TAP_NETWORK_SIZE).expect("");
                     let enclave_network = IpNetwork::new(enclave_tap_address, FS_TAP_NETWORK_SIZE).expect("");
 
-                    return Ok((parent_network, enclave_network))
+                    return Ok((parent_network, enclave_network));
                 }
             }
         }
     }
 
-    Err(format!("Couldn't find 2 free addresses for file system tap devices among {:?} private networks", private_networks))
+    Err(format!(
+        "Couldn't find 2 free addresses for file system tap devices among {:?} private networks",
+        private_networks
+    ))
 }
 
 struct RichPcapDevice {
     pub device: Device,
 
-    pub settings: NetworkDeviceSettings
+    pub settings: NetworkDeviceSettings,
 }
 
 struct PairedPcapDevice {
     pub pcap: Device,
 
-    pub vsock: VsockStream
+    pub vsock: VsockStream,
 }
 
 struct PairedTapDevice {
     pub tap: AsyncDevice,
 
-    pub vsock: VsockStream
+    pub vsock: VsockStream,
 }
 
 async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDeviceSettings>), String> {
@@ -234,7 +241,11 @@ async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDeviceSetting
     Ok((devices, device_settings))
 }
 
-async fn setup_network_devices(enclave_port: &mut AsyncVsockStream, devices: Vec<Device>, settings_list: Vec<NetworkDeviceSettings>) -> Result<Vec<PairedPcapDevice>, String> {
+async fn setup_network_devices(
+    enclave_port: &mut AsyncVsockStream,
+    devices: Vec<Device>,
+    settings_list: Vec<NetworkDeviceSettings>,
+) -> Result<Vec<PairedPcapDevice>, String> {
     let mut device_listeners = Vec::new();
 
     for settings in &settings_list {
@@ -251,12 +262,10 @@ async fn setup_network_devices(enclave_port: &mut AsyncVsockStream, devices: Vec
         device_streams.push(accept(&mut listener).await?);
     }
 
-    let result = devices.into_iter()
+    let result = devices
+        .into_iter()
         .zip(device_streams.into_iter())
-        .map(|e| PairedPcapDevice {
-            pcap: e.0,
-            vsock: e.1
-        })
+        .map(|e| PairedPcapDevice { pcap: e.0, vsock: e.1 })
         .collect();
 
     Ok(result)
@@ -281,13 +290,10 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
 pub struct PcapLoopsResult {
     pub read_handle: JoinHandle<Result<(), String>>,
 
-    pub write_handle: JoinHandle<Result<(), String>>
+    pub write_handle: JoinHandle<Result<(), String>>,
 }
 
-fn start_pcap_loops(
-    network_device: Device,
-    vsock: AsyncVsockStream,
-) -> Result<PcapLoopsResult, String> {
+fn start_pcap_loops(network_device: Device, vsock: AsyncVsockStream) -> Result<PcapLoopsResult, String> {
     let read_capture = open_async_packet_capture(&network_device.name)?;
     let write_capture = open_packet_capture(network_device)?;
 
@@ -299,7 +305,7 @@ fn start_pcap_loops(
 
     Ok(PcapLoopsResult {
         read_handle,
-        write_handle
+        write_handle,
     })
 }
 

@@ -1,5 +1,6 @@
 use async_process::Command;
 use futures::StreamExt;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use log::{debug, info};
 use nix::ioctl_write_ptr;
 use nix::net::if_::if_nametoindex;
@@ -8,15 +9,14 @@ use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 use tun::Device;
-use ipnetwork::{IpNetwork, Ipv4Network};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
-use shared::device::{NetworkDeviceSettings, SetupMessages, start_tap_loops, create_async_tap_device, tap_device_config};
+use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::NetlinkARP;
-use shared::netlink::route::{NetlinkRoute, Gateway, Route, RouteAddressV4};
+use shared::netlink::route::{Gateway, NetlinkRoute, Route, RouteAddressV4};
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{
@@ -25,15 +25,15 @@ use shared::{
 };
 
 use futures::stream::FuturesUnordered;
+use std::convert::From;
 use std::fs;
 use std::io::Write;
 use std::mem;
+use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use std::net::{Ipv4Addr, IpAddr};
-use std::convert::From;
 
 const ENTROPY_BYTES_COUNT: usize = 126;
 
@@ -84,11 +84,16 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
             },
         }
     } else {
-        user_program.await.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+        user_program
+            .await
+            .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
 }
 
-fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>, file_system_tap: TapDeviceInfo) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
+fn start_background_tasks(
+    tap_devices: Vec<TapDeviceInfo>,
+    file_system_tap: TapDeviceInfo,
+) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
     let mut result = FuturesUnordered::new();
 
     let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
@@ -156,7 +161,7 @@ async fn setup_enclave(
     Ok(EnclaveSetupResult {
         tap_devices,
         certificate_info,
-        file_system_tap
+        file_system_tap,
     })
 }
 
@@ -172,7 +177,7 @@ async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<Ta
     Ok(TapDeviceInfo {
         vsock: fs_vsock,
         tap,
-        mtu: configuration.mtu
+        mtu: configuration.mtu,
     })
 }
 
@@ -181,7 +186,7 @@ struct EnclaveSetupResult {
 
     certificate_info: Option<CertificateResult>,
 
-    file_system_tap: TapDeviceInfo
+    file_system_tap: TapDeviceInfo,
 }
 
 struct TapDeviceInfo {
