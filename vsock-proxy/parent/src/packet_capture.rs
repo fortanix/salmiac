@@ -1,21 +1,21 @@
 use futures::stream::Fuse;
-use futures::{StreamExt};
+use futures::StreamExt;
 use log::{info, warn};
 use pcap::{Active, Capture, Device};
 use pcap_async::{Config, Handle};
-use tokio_vsock::VsockStream as AsyncVsockStream;
-use tokio::io::{ReadHalf, WriteHalf};
 use tokio::io;
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
+use tokio_vsock::VsockStream as AsyncVsockStream;
 
+use crate::network::{recompute_packet_checksum, ChecksumComputationError};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{log_packet_processing, PACKET_LOG_STEP};
-use crate::network::{ChecksumComputationError, recompute_packet_checksum};
 
-use std::sync::mpsc;
-use std::thread;
 use std::collections::HashSet;
+use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
+use std::thread;
 
 pub(crate) struct PcapLoopsResult {
     pub read_handle: JoinHandle<Result<(), String>>,

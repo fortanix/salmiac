@@ -1,13 +1,13 @@
 use ipnetwork::{IpNetwork, Ipv4Network};
 use nix::net::if_::if_nametoindex;
-use tun::AsyncDevice;
 use tokio_vsock::VsockStream as AsyncVsockStream;
+use tun::AsyncDevice;
 
+use crate::parent::{accept, listen_to_parent};
 use shared::device::{create_async_tap_device, tap_device_config, FSNetworkDeviceSettings, SetupMessages};
-use shared::socket::{AsyncWriteLvStream};
-use crate::parent::{listen_to_parent, accept};
+use shared::socket::AsyncWriteLvStream;
 
-use std::net::{Ipv4Addr, IpAddr};
+use std::net::{IpAddr, Ipv4Addr};
 
 pub const FS_TAP_MTU: u32 = 9001;
 

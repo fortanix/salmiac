@@ -2,16 +2,13 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info, warn};
 use tokio::task::JoinHandle;
+use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
-use tokio_vsock::{VsockListener as AsyncVsockListener};
 
-use crate::file_system::{PairedTapDevice, choose_network_addresses_for_fs_taps, setup_file_system_tap_devices, FS_TAP_MTU};
-use crate::packet_capture::{start_pcap_loops};
-use shared::device::{
-    start_tap_loops, ApplicationConfiguration, CCMBackendUrl,
-    GlobalNetworkSettings, SetupMessages,
-};
-use crate::network::{PairedPcapDevice, setup_network_devices, list_network_devices};
+use crate::file_system::{choose_network_addresses_for_fs_taps, setup_file_system_tap_devices, PairedTapDevice, FS_TAP_MTU};
+use crate::network::{list_network_devices, setup_network_devices, PairedPcapDevice};
+use crate::packet_capture::start_pcap_loops;
+use shared::device::{start_tap_loops, ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
@@ -82,9 +79,7 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
-    let network_addresses_in_use = settings_list.iter()
-        .map(|e| e.self_l3_address)
-        .collect();
+    let network_addresses_in_use = settings_list.iter().map(|e| e.self_l3_address).collect();
 
     let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
 

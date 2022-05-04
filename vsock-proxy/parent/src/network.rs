@@ -1,25 +1,25 @@
-use rtnetlink::packet::NUD_PERMANENT;
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice::{Tcp, Udp, Unknown};
 use ipnetwork::IpNetwork;
+use log::warn;
 use nix::net::if_::if_nametoindex;
 use pcap::Device;
+use rtnetlink::packet::NUD_PERMANENT;
 use tokio_vsock::VsockStream as AsyncVsockStream;
-use log::warn;
 
-use shared::netlink::{LinkMessageExt, NetlinkCommon};
-use shared::netlink::route::{Gateway, NetlinkRoute};
-use shared::netlink::arp::NetlinkARP;
-use shared::netlink::Netlink;
-use shared::netlink::arp::ARPEntry;
 use shared::device::{NetworkDeviceSettings, SetupMessages};
+use shared::netlink::arp::ARPEntry;
+use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::Route;
-use shared::socket::{AsyncWriteLvStream};
+use shared::netlink::route::{Gateway, NetlinkRoute};
+use shared::netlink::Netlink;
+use shared::netlink::{LinkMessageExt, NetlinkCommon};
+use shared::socket::AsyncWriteLvStream;
 
+use crate::parent::{accept, listen_to_parent};
 use std::convert::TryFrom;
 use std::mem;
-use crate::parent::{listen_to_parent, accept};
 
 // Byte position of a checksum field in TCP header according to rfc 793 (https://www.ietf.org/rfc/rfc793.txt).
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -29,7 +29,6 @@ const UDP_CHECKSUM_FIELD_INDEX: usize = 6;
 
 // Byte position of a checksum field in IPv4 header according to rfc 791 (https://www.ietf.org/rfc/rfc791.txt).
 const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
-
 
 pub(crate) struct PairedPcapDevice {
     pub pcap: Device,
@@ -167,7 +166,6 @@ async fn get_static_arp_entries(netlink: &Netlink, device_index: u32) -> Result<
 
     arp_entries_it.collect()
 }
-
 
 pub(crate) enum ChecksumComputationError {
     UnsupportedProtocol(u8),

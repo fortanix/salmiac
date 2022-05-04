@@ -1,6 +1,6 @@
 use async_process::Command;
-use futures::StreamExt;
 use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use log::{debug, info};
 use nix::ioctl_write_ptr;
 use nix::net::if_::if_nametoindex;
@@ -15,12 +15,10 @@ use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::NetlinkARP;
-use shared::netlink::route::{NetlinkRoute};
+use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{
-    extract_enum_value, handle_background_task_exit, UserProgramExitStatus, VSOCK_PARENT_CID,
-};
+use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus, VSOCK_PARENT_CID};
 
 use std::convert::From;
 use std::fs;
