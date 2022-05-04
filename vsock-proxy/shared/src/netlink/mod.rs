@@ -29,6 +29,7 @@ impl Netlink {
     }
 }
 
+/// Netlink functions to manipulate information specific to network devices
 #[async_trait]
 pub trait NetlinkCommon {
     async fn get_link_for_device(&self, device_index: u32) -> Result<Option<LinkMessage>, String>;

@@ -48,7 +48,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let setup_result = setup_enclave(&mut parent_port, &enclave_settings.certificate_config, &app_config.id).await?;
 
-    let mut background_tasks = start_background_tasks(setup_result.tap_devices, setup_result.file_system_tap);
+    let mut background_tasks = start_background_tasks(setup_result.tap_devices);
 
     // We can request application configuration only if we know application id.
     // Also we can run configuration retrieval function only after we start our tap loops,
@@ -86,10 +86,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     }
 }
 
-fn start_background_tasks(
-    tap_devices: Vec<TapDeviceInfo>,
-    file_system_tap: TapDeviceInfo,
-) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
+fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
     let result = FuturesUnordered::new();
 
     let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
@@ -101,12 +98,6 @@ fn start_background_tasks(
         result.push(res.read_handle);
         result.push(res.write_handle);
     }
-
-    let fs_tap = file_system_tap;
-    let res = start_tap_loops(fs_tap.tap, fs_tap.vsock, fs_tap.mtu);
-
-    result.push(res.read_handle);
-    result.push(res.write_handle);
 
     result
 }
@@ -146,18 +137,18 @@ async fn setup_enclave(
     cert_configs: &Vec<CertificateConfig>,
     application_id: &Option<String>,
 ) -> Result<EnclaveSetupResult, String> {
-    let tap_devices = setup_enclave_networking(vsock).await?;
+    let mut tap_devices = setup_enclave_networking(vsock).await?;
     info!("Finished networking setup.");
 
-    let certificate_info = setup_enclave_certification(vsock, application_id, &cert_configs).await?;
-
     let file_system_tap = setup_file_system_tap_device(vsock).await?;
+    tap_devices.push(file_system_tap);
     info!("Finished file system tap device setup.");
+
+    let certificate_info = setup_enclave_certification(vsock, application_id, &cert_configs).await?;
 
     Ok(EnclaveSetupResult {
         tap_devices,
         certificate_info,
-        file_system_tap,
     })
 }
 
@@ -181,8 +172,6 @@ struct EnclaveSetupResult {
     tap_devices: Vec<TapDeviceInfo>,
 
     certificate_info: Option<CertificateResult>,
-
-    file_system_tap: TapDeviceInfo,
 }
 
 struct TapDeviceInfo {

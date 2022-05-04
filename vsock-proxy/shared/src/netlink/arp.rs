@@ -12,6 +12,7 @@ use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::ops::Deref;
 
+/// Netlink functions to manipulate ARP table
 #[async_trait]
 pub trait NetlinkARP {
     async fn add_neighbour_for_device(&self, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String>;

@@ -10,6 +10,7 @@ use ipnetwork::{Ipv4Network, Ipv6Network};
 use std::convert::TryFrom;
 use std::net::IpAddr;
 
+/// Netlink functions to manipulate routing table
 #[async_trait]
 pub trait NetlinkRoute {
     async fn add_route_for_device(&self, device_index: u32, route: &Route) -> Result<(), String>;
