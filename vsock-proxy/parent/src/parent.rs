@@ -1,6 +1,7 @@
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info, warn};
+use ipnetwork::{IpNetwork};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
@@ -78,7 +79,12 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
-    let network_addresses_in_use = settings_list.iter().map(|e| e.self_l3_address).collect();
+    let network_addresses_in_use = settings_list.iter()
+        .map(|e| match e.self_l3_address {
+            IpNetwork::V4(e) => { e },
+            _ => panic!("Only Ipv4 addresses are supported for network devices!")
+        })
+        .collect();
 
     let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
 

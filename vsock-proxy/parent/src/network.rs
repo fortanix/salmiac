@@ -20,6 +20,7 @@ use shared::socket::AsyncWriteLvStream;
 use crate::parent::{accept, listen_to_parent};
 
 use std::convert::TryFrom;
+use std::convert::From;
 use std::mem;
 use std::net::{Ipv4Addr, IpAddr};
 
@@ -304,32 +305,24 @@ pub(crate) async fn setup_file_system_tap_devices(
 /// `in_use` - a `Vec` of ip addresses that are already in use by other network devices
 /// # Returns
 /// A pair of addresses, where first value is parent's address and second one is enclave's address.
-pub(crate) fn choose_network_addresses_for_fs_taps(in_use: Vec<IpNetwork>) -> Result<(IpNetwork, IpNetwork), String> {
-    let private_networks: [IpNetwork; 3] = [
-        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect("")),
-        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(172, 16, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect("")),
-        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(192, 168, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect("")),
+pub(crate) fn choose_network_addresses_for_fs_taps(in_use: Vec<Ipv4Network>) -> Result<(IpNetwork, IpNetwork), String> {
+    let private_networks: [Ipv4Network; 3] = [
+        Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),
+        Ipv4Network::new(Ipv4Addr::new(172, 16, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),
+        Ipv4Network::new(Ipv4Addr::new(192, 168, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),
     ];
 
-    let mut parent_tap_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-    let mut enclave_tap_address = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-
     for private_network in private_networks {
-        for address in private_network.iter() {
-            // network id (lowest possible ip address in a network) cannot be assigned to a device,
-            // so we filter it out
-            if address != private_network.network() && !in_use.iter().any(|e| e.contains(address)) {
-                if parent_tap_address == Ipv4Addr::UNSPECIFIED {
-                    parent_tap_address = address;
-                } else if enclave_tap_address == Ipv4Addr::UNSPECIFIED {
-                    enclave_tap_address = address;
-                } else {
-                    let parent_network = IpNetwork::new(parent_tap_address, FS_TAP_NETWORK_PREFIX_SIZE).expect("");
-                    let enclave_network = IpNetwork::new(enclave_tap_address, FS_TAP_NETWORK_PREFIX_SIZE).expect("");
+        if !in_use.iter().any(|e| e.overlaps(private_network)) {
+            let network_id = u32::from(private_network.network());
 
-                    return Ok((parent_network, enclave_network));
-                }
-            }
+            let parent_address: Ipv4Addr = (network_id + 1).into();
+            let enclave_address: Ipv4Addr = (network_id + 2).into();
+
+            let parent_network = IpNetwork::new(IpAddr::V4(parent_address), FS_TAP_NETWORK_PREFIX_SIZE).expect("");
+            let enclave_network = IpNetwork::new(IpAddr::V4(enclave_address), FS_TAP_NETWORK_PREFIX_SIZE).expect("");
+
+            return Ok((parent_network, enclave_network));
         }
     }
 
