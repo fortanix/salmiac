@@ -111,16 +111,16 @@ async fn get_network_settings_for_device(device: &pcap::Device, netlink: &Netlin
     let mac_address = device_link
         .address()
         .map(|e| <[u8; 6]>::try_from(&e[..]))
-        .expect("Parent link should have an address.")
-        .map_err(|err| format!("Cannot convert array slice {:?}", err))?;
+        .expect(&*format!("Parent link in device {} should have an address.", device.name))
+        .map_err(|err| format!("Cannot convert array slice {:?}. Network device is {}", err, device.name))?;
 
-    let mtu = device_link.mtu().expect("Parent device should have an MTU.");
+    let mtu = device_link.mtu().expect(&*format!("Parent device {} should have an MTU.", device.name));
 
     let ip_network = {
         let address = if device.addresses.len() != 1 {
             return Err(format!(
-                "Device with index {} should have only one inet address",
-                device_index
+                "Device {} should have only one inet address",
+                device.name
             ));
         } else {
             &device.addresses[0]
