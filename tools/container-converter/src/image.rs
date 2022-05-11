@@ -3,19 +3,19 @@ use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use shiplift::image::{ImageDetails, PushOptions};
-use shiplift::{BuildOptions, Docker, Image, PullOptions, RegistryAuth, TagOptions, ContainerOptions};
+use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, TagOptions};
 
-use crate::{ConverterError, ConverterErrorKind, ImageToClean, ImageKind};
+use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
 use api_model::shared::UserProgramConfig;
 use api_model::AuthConfig;
 
+use shiplift::container::ContainerCreateInfo;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use shiplift::container::ContainerCreateInfo;
 
 #[derive(Deserialize)]
 

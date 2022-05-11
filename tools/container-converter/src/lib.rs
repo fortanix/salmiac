@@ -45,7 +45,7 @@ pub enum ConverterErrorKind {
     InternalError,
     BlockFileCreation,
     ImageFileSystemExport,
-    ContainerCreation
+    ContainerCreation,
 }
 
 impl fmt::Display for ConverterError {
