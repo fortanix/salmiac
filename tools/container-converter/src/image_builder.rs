@@ -3,16 +3,18 @@ use log::info;
 use tempfile::TempDir;
 
 use crate::file::{DockerCopyArgs, Resource, UnixFile};
-use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
+use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList, process_output};
 use crate::{Result, ImageKind, ImageToClean};
 use crate::{file, ConverterError, ConverterErrorKind};
 use api_model::shared::EnclaveSettings;
 use api_model::NitroEnclavesConversionRequestOptions;
 
-use std::fs;
+use std::{fs, process};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use tar::Archive;
+use std::process::Command;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: DockerReference<'a>,
@@ -31,9 +33,19 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const DEFAULT_ENCLAVE_SETTINGS_FILE: &'static str = "enclave-settings.json";
 
+    const BLOCK_FILE_SCRIPT_NAME: &'static str = "create-block-file.sh";
+
+    const IMAGE_FS_TAR: &'static str = "client-file-system.tar";
+
+    const BLOCK_FILE_INPUT_DIR: &'static str = "block-file-input";
+
+    const BLOCK_FILE_MOUNT_DIR: &'static str = "block-file-mount";
+
+    pub const BLOCK_FILE_OUT: &'static str = "Blockfile";
+
     pub async fn create_image(
         &self,
-        docker_util: &'a DockerUtil,
+        docker_util: &DockerUtil,
         enclave_settings: EnclaveSettings,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<EnclaveBuilderResult> {
@@ -61,6 +73,9 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
+        self.create_block_file(&docker_util).await?;
+        info!("Block file has been created!");
+
         let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
         let nitro_measurements = create_nitro_image(&enclave_image_reference, &nitro_image_path)?;
@@ -69,6 +84,106 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         Ok(EnclaveBuilderResult {
             pcr_list: nitro_measurements.pcr_list,
+        })
+    }
+
+    async fn create_block_file(&self, docker_util: &DockerUtil) -> Result<()> {
+        let block_file_input_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
+        let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
+
+        EnclaveImageBuilder::create_block_file_dirs(&block_file_input_dir, &block_file_mount_dir)?;
+
+        self.export_image_file_system(docker_util, &block_file_input_dir.clone()).await?;
+
+        let mut block_file_process = self.block_file_process(&block_file_input_dir, &block_file_mount_dir);
+
+        let result = block_file_process
+            .output()
+            .map_err(|err| ConverterError {
+                message: format!("Failed creating block file. {:?}", err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+
+        let _ = process_output(result, "create-block-file").map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        Ok(())
+    }
+
+    fn block_file_process(&self, input_dir: &Path, mount_dir: &Path) -> Command {
+        let path_args = [
+            input_dir,
+            mount_dir,
+            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+        ];
+        let block_file_script_path = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
+
+        let mut result = process::Command::new(block_file_script_path);
+
+        result.args(&path_args);
+        result.arg("true");
+
+        result
+    }
+
+    fn create_block_file_dirs(input_dir: &Path, mount_dir: &Path) -> Result<()> {
+        fs::create_dir(input_dir).map_err(|err| {
+            ConverterError {
+                message: format!("Failed creating {} dir. {:?}", input_dir.display(), err),
+                kind: ConverterErrorKind::RequisitesCreation,
+            }
+        })?;
+
+        fs::create_dir(mount_dir).map_err(|err| {
+            ConverterError {
+                message: format!("Failed creating {} dir. {:?}", mount_dir.display(), err),
+                kind: ConverterErrorKind::RequisitesCreation,
+            }
+        })
+    }
+
+    async fn export_image_file_system(&self, docker_util: &DockerUtil, out_dir: &Path) -> Result<()> {
+        let container_info = docker_util.create_container(&self.client_image)
+            .await
+            .map_err(|message| {
+                ConverterError {
+                    message,
+                    kind: ConverterErrorKind::ContainerCreation,
+                }
+        })?;
+
+        let client_file_system = docker_util.export_container_file_system(&container_info.id)
+            .await
+            .map_err(|message| {
+                ConverterError {
+                    message,
+                    kind: ConverterErrorKind::ImageFileSystemExport,
+                }
+        })?;
+
+        let mut tar_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .read(true)
+            .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
+            .map_err(|err| ConverterError {
+                message: format!("Failed creating {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
+                kind: ConverterErrorKind::ImageFileSystemExport,
+            })?;
+
+        tar_file.write_all(&client_file_system)
+            .map_err(|err| ConverterError {
+                message: format!("Failed writing client fs to {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
+                kind: ConverterErrorKind::ImageFileSystemExport,
+            })?;
+
+        let mut tar = Archive::new(tar_file);
+
+        tar.unpack(out_dir).map_err(|err| ConverterError {
+            message: format!("Failed unpacking client fs archive {}. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
+            kind: ConverterErrorKind::ImageFileSystemExport,
         })
     }
 
@@ -82,17 +197,19 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image.name().to_string() + ":" + &new_tag
     }
 
-    fn resources(&self) -> Vec<file::Resource> {
-        vec![file::Resource {
-            name: "enclave".to_string(),
-            data: include_bytes!("resources/enclave/enclave").to_vec(),
+    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[Resource {
+        name: "enclave",
+        data: include_bytes!("resources/enclave/enclave"),
+        is_executable: false
+    },
+        Resource {
+            name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
+            data: include_bytes!("../../../fs-benchmark/configure"),
             is_executable: true,
-        }]
-    }
+        }
+    ];
 
-    fn requisites(&self) -> Vec<String> {
-        vec!["enclave".to_string(), "enclave-settings.json".to_string()]
-    }
+    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
 
     fn create_requisites(&self, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;
@@ -103,20 +220,16 @@ impl<'a> EnclaveImageBuilder<'a> {
             file::log_docker_file(self.dir.path())?;
         }
 
-        let resources = {
-            let mut result = self.resources();
+        let mut resources = EnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES.to_vec();
 
-            let data = serde_json::to_vec(&enclave_settings)
-                .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
+        let data = serde_json::to_vec(&enclave_settings)
+            .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
 
-            result.push(Resource {
-                name: "enclave-settings.json".to_string(),
-                data,
-                is_executable: false,
-            });
-
-            result
-        };
+        resources.push(Resource {
+            name: "enclave-settings.json",
+            data: &data,
+            is_executable: false,
+        });
 
         file::create_resources(&resources, self.dir.path())?;
 
@@ -127,7 +240,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let copy = DockerCopyArgs {
-            items: self.requisites(),
+            items: EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec(),
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -218,7 +331,7 @@ impl<'a> ParentImageBuilder<'a> {
             file::log_docker_file(self.dir.path())?;
         }
 
-        file::create_resources(&self.resources(), self.dir.path())?;
+        file::create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES, self.dir.path())?;
 
         self.create_parent_startup_script()?;
 
@@ -231,7 +344,7 @@ impl<'a> ParentImageBuilder<'a> {
 
     fn populate_docker_file(&self, file: &mut fs::File) -> std::result::Result<(), String> {
         let copy = DockerCopyArgs {
-            items: self.requisites(),
+            items: ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec(),
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -292,28 +405,24 @@ impl<'a> ParentImageBuilder<'a> {
         )
     }
 
-    fn resources(&self) -> Vec<file::Resource> {
-        vec![
-            file::Resource {
-                name: "start-parent.sh".to_string(),
-                data: include_bytes!("resources/parent/start-parent.sh").to_vec(),
-                is_executable: true,
-            },
-            file::Resource {
-                name: "parent".to_string(),
-                data: include_bytes!("resources/parent/parent").to_vec(),
-                is_executable: true,
-            },
-        ]
-    }
+    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[file::Resource {
+        name: "start-parent.sh",
+        data: include_bytes!("resources/parent/start-parent.sh"),
+        is_executable: true,
+    },
+        file::Resource {
+            name: "parent",
+            data: include_bytes!("resources/parent/parent"),
+            is_executable: true,
+        }
+    ];
 
-    fn requisites(&self) -> Vec<String> {
-        vec![
-            "start-parent.sh".to_string(),
-            "parent".to_string(),
-            EnclaveImageBuilder::ENCLAVE_FILE_NAME.to_string(),
-        ]
-    }
+    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
+        "start-parent.sh",
+        "parent",
+        EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+        EnclaveImageBuilder::BLOCK_FILE_OUT
+    ];
 
     fn eos_debug_env_var(&self) -> String {
         format!("ENCLAVEOS_DEBUG={}", {

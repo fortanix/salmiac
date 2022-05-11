@@ -3,7 +3,7 @@ use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use shiplift::image::{ImageDetails, PushOptions};
-use shiplift::{BuildOptions, Docker, Image, PullOptions, RegistryAuth, TagOptions};
+use shiplift::{BuildOptions, Docker, Image, PullOptions, RegistryAuth, TagOptions, ContainerOptions};
 
 use crate::{ConverterError, ConverterErrorKind, ImageToClean, ImageKind};
 use api_model::shared::UserProgramConfig;
@@ -15,6 +15,7 @@ use std::path::Path;
 use std::process;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+use shiplift::container::ContainerCreateInfo;
 
 #[derive(Deserialize)]
 
@@ -63,7 +64,7 @@ pub fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Re
     })
 }
 
-fn process_output(output: process::Output, process_name: &str) -> Result<String, String> {
+pub fn process_output(output: process::Output, process_name: &str) -> Result<String, String> {
     if !output.status.success() {
         let result = String::from_utf8_lossy(&output.stderr);
 
@@ -316,6 +317,33 @@ impl DockerUtil {
         }
 
         Ok(())
+    }
+
+    pub async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String> {
+        self.docker
+            .containers()
+            .create(&ContainerOptions::builder(&image.to_string()).build())
+            .await
+            .map_err(|err| format!("Failed creating docker container from image {}. {:?}.", image.name(), err))
+    }
+
+    pub async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String> {
+        let mut result = Vec::new();
+        let mut stream = Box::pin(self.docker.containers().get(container_name).export());
+
+        while let Some(export_result) = stream.next().await {
+            match export_result {
+                Ok(mut output) => {
+                    result.append(&mut output);
+                }
+                Err(e) => {
+                    error!("{:?}", e);
+                    return Err(format!("Docker export for container {} failed.{:?}", container_name, e));
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str, output_file: &str) -> Result<String, String> {

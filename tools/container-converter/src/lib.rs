@@ -43,6 +43,9 @@ pub enum ConverterErrorKind {
     ParentImageCreation,
     BadRequest,
     InternalError,
+    BlockFileCreation,
+    ImageFileSystemExport,
+    ContainerCreation
 }
 
 impl fmt::Display for ConverterError {

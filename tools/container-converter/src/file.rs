@@ -5,15 +5,16 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-pub struct Resource {
-    pub name: String,
+#[derive(Clone)]
+pub struct Resource<'a> {
+    pub name: &'a str,
 
-    pub data: Vec<u8>,
+    pub data: &'a [u8],
 
     pub is_executable: bool,
 }
 
-pub fn create_resources(resources: &Vec<Resource>, dir: &Path) -> Result<(), String> {
+pub fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String> {
     for resource in resources {
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -88,13 +89,13 @@ pub fn log_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub struct DockerCopyArgs {
-    pub items: Vec<String>,
+pub struct DockerCopyArgs<'a> {
+    pub items: Vec<&'a str>,
 
     pub destination: String,
 }
 
-impl DockerCopyArgs {
+impl<'a> DockerCopyArgs<'a> {
     fn to_string(&self) -> String {
         format!("{} {}", self.items.join(" "), self.destination)
     }
