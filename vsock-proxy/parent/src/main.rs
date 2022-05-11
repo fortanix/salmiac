@@ -1,7 +1,7 @@
-mod parent;
 mod packet_capture;
+mod parent;
 
-use clap::{ArgMatches, App, AppSettings, Arg};
+use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info};
 
 use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
@@ -11,6 +11,8 @@ use std::process;
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
     env_logger::init();
+
+    use pcap::{Active, Capture, Device};
 
     let matches = console_arguments();
 
@@ -42,7 +44,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .help("vsock port")
                 .validator(u32::validate_arg)
                 .takes_value(true)
-                .required(true)
+                .required(true),
         );
 
     result.get_matches()

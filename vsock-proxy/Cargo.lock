@@ -27,25 +27,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28ae2b3dec75a406790005a200b1bd89785afc02517a00ca99ecfe093ee9e6cf"
 
 [[package]]
-name = "api-model-parser"
-version = "0.1.0"
-dependencies = [
- "cargo_toml",
- "client_generator_base",
- "codegen-annotations",
- "convert_case",
- "error-spanned",
- "macro-helpers",
- "model-macro-types",
- "proc-macro2",
- "quote",
- "strum",
- "syn",
- "syn-inline-mod",
- "thiserror",
-]
-
-[[package]]
 name = "async-channel"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -173,6 +154,12 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d49d90015b3c36167a20fe2810c5cd875ad504b39cff3d4eae7977e6b7c1cb2"
+
+[[package]]
+name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
@@ -201,6 +188,12 @@ checksum = "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e"
 dependencies = [
  "byteorder",
 ]
+
+[[package]]
+name = "base64"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "bindgen"
@@ -295,17 +288,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "631ae5198c9be5e753e5cc215e1bd73c2b466a3565173db433f52bb9d3e66dba"
 
 [[package]]
-name = "cargo_toml"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c3596addfb02dcdc06f5252ddda9f3785f9230f5827fb4284645240fa05ad92"
-dependencies = [
- "serde",
- "serde_derive",
- "toml 0.5.8",
-]
-
-[[package]]
 name = "cbindgen"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -391,21 +373,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "client_generator_base"
-version = "0.1.0"
+name = "cloudabi"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 dependencies = [
- "strum",
+ "bitflags",
 ]
 
 [[package]]
 name = "clustering-api-model"
 version = "0.1.0"
 dependencies = [
- "api-model-parser",
  "model_types",
  "serde",
  "serde_json 1.0.68",
- "uuid",
+ "uuid 0.6.5",
  "webservice-api-model",
 ]
 
@@ -461,32 +444,36 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 [[package]]
 name = "em-app"
 version = "0.4.0"
-source = "git+https://github.com/fortanix/rust-sgx?branch=acruceru/em-app-update#9eb814efeb490c333e818b89a14950b41cf5572b"
+source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
 dependencies = [
  "b64-ct",
  "em-client",
  "em-node-agent-client",
  "hyper",
- "lazy_static",
  "mbedtls",
- "nsm-driver",
- "nsm-io",
+ "nsm-driver 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649)",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649)",
  "pkix",
- "rustc-serialize 0.3.24 (git+https://github.com/jethrogb/rustc-serialize.git?branch=portability)",
+ "rustc-serialize",
  "sdkms",
  "serde",
  "serde_bytes",
  "serde_derive",
  "serde_json 1.0.68",
+ "sgx-isa",
+ "sgx_pkix",
  "url",
- "uuid",
+ "uuid 0.6.5",
+ "uuid 0.7.4",
+ "vme-pkix",
  "yasna 0.3.2",
 ]
 
 [[package]]
 name = "em-client"
 version = "3.0.0"
-source = "git+https://github.com/fortanix/em-client-rust?branch=acruceru/api-update#4a2b46a2dfe5b3e26380507c88d9a922b880a0c2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0bd923300728ad79f8c36f689f96d928d224524a2120a204fa2bb7801991e7c"
 dependencies = [
  "base64 0.10.1",
  "bitflags",
@@ -501,7 +488,7 @@ dependencies = [
  "serde_ignored",
  "serde_json 1.0.68",
  "url",
- "uuid",
+ "uuid 0.6.5",
 ]
 
 [[package]]
@@ -522,7 +509,7 @@ dependencies = [
  "serde_ignored",
  "serde_json 1.0.68",
  "url",
- "uuid",
+ "uuid 0.6.5",
 ]
 
 [[package]]
@@ -530,6 +517,7 @@ name = "enclave"
 version = "0.1.0"
 dependencies = [
  "async-process",
+ "base64 0.13.0",
  "clap",
  "em-app",
  "env_logger 0.7.1",
@@ -538,9 +526,13 @@ dependencies = [
  "mbedtls",
  "nitro-enclaves-converter-api-model",
  "nix 0.15.0",
- "nsm-io",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
  "nsm-lib",
+ "pkix",
+ "rtnetlink",
+ "sdkms",
  "serde",
+ "serde_cbor",
  "serde_json 1.0.68",
  "shared",
  "tokio",
@@ -575,12 +567,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "errno"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f639046355ee4f37944e44f60642c6f3a7efa3cf6b78c78a0d989a8ce6c396a1"
+dependencies = [
+ "errno-dragonfly",
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "errno-dragonfly"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa68f1b12764fab894d2755d2518754e71b4fd80ecfb822714a1206c2aab39bf"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "error-spanned"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "syn",
 ]
+
+[[package]]
+name = "etherparse"
+version = "0.10.1"
+source = "git+https://github.com/fortanix/etherparse?branch=udp_checksum_from_slice#f7d1ee7ddd5705d674bf93d23c621a5408c4f30a"
 
 [[package]]
 name = "event-listener"
@@ -694,7 +712,7 @@ version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54913bae956fb8df7f4dc6fc90362aa72e69148e3f39041fbe8742d21e0ac57"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
  "proc-macro-hack",
  "proc-macro2",
  "quote",
@@ -719,7 +737,7 @@ version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67eb846bfd58e44a8481a00049e82c43e0ccb5d61f8dc071057cb19249dd4d78"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
  "futures-channel",
  "futures-core",
  "futures-io",
@@ -838,7 +856,7 @@ version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc633605454125dec4b66843673f01c7df2b89479b32e0ed634e43a91cff62a5"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
  "hashbrown",
 ]
 
@@ -935,9 +953,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.100"
+version = "0.2.121"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1fa8cddc8fbbee11227ef194b5317ed014b8acbf15139bd716a18ad3fe99ec5"
+checksum = "efaa7b300f3b5fe8eb6bf21ce3895e1751d9665086af2d64b42f19701015ff4f"
 
 [[package]]
 name = "libloading"
@@ -1031,6 +1049,15 @@ name = "memchr"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "308cc39be01b73d0d18f82a0e7b2a3df85245f84af96fdddc5d202d27e47b86a"
+
+[[package]]
+name = "memoffset"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
+dependencies = [
+ "autocfg 1.0.1",
+]
 
 [[package]]
 name = "mime"
@@ -1139,22 +1166,21 @@ dependencies = [
 name = "model_types"
 version = "0.1.0"
 dependencies = [
- "api-model-parser",
  "bitflags",
  "chrono",
- "client_generator_base",
+ "codegen-annotations",
  "diff",
  "ipnetwork 0.17.0",
  "mime 0.3.16",
  "model-macros",
- "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustc-serialize",
  "serde",
  "serde-value",
  "serde_json 1.0.2",
  "strum",
  "time",
  "url",
- "uuid",
+ "uuid 0.6.5",
 ]
 
 [[package]]
@@ -1237,8 +1263,6 @@ dependencies = [
 name = "nitro-enclaves-converter-api-model"
 version = "0.1.0"
 dependencies = [
- "api-model-parser",
- "client_generator_base",
  "clustering-api-model",
  "diff",
  "model-macros",
@@ -1246,7 +1270,7 @@ dependencies = [
  "model_types",
  "serde",
  "serde_json 1.0.2",
- "uuid",
+ "uuid 0.6.5",
  "version-api-model",
  "webservice-api-model",
 ]
@@ -1277,6 +1301,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "memoffset",
+]
+
+[[package]]
 name = "nom"
 version = "5.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1294,7 +1331,19 @@ dependencies = [
  "libc",
  "log 0.4.14",
  "nix 0.15.0",
- "nsm-io",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
+ "serde_cbor",
+]
+
+[[package]]
+name = "nsm-driver"
+version = "0.1.0"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
+dependencies = [
+ "libc",
+ "log 0.4.14",
+ "nix 0.15.0",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649)",
  "serde_cbor",
 ]
 
@@ -1312,13 +1361,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "nsm-io"
+version = "0.1.0"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
+dependencies = [
+ "libc",
+ "log 0.4.14",
+ "nix 0.15.0",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+]
+
+[[package]]
 name = "nsm-lib"
 version = "0.1.0"
 source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
 dependencies = [
  "cbindgen",
- "nsm-driver",
- "nsm-io",
+ "nsm-driver 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
  "serde_bytes",
 ]
 
@@ -1337,7 +1399,7 @@ version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "090c7f9998ee0ff65aa5b723e4009f7b217707f1fb5ea551329cc4d6231fb304"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
  "num-integer",
  "num-traits 0.2.14",
 ]
@@ -1348,7 +1410,7 @@ version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2cc698a63b549a70bc047073d2949cce27cd1c7b0a4a862d08a8031bc2801db"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
  "num-traits 0.2.14",
 ]
 
@@ -1367,7 +1429,7 @@ version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a64b1ec5cda2586e284722486d802acf1f7dbdc623e2bfc57e65ca1cd099290"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
 ]
 
 [[package]]
@@ -1402,10 +1464,11 @@ dependencies = [
  "clap",
  "em-app",
  "env_logger 0.7.1",
+ "etherparse",
  "futures 0.3.16",
  "ipnetwork 0.18.0",
  "log 0.4.14",
- "nix 0.15.0",
+ "nix 0.23.1",
  "pcap",
  "pcap-async",
  "rtnetlink",
@@ -1428,14 +1491,16 @@ checksum = "acbf547ad0c65e31259204bd90935776d1c693cec2f4ff7abb7a1bbbd40dfe58"
 
 [[package]]
 name = "pcap"
-version = "0.8.1"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "637123ced9e43bec44bf0bbd024f3de61fbf6dfd31767023f639fc5b8ac92c49"
+checksum = "742d671d505d54e83924cc200e08442111f0ace8ebee3b9dc31cd9710cb301cb"
 dependencies = [
+ "errno",
  "libc",
  "libloading 0.6.7",
  "regex",
  "widestring",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -1518,9 +1583,9 @@ checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
 name = "pkix"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4aa65def990a905dd51e5f0fed8862ab0af4f7aba5fb0f1740fc872f04d7bc4"
+checksum = "643768328ce074b546bc11af4581bc3e8f1242706be53946eb7b30f686194fba"
 dependencies = [
  "b64-ct",
  "bit-vec 0.6.3",
@@ -1601,14 +1666,43 @@ dependencies = [
 
 [[package]]
 name = "rand"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d71dacdc3c88c1fde3885a3be3fbab9f35724e6ce99467f7d9c5026132184ca"
+dependencies = [
+ "autocfg 0.1.7",
+ "libc",
+ "rand_chacha 0.1.1",
+ "rand_core 0.4.2",
+ "rand_hc 0.1.0",
+ "rand_isaac",
+ "rand_jitter",
+ "rand_os",
+ "rand_pcg",
+ "rand_xorshift",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "rand"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e7573632e6454cf6b99d7aac4ccca54be06da05aca2ef7423d22d27d4d4bcd8"
 dependencies = [
  "libc",
- "rand_chacha",
+ "rand_chacha 0.3.1",
  "rand_core 0.6.3",
- "rand_hc",
+ "rand_hc 0.3.1",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "556d3a1ca6600bfcbab7c7c91ccb085ac7fbbcd70e008a98742e7847f4f7bcef"
+dependencies = [
+ "autocfg 0.1.7",
+ "rand_core 0.3.1",
 ]
 
 [[package]]
@@ -1647,11 +1741,73 @@ dependencies = [
 
 [[package]]
 name = "rand_hc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b40677c7be09ae76218dc623efbf7b18e34bced3f38883af07bb75630a21bc4"
+dependencies = [
+ "rand_core 0.3.1",
+]
+
+[[package]]
+name = "rand_hc"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d51e9f596de227fda2ea6c84607f5558e196eeaf43c986b724ba4fb8fdf497e7"
 dependencies = [
  "rand_core 0.6.3",
+]
+
+[[package]]
+name = "rand_isaac"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ded997c9d5f13925be2a6fd7e66bf1872597f759fd9dd93513dd7e92e5a5ee08"
+dependencies = [
+ "rand_core 0.3.1",
+]
+
+[[package]]
+name = "rand_jitter"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1166d5c91dc97b88d1decc3285bb0a99ed84b05cfd0bc2341bdf2d43fc41e39b"
+dependencies = [
+ "libc",
+ "rand_core 0.4.2",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "rand_os"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b75f676a1e053fc562eafbb47838d67c84801e38fc1ba459e8f180deabd5071"
+dependencies = [
+ "cloudabi",
+ "fuchsia-cprng",
+ "libc",
+ "rand_core 0.4.2",
+ "rdrand",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "rand_pcg"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abf9b09b01790cfe0364f52bf32995ea3c39f4d2dd011eac241d2914146d0b44"
+dependencies = [
+ "autocfg 0.1.7",
+ "rand_core 0.4.2",
+]
+
+[[package]]
+name = "rand_xorshift"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
+dependencies = [
+ "rand_core 0.3.1",
 ]
 
 [[package]]
@@ -1736,11 +1892,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
-name = "rustc-serialize"
-version = "0.3.24"
-source = "git+https://github.com/jethrogb/rustc-serialize.git?branch=portability#9800ee078b22e2aa9886a6751f9778fda80a16b6"
-
-[[package]]
 name = "ryu"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1755,18 +1906,19 @@ checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
 [[package]]
 name = "sdkms"
 version = "0.2.1"
-source = "git+https://github.com/fortanix/sdkms-client-rust.git?branch=uuid-compat#bd888ad3920c437cecef55f87d1ab0cf3ca1a417"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c843377a2ed87d63e487c7b41b1a82446ab7dc836addd66d63010ea05b14aaf7"
 dependencies = [
  "bitflags",
  "chrono",
  "hyper",
  "log 0.4.14",
- "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustc-serialize",
  "serde",
  "serde_derive",
  "serde_json 1.0.68",
  "url",
- "uuid",
+ "uuid 0.7.4",
 ]
 
 [[package]]
@@ -1835,7 +1987,7 @@ dependencies = [
  "dtoa",
  "itoa 0.3.4",
  "num-traits 0.1.43",
- "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustc-serialize",
  "serde",
 ]
 
@@ -1848,6 +2000,26 @@ dependencies = [
  "itoa 0.4.8",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "sgx-isa"
+version = "0.3.3"
+source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "sgx_pkix"
+version = "0.1.1"
+source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+dependencies = [
+ "byteorder",
+ "lazy_static",
+ "pkix",
+ "quick-error",
+ "sgx-isa",
 ]
 
 [[package]]
@@ -1966,16 +2138,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "syn-inline-mod"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0356188b235b38dc1357a13fa13b79319d80598028d549af5750e4b03a0fc47"
-dependencies = [
- "proc-macro2",
- "syn",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2067,7 +2229,7 @@ version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4efe6fc2395938c8155973d7be49fe8d03a843726e285e100a8a383cc0154ce"
 dependencies = [
- "autocfg",
+ "autocfg 1.0.1",
  "bytes 1.0.1",
  "libc",
  "memchr",
@@ -2122,7 +2284,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "736b60249cb25337bc196faa43ee12c705e426f3d55c214d73a4e7be06f92cb4"
 dependencies = [
- "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustc-serialize",
 ]
 
 [[package]]
@@ -2227,6 +2389,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
+dependencies = [
+ "rand 0.6.5",
+ "serde",
+]
+
+[[package]]
 name = "vec_map"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2236,8 +2408,6 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 name = "version-api-model"
 version = "0.1.0"
 dependencies = [
- "api-model-parser",
- "client_generator_base",
  "model_types",
  "serde",
 ]
@@ -2253,6 +2423,15 @@ name = "version_check"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
+
+[[package]]
+name = "vme-pkix"
+version = "0.1.0"
+source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+dependencies = [
+ "lazy_static",
+ "pkix",
+]
 
 [[package]]
 name = "void"
@@ -2286,9 +2465,8 @@ checksum = "fd6fbd9a79829dd1ad0cc20627bf1ed606756a7f77edff7b66b7064f9cb327c6"
 name = "webservice-api-model"
 version = "0.1.0"
 dependencies = [
- "client_generator_base",
  "serde",
- "uuid",
+ "uuid 0.6.5",
 ]
 
 [[package]]
