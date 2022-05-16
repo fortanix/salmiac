@@ -29,8 +29,6 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
 
 pub const VSOCK_PARENT_CID: u32 = 3; // From AWS Nitro documentation.
 
-pub const DATA_SOCKET: u32 = 100;
-
 pub const PACKET_LOG_STEP: u32 = 5000;
 
 pub fn log_packet_processing(count: u32, step: u32, source: &str) -> u32 {
