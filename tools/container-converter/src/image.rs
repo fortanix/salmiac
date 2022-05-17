@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use docker_image_reference::Reference as DockerReference;
 use futures::StreamExt;
 use log::{debug, error, info, warn};
@@ -18,7 +19,6 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
 #[derive(Deserialize)]
-
 pub struct NitroCliOutput {
     #[serde(rename(deserialize = "Measurements"))]
     pub pcr_list: PCRList,
@@ -85,13 +85,25 @@ pub fn process_output(output: process::Output, process_name: &str) -> Result<Str
     }
 }
 
-pub struct DockerUtil {
-    docker: Docker,
-    credentials: RegistryAuth,
+/// Convenience functions to work with docker daemon
+#[async_trait]
+pub trait DockerUtil: Send + Sync {
+    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageWithDetails, String>;
+
+    async fn load_image(&self, tar_path: &str) -> Result<(), String>;
+
+    async fn push_image(&self, image: &ImageWithDetails, address: &DockerReference<'_>) -> Result<(), String>;
+
+    async fn create_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String>;
+
+    async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String>;
+
+    async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String>;
 }
 
 pub struct ImageWithDetails {
     pub name: String,
+
     pub details: ImageDetails,
 }
 
@@ -181,7 +193,12 @@ impl Drop for TempImage {
     }
 }
 
-impl DockerUtil {
+pub struct DockerDaemon {
+    docker: Docker,
+    credentials: RegistryAuth,
+}
+
+impl DockerDaemon {
     pub fn new(credentials: &Option<AuthConfig>) -> Self {
         let docker = Docker::new();
 
@@ -195,21 +212,7 @@ impl DockerUtil {
             builder.build()
         };
 
-        DockerUtil { docker, credentials }
-    }
-
-    pub async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageWithDetails, String> {
-        if let Some(local_image) = self.get_local_image(&image).await {
-            Ok(local_image)
-        } else {
-            debug!(
-                "Image {} not found in local repository, pulling from remote.",
-                image.to_string()
-            );
-            self.get_remote_image(image)
-                .await
-                .and_then(|e| e.ok_or(format!("Image {} not found.", image.to_string())))
-        }
+        DockerDaemon { docker, credentials }
     }
 
     async fn get_remote_image(&self, image: &DockerReference<'_>) -> Result<Option<ImageWithDetails>, String> {
@@ -237,7 +240,47 @@ impl DockerUtil {
         }
     }
 
-    pub async fn load_image(&self, tar_path: &str) -> Result<(), String> {
+    async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), String> {
+        let mut pull_options = PullOptions::builder();
+        pull_options.image(address.name());
+        pull_options.auth(self.credentials.clone());
+
+        if let Some(tag) = address.tag() {
+            pull_options.tag(tag);
+        }
+
+        let mut stream = self.docker.images().pull(&pull_options.build());
+
+        while let Some(pull_result) = stream.next().await {
+            match pull_result {
+                Ok(output) => {
+                    info!("{:?}", output)
+                }
+                Err(e) => return Err(format!("{}", e)),
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DockerUtil for DockerDaemon {
+    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageWithDetails, String> {
+        if let Some(local_image) = self.get_local_image(&image).await {
+            Ok(local_image)
+        } else {
+            debug!(
+                "Image {} not found in local repository, pulling from remote.",
+                image.to_string()
+            );
+            self.get_remote_image(image)
+                .await
+                .and_then(|e| e.ok_or(format!("Image {} not found.", image.to_string())))
+        }
+    }
+
+    async fn load_image(&self, tar_path: &str) -> Result<(), String> {
         let tar = fs::File::open(tar_path).map_err(|err| format!("Unable to open file, {:?}", err))?;
 
         let reader = Box::from(tar);
@@ -257,7 +300,7 @@ impl DockerUtil {
         Ok(())
     }
 
-    pub async fn push_image(&self, image: &ImageWithDetails, address: &DockerReference<'_>) -> Result<(), String> {
+    async fn push_image(&self, image: &ImageWithDetails, address: &DockerReference<'_>) -> Result<(), String> {
         let repository = address.name();
         let mut tag_options = TagOptions::builder();
         tag_options.repo(repository);
@@ -291,7 +334,7 @@ impl DockerUtil {
             })
     }
 
-    pub async fn create_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String> {
+    async fn create_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String> {
         let path_as_string = docker_dir
             .as_os_str()
             .to_str()
@@ -319,7 +362,7 @@ impl DockerUtil {
         Ok(())
     }
 
-    pub async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String> {
+    async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String> {
         self.docker
             .containers()
             .create(&ContainerOptions::builder(&image.to_string()).build())
@@ -327,7 +370,7 @@ impl DockerUtil {
             .map_err(|err| format!("Failed creating docker container from image {}. {:?}.", image.name(), err))
     }
 
-    pub async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String> {
+    async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String> {
         let mut result = Vec::new();
         let mut stream = Box::pin(self.docker.containers().get(container_name).export());
 
@@ -344,52 +387,5 @@ impl DockerUtil {
         }
 
         Ok(result)
-    }
-
-    pub fn create_image_buildkit(&self, docker_dir: &str, image_tag: &str, output_file: &str) -> Result<String, String> {
-        let user_id = 1000;
-        let args = [
-            "--addr",
-            &format!("unix:///run/user/{}/buildkit/buildkitd.sock", user_id),
-            "build",
-            "--frontend",
-            "dockerfile.v0",
-            "--local",
-            &format!("context={}", docker_dir),
-            "--local",
-            &format!("dockerfile={}", docker_dir),
-            "--output",
-            &format!("type=docker,name={},dest={}.tar", image_tag, output_file),
-        ];
-
-        let run_buildkit = process::Command::new("buildctl")
-            .args(&args)
-            .output()
-            .map_err(|err| format!("Failed to run buildkit {:?}", err));
-
-        run_buildkit.and_then(|output| process_output(output, "docker"))
-    }
-
-    async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), String> {
-        let mut pull_options = PullOptions::builder();
-        pull_options.image(address.name());
-        pull_options.auth(self.credentials.clone());
-
-        if let Some(tag) = address.tag() {
-            pull_options.tag(tag);
-        }
-
-        let mut stream = self.docker.images().pull(&pull_options.build());
-
-        while let Some(pull_result) = stream.next().await {
-            match pull_result {
-                Ok(output) => {
-                    info!("{:?}", output)
-                }
-                Err(e) => return Err(format!("{}", e)),
-            }
-        }
-
-        Ok(())
     }
 }

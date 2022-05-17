@@ -9,11 +9,11 @@ use crate::{ImageKind, ImageToClean, Result};
 use api_model::shared::EnclaveSettings;
 use api_model::NitroEnclavesConversionRequestOptions;
 
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{self, Command};
 use std::sync::mpsc::Sender;
-use std::{fs, process};
 use tar::Archive;
 
 pub struct EnclaveImageBuilder<'a> {
@@ -45,7 +45,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub async fn create_image(
         &self,
-        docker_util: &DockerUtil,
+        docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<EnclaveBuilderResult> {
@@ -73,7 +73,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
-        self.create_block_file(&docker_util).await?;
+        self.create_block_file(docker_util).await?;
         info!("Block file has been created!");
 
         let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
@@ -87,7 +87,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_block_file(&self, docker_util: &DockerUtil) -> Result<()> {
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<()> {
         let block_file_input_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
         let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
 
@@ -139,7 +139,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn export_image_file_system(&self, docker_util: &DockerUtil, out_dir: &Path) -> Result<()> {
+    async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
         let container_info = docker_util
             .create_container(&self.client_image)
             .await
@@ -156,24 +156,33 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::ImageFileSystemExport,
             })?;
 
-        let mut tar_file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
+        {
+            let mut tar_file = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
+                .map_err(|err| ConverterError {
+                    message: format!("Failed creating {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
+                    kind: ConverterErrorKind::ImageFileSystemExport,
+                })?;
+
+            tar_file.write_all(&client_file_system).map_err(|err| ConverterError {
+                message: format!(
+                    "Failed writing client fs to {} dir. {:?}",
+                    EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR,
+                    err
+                ),
+                kind: ConverterErrorKind::ImageFileSystemExport,
+            })?;
+        }
+
+        let tar_file = fs::OpenOptions::new()
             .read(true)
             .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
             .map_err(|err| ConverterError {
-                message: format!("Failed creating {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
+                message: format!("Failed reading fs tar file. {:?}", err),
                 kind: ConverterErrorKind::ImageFileSystemExport,
             })?;
-
-        tar_file.write_all(&client_file_system).map_err(|err| ConverterError {
-            message: format!(
-                "Failed writing client fs to {} dir. {:?}",
-                EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR,
-                err
-            ),
-            kind: ConverterErrorKind::ImageFileSystemExport,
-        })?;
 
         let mut tar = Archive::new(tar_file);
 
@@ -303,7 +312,7 @@ impl<'a> ParentImageBuilder<'a> {
         self.dir.path().join("start-parent.sh")
     }
 
-    pub async fn create_image(&self, docker_util: &DockerUtil) -> Result<ImageWithDetails> {
+    pub async fn create_image(&self, docker_util: &dyn DockerUtil) -> Result<ImageWithDetails> {
         self.create_requisites().map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
@@ -475,7 +484,7 @@ impl<'a> ParentImageBuilder<'a> {
 }
 
 async fn create_image(
-    docker_util: &DockerUtil,
+    docker_util: &dyn DockerUtil,
     image: &DockerReference<'_>,
     dir: &Path,
     kind: ConverterErrorKind,
@@ -499,4 +508,92 @@ fn rust_log_env_var() -> String {
             "info"
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::image::{DockerUtil, ImageWithDetails};
+    use crate::EnclaveImageBuilder;
+    use async_trait::async_trait;
+    use docker_image_reference::Reference;
+    use docker_image_reference::Reference as DockerReference;
+    use shiplift::container::ContainerCreateInfo;
+    use std::fs;
+    use std::io::Read;
+    use std::path::Path;
+    use tar::{Builder, Header};
+    use tempfile::TempDir;
+
+    struct TestDockerDaemon {}
+
+    #[async_trait]
+    impl DockerUtil for TestDockerDaemon {
+        async fn get_image(&self, _image: &Reference<'_>) -> Result<ImageWithDetails, String> {
+            todo!()
+        }
+
+        async fn load_image(&self, _tar_path: &str) -> Result<(), String> {
+            todo!()
+        }
+
+        async fn push_image(&self, _image: &ImageWithDetails, _address: &Reference<'_>) -> Result<(), String> {
+            todo!()
+        }
+
+        async fn create_image(&self, _docker_dir: &Path, _image: &Reference<'_>) -> Result<(), String> {
+            todo!()
+        }
+
+        async fn create_container(&self, image: &Reference<'_>) -> Result<ContainerCreateInfo, String> {
+            Ok(ContainerCreateInfo {
+                id: image.to_string(),
+                warnings: None,
+            })
+        }
+
+        async fn export_container_file_system(&self, _container_name: &str) -> Result<Vec<u8>, String> {
+            let mut header = Header::new_gnu();
+            let data: &[u8] = TEST_DATA.as_bytes();
+
+            header.set_size(data.len() as u64);
+            header.set_mode(0o777);
+            header.set_cksum();
+
+            let mut archive = Builder::new(Vec::new());
+            archive
+                .append_data(&mut header, TEST_FS_FILE, data)
+                .expect("Failed writing test data to archive.");
+
+            Ok(archive.into_inner().expect("Failed finishing archive."))
+        }
+    }
+
+    const TEST_DATA: &'static str = "Hello World";
+
+    const TEST_FS_FILE: &'static str = "test-fs";
+
+    #[tokio::test]
+    async fn export_image_file_system_correct_pass() {
+        let temp_dir = TempDir::new().expect("Failed creating temp dir");
+
+        let enclave_builder = EnclaveImageBuilder {
+            client_image: DockerReference::from_str("test").expect("Failed creating docker reference"),
+            dir: &temp_dir,
+        };
+
+        enclave_builder
+            .export_image_file_system(&TestDockerDaemon {}, temp_dir.path())
+            .await
+            .expect("Failed exporting image file system");
+
+        let mut result_file = fs::OpenOptions::new()
+            .read(true)
+            .open(temp_dir.path().join(TEST_FS_FILE))
+            .expect("Cannot open result file");
+
+        let mut result = String::new();
+        result_file.read_to_string(&mut result).expect("Failed reading result file");
+
+        assert_eq!(result, TEST_DATA)
+    }
 }

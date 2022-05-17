@@ -3,7 +3,7 @@ use log::{debug, info, warn};
 use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
-use crate::image::{DockerUtil, ImageWithDetails, PCRList};
+use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 use api_model::shared::EnclaveSettings;
 use api_model::{
@@ -91,7 +91,7 @@ async fn run0(
     let client_image = docker_reference(&args.request.input_image.name)?;
     let output_image = output_docker_reference(&args.request.output_image.name)?;
 
-    let input_repository = DockerUtil::new(&args.request.input_image.auth_config);
+    let input_repository = DockerDaemon::new(&args.request.input_image.auth_config);
 
     info!("Retrieving client image!");
     let input_image = input_repository
@@ -143,7 +143,7 @@ async fn run0(
         .await
         .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
 
-    let result_repository = DockerUtil::new(&args.request.output_image.auth_config);
+    let result_repository = DockerDaemon::new(&args.request.output_image.auth_config);
 
     info!("Pushing resulting image to {}!", &parent_builder.output_image.to_string());
     result_repository
@@ -286,7 +286,7 @@ async fn get_parent_base_image() -> Result<()> {
         _ => None,
     };
 
-    let repository = DockerUtil::new(&auth_config);
+    let repository = DockerDaemon::new(&auth_config);
     let parent_image_reference = DockerReference::from_str(&parent_image).map_err(|err| ConverterError {
         message: format!("Requisite image {} address has bad format. {:?}", parent_image, err),
         kind: ConverterErrorKind::BadRequest,
