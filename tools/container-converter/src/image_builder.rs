@@ -157,7 +157,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
 
         {
-            let mut tar_file = fs::OpenOptions::new()
+            let mut tar_write = fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
@@ -166,7 +166,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                     kind: ConverterErrorKind::ImageFileSystemExport,
                 })?;
 
-            tar_file.write_all(&client_file_system).map_err(|err| ConverterError {
+            tar_write.write_all(&client_file_system).map_err(|err| ConverterError {
                 message: format!(
                     "Failed writing client fs to {} dir. {:?}",
                     EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR,
@@ -176,15 +176,15 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
         }
 
-        let tar_file = fs::OpenOptions::new()
+        let mut tar_read = fs::OpenOptions::new()
             .read(true)
             .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
             .map_err(|err| ConverterError {
-                message: format!("Failed reading fs tar file. {:?}", err),
+                message: format!("Failed creating {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
                 kind: ConverterErrorKind::ImageFileSystemExport,
             })?;
 
-        let mut tar = Archive::new(tar_file);
+        let mut tar = Archive::new(tar_read);
 
         tar.unpack(out_dir).map_err(|err| ConverterError {
             message: format!(
