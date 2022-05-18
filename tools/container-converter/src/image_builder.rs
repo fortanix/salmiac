@@ -176,7 +176,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
         }
 
-        let mut tar_read = fs::OpenOptions::new()
+        let tar_read = fs::OpenOptions::new()
             .read(true)
             .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
             .map_err(|err| ConverterError {
