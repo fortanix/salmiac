@@ -4,8 +4,7 @@ pub mod route;
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use futures::TryStream;
-use rtnetlink::packet::{LinkMessage, RtnlMessage};
-use rtnetlink::proto::Connection;
+use rtnetlink::packet::LinkMessage;
 use tokio::task::JoinHandle;
 
 use crate::find_map;
@@ -30,6 +29,7 @@ impl Netlink {
     }
 }
 
+/// Netlink functions to manipulate information specific to network devices
 #[async_trait]
 pub trait NetlinkCommon {
     async fn get_link_for_device(&self, device_index: u32) -> Result<Option<LinkMessage>, String>;
@@ -67,14 +67,6 @@ impl NetlinkCommon for Netlink {
             .await
             .map_err(|err| format!("Failed to set MAC address {:?}", err))
     }
-}
-
-pub fn connect() -> (Connection<RtnlMessage>, rtnetlink::Handle) {
-    let (connection, handle, _) = rtnetlink::new_connection()
-        .map_err(|err| format!("{:?}", err))
-        .expect("Failed to connect to netlink");
-
-    (connection, handle)
 }
 
 pub trait LinkMessageExt {
