@@ -35,13 +35,11 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const BLOCK_FILE_SCRIPT_NAME: &'static str = "create-block-file.sh";
 
-    const IMAGE_FS_TAR: &'static str = "client-file-system.tar";
-
     const BLOCK_FILE_INPUT_DIR: &'static str = "block-file-input";
 
     const BLOCK_FILE_MOUNT_DIR: &'static str = "block-file-mount";
 
-    pub const BLOCK_FILE_OUT: &'static str = "Blockfile";
+    pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
 
     pub async fn create_image(
         &self,
@@ -88,15 +86,12 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<()> {
-        let block_file_input_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
-        let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
+        let (block_file_input_dir, block_file_mount_dir) = self.create_block_file_dirs()?;
 
-        EnclaveImageBuilder::create_block_file_dirs(&block_file_input_dir, &block_file_mount_dir)?;
-
-        self.export_image_file_system(docker_util, &block_file_input_dir.clone())
+        self.export_image_file_system(docker_util, block_file_input_dir.path())
             .await?;
 
-        let mut block_file_process = self.block_file_process(&block_file_input_dir, &block_file_mount_dir);
+        let mut block_file_process = self.block_file_process(block_file_input_dir.path(), block_file_mount_dir.path());
 
         let result = block_file_process.output().map_err(|err| ConverterError {
             message: format!("Failed creating block file. {:?}", err),
@@ -127,64 +122,33 @@ impl<'a> EnclaveImageBuilder<'a> {
         result
     }
 
-    fn create_block_file_dirs(input_dir: &Path, mount_dir: &Path) -> Result<()> {
-        fs::create_dir(input_dir).map_err(|err| ConverterError {
-            message: format!("Failed creating {} dir. {:?}", input_dir.display(), err),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+    fn create_block_file_dirs(&self) -> Result<(TempDir, TempDir)> {
+        fn temp_dir(in_dir: &Path, prefix: &str) -> Result<TempDir> {
+            tempfile::Builder::new()
+                .prefix(prefix)
+                .tempdir_in(in_dir)
+                .map_err(|err| ConverterError {
+                    message: format!("Failed creating temp dir {} for block file process. {:?}", prefix, err),
+                    kind: ConverterErrorKind::RequisitesCreation,
+                })
+        }
 
-        fs::create_dir(mount_dir).map_err(|err| ConverterError {
-            message: format!("Failed creating {} dir. {:?}", mount_dir.display(), err),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })
+        let input_dir = temp_dir(self.dir.path(), EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR)?;
+        let mount_dir = temp_dir(self.dir.path(), EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR)?;
+
+        Ok((input_dir, mount_dir))
     }
 
     async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
-        let container_info = docker_util
-            .create_container(&self.client_image)
-            .await
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::ContainerCreation,
-            })?;
-
         let client_file_system = docker_util
-            .export_container_file_system(&container_info.id)
+            .export_image_file_system(&self.client_image)
             .await
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::ImageFileSystemExport,
             })?;
 
-        {
-            let mut tar_write = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
-                .map_err(|err| ConverterError {
-                    message: format!("Failed creating {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
-                    kind: ConverterErrorKind::ImageFileSystemExport,
-                })?;
-
-            tar_write.write_all(&client_file_system).map_err(|err| ConverterError {
-                message: format!(
-                    "Failed writing client fs to {} dir. {:?}",
-                    EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR,
-                    err
-                ),
-                kind: ConverterErrorKind::ImageFileSystemExport,
-            })?;
-        }
-
-        let tar_read = fs::OpenOptions::new()
-            .read(true)
-            .open(self.dir.path().join(EnclaveImageBuilder::IMAGE_FS_TAR))
-            .map_err(|err| ConverterError {
-                message: format!("Failed creating {} dir. {:?}", EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR, err),
-                kind: ConverterErrorKind::ImageFileSystemExport,
-            })?;
-
-        let mut tar = Archive::new(tar_read);
+        let mut tar = Archive::new(&client_file_system as &[u8]);
 
         tar.unpack(out_dir).map_err(|err| ConverterError {
             message: format!(
@@ -549,6 +513,10 @@ mod tests {
                 id: image.to_string(),
                 warnings: None,
             })
+        }
+
+        async fn force_delete_container(&self, _container_name: &str) -> Result<(), String> {
+            Ok(())
         }
 
         async fn export_container_file_system(&self, _container_name: &str) -> Result<Vec<u8>, String> {

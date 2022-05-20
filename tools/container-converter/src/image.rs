@@ -4,7 +4,7 @@ use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use shiplift::image::{ImageDetails, PushOptions};
-use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, TagOptions};
+use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
 
 use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
 use api_model::shared::UserProgramConfig;
@@ -98,7 +98,22 @@ pub trait DockerUtil: Send + Sync {
 
     async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String>;
 
+    async fn force_delete_container(&self, container_name: &str) -> Result<(), String>;
+
     async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String>;
+
+    async fn export_image_file_system(&self, image: &DockerReference<'_>) -> Result<Vec<u8>, String> {
+        let container_info = self.create_container(image).await?;
+        let result = self.export_container_file_system(&container_info.id).await?;
+
+        // container is used only to export image file system
+        // after we finish the export the container has no use for us and can be deleted
+        self.force_delete_container(&container_info.id).await?;
+
+        info!("Deleted container {}", container_info.id);
+
+        Ok(result)
+    }
 }
 
 pub struct ImageWithDetails {
@@ -368,6 +383,17 @@ impl DockerUtil for DockerDaemon {
             .create(&ContainerOptions::builder(&image.to_string()).build())
             .await
             .map_err(|err| format!("Failed creating docker container from image {}. {:?}.", image.name(), err))
+    }
+
+    async fn force_delete_container(&self, container_name: &str) -> Result<(), String> {
+        let remove_options = RmContainerOptions::builder().force(true).build();
+
+        self.docker
+            .containers()
+            .get(container_name)
+            .remove(remove_options)
+            .await
+            .map_err(|err| format!("Failed deleting docker container {}. {:?}.", container_name, err))
     }
 
     async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String> {
