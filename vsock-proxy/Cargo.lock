@@ -527,7 +527,7 @@ dependencies = [
  "mbedtls",
  "nitro-enclaves-converter-api-model",
  "nix 0.15.0",
- "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main)",
  "nsm-lib",
  "pkix",
  "rtnetlink",
@@ -599,7 +599,7 @@ dependencies = [
 [[package]]
 name = "etherparse"
 version = "0.10.1"
-source = "git+https://github.com/fortanix/etherparse?branch=udp_checksum_from_slice#f7d1ee7ddd5705d674bf93d23c621a5408c4f30a"
+source = "git+https://github.com/fortanix/etherparse.git?branch=udp_checksum_from_slice#f7d1ee7ddd5705d674bf93d23c621a5408c4f30a"
 
 [[package]]
 name = "event-listener"
@@ -1327,12 +1327,12 @@ dependencies = [
 [[package]]
 name = "nsm-driver"
 version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
 dependencies = [
  "libc",
  "log 0.4.14",
  "nix 0.15.0",
- "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main)",
  "serde_cbor",
 ]
 
@@ -1351,7 +1351,7 @@ dependencies = [
 [[package]]
 name = "nsm-io"
 version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
 dependencies = [
  "libc",
  "log 0.4.14",
@@ -1377,11 +1377,11 @@ dependencies = [
 [[package]]
 name = "nsm-lib"
 version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
+source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main#4f468c467583bbd55429935c4f09448dd43f48a0"
 dependencies = [
  "cbindgen",
- "nsm-driver 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
- "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api?branch=main)",
+ "nsm-driver 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main)",
+ "nsm-io 0.1.0 (git+https://github.com/aws/aws-nitro-enclaves-nsm-api.git?branch=main)",
  "serde_bytes",
 ]
 

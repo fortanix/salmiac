@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 async-process = "1.2.0"
-etherparse = { git = "https://github.com/fortanix/etherparse", branch = "udp_checksum_from_slice" }
+etherparse = { git = "https://github.com/fortanix/etherparse.git", branch = "udp_checksum_from_slice" }
 shared = { path = "../shared" }
 clap = "2.33"
 env_logger = "0.7"
