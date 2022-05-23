@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 async-process = "1.2.0"
-etherparse = { git = "https://github.com/fortanix/etherparse", branch = "udp_checksum_from_slice" }
+etherparse = { git = "https://github.com/fortanix/etherparse.git", branch = "udp_checksum_from_slice" }
 shared = { path = "../shared" }
 clap = "2.33"
 env_logger = "0.7"
@@ -22,4 +22,4 @@ tokio-vsock = "0.3.1"
 futures = "0.3"
 pcap-async = "0.4.1"
 tun = {version = "0.5.3" ,features = ["async"] }
-em-app = { git = "https://github.com/fortanix/rust-sgx" }
+em-app = { git = "https://github.com/fortanix/rust-sgx.git" }
