@@ -174,7 +174,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Resource {
             name: "enclave",
             data: include_bytes!("resources/enclave/enclave"),
-            is_executable: false,
+            is_executable: true,
         },
         Resource {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
