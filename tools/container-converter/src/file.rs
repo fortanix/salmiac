@@ -1,19 +1,20 @@
 use log::debug;
 
 use std::fs;
-use std::io::{Write, BufReader, BufRead};
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-pub struct Resource {
-    pub name : String,
+#[derive(Clone)]
+pub struct Resource<'a> {
+    pub name: &'a str,
 
-    pub data : Vec<u8>,
+    pub data: &'a [u8],
 
-    pub is_executable : bool
+    pub is_executable: bool,
 }
 
-pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), String> {
+pub fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String> {
     for resource in resources {
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -21,7 +22,8 @@ pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), S
             .open(dir.join(&resource.name))
             .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
 
-        file.write_all(&resource.data).map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+        file.write_all(&resource.data)
+            .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
 
         if resource.is_executable {
             file.set_execute()
@@ -35,19 +37,26 @@ pub fn create_resources(resources : &Vec<Resource>, dir : &Path) -> Result<(), S
 pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
     fs::OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
         .open(dir.join("Dockerfile"))
         .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))
 }
 
-pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &DockerCopyArgs, cmd : &str, env : &str) -> Result<(), String> {
+pub fn populate_docker_file(
+    file: &mut fs::File,
+    image_name: &str,
+    add: &DockerCopyArgs,
+    env: &str,
+    cmd: &str,
+) -> Result<(), String> {
     let filled_contents = format!(
         "FROM {} \n\
-         COPY {} ./ \n\
+         ADD {} \n\
          ENV {} \n\
          CMD  {} \n",
         image_name,
-        copy.to_string(),
+        add.to_string(),
         env,
         cmd
     );
@@ -56,14 +65,12 @@ pub fn populate_docker_file(file : &mut fs::File, image_name : &str, copy : &Doc
         .map_err(|err| format!("Failed to write to file {:?}", err))
 }
 
-pub fn log_docker_file(dir : &Path) -> Result<(), String> {
+pub fn log_docker_file(dir: &Path) -> Result<(), String> {
     log_file(&*dir.join("Dockerfile"))
 }
 
-pub fn log_file(path : &Path) -> Result<(), String> {
-    let file_name = path.file_name()
-        .and_then(|e| e.to_str())
-        .unwrap_or("<Unknown file>");
+pub fn log_file(path: &Path) -> Result<(), String> {
+    let file_name = path.file_name().and_then(|e| e.to_str()).unwrap_or("<Unknown file>");
 
     let file = fs::OpenOptions::new()
         .read(true)
@@ -82,20 +89,13 @@ pub fn log_file(path : &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub struct DockerCopyArgs {
-    pub items : Vec<String>,
+pub struct DockerCopyArgs<'a> {
+    pub items: Vec<&'a str>,
 
-    pub destination : String
+    pub destination: String,
 }
 
-impl DockerCopyArgs {
-    pub fn copy_to_home(items : Vec<String>) -> Self {
-        DockerCopyArgs {
-            items,
-            destination: "./".to_string()
-        }
-    }
-
+impl<'a> DockerCopyArgs<'a> {
     fn to_string(&self) -> String {
         format!("{} {}", self.items.join(" "), self.destination)
     }

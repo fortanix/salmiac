@@ -12,6 +12,10 @@ fi;
 
 cd vsock-proxy
 cargo build $cargo_build_flag
+
+mkdir -p ../tools/container-converter/src/resources/enclave
+mkdir -p ../tools/container-converter/src/resources/parent
+
 cp "target/${vsock_proxy_bin_folder}/enclave" ../tools/container-converter/src/resources/enclave
 cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/resources/parent
 

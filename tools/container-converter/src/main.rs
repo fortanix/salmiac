@@ -1,12 +1,7 @@
-use clap::{
-    App,
-    AppSettings,
-    Arg,
-    ArgMatches
-};
-use env_logger;
-use log::{error};
 use api_model::NitroEnclavesConversionRequest;
+use clap::{App, AppSettings, Arg, ArgMatches};
+use env_logger;
+use log::error;
 
 use std::fs;
 
@@ -16,20 +11,21 @@ async fn main() -> Result<(), String> {
 
     let console_arguments = console_arguments();
 
-    let request_file_path = console_arguments.value_of("request-file")
+    let request_file_path = console_arguments
+        .value_of("request-file")
         .expect("Request file must be provided");
 
-    let request_file = fs::read_to_string(request_file_path)
-        .map_err(|err| format!("Failed reading request file. {:?}", err))?;
+    let request_file =
+        fs::read_to_string(request_file_path).map_err(|err| format!("Failed reading request file. {:?}", err))?;
 
     let request = serde_json::from_str::<NitroEnclavesConversionRequest>(&request_file)
         .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
 
     match container_converter::run(request).await {
         Ok(response) => {
-            println!("{:?}", response.config.measurements);
+            println!("{:?}", response);
             Ok(())
-        },
+        }
         Err(err) => {
             error!("Converter exited with error: {}", err.message);
             Err(err.message)
