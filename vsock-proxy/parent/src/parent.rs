@@ -1,4 +1,4 @@
-use async_process::{Command, Stdio};
+use async_process::{Command};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
@@ -71,7 +71,7 @@ fn write_nbd_config(fs_tap_l3_address: IpNetwork) -> Result<(), String> {
         includedir = /etc/nbd-server/conf.d
         allowlist = true
         listenaddr = {}
-    [salmiac-fs]
+    [enclave-fs]
         authfile =
         exportname = {}",
         fs_tap_l3_address.ip().to_string(),
@@ -83,7 +83,13 @@ fn write_nbd_config(fs_tap_l3_address: IpNetwork) -> Result<(), String> {
         .map_err(|err| format!("Failed writing nbd config file. {:?}", err))
 }
 
-async fn start_nbd_server(fs_tap_l3_address: IpNetwork, port: u32) -> Result<(), String> {
+/// Starts `nbd-server` process and waits until it finishes.
+/// `nbd-server` is a background process that runs for the whole duration of the program,
+/// which means that this function waits forever in a non-blocking manner and exits only if
+/// `nbd-server` finishes with an error.
+/// # Returns
+/// Exit code, stdout and stderr of `nbd-server` if it finishes.
+async fn run_nbd_server(fs_tap_l3_address: IpNetwork, port: u32) -> Result<(), String> {
     write_nbd_config(fs_tap_l3_address)?;
 
     let mut nbd_command = Command::new("nbd-server");
@@ -92,8 +98,6 @@ async fn start_nbd_server(fs_tap_l3_address: IpNetwork, port: u32) -> Result<(),
     nbd_command.args(args);
 
     let nbd_process = nbd_command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| format!("Failed to start NBD server. {:?}", err))?;
 
@@ -131,7 +135,7 @@ fn start_background_tasks(
     result.push(fs_tap_loops.read_handle);
     result.push(fs_tap_loops.write_handle);
 
-    let nbd_server = tokio::spawn(start_nbd_server(fs_device.tap_l3_address, NBD_PORT));
+    let nbd_server = tokio::spawn(run_nbd_server(fs_device.tap_l3_address, NBD_PORT));
     info!("Started nbd server");
     result.push(nbd_server);
 
