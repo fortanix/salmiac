@@ -13,7 +13,7 @@ use crate::app_configuration::{setup_application_configuration, EmAppApplication
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
-use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages, NBDConfiguration};
+use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
@@ -92,7 +92,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 async fn run_nbd_client(nbd_server_address: SocketAddr) -> Result<(), String> {
     let mut nbd_command = Command::new("nbd-client");
 
-    let args: [&str; 4] = [&nbd_server_address.ip().to_string(), &nbd_server_address.port.to_string(), "-N", "enclave-fs"];
+    let args: [&str; 4] = [&nbd_server_address.ip().to_string(), &nbd_server_address.port().to_string(), "-N", "enclave-fs"];
     nbd_command.args(args);
 
     let nbd_process = nbd_command

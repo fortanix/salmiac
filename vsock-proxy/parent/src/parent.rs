@@ -14,13 +14,14 @@ use crate::network::{
 use crate::packet_capture::start_pcap_loops;
 use shared::device::{start_tap_loops, ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::VSOCK_PARENT_CID;
+use shared::{VSOCK_PARENT_CID};
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::str::FromStr;
+use std::net::SocketAddr;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -28,7 +29,7 @@ const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
 
 const NBD_BLOCK_FILE: &'static str = "/opt/fortanix/enclave-os/Blockfile.ext4";
 
-const NBD_PORT: u32 = 7777;
+const NBD_PORT: u16 = 7777;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave.");
@@ -38,8 +39,10 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Connected to enclave.");
 
     let setup_result = setup_parent(&mut enclave_port).await?;
-
+    let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
     let mut background_tasks = start_background_tasks(setup_result)?;
+
+    enclave_port.write_lv(&SetupMessages::NBDConfiguration(SocketAddr::new(fs_tap_l3_address, NBD_PORT))).await?;
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -89,7 +92,7 @@ fn write_nbd_config(fs_tap_l3_address: IpNetwork) -> Result<(), String> {
 /// `nbd-server` finishes with an error.
 /// # Returns
 /// Exit code, stdout and stderr of `nbd-server` if it finishes.
-async fn run_nbd_server(fs_tap_l3_address: IpNetwork, port: u32) -> Result<(), String> {
+async fn run_nbd_server(fs_tap_l3_address: IpNetwork, port: u16) -> Result<(), String> {
     write_nbd_config(fs_tap_l3_address)?;
 
     let mut nbd_command = Command::new("nbd-server");
