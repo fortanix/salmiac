@@ -42,7 +42,9 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
     let mut background_tasks = start_background_tasks(setup_result)?;
 
-    enclave_port.write_lv(&SetupMessages::NBDConfiguration(SocketAddr::new(fs_tap_l3_address, NBD_PORT))).await?;
+    if cfg!(feature = "file-system") {
+        enclave_port.write_lv(&SetupMessages::NBDConfiguration(SocketAddr::new(fs_tap_l3_address, NBD_PORT))).await?;
+    }
 
     let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -138,9 +140,11 @@ fn start_background_tasks(
     result.push(fs_tap_loops.read_handle);
     result.push(fs_tap_loops.write_handle);
 
-    let nbd_server = tokio::spawn(run_nbd_server(fs_device.tap_l3_address, NBD_PORT));
-    info!("Started nbd server");
-    result.push(nbd_server);
+    if cfg!(feature = "file-system") {
+        let nbd_server = tokio::spawn(run_nbd_server(fs_device.tap_l3_address, NBD_PORT));
+        info!("Started nbd server");
+        result.push(nbd_server);
+    }
 
     Ok(result)
 }

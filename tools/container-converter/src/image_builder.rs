@@ -71,8 +71,10 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
-        self.create_block_file(docker_util).await?;
-        info!("Block file has been created!");
+        if cfg!(feature = "file-system") {
+            self.create_block_file(docker_util).await?;
+            info!("Block file has been created!");
+        }
 
         let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
@@ -317,8 +319,13 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn populate_docker_file(&self, file: &mut fs::File) -> std::result::Result<(), String> {
+        let mut items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
+        if cfg!(feature = "file-system") {
+            items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
+        }
+
         let copy = DockerCopyArgs {
-            items: ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec(),
+            items,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -395,8 +402,7 @@ impl<'a> ParentImageBuilder<'a> {
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
         "start-parent.sh",
         "parent",
-        EnclaveImageBuilder::ENCLAVE_FILE_NAME,
-        EnclaveImageBuilder::BLOCK_FILE_OUT,
+        EnclaveImageBuilder::ENCLAVE_FILE_NAME
     ];
 
     fn eos_debug_env_var(&self) -> String {

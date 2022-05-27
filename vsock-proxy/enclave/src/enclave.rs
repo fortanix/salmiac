@@ -51,9 +51,12 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
-    let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
-    let nbd_client = tokio::spawn(run_nbd_client(nbd_config));
-    background_tasks.push(nbd_client);
+    if cfg!(feature = "file-system") {
+        let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+        let nbd_client = tokio::spawn(run_nbd_client(nbd_config));
+        info!("Started NBD client.")
+        background_tasks.push(nbd_client);
+    }
 
     // We can request application configuration only if we know application id.
     if let (Some(certificate_info), Some(_)) = (setup_result.certificate_info, app_config.id) {
