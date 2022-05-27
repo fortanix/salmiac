@@ -1,4 +1,4 @@
-use async_process::Command;
+use async_process::{Command, Stdio};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info};
@@ -13,7 +13,7 @@ use crate::app_configuration::{setup_application_configuration, EmAppApplication
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
-use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
+use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages, NBDConfiguration};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
@@ -28,6 +28,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
+use std::net::SocketAddr;
 
 const ENTROPY_BYTES_COUNT: usize = 126;
 
@@ -48,9 +49,13 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let mut background_tasks = start_background_tasks(setup_result.tap_devices);
 
+    // NBD and application configuration are functionalities that work over the network,
+    // which means that we can call them only after we start our tap loops above
+    let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+    let nbd_client = tokio::spawn(run_nbd_client(nbd_config));
+    background_tasks.push(nbd_client);
+
     // We can request application configuration only if we know application id.
-    // Also we can run configuration retrieval function only after we start our tap loops,
-    // because the function makes a network request
     if let (Some(certificate_info), Some(_)) = (setup_result.certificate_info, app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         setup_application_configuration(
@@ -82,6 +87,34 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
+}
+
+async fn run_nbd_client(nbd_server_address: SocketAddr) -> Result<(), String> {
+    let mut nbd_command = Command::new("nbd-client");
+
+    let args: [&str; 4] = [&nbd_server_address.ip().to_string(), &nbd_server_address.port.to_string(), "-N", "enclave-fs"];
+    nbd_command.args(args);
+
+    let nbd_process = nbd_command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("Failed to start NBD client. {:?}", err))?;
+
+    let out = nbd_process
+        .output()
+        .await
+        .map_err(|err| format!("Error while waiting for NBD client to finish: {:?}", err))?;
+
+    let result = format!(
+        "NBD client exited with code {}. Stdout: {}. Stderr: {}",
+        out.status,
+        String::from_utf8(out.stdout.clone()).unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
+        String::from_utf8(out.stderr.clone()).unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
+    );
+
+    // NBD client runs forever and can exit only with an error.
+    Err(result)
 }
 
 fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
