@@ -1,21 +1,35 @@
+use async_process::{Command};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
+use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
-use ipnetwork::{IpNetwork};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
-use crate::network::{list_network_devices, setup_network_devices, PairedPcapDevice, choose_network_addresses_for_fs_taps, setup_file_system_tap_devices, PairedTapDevice, FS_TAP_MTU};
+use crate::network::{
+    choose_network_addresses_for_fs_taps, list_network_devices, setup_file_system_tap_devices, setup_network_devices,
+    PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
+};
 use crate::packet_capture::start_pcap_loops;
 use shared::device::{start_tap_loops, ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::VSOCK_PARENT_CID;
+use shared::{VSOCK_PARENT_CID};
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::str::FromStr;
+use std::net::SocketAddr;
+
+const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
+
+const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
+
+const NBD_BLOCK_FILE: &'static str = "/opt/fortanix/enclave-os/Blockfile.ext4";
+
+const NBD_PORT: u16 = 7777;
 
 pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave.");
@@ -25,12 +39,14 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Connected to enclave.");
 
     let setup_result = setup_parent(&mut enclave_port).await?;
-
+    let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
     let mut background_tasks = start_background_tasks(setup_result)?;
 
-    let user_program = tokio::spawn(await_user_program_return(enclave_port));
+    if cfg!(feature = "file-system") {
+        enclave_port.write_lv(&SetupMessages::NBDConfiguration(SocketAddr::new(fs_tap_l3_address, NBD_PORT))).await?;
+    }
 
-    info!("Started web server");
+    let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
     if !background_tasks.is_empty() {
         tokio::select! {
@@ -46,6 +62,64 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     }
+}
+
+fn write_nbd_config(fs_tap_l3_address: IpNetwork) -> Result<(), String> {
+    fs::create_dir_all(INSTALLATION_DIR).map_err(|err| format!("Failed creating {} dir. {:?}", INSTALLATION_DIR, err))?;
+
+    let mut nbd_config_file =
+        fs::File::create(NBD_CONFIG_FILE).map_err(|err| format!("Failed creating {} file. {:?}", NBD_CONFIG_FILE, err))?;
+
+    let config = format!(
+        "
+    [generic]
+        includedir = /etc/nbd-server/conf.d
+        allowlist = true
+        listenaddr = {}
+    [enclave-fs]
+        authfile =
+        exportname = {}",
+        fs_tap_l3_address.ip().to_string(),
+        NBD_BLOCK_FILE
+    );
+
+    nbd_config_file
+        .write_all(config.as_bytes())
+        .map_err(|err| format!("Failed writing nbd config file. {:?}", err))
+}
+
+/// Starts `nbd-server` process and waits until it finishes.
+/// `nbd-server` is a background process that runs for the whole duration of the program,
+/// which means that this function waits forever in a non-blocking manner and exits only if
+/// `nbd-server` finishes with an error.
+/// # Returns
+/// Exit code, stdout and stderr of `nbd-server` if it finishes.
+async fn run_nbd_server(fs_tap_l3_address: IpNetwork, port: u16) -> Result<(), String> {
+    write_nbd_config(fs_tap_l3_address)?;
+
+    let mut nbd_command = Command::new("nbd-server");
+
+    let args: [&str; 4] = ["-d", "-C", NBD_CONFIG_FILE, &port.to_string()];
+    nbd_command.args(args);
+
+    let nbd_process = nbd_command
+        .spawn()
+        .map_err(|err| format!("Failed to start NBD server. {:?}", err))?;
+
+    let out = nbd_process
+        .output()
+        .await
+        .map_err(|err| format!("Error while waiting for NBD server to finish: {:?}", err))?;
+
+    let result = format!(
+        "NBD server exited with code {}. Stdout: {}. Stderr: {}",
+        out.status,
+        String::from_utf8(out.stdout.clone()).unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
+        String::from_utf8(out.stderr.clone()).unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
+    );
+
+    // NBD server runs forever and can exit only with an error.
+    Err(result)
 }
 
 fn start_background_tasks(
@@ -66,6 +140,12 @@ fn start_background_tasks(
     result.push(fs_tap_loops.read_handle);
     result.push(fs_tap_loops.write_handle);
 
+    if cfg!(feature = "file-system") {
+        let nbd_server = tokio::spawn(run_nbd_server(fs_device.tap_l3_address, NBD_PORT));
+        info!("Started nbd server");
+        result.push(nbd_server);
+    }
+
     Ok(result)
 }
 
@@ -79,10 +159,11 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
-    let network_addresses_in_use = settings_list.iter()
+    let network_addresses_in_use = settings_list
+        .iter()
         .map(|e| match e.self_l3_address {
-            IpNetwork::V4(e) => { e },
-            _ => panic!("Only Ipv4 addresses are supported for network devices!")
+            IpNetwork::V4(e) => e,
+            _ => panic!("Only Ipv4 addresses are supported for network devices!"),
         })
         .collect();
 

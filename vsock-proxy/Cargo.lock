@@ -1462,6 +1462,7 @@ dependencies = [
 name = "parent"
 version = "0.1.0"
 dependencies = [
+ "async-process",
  "clap",
  "em-app",
  "env_logger 0.7.1",

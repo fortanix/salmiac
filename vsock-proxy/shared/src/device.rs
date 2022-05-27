@@ -11,6 +11,8 @@ use crate::{log_packet_processing, UserProgramExitStatus, MAX_ETHERNET_HEADER_SI
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
 
+use std::net::SocketAddr;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
     NoMoreCertificates,
@@ -21,6 +23,7 @@ pub enum SetupMessages {
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
     ApplicationConfig(ApplicationConfiguration),
+    NBDConfiguration(SocketAddr)
 }
 
 #[derive(Serialize, Deserialize, Debug)]

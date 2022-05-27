@@ -1,4 +1,4 @@
-use async_process::Command;
+use async_process::{Command, Stdio, ExitStatus};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info};
@@ -28,6 +28,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
+use std::net::SocketAddr;
 
 const ENTROPY_BYTES_COUNT: usize = 126;
 
@@ -48,9 +49,15 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     let mut background_tasks = start_background_tasks(setup_result.tap_devices);
 
+    // NBD and application configuration are functionalities that work over the network,
+    // which means that we can call them only after we start our tap loops above
+    if cfg!(feature = "file-system") {
+        let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+        connect_to_nbd_server(nbd_config).await;
+        info!("Connected to NBD server");
+    }
+
     // We can request application configuration only if we know application id.
-    // Also we can run configuration retrieval function only after we start our tap loops,
-    // because the function makes a network request
     if let (Some(certificate_info), Some(_)) = (setup_result.certificate_info, app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         setup_application_configuration(
@@ -81,6 +88,31 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
         user_program
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+    }
+}
+
+async fn connect_to_nbd_server(address: SocketAddr) -> Result<(), String> {
+    let mut nbd_command = Command::new("nbd-client");
+
+    let args: [&str; 4] = [&address.ip().to_string(), &address.port().to_string(), "-N", "enclave-fs"];
+    nbd_command.args(args);
+
+    let nbd_process = nbd_command
+        .spawn()
+        .map_err(|err| format!("Failed to start NBD client. {:?}", err))?;
+
+    let out = nbd_process
+        .output()
+        .await
+        .map_err(|err| format!("Error while waiting for NBD client to finish: {:?}", err))?;
+
+    if !out.status.success() {
+        Err("NBD client failed to connect!".to_string())
+    } else {
+        // NBD client exits with zero if it is able to connect to the server
+        // and create /dev/nbdX device. After that we can `mount` said device
+        // and use it to access the block file in `parent`.
+        Ok(())
     }
 }
 

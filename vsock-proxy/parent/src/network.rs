@@ -9,7 +9,10 @@ use rtnetlink::packet::NUD_PERMANENT;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
-use shared::device::{NetworkDeviceSettings, SetupMessages, create_async_tap_device, tap_device_config, FSNetworkDeviceSettings};
+use crate::parent::{accept, listen_to_parent};
+use shared::device::{
+    create_async_tap_device, tap_device_config, FSNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages,
+};
 use shared::netlink::arp::ARPEntry;
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::Route;
@@ -17,12 +20,11 @@ use shared::netlink::route::{Gateway, NetlinkRoute};
 use shared::netlink::Netlink;
 use shared::netlink::{LinkMessageExt, NetlinkCommon};
 use shared::socket::AsyncWriteLvStream;
-use crate::parent::{accept, listen_to_parent};
 
-use std::convert::TryFrom;
 use std::convert::From;
+use std::convert::TryFrom;
 use std::mem;
-use std::net::{Ipv4Addr, IpAddr};
+use std::net::{IpAddr, Ipv4Addr};
 
 // Byte position of a checksum field in TCP header according to rfc 793 (https://www.ietf.org/rfc/rfc793.txt).
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -115,14 +117,13 @@ async fn get_network_settings_for_device(device: &pcap::Device, netlink: &Netlin
         .expect(&*format!("Parent link in device {} should have an address.", device.name))
         .map_err(|err| format!("Cannot convert array slice {:?}. Network device is {}", err, device.name))?;
 
-    let mtu = device_link.mtu().expect(&*format!("Parent device {} should have an MTU.", device.name));
+    let mtu = device_link
+        .mtu()
+        .expect(&*format!("Parent device {} should have an MTU.", device.name));
 
     let ip_network = {
         let address = if device.addresses.len() != 1 {
-            return Err(format!(
-                "Device {} should have only one inet address",
-                device.name
-            ));
+            return Err(format!("Device {} should have only one inet address", device.name));
         } else {
             &device.addresses[0]
         };
@@ -264,6 +265,8 @@ fn field_offset_in_packet<'a>(full_packet: &'a [u8], header: &'a [u8], header_fi
 pub(crate) struct PairedTapDevice {
     pub tap: AsyncDevice,
 
+    pub tap_l3_address: IpNetwork,
+
     pub vsock: AsyncVsockStream,
 }
 
@@ -292,7 +295,11 @@ pub(crate) async fn setup_file_system_tap_devices(
 
     let vsock = accept(&mut listener).await?;
 
-    Ok(PairedTapDevice { tap: device, vsock })
+    Ok(PairedTapDevice {
+        tap: device,
+        tap_l3_address: parent_address,
+        vsock,
+    })
 }
 
 /// Returns first available pair of free addresses inside a private network range that are not present in `in_use` `Vec`.
