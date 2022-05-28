@@ -54,7 +54,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     if cfg!(feature = "file-system") {
         let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
         let nbd_client = tokio::spawn(run_nbd_client(nbd_config));
-        info!("Started NBD client.")
+        info!("Started NBD client.");
         background_tasks.push(nbd_client);
     }
 
