@@ -1,4 +1,4 @@
-use async_process::{Command, Stdio, ExitStatus};
+use async_process::{Command};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info};
@@ -52,8 +52,8 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
     if cfg!(feature = "file-system") {
-        let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
-        connect_to_nbd_server(nbd_config).await;
+        let nbd_config =  extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+        connect_to_nbd_server(nbd_config).await?;
         info!("Connected to NBD server");
     }
 
