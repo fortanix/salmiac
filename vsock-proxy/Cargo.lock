@@ -444,7 +444,7 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 [[package]]
 name = "em-app"
 version = "0.4.0"
-source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
 dependencies = [
  "b64-ct",
  "em-client",
@@ -2008,7 +2008,7 @@ dependencies = [
 [[package]]
 name = "sgx-isa"
 version = "0.3.3"
-source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
 dependencies = [
  "bitflags",
 ]
@@ -2016,7 +2016,7 @@ dependencies = [
 [[package]]
 name = "sgx_pkix"
 version = "0.1.1"
-source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
 dependencies = [
  "byteorder",
  "lazy_static",
@@ -2431,7 +2431,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 [[package]]
 name = "vme-pkix"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/rust-sgx#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
 dependencies = [
  "lazy_static",
  "pkix",
