@@ -13,6 +13,9 @@ source /etc/profile.d/nitro-cli-env.sh
 # Check if nitro-cli is properly installed
 nitro-cli --version
 
+# Check if nbd-server is properly installed
+nbd-server -V
+
 # Instruct the kernel to drop any incoming packets as
 # those will be handled by the parent program
 iptables -A INPUT -m socket -j ACCEPT
