@@ -34,6 +34,10 @@ const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
+const NBD_MOUNT_POINT: &str = "/mnt/enclave";
+
+const NBD_DEVICE: &str = "/dev/nbd0";
+
 pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
@@ -52,9 +56,12 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
     if cfg!(feature = "file-system") {
-        let nbd_config =  extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
-        connect_to_nbd_server(nbd_config).await?;
-        info!("Connected to NBD server");
+        let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+        run_nbd_client(nbd_config).await?;
+        info!("Connected to NBD server.");
+
+        mount_nbd_device().await?;
+        info!("Finished block file mount.");
     }
 
     // We can request application configuration only if we know application id.
@@ -91,7 +98,43 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     }
 }
 
-async fn connect_to_nbd_server(address: SocketAddr) -> Result<(), String> {
+async fn mount_nbd_device() -> Result<(), String> {
+    fs::create_dir_all(NBD_MOUNT_POINT)
+        .map_err(|err| format!("Failed creating mount directory {}. {:?}", NBD_MOUNT_POINT, err))?;
+
+    let mut mount_command = Command::new("mount");
+
+    let args: [&str; 2] = [NBD_DEVICE, NBD_MOUNT_POINT];
+    mount_command.args(args);
+
+    let mount_process = mount_command
+        .spawn()
+        .map_err(|err| format!("Failed to mount NBD device. {:?}", err))?;
+
+    let _ = mount_process
+        .output()
+        .await
+        .map_err(|err| format!("Error while waiting for mount client to finish: {:?}", err))?;
+
+    //check that mount was successful
+    let mounted_dir = fs::read_dir(NBD_MOUNT_POINT)
+        .map_err(|err| format!("Failed reading dir {}. {:?}", NBD_MOUNT_POINT, err))?;
+
+    for contents in mounted_dir {
+        match contents {
+            Ok(dir_entry) => {
+                debug!("Mounted {} dir contains {}", NBD_MOUNT_POINT, dir_entry.path().display())
+            }
+            Err(err) => {
+                return Err(format!("Mounted {} dir has corrupted entry. {:?}", NBD_MOUNT_POINT, err))
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_nbd_client(address: SocketAddr) -> Result<(), String> {
     let mut nbd_command = Command::new("nbd-client");
 
     let args: [&str; 4] = [&address.ip().to_string(), &address.port().to_string(), "-N", "enclave-fs"];
@@ -132,24 +175,93 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
     result
 }
 
+fn copy_dns_file_to_mount() -> Result<(), String> {
+    const ENCLAVE_RUN_RESOLV_FILE: &str = "/run/resolvconf/resolv.conf";
+
+    const NBD_RUN_RESOLV_DIR: &str = "/mnt/enclave/block-file-input/run/resolvconf";
+
+    const NBD_ETC_DIR: &str = "/mnt/enclave/block-file-input/etc";
+
+    const NBD_RUN_RESOLV_FILE: &str = "/mnt/enclave/block-file-input/run/resolvconf/resolv.conf";
+
+    const NBD_ETC_RESOLV_FILE: &str = "/mnt/enclave/block-file-input/etc/resolv.conf";
+
+    fs::create_dir_all(NBD_RUN_RESOLV_DIR)
+        .map_err(|err| format!("Failed creating {} dir. {:?}", NBD_RUN_RESOLV_DIR, err))?;
+    fs::create_dir_all(NBD_ETC_DIR)
+        .map_err(|err| format!("Failed creating {} dir. {:?}", NBD_ETC_DIR, err))?;
+
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, NBD_RUN_RESOLV_FILE)
+        .map_err(|err| format!("Failed copying resolv file from {} to {}. {:?}", ENCLAVE_RUN_RESOLV_FILE, NBD_RUN_RESOLV_FILE, err))?;
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, NBD_ETC_RESOLV_FILE)
+        .map_err(|err| format!("Failed copying resolv file from {} to {}. {:?}", ENCLAVE_RUN_RESOLV_FILE, NBD_ETC_RESOLV_FILE, err))?;
+
+    Ok(())
+}
+
+fn populate_and_copy_startup_script(enclave_settings: EnclaveSettings) -> Result<(), String> {
+    const ENCLAVE_STARTUP_SCRIPT: &str = "/opt/fortanix/enclave-os/start-enclave.sh";
+    const NBD_STARTUP_SCRIPT: &str = "/mnt/enclave/block-file-input/start-enclave.sh";
+
+    let mut entrypoint = std::fs::OpenOptions::new()
+        .append(true)
+        .open(ENCLAVE_STARTUP_SCRIPT)
+        .map_err(|err| format!("Failed opening enclave startup script. {:?}", err))?;
+
+    let mut start_user_program_command = enclave_settings.user_program_config.entry_point;
+    if !enclave_settings.user_program_config.arguments.is_empty() {
+        start_user_program_command += " ";
+        start_user_program_command += &enclave_settings.user_program_config.arguments.join(" ");
+    }
+
+    entrypoint.write(start_user_program_command.as_bytes())
+        .map_err(|err| format!("Failed writing to enclave startup script. {:?}", err))?;
+
+    fs::copy(ENCLAVE_STARTUP_SCRIPT, NBD_STARTUP_SCRIPT)
+        .map_err(|err| format!("Failed copying startup script from {} to {}. {:?}", ENCLAVE_STARTUP_SCRIPT, NBD_STARTUP_SCRIPT, err))?;
+
+    Ok(())
+}
+
 async fn start_user_program(
     enclave_settings: EnclaveSettings,
     mut vsock: AsyncVsockStream,
 ) -> Result<UserProgramExitStatus, String> {
-    let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
 
-    if !enclave_settings.user_program_config.arguments.is_empty() {
-        client_command.args(enclave_settings.user_program_config.arguments.clone());
-    }
+    let output = if cfg!(feature = "file-system") {
+        const CHROOT_ROOT: &str = "/mnt/enclave/block-file-input";
 
-    let client_program = client_command
-        .spawn()
-        .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+        const CHROOT_STARTUP_SCRIPT: &str = "/start-enclave.sh";
 
-    let output = client_program
-        .output()
-        .await
-        .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
+        copy_dns_file_to_mount()?;
+
+        populate_and_copy_startup_script(enclave_settings)?;
+
+        let mut client_command = Command::new("chroot");
+        client_command.args([CHROOT_ROOT, CHROOT_STARTUP_SCRIPT]);
+
+        let client_program = client_command
+            .spawn()
+            .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+
+        client_program
+            .output()
+            .await
+            .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
+    } else {
+        let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
+
+        if !enclave_settings.user_program_config.arguments.is_empty() {
+            client_command.args(enclave_settings.user_program_config.arguments.clone());
+        }
+
+        let client_program = client_command.spawn()
+            .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+
+        client_program.output()
+            .await
+            .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
+    };
 
     let result = if let Some(code) = output.status.code() {
         UserProgramExitStatus::ExitCode(code)
@@ -221,7 +333,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     for device_settings in &device_settings_list {
         let tap = setup_network_device(device_settings, &netlink).await?;
-        info!("Trying to eonnect on port {}", device_settings.vsock_port_number);
+        info!("Trying to connect on port {}", device_settings.vsock_port_number);
         let vsock = connect_to_parent_async(device_settings.vsock_port_number).await?;
 
         info!("Device {} is connected and ready.", device_settings.vsock_port_number);

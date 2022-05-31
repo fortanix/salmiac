@@ -128,6 +128,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         fn temp_dir(in_dir: &Path, prefix: &str) -> Result<TempDir> {
             tempfile::Builder::new()
                 .prefix(prefix)
+                .rand_bytes(0)
                 .tempdir_in(in_dir)
                 .map_err(|err| ConverterError {
                     message: format!("Failed creating temp dir {} for block file process. {:?}", prefix, err),
@@ -183,9 +184,14 @@ impl<'a> EnclaveImageBuilder<'a> {
             data: include_bytes!("../../../fs-benchmark/configure"),
             is_executable: true,
         },
+        Resource {
+            name: "start-enclave.sh",
+            data: include_bytes!("resources/enclave/start-enclave.sh"),
+            is_executable: true,
+        },
     ];
 
-    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
+    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json", "start-enclave.sh"];
 
     fn create_requisites(&self, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;
@@ -249,9 +255,10 @@ impl<'a> EnclaveImageBuilder<'a> {
             )
         };
 
+        let client_image = &self.client_image.to_string();
         file::populate_docker_file(
             file,
-            &self.client_image.to_string(),
+            if cfg!(feature = "file-system") { "enclave-base" } else { client_image },
             &copy,
             &rust_log_env_var(),
             &run_enclave_cmd,
