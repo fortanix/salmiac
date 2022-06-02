@@ -1,4 +1,4 @@
-use async_process::{Command};
+use async_process::Command;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info};
@@ -11,7 +11,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{run_nbd_client, mount_nbd_device, mount_file_system, copy_dns_file_to_mount, ENCLAVE_FS_ROOT};
+use crate::file_system::{copy_dns_file_to_mount, mount_file_system, mount_nbd_device, run_nbd_client, ENCLAVE_FS_ROOT};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
@@ -124,7 +124,6 @@ async fn start_user_program(
     enclave_settings: EnclaveSettings,
     mut vsock: AsyncVsockStream,
 ) -> Result<UserProgramExitStatus, String> {
-
     let output = if cfg!(feature = "file-system") {
         let mut client_command = Command::new("chroot");
         client_command.args([ENCLAVE_FS_ROOT, &enclave_settings.user_program_config.entry_point]);
@@ -148,10 +147,12 @@ async fn start_user_program(
             client_command.args(enclave_settings.user_program_config.arguments.clone());
         }
 
-        let client_program = client_command.spawn()
+        let client_program = client_command
+            .spawn()
             .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
-        client_program.output()
+        client_program
+            .output()
             .await
             .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
     };
