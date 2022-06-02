@@ -35,7 +35,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const BLOCK_FILE_SCRIPT_NAME: &'static str = "create-block-file.sh";
 
-    const BLOCK_FILE_INPUT_DIR: &'static str = "block-file-input";
+    const BLOCK_FILE_INPUT_DIR: &'static str = "enclave-fs";
 
     const BLOCK_FILE_MOUNT_DIR: &'static str = "block-file-mount";
 
@@ -183,15 +183,10 @@ impl<'a> EnclaveImageBuilder<'a> {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
             data: include_bytes!("../../../fs-benchmark/configure"),
             is_executable: true,
-        },
-        Resource {
-            name: "start-enclave.sh",
-            data: include_bytes!("resources/enclave/start-enclave.sh"),
-            is_executable: true,
-        },
+        }
     ];
 
-    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json", "start-enclave.sh"];
+    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
 
     fn create_requisites(&self, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;

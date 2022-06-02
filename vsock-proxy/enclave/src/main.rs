@@ -1,6 +1,7 @@
 mod app_configuration;
 mod certificate;
 mod enclave;
+mod file_system;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{debug, error};
