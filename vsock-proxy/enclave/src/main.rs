@@ -1,6 +1,7 @@
 mod app_configuration;
 mod certificate;
 mod enclave;
+mod file_system;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{debug, error};
@@ -12,6 +13,9 @@ use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
+    // turn on logging only for this project to prevent 3rd party
+    // crates spamming their logs into the console
+    std::env::set_var("RUST_LOG", "enclave");
     env_logger::init();
 
     let matches = console_arguments();

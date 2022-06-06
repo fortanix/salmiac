@@ -1,4 +1,4 @@
-use async_process::{Command};
+use async_process::Command;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{debug, info};
@@ -11,6 +11,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
+use crate::file_system::{copy_dns_file_to_mount, mount_file_system, mount_nbd_device, run_nbd_client, ENCLAVE_FS_ROOT};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
@@ -28,7 +29,6 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use std::net::SocketAddr;
 
 const ENTROPY_BYTES_COUNT: usize = 126;
 
@@ -52,9 +52,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
     if cfg!(feature = "file-system") {
-        let nbd_config =  extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
-        connect_to_nbd_server(nbd_config).await?;
-        info!("Connected to NBD server");
+        setup_file_system(&mut parent_port).await?;
     }
 
     // We can request application configuration only if we know application id.
@@ -91,29 +89,19 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     }
 }
 
-async fn connect_to_nbd_server(address: SocketAddr) -> Result<(), String> {
-    let mut nbd_command = Command::new("nbd-client");
+async fn setup_file_system(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
+    let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+    run_nbd_client(nbd_config).await?;
+    info!("Connected to NBD server.");
 
-    let args: [&str; 4] = [&address.ip().to_string(), &address.port().to_string(), "-N", "enclave-fs"];
-    nbd_command.args(args);
+    mount_nbd_device().await?;
+    info!("Finished block file mount.");
 
-    let nbd_process = nbd_command
-        .spawn()
-        .map_err(|err| format!("Failed to start NBD client. {:?}", err))?;
+    mount_file_system().await?;
+    copy_dns_file_to_mount()?;
+    info!("Finished file system mount.");
 
-    let out = nbd_process
-        .output()
-        .await
-        .map_err(|err| format!("Error while waiting for NBD client to finish: {:?}", err))?;
-
-    if !out.status.success() {
-        Err("NBD client failed to connect!".to_string())
-    } else {
-        // NBD client exits with zero if it is able to connect to the server
-        // and create /dev/nbdX device. After that we can `mount` said device
-        // and use it to access the block file in `parent`.
-        Ok(())
-    }
+    Ok(())
 }
 
 fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
@@ -136,20 +124,38 @@ async fn start_user_program(
     enclave_settings: EnclaveSettings,
     mut vsock: AsyncVsockStream,
 ) -> Result<UserProgramExitStatus, String> {
-    let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
+    let output = if cfg!(feature = "file-system") {
+        let mut client_command = Command::new("chroot");
+        client_command.args([ENCLAVE_FS_ROOT, &enclave_settings.user_program_config.entry_point]);
 
-    if !enclave_settings.user_program_config.arguments.is_empty() {
-        client_command.args(enclave_settings.user_program_config.arguments.clone());
-    }
+        if !enclave_settings.user_program_config.arguments.is_empty() {
+            client_command.args(enclave_settings.user_program_config.arguments.clone());
+        }
 
-    let client_program = client_command
-        .spawn()
-        .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+        let client_program = client_command
+            .spawn()
+            .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
-    let output = client_program
-        .output()
-        .await
-        .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
+        client_program
+            .output()
+            .await
+            .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
+    } else {
+        let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
+
+        if !enclave_settings.user_program_config.arguments.is_empty() {
+            client_command.args(enclave_settings.user_program_config.arguments.clone());
+        }
+
+        let client_program = client_command
+            .spawn()
+            .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+
+        client_program
+            .output()
+            .await
+            .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
+    };
 
     let result = if let Some(code) = output.status.code() {
         UserProgramExitStatus::ExitCode(code)
@@ -221,7 +227,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     for device_settings in &device_settings_list {
         let tap = setup_network_device(device_settings, &netlink).await?;
-        info!("Trying to eonnect on port {}", device_settings.vsock_port_number);
+        info!("Trying to connect on port {}", device_settings.vsock_port_number);
         let vsock = connect_to_parent_async(device_settings.vsock_port_number).await?;
 
         info!("Device {} is connected and ready.", device_settings.vsock_port_number);

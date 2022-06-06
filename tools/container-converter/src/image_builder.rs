@@ -35,7 +35,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const BLOCK_FILE_SCRIPT_NAME: &'static str = "create-block-file.sh";
 
-    const BLOCK_FILE_INPUT_DIR: &'static str = "block-file-input";
+    const BLOCK_FILE_INPUT_DIR: &'static str = "enclave-fs";
 
     const BLOCK_FILE_MOUNT_DIR: &'static str = "block-file-mount";
 
@@ -88,12 +88,26 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<()> {
-        let (block_file_input_dir, block_file_mount_dir) = self.create_block_file_dirs()?;
+        let (block_file_input_root, block_file_mount_root) = self.create_block_file_dirs()?;
+        let block_file_input_dir = block_file_input_root.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
+        let block_file_mount_dir = block_file_mount_root.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
 
-        self.export_image_file_system(docker_util, block_file_input_dir.path())
+        fs::create_dir(&block_file_input_dir)
+            .map_err(|err| ConverterError {
+                message: format!("Failed creating dir {}. {:?}", block_file_input_dir.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+
+        fs::create_dir(&block_file_mount_dir)
+            .map_err(|err| ConverterError {
+                message: format!("Failed creating dir {}. {:?}", block_file_mount_dir.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+
+        self.export_image_file_system(docker_util, &block_file_input_dir)
             .await?;
 
-        let mut block_file_process = self.block_file_process(block_file_input_dir.path(), block_file_mount_dir.path());
+        let mut block_file_process = self.block_file_process(&block_file_input_dir, &block_file_mount_dir);
 
         let result = block_file_process.output().map_err(|err| ConverterError {
             message: format!("Failed creating block file. {:?}", err),
@@ -125,18 +139,17 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     fn create_block_file_dirs(&self) -> Result<(TempDir, TempDir)> {
-        fn temp_dir(in_dir: &Path, prefix: &str) -> Result<TempDir> {
+        fn temp_dir(in_dir: &Path) -> Result<TempDir> {
             tempfile::Builder::new()
-                .prefix(prefix)
                 .tempdir_in(in_dir)
                 .map_err(|err| ConverterError {
-                    message: format!("Failed creating temp dir {} for block file process. {:?}", prefix, err),
+                    message: format!("Failed creating temp dir in {} for block file process. {:?}", in_dir.display(), err),
                     kind: ConverterErrorKind::RequisitesCreation,
                 })
         }
 
-        let input_dir = temp_dir(self.dir.path(), EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR)?;
-        let mount_dir = temp_dir(self.dir.path(), EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR)?;
+        let input_dir = temp_dir(self.dir.path())?;
+        let mount_dir = temp_dir(self.dir.path())?;
 
         Ok((input_dir, mount_dir))
     }
@@ -182,7 +195,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
             data: include_bytes!("../../../fs-benchmark/configure"),
             is_executable: true,
-        },
+        }
     ];
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
@@ -249,9 +262,10 @@ impl<'a> EnclaveImageBuilder<'a> {
             )
         };
 
+        let client_image = &self.client_image.to_string();
         file::populate_docker_file(
             file,
-            &self.client_image.to_string(),
+            if cfg!(feature = "file-system") { "enclave-base" } else { client_image },
             &copy,
             &rust_log_env_var(),
             &run_enclave_cmd,
