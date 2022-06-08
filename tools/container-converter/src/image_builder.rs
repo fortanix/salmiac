@@ -20,10 +20,14 @@ pub struct EnclaveImageBuilder<'a> {
     pub client_image: DockerReference<'a>,
 
     pub dir: &'a TempDir,
+
+    pub enclave_base_image: Option<String>
 }
 
 pub struct EnclaveBuilderResult {
     pub pcr_list: PCRList,
+
+    pub block_file_present: bool
 }
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
@@ -45,7 +49,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
-        images_to_clean_snd: Sender<ImageToClean>,
+        images_to_clean_snd: Sender<ImageToClean>
     ) -> Result<EnclaveBuilderResult> {
         self.create_requisites(enclave_settings).map_err(|message| ConverterError {
             message,
@@ -71,10 +75,14 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
-        if cfg!(feature = "file-system") {
+        let block_file_present = if self.enclave_base_image.is_some() {
             self.create_block_file(docker_util).await?;
             info!("Block file has been created!");
-        }
+
+            true
+        } else {
+            false
+        };
 
         let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
@@ -84,6 +92,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         Ok(EnclaveBuilderResult {
             pcr_list: nitro_measurements.pcr_list,
+            block_file_present
         })
     }
 
@@ -254,18 +263,30 @@ impl<'a> EnclaveImageBuilder<'a> {
                 String::new()
             };
 
+            let use_file_system_flag = if self.enclave_base_image.is_some() {
+                "--use-file-system"
+            } else {
+                ""
+            };
+
             format!(
-                "{} {} --vsock-port 5006 --settings-path {}",
+                "{} {} --vsock-port 5006 --settings-path {} {}",
                 switch_user_cmd,
                 enclave_bin.display(),
-                enclave_settings_file.display()
+                enclave_settings_file.display(),
+                use_file_system_flag
             )
         };
 
         let client_image = &self.client_image.to_string();
+        let from = match &self.enclave_base_image {
+            Some(e) => { e }
+            _ => { client_image }
+        };
+
         file::populate_docker_file(
             file,
-            if cfg!(feature = "file-system") { "enclave-base" } else { client_image },
+            from,
             &copy,
             &rust_log_env_var(),
             &run_enclave_cmd,
@@ -281,6 +302,8 @@ pub struct ParentImageBuilder<'a> {
     pub dir: &'a TempDir,
 
     pub start_options: NitroEnclavesConversionRequestOptions,
+
+    pub block_file_present: bool
 }
 
 impl<'a> ParentImageBuilder<'a> {
@@ -334,7 +357,7 @@ impl<'a> ParentImageBuilder<'a> {
 
     fn populate_docker_file(&self, file: &mut fs::File) -> std::result::Result<(), String> {
         let mut items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
-        if cfg!(feature = "file-system") {
+        if self.block_file_present {
             items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
         }
 
@@ -382,19 +405,24 @@ impl<'a> ParentImageBuilder<'a> {
         // to console. cmd simply runs the enclave with no additional
         // logging
         let (dbg_cmd, cmd) = self.get_nitro_run_commands(&install_path);
-
+        let use_file_system_flag = if self.block_file_present {
+            "--use-file-system"
+        } else {
+            ""
+        };
         // We start the parent side of the vsock proxy before running the enclave because we want it running
         // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
         // parent process so our container will stay running as long as the parent process stays running.
         format!(
             "\n\
              # Parent startup code \n\
-             {} --vsock-port 5006 & \n\
+             {} --vsock-port 5006 {} & \n\
              dbg_cmd=\"{}\" \n\
              cmd=\"{}\" \n\
              if [ -n \"$ENCLAVEOS_DEBUG\" ] ; then eval \"$dbg_cmd\" ; else eval \"$cmd\" ; fi; \n\
              fg \n",
             parent_bin.display(),
+            use_file_system_flag,
             dbg_cmd,
             cmd
         )
@@ -567,6 +595,7 @@ mod tests {
         let enclave_builder = EnclaveImageBuilder {
             client_image: DockerReference::from_str("test").expect("Failed creating docker reference"),
             dir: &temp_dir,
+            enclave_base_image: None
         };
 
         enclave_builder

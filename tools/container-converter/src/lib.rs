@@ -6,10 +6,7 @@ use tempfile::TempDir;
 use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
 use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
 use api_model::shared::EnclaveSettings;
-use api_model::{
-    AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
-    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
-};
+use api_model::{AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion};
 use model_types::HexString;
 
 use std::collections::{HashMap, HashSet};
@@ -58,13 +55,15 @@ impl Error for ConverterError {}
 
 const PARENT_IMAGE: &str = "parent-base";
 
-pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
+const ENCLAVE_IMAGE: &str = "enclave-base";
+
+pub async fn run(args: NitroEnclavesConversionRequest, use_file_system: bool) -> Result<NitroEnclavesConversionResponse> {
     let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
     let local_repository = Docker::new();
     let preserve_images = preserve_images_list()?;
 
     let resource_cleaner = tokio::spawn(clean_docker_images(local_repository, images_to_clean_rcv, preserve_images));
-    let converter = tokio::spawn(run0(args, images_to_clean_snd));
+    let converter = tokio::spawn(run0(args, images_to_clean_snd, use_file_system));
 
     let (result, _) = tokio::join!(converter, resource_cleaner);
 
@@ -77,6 +76,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
 async fn run0(
     args: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
+    use_file_system: bool
 ) -> Result<NitroEnclavesConversionResponse> {
     if args.request.input_image.name == args.request.output_image.name {
         return Err(ConverterError {
@@ -85,8 +85,18 @@ async fn run0(
         });
     }
 
-    info!("Retrieving requisite image!");
-    get_parent_base_image().await?;
+    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
+    info!("Retrieving requisite images!");
+    get_parent_base_image(parent_image.clone()).await?;
+
+    let enclave_base_image = if use_file_system {
+        let enclave_base_image = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
+        get_enclave_base_image(enclave_base_image.clone()).await?;
+
+        Some(enclave_base_image)
+    } else {
+        None
+    };
 
     let client_image = docker_reference(&args.request.input_image.name)?;
     let output_image = output_docker_reference(&args.request.output_image.name)?;
@@ -115,6 +125,7 @@ async fn run0(
     let enclave_builder = EnclaveImageBuilder {
         client_image,
         dir: &temp_dir,
+        enclave_base_image
     };
 
     info!("Building enclave image!");
@@ -128,13 +139,12 @@ async fn run0(
         .create_image(&input_repository, enclave_settings, sender)
         .await?;
 
-    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
-
     let parent_builder = ParentImageBuilder {
         output_image,
         parent_image,
         dir: &temp_dir,
         start_options: args.nitro_enclaves_options,
+        block_file_present: nitro_image_result.block_file_present
     };
 
     info!("Building result image!");
@@ -276,27 +286,37 @@ fn output_docker_reference(image: &str) -> Result<DockerReference> {
     })
 }
 
-async fn get_parent_base_image() -> Result<()> {
-    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
-    let username_var = env_var_or_none("PARENT_IMAGE_USERNAME");
-    let password_var = env_var_or_none("PARENT_IMAGE_PASSWORD");
+async fn get_enclave_base_image(image: String) -> Result<()> {
+    let username = env_var_or_none("ENCLAVE_IMAGE_USERNAME");
+    let password = env_var_or_none("ENCLAVE_IMAGE_PASSWORD");
 
-    let auth_config = match (username_var, password_var) {
+    get_base_image(image, username, password).await
+}
+
+async fn get_parent_base_image(image: String) -> Result<()> {
+    let username = env_var_or_none("PARENT_IMAGE_USERNAME");
+    let password = env_var_or_none("PARENT_IMAGE_PASSWORD");
+
+    get_base_image(image, username, password).await
+}
+
+async fn get_base_image(image: String, username: Option<String>, password: Option<String>) -> Result<()> {
+    let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,
     };
 
     let repository = DockerDaemon::new(&auth_config);
-    let parent_image_reference = DockerReference::from_str(&parent_image).map_err(|err| ConverterError {
-        message: format!("Requisite image {} address has bad format. {:?}", parent_image, err),
+    let image_reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
+        message: format!("Requisite image {} address has bad format. {:?}", image, err),
         kind: ConverterErrorKind::BadRequest,
     })?;
 
     let _result = repository
-        .get_image(&parent_image_reference)
+        .get_image(&image_reference)
         .await
         .map_err(|message| ConverterError {
-            message: format!("Failed retrieving requisite {} image. {:?}", parent_image, message),
+            message: format!("Failed retrieving requisite {} image. {:?}", image, message),
             kind: ConverterErrorKind::ImageGet,
         })?;
 

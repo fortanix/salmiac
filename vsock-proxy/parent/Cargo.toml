@@ -23,6 +23,3 @@ futures = "0.3"
 pcap-async = "0.4.1"
 tun = {version = "0.5.3" ,features = ["async"] }
 em-app = { git = "https://github.com/fortanix/rust-sgx.git" }
-
-[features]
-file-system = []

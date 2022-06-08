@@ -34,7 +34,7 @@ const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
-pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
+pub async fn run(vsock_port: u32, settings_path: &Path, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
     let enclave_settings = read_enclave_settings(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
@@ -51,7 +51,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
-    if cfg!(feature = "file-system") {
+    if use_file_system {
         setup_file_system(&mut parent_port).await?;
     }
 
@@ -66,7 +66,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
         )?;
     }
 
-    let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port));
+    let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port, use_file_system));
 
     debug!("Started client program.");
 
@@ -90,6 +90,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 }
 
 async fn setup_file_system(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
+    info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
     run_nbd_client(nbd_config).await?;
     info!("Connected to NBD server.");
@@ -123,8 +124,9 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 async fn start_user_program(
     enclave_settings: EnclaveSettings,
     mut vsock: AsyncVsockStream,
+    use_file_system: bool
 ) -> Result<UserProgramExitStatus, String> {
-    let output = if cfg!(feature = "file-system") {
+    let output = if use_file_system {
         let mut client_command = Command::new("chroot");
         client_command.args([ENCLAVE_FS_ROOT, &enclave_settings.user_program_config.entry_point]);
 

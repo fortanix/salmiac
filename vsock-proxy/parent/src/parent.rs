@@ -31,7 +31,7 @@ const NBD_BLOCK_FILE: &'static str = "/opt/fortanix/enclave-os/Blockfile.ext4";
 
 const NBD_PORT: u16 = 7777;
 
-pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
+pub async fn run(vsock_port: u32, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave.");
 
     let mut enclave_port = create_vsock_stream(vsock_port).await?;
@@ -40,9 +40,9 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
 
     let setup_result = setup_parent(&mut enclave_port).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
-    let mut background_tasks = start_background_tasks(setup_result)?;
+    let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
 
-    if cfg!(feature = "file-system") {
+    if use_file_system {
         enclave_port.write_lv(&SetupMessages::NBDConfiguration(SocketAddr::new(fs_tap_l3_address, NBD_PORT))).await?;
     }
 
@@ -124,6 +124,7 @@ async fn run_nbd_server(fs_tap_l3_address: IpNetwork, port: u16) -> Result<(), S
 
 fn start_background_tasks(
     parent_setup_result: ParentSetupResult,
+    use_file_system: bool
 ) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 
@@ -140,7 +141,7 @@ fn start_background_tasks(
     result.push(fs_tap_loops.read_handle);
     result.push(fs_tap_loops.write_handle);
 
-    if cfg!(feature = "file-system") {
+    if use_file_system {
         let nbd_server = tokio::spawn(run_nbd_server(fs_device.tap_l3_address, NBD_PORT));
         info!("Started nbd server");
         result.push(nbd_server);
