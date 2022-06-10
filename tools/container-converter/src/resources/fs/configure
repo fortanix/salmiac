@@ -1,0 +1,103 @@
+#!/bin/bash -ex
+
+set -o pipefail
+
+# Usage:
+#./configure <input-dir> <mount-dir> <blockfile> <skip-hash>
+#
+# <input-dir> Path to the directory which will be hashed by
+# veritysetup and it's contents will be placed in the blockfile.
+#
+# <mount-dir> Path to a temporary directory where the contents of
+# <input-dir> will be mounted while creating the blockfile.
+#
+# <blockfile> Path to the ext4 blockfile created with the contents
+# of <input-dir>.
+#
+# <skip-hash> Optional argument to skip verity setup when its set
+
+if [ "$1" ]
+ then INPUTDIR=$1
+ else echo "Provide input directory as 1st argument"; exit 1
+fi
+if [ "$2" ]
+ then MNTDIR=$2
+ else echo "Provide mount directory as 2nd argument"; exit 1
+fi
+if [ "$3" ]
+ then BLOCKFILE=$3
+ else echo "Provide blockfile path as 3rd argument"; exit 1
+fi
+
+# Check the apparent size of the input directory and round up to
+# the closest byte after a 10 percent increase in size to store
+# other filesystem contents like metadata, node info etc.
+size_mb=$( du -sh --apparent-size -B 1M $INPUTDIR | awk '{print $1}')
+size_mb_up=$(awk -v n=$size_mb -v d=1 'BEGIN{print int(((n * 1.1)+d/2)/d) * d}')
+
+file_offset=$(( size_mb_up*1073741824 ))
+
+
+# This creates a 1GB block file for the filesystem.
+dd if=/dev/zero of=$BLOCKFILE bs=1M count=${size_mb_up}
+
+# Create an ext4 filesystem on the block file created above.
+# TODO: Are there any filesystem parameters we want for this filesystem?
+mkfs.ext4 $BLOCKFILE
+
+# one time setup: sudo mkdir /mnt/test
+# If mount directory doesn't exist, create it
+[ -d $MNTDIR ] || mkdir $MNTDIR
+
+# Mount the filesystem on the blockfile read-write (without dm-verity). We need
+# to populate the filesystem before we can check the integrity of it.
+sudo mount -o loop $BLOCKFILE $MNTDIR
+
+# Make the current user the owner of the root of the filesystem on the block
+# device. This is just so we can write files to it with our own user id
+# and not as root.
+sudo chown `whoami` $MNTDIR
+
+# Populate the filesystem with some initial files. In this case, I'm using
+# a copy of the zircon tree.
+cp --archive $INPUTDIR/ $MNTDIR/
+
+# sync -f to flush everything to block device
+
+# Unmount the filesystem, now that we've populated it.
+# -d option allows us to unmount the loop device if present
+sudo umount -d $MNTDIR
+
+# Incase, the loop device is unmounted, check and use the absolute path
+# of the mount directory is provided to unmount it.
+check_loop_mount_cmd=$( lsblk | grep $( realpath outputdir )) || true
+echo $check_loop_mount_cmd
+if [ "$check_loop_mount_cmd" ]
+  then sudo umount $(realpath $MNTDIR)
+fi
+
+# Note that we're using the same file to contain the filesytem and the
+# filesystem hashes. That's why $BLOCKFILE is on the command line here twice.
+# The first time it's the filesystem block file. The second time it's the
+# device to use for the hashes. With --hash-offset, we're placing the hashes
+# in the same file, after the filesystem data.
+verity_out_file=$BLOCKFILE"-verity.out"
+if [ -z "$4" ]
+  then veritysetup --hash-offset=$file_offset format $BLOCKFILE $BLOCKFILE > $verity_out_file
+fi
+
+echo "Hash offset: " $file_offset >> $verity_out_file
+# Output will look like this:
+
+# VERITY header information for bl
+# UUID:            	194a2ab4-4a2d-4ac6-b186-8d17cf2444cb
+# Hash type:       	1
+# Data blocks:     	262144
+# Data block size: 	4096
+# Hash block size: 	4096
+# Hash algorithm:  	sha256
+# Salt:            	1e7e931f232789d288ee42973ce07c8a2f035f3e74d50c8017644dab83639578
+# Root hash:      	4f3b9a24da97a7b45ecd5ff203dd2d279386470bb892b27cdf46430597dddf81
+
+# You will need to save at least the root hash to be able to successfully
+# mount the device with integrity information later.
