@@ -202,7 +202,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         },
         Resource {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
-            data: include_bytes!("../../../fs-benchmark/configure"),
+            data: include_bytes!("resources/fs/configure"),
             is_executable: true,
         }
     ];
