@@ -33,7 +33,7 @@ fi
 # the closest byte after a 10 percent increase in size to store
 # other filesystem contents like metadata, node info etc.
 size_mb=$( du -sh --apparent-size -B 1M $INPUTDIR | awk '{print $1}')
-size_mb_up=$(awk -v n=$size_mb -v d=1 'BEGIN{print int(((n * 1.1)+d/2)/d) * d}')
+size_mb_up=$(awk -v n=$size_mb -v d=1 'BEGIN{print int(((n * 2)+d/2)/d) * d}')
 
 file_offset=$(( size_mb_up*1073741824 ))
 
