@@ -75,6 +75,9 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
+        self.create_block_file(docker_util).await?;
+        info!("Block file has been created!");
+
         let block_file_present = if self.enclave_base_image.is_some() {
             self.create_block_file(docker_util).await?;
             info!("Block file has been created!");
