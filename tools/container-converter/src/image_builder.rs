@@ -213,7 +213,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
 
-    fn create_requisites(&self, enclave_settings: EnclaveSettings, env_vars: &Vec<String>) -> std::result::Result<(), String> {
+    fn create_requisites(&self, enclave_settings: EnclaveSettings, env_vars: &[String]) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
         self.populate_docker_file(&mut docker_file, &enclave_settings, env_vars)?;
@@ -238,7 +238,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: &EnclaveSettings, env_vars: &Vec<String>) -> std::result::Result<(), String> {
+    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: &EnclaveSettings, env_vars: &[String]) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let copy = DockerCopyArgs {
@@ -288,7 +288,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             _ => { client_image }
         };
 
-        let mut env = env_vars.clone();
+        let mut env = env_vars.to_vec();
         env.push(rust_log_env_var("enclave"));
 
         file::populate_docker_file(
@@ -375,7 +375,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         let run_parent_cmd = Path::new(INSTALLATION_DIR).join("start-parent.sh").display().to_string();
 
-        let env_vars = vec![
+        let env_vars = [
             rust_log_env_var("parent"),
             self.cpu_count_env_var(),
             self.mem_size_env_var(),
