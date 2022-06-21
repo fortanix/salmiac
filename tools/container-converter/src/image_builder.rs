@@ -157,9 +157,8 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
-        let (block_file_input_root, block_file_mount_root) = self.create_block_file_dirs()?;
-        let block_file_input_dir = block_file_input_root.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
-        let block_file_mount_dir = block_file_mount_root.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
+        let block_file_input_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
+        let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
 
         fs::create_dir(&block_file_input_dir).map_err(|err| ConverterError {
             message: format!("Failed creating dir {}. {:?}", block_file_input_dir.display(), err),
@@ -211,24 +210,6 @@ impl<'a> EnclaveImageBuilder<'a> {
         result.arg("false");
 
         result
-    }
-
-    fn create_block_file_dirs(&self) -> Result<(TempDir, TempDir)> {
-        fn temp_dir(in_dir: &Path) -> Result<TempDir> {
-            tempfile::Builder::new().tempdir_in(in_dir).map_err(|err| ConverterError {
-                message: format!(
-                    "Failed creating temp dir in {} for block file process. {:?}",
-                    in_dir.display(),
-                    err
-                ),
-                kind: ConverterErrorKind::RequisitesCreation,
-            })
-        }
-
-        let input_dir = temp_dir(self.dir.path())?;
-        let mount_dir = temp_dir(self.dir.path())?;
-
-        Ok((input_dir, mount_dir))
     }
 
     async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
