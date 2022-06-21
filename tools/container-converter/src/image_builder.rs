@@ -207,7 +207,6 @@ impl<'a> EnclaveImageBuilder<'a> {
         let mut result = process::Command::new(block_file_script_path);
 
         result.args(&path_args);
-        result.arg("false");
 
         result
     }
