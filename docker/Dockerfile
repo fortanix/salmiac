@@ -22,6 +22,7 @@ WORKDIR /app
 
 COPY staging/server /app
 COPY staging/nitro-parent-base.tar /
+COPY staging/nitro-enclave-base.tar /
 
 # TODO: SALM-188 When features_list is passed, uncomment the
 # following lines of code based on how filesystem is enabled
