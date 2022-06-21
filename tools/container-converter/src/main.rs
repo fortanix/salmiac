@@ -9,7 +9,7 @@ use std::fs;
 async fn main() -> Result<(), String> {
     env_logger::init();
 
-    let console_arguments =  console_arguments();
+    let console_arguments = console_arguments();
 
     let request_file_path = console_arguments
         .value_of("request-file")

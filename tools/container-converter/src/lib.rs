@@ -4,8 +4,11 @@ use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
 use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
-use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder, EnclaveSettings};
-use api_model::{AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion};
+use crate::image_builder::{EnclaveImageBuilder, EnclaveSettings, ParentImageBuilder};
+use api_model::{
+    AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
+    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
+};
 use model_types::HexString;
 
 use std::collections::{HashMap, HashSet};
@@ -75,7 +78,7 @@ pub async fn run(args: NitroEnclavesConversionRequest, use_file_system: bool) ->
 async fn run0(
     args: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
-    use_file_system: bool
+    use_file_system: bool,
 ) -> Result<NitroEnclavesConversionResponse> {
     if args.request.input_image.name == args.request.output_image.name {
         return Err(ConverterError {
@@ -146,7 +149,7 @@ async fn run0(
         parent_image,
         dir: &temp_dir,
         start_options: args.nitro_enclaves_options,
-        block_file_present: nitro_image_result.block_file_present
+        block_file_present: nitro_image_result.block_file_present,
     };
 
     info!("Building result image!");
