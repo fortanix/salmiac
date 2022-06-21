@@ -12,7 +12,7 @@ use tun::Device;
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
 use crate::file_system::{copy_dns_file_to_mount, mount_file_system, mount_nbd_device, run_nbd_client, ENCLAVE_FS_ROOT};
-use api_model::shared::EnclaveSettings;
+use api_model::shared::EnclaveManifest;
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::NetlinkARP;
@@ -122,7 +122,7 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 }
 
 async fn start_user_program(
-    enclave_settings: EnclaveSettings,
+    enclave_settings: EnclaveManifest,
     mut vsock: AsyncVsockStream,
     use_file_system: bool
 ) -> Result<UserProgramExitStatus, String> {
@@ -342,7 +342,7 @@ async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> 
         .map_err(|err| format!("Failed to connect to parent: {:?}", err))
 }
 
-fn read_enclave_settings(path: &Path) -> Result<EnclaveSettings, String> {
+fn read_enclave_settings(path: &Path) -> Result<EnclaveManifest, String> {
     let settings_raw = fs::read_to_string(path).map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
 
     serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave settings. {:?}", err))

@@ -4,8 +4,7 @@ use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
 use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
-use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
-use api_model::shared::EnclaveSettings;
+use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder, EnclaveSettings};
 use api_model::{AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion};
 use model_types::HexString;
 
