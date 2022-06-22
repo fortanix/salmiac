@@ -34,8 +34,8 @@ const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
-pub async fn run(vsock_port: u32, settings_path: &Path, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
-    let enclave_settings = read_enclave_settings(settings_path)?;
+pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
+    let enclave_settings = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
 
@@ -45,14 +45,19 @@ pub async fn run(vsock_port: u32, settings_path: &Path, use_file_system: bool) -
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
-    let setup_result = setup_enclave(&mut parent_port, &enclave_settings.certificate_config, &app_config.id).await?;
+    let setup_result = setup_enclave(&mut parent_port, &enclave_settings.user_config.certificate_config, &app_config.id).await?;
 
     let mut background_tasks = start_background_tasks(setup_result.tap_devices);
 
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
+    let use_file_system = enclave_settings.fs_root_hash.is_some();
     if use_file_system {
+        parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
+
         setup_file_system(&mut parent_port).await?;
+    } else {
+        parent_port.write_lv(&SetupMessages::UseFileSystem(false)).await?;
     }
 
     // We can request application configuration only if we know application id.
@@ -122,16 +127,16 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 }
 
 async fn start_user_program(
-    enclave_settings: EnclaveManifest,
+    enclave_manifest: EnclaveManifest,
     mut vsock: AsyncVsockStream,
     use_file_system: bool
 ) -> Result<UserProgramExitStatus, String> {
     let output = if use_file_system {
         let mut client_command = Command::new("chroot");
-        client_command.args([ENCLAVE_FS_ROOT, &enclave_settings.user_program_config.entry_point]);
+        client_command.args([ENCLAVE_FS_ROOT, &enclave_manifest.user_config.user_program_config.entry_point]);
 
-        if !enclave_settings.user_program_config.arguments.is_empty() {
-            client_command.args(enclave_settings.user_program_config.arguments.clone());
+        if !enclave_manifest.user_config.user_program_config.arguments.is_empty() {
+            client_command.args(enclave_manifest.user_config.user_program_config.arguments.clone());
         }
 
         let client_program = client_command
@@ -143,10 +148,10 @@ async fn start_user_program(
             .await
             .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
     } else {
-        let mut client_command = Command::new(enclave_settings.user_program_config.entry_point.clone());
+        let mut client_command = Command::new(enclave_manifest.user_config.user_program_config.entry_point.clone());
 
-        if !enclave_settings.user_program_config.arguments.is_empty() {
-            client_command.args(enclave_settings.user_program_config.arguments.clone());
+        if !enclave_manifest.user_config.user_program_config.arguments.is_empty() {
+            client_command.args(enclave_manifest.user_config.user_program_config.arguments.clone());
         }
 
         let client_program = client_command
@@ -342,10 +347,10 @@ async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> 
         .map_err(|err| format!("Failed to connect to parent: {:?}", err))
 }
 
-fn read_enclave_settings(path: &Path) -> Result<EnclaveManifest, String> {
-    let settings_raw = fs::read_to_string(path).map_err(|err| format!("Failed to read enclave settings file. {:?}", err))?;
+fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {
+    let settings_raw = fs::read_to_string(path).map_err(|err| format!("Failed to read enclave manifest file. {:?}", err))?;
 
-    serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave settings. {:?}", err))
+    serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave manifest. {:?}", err))
 }
 
 // Linux ioctl #define RNDADDTOENTCNT	_IOW( 'R', 0x01, int )

@@ -18,6 +18,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+use api_model::shared::UserConfig;
 
 pub mod file;
 pub mod image;
@@ -149,7 +150,6 @@ async fn run0(
         parent_image,
         dir: &temp_dir,
         start_options: args.nitro_enclaves_options,
-        block_file_present: nitro_image_result.block_file_present,
     };
 
     info!("Building result image!");

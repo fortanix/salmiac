@@ -23,6 +23,7 @@ pub enum SetupMessages {
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
     ApplicationConfig(ApplicationConfiguration),
+    UseFileSystem(bool),
     NBDConfiguration(SocketAddr)
 }
 

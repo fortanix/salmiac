@@ -82,9 +82,8 @@ fi
 # device to use for the hashes. With --hash-offset, we're placing the hashes
 # in the same file, after the filesystem data.
 verity_out_file=$BLOCKFILE"-verity.out"
-veritysetup --hash-offset=$file_offset format $BLOCKFILE $BLOCKFILE > $verity_out_file
+veritysetup --hash-offset=$file_offset format $BLOCKFILE $BLOCKFILE
 
-cat $verity_out_file
 # Output will look like this:
 
 # VERITY header information for bl

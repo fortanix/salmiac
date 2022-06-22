@@ -7,8 +7,8 @@ use crate::file::{DockerCopyArgs, Resource, UnixFile};
 use crate::image::{create_nitro_image, process_output, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
-use api_model::shared::{EnclaveManifest, UserProgramConfig};
-use api_model::{CertificateConfig, NitroEnclavesConversionRequestOptions};
+use api_model::shared::{EnclaveManifest, UserConfig};
+use api_model::{NitroEnclavesConversionRequestOptions};
 
 use std::fs;
 use std::io::Write;
@@ -25,17 +25,13 @@ pub struct EnclaveImageBuilder<'a> {
 }
 
 pub struct EnclaveSettings {
-    pub user_program_config: UserProgramConfig,
+    pub user_config: UserConfig,
 
-    pub certificate_config: Vec<CertificateConfig>,
-
-    pub user: String,
+    pub user_name: String,
 }
 
 pub struct EnclaveBuilderResult {
     pub pcr_list: PCRList,
-
-    pub block_file_present: bool,
 }
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
@@ -62,24 +58,23 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<EnclaveBuilderResult> {
         let build_context_dir = self.create_build_context_dir()?;
 
-        self.create_requisites(&enclave_settings.user, &build_context_dir, env_vars).map_err(|message| ConverterError {
+        self.create_requisites(&enclave_settings.user_name, &build_context_dir)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
 
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
-
-        let (block_file_present, fs_root_hash) = if self.enclave_base_image.is_some() {
+        let fs_root_hash = if self.enclave_base_image.is_some() {
             let root_hash = self.create_block_file(docker_util).await?;
             info!("Block file has been created!");
 
-            (true, root_hash)
+            Some(root_hash)
         } else {
-            (false, String::new())
+            None
         };
 
         let enclave_manifest = EnclaveManifest {
-            user_program_config: enclave_settings.user_program_config,
-            certificate_config: enclave_settings.certificate_config,
+            user_config:enclave_settings.user_config,
             fs_root_hash,
         };
 
@@ -112,7 +107,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         Ok(EnclaveBuilderResult {
             pcr_list: nitro_measurements.pcr_list,
-            block_file_present,
         })
     }
 
@@ -293,18 +287,11 @@ impl<'a> EnclaveImageBuilder<'a> {
                 String::new()
             };
 
-            let use_file_system_flag = if self.enclave_base_image.is_some() {
-                "--use-file-system"
-            } else {
-                ""
-            };
-
             format!(
-                "{} {} --vsock-port 5006 --settings-path {} {}",
+                "{} {} --vsock-port 5006 --settings-path {}",
                 switch_user_cmd,
                 enclave_bin.display(),
-                enclave_settings_file.display(),
-                use_file_system_flag
+                enclave_settings_file.display()
             )
         };
 
@@ -335,8 +322,6 @@ pub struct ParentImageBuilder<'a> {
     pub dir: &'a TempDir,
 
     pub start_options: NitroEnclavesConversionRequestOptions,
-
-    pub block_file_present: bool,
 }
 
 impl<'a> ParentImageBuilder<'a> {
@@ -362,9 +347,9 @@ impl<'a> ParentImageBuilder<'a> {
     pub async fn create_image(&self, docker_util: &dyn DockerUtil) -> Result<ImageWithDetails> {
         let build_context_dir = self.create_build_context_dir()?;
 
-        self.move_enclave_files_into_build_context(&build_context_dir)?;
+        let block_file_exists = self.move_enclave_files_into_build_context(&build_context_dir)?;
 
-        self.create_requisites(&build_context_dir).map_err(|message| ConverterError {
+        self.create_requisites(&build_context_dir, block_file_exists).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
@@ -383,7 +368,7 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<()> {
+    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<bool> {
         fn move_file(from: &Path, to: &Path) -> Result<()> {
             fs::rename(from, to).map_err(|message| ConverterError {
                 message: format!(
@@ -401,16 +386,29 @@ impl<'a> ParentImageBuilder<'a> {
             &build_context_dir.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
         )?;
 
-        move_file(
-            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-        )
+        let block_file = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
+        if block_file.exists() {
+            move_file(
+                &block_file,
+                &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+            )?;
+
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
-    fn create_requisites(&self, dir: &Path) -> std::result::Result<(), String> {
+    fn create_requisites(&self, dir: &Path, block_file_exists: bool) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(dir)?;
 
-        self.populate_docker_file(&mut docker_file)?;
+        let mut copy_items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
+
+        if block_file_exists {
+            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
+        }
+
+        self.populate_docker_file(&mut docker_file, copy_items)?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(dir)?;
@@ -428,14 +426,9 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File) -> std::result::Result<(), String> {
-        let mut items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
-        if self.block_file_present {
-            items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
-        }
-
+    fn populate_docker_file(&self, file: &mut fs::File, copy_items: Vec<&str>) -> std::result::Result<(), String> {
         let copy = DockerCopyArgs {
-            items,
+            items: copy_items,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -476,20 +469,18 @@ impl<'a> ParentImageBuilder<'a> {
         // to console. cmd simply runs the enclave with no additional
         // logging
         let (dbg_cmd, cmd) = self.get_nitro_run_commands(&install_path);
-        let use_file_system_flag = if self.block_file_present { "--use-file-system" } else { "" };
         // We start the parent side of the vsock proxy before running the enclave because we want it running
         // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
         // parent process so our container will stay running as long as the parent process stays running.
         format!(
             "\n\
              # Parent startup code \n\
-             {} --vsock-port 5006 {} & \n\
+             {} --vsock-port 5006 & \n\
              dbg_cmd=\"{}\" \n\
              cmd=\"{}\" \n\
              if [ -n \"$ENCLAVEOS_DEBUG\" ] ; then eval \"$dbg_cmd\" ; else eval \"$cmd\" ; fi; \n\
              fg \n",
             parent_bin.display(),
-            use_file_system_flag,
             dbg_cmd,
             cmd
         )

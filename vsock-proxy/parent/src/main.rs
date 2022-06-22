@@ -17,13 +17,7 @@ async fn main() -> Result<(), String> {
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
 
-    let use_file_system = if matches.is_present("use-file-system") {
-        true
-    } else {
-        false
-    };
-
-    match parent::run(vsock_port, use_file_system).await {
+    match parent::run(vsock_port).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             info!("User program exits with code: {}", code);
             process::exit(code)
@@ -50,12 +44,6 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .validator(u32::validate_arg)
                 .takes_value(true)
                 .required(true),
-        )
-        .arg(
-            Arg::with_name("use-file-system")
-                .long("use-file-system")
-                .takes_value(false)
-                .required(false),
         );
 
     result.get_matches()
