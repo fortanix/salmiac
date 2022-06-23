@@ -25,9 +25,9 @@ pub struct EnclaveImageBuilder<'a> {
 }
 
 pub struct EnclaveSettings {
-    pub user_config: UserConfig,
-
     pub user_name: String,
+
+    pub env_vars: Vec<String>
 }
 
 pub struct EnclaveBuilderResult {
@@ -53,12 +53,12 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
-        env_vars: &Vec<String>,
+        user_config: UserConfig,
         images_to_clean_snd: Sender<ImageToClean>
     ) -> Result<EnclaveBuilderResult> {
         let build_context_dir = self.create_build_context_dir()?;
 
-        self.create_requisites(&enclave_settings.user_name, &build_context_dir)
+        self.create_requisites(enclave_settings, &build_context_dir)
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -74,7 +74,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         };
 
         let enclave_manifest = EnclaveManifest {
-            user_config:enclave_settings.user_config,
+            user_config,
             fs_root_hash,
         };
 
@@ -244,10 +244,10 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
 
-    fn create_requisites(&self, user: &str, dir: &Path) -> std::result::Result<(), String> {
+    fn create_requisites(&self, enclave_settings: EnclaveSettings, dir: &Path) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(dir)?;
 
-        self.populate_docker_file(&mut docker_file, user)?;
+        self.populate_docker_file(&mut docker_file, enclave_settings)?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(dir)?;
@@ -258,7 +258,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, user: &str) -> std::result::Result<(), String> {
+    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let copy = DockerCopyArgs {
@@ -272,10 +272,10 @@ impl<'a> EnclaveImageBuilder<'a> {
             let enclave_settings_file = install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
 
             let user_name = {
-                if let Some(pos) = user.find(":") {
-                    &user[..pos]
+                if let Some(pos) = enclave_settings.user_name.find(":") {
+                    &enclave_settings.user_name[..pos]
                 } else {
-                    user
+                    &enclave_settings.user_name
                 }
             };
 
@@ -301,7 +301,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             _ => client_image,
         };
 
-        let mut env = env_vars.to_vec();
+        let mut env = enclave_settings.env_vars;
         env.push(rust_log_env_var("enclave"));
 
         file::populate_docker_file(

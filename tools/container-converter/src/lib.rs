@@ -133,16 +133,17 @@ async fn run0(
 
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
+        user_name: input_image.image.details.config.user.clone(),
+        env_vars: args.request.converter_options.env_vars
+    };
+    let user_config = UserConfig {
         user_program_config,
         certificate_config: args.request.converter_options.certificates,
-        user: input_image.image.details.config.user.clone()
     };
+
     let sender = images_to_clean_snd.clone();
     let nitro_image_result = enclave_builder
-        .create_image(&input_repository,
-                      enclave_settings,
-                      &args.request.converter_options.env_vars,
-                      sender)
+        .create_image(&input_repository, enclave_settings, user_config,sender)
         .await?;
 
     let parent_builder = ParentImageBuilder {
