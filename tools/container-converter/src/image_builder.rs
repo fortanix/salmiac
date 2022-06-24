@@ -21,7 +21,7 @@ pub struct EnclaveImageBuilder<'a> {
 
     pub dir: &'a TempDir,
 
-    pub enclave_base_image: Option<String>
+    pub enclave_base_image: Option<String>,
 }
 
 pub struct EnclaveBuilderResult {
@@ -49,9 +49,10 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
+        env_vars: &Vec<String>,
         images_to_clean_snd: Sender<ImageToClean>
     ) -> Result<EnclaveBuilderResult> {
-        self.create_requisites(enclave_settings).map_err(|message| ConverterError {
+        self.create_requisites(enclave_settings, env_vars).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
@@ -212,10 +213,10 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
 
-    fn create_requisites(&self, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
+    fn create_requisites(&self, enclave_settings: EnclaveSettings, env_vars: &[String]) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(self.dir.path())?;
 
-        self.populate_docker_file(&mut docker_file, &enclave_settings)?;
+        self.populate_docker_file(&mut docker_file, &enclave_settings, env_vars)?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(self.dir.path())?;
@@ -237,7 +238,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: &EnclaveSettings) -> std::result::Result<(), String> {
+    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: &EnclaveSettings, env_vars: &[String]) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let copy = DockerCopyArgs {
@@ -287,11 +288,14 @@ impl<'a> EnclaveImageBuilder<'a> {
             _ => { client_image }
         };
 
+        let mut env = env_vars.to_vec();
+        env.push(rust_log_env_var("enclave"));
+
         file::populate_docker_file(
             file,
             from,
             &copy,
-            &rust_log_env_var(),
+            &env,
             &run_enclave_cmd,
         )
     }
@@ -371,13 +375,11 @@ impl<'a> ParentImageBuilder<'a> {
 
         let run_parent_cmd = Path::new(INSTALLATION_DIR).join("start-parent.sh").display().to_string();
 
-        let env_vars = rust_log_env_var()
-            + " "
-            + &(self.cpu_count_env_var())
-            + " "
-            + &(self.mem_size_env_var())
-            + " "
-            + &(self.eos_debug_env_var());
+        let env_vars = [
+            rust_log_env_var("parent"),
+            self.cpu_count_env_var(),
+            self.mem_size_env_var(),
+            self.eos_debug_env_var()];
 
         file::populate_docker_file(file, &self.parent_image, &copy, &env_vars, &run_parent_cmd)
     }
@@ -515,14 +517,14 @@ async fn create_image(
     })
 }
 
-fn rust_log_env_var() -> String {
-    format!("RUST_LOG={}", {
-        if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "info"
-        }
-    })
+fn rust_log_env_var(project_name: &str) -> String {
+    let log_level = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "info"
+    };
+
+    format!("RUST_LOG={}={}", project_name, log_level)
 }
 
 #[cfg(test)]
