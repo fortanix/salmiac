@@ -11,7 +11,8 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, mount_file_system, mount_nbd_device, run_nbd_client, ENCLAVE_FS_ROOT};
+use crate::file_system::{copy_dns_file_to_mount, mount_file_system, mount_nbd_device,
+                         run_nbd_client, create_overlay_dirs, mount_overlay_fs, ENCLAVE_FS_OVERLAY_ROOT};
 use api_model::shared::EnclaveSettings;
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
@@ -98,6 +99,12 @@ async fn setup_file_system(parent_port: &mut AsyncVsockStream) -> Result<(), Str
     mount_nbd_device().await?;
     info!("Finished block file mount.");
 
+    create_overlay_dirs()?;
+    info!("Created directories needed for overlay fs mount.");
+
+    mount_overlay_fs().await?;
+    info!("Mounted enclave root with overlay-fs.");
+
     mount_file_system().await?;
     copy_dns_file_to_mount()?;
     info!("Finished file system mount.");
@@ -128,7 +135,7 @@ async fn start_user_program(
 ) -> Result<UserProgramExitStatus, String> {
     let output = if use_file_system {
         let mut client_command = Command::new("chroot");
-        client_command.args([ENCLAVE_FS_ROOT, &enclave_settings.user_program_config.entry_point]);
+        client_command.args([ENCLAVE_FS_OVERLAY_ROOT, &enclave_settings.user_program_config.entry_point]);
 
         if !enclave_settings.user_program_config.arguments.is_empty() {
             client_command.args(enclave_settings.user_program_config.arguments.clone());

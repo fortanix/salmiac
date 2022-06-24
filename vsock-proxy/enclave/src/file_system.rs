@@ -4,33 +4,56 @@ use log::debug;
 use std::fs;
 use std::net::SocketAddr;
 
-pub(crate) const ENCLAVE_FS_ROOT: &str = "/mnt/enclave-fs";
+pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/enclave-fs";
+pub(crate) const ENCLAVE_FS_UPPER: &str = "/mnt/upper";
+pub(crate) const ENCLAVE_FS_WORK: &str = "/mnt/overlay-root/work";
+pub(crate) const ENCLAVE_FS_OVERLAY_ROOT: &str = "/mnt/overlay-root";
 
 const NBD_DEVICE: &str = "/dev/nbd0";
 
 pub(crate) async fn mount_file_system() -> Result<(), String> {
-    run_mount(&["-t", "proc", "/proc", "/mnt/enclave-fs/proc/"]).await?;
-    run_mount(&["--rbind", "/sys", "/mnt/enclave-fs/sys/"]).await?;
-    run_mount(&["--rbind", "/dev", "/mnt/enclave-fs/dev/"]).await
+    run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_mount(&["--rbind", "/sys", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_mount(&["--rbind", "/dev", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await
 }
 
-pub(crate) async fn mount_nbd_device() -> Result<(), String> {
-    run_mount(&[NBD_DEVICE, "/mnt"]).await?;
+pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
+    let overlay_dir_config = format!("lowerdir={},upperdir={},workdir={}",
+                                     ENCLAVE_FS_LOWER, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK);
 
-    //check that mount was successful
+    run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT ]).await
+
+    //uncomment while debugging - list overlay mount to check if it was successful
+    //debug_list_dir_contents(ENCLAVE_FS_OVERLAY_ROOT)
+}
+
+pub(crate) fn create_overlay_dirs() -> Result<(), String> {
+    fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
+    fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
+    fs::create_dir(ENCLAVE_FS_WORK).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
+
+    Ok(())
+}
+
+fn debug_list_dir_contents(dir_path: &str) -> Result<(), String> {
     let mounted_dir =
-        fs::read_dir(ENCLAVE_FS_ROOT).map_err(|err| format!("Failed reading dir {}. {:?}", ENCLAVE_FS_ROOT, err))?;
+        fs::read_dir(dir_path).map_err(|err| format!("Failed reading dir {}. {:?}", dir_path, err))?;
 
     for contents in mounted_dir {
         match contents {
             Ok(dir_entry) => {
-                debug!("Mounted {} dir contains {}", ENCLAVE_FS_ROOT, dir_entry.path().display())
+                debug!("Mounted {} dir contains {}", dir_path, dir_entry.path().display())
             }
-            Err(err) => return Err(format!("Mounted {} dir has corrupted entry. {:?}", ENCLAVE_FS_ROOT, err)),
+            Err(err) => return Err(format!("Mounted {} dir has corrupted entry. {:?}", dir_path, err)),
         }
     }
-
     Ok(())
+}
+
+pub(crate) async fn mount_nbd_device() -> Result<(), String> {
+    run_mount(&[NBD_DEVICE, "/mnt"]).await?;
+    // List the directory to check that mount was successful at runtime
+    debug_list_dir_contents(ENCLAVE_FS_LOWER)
 }
 
 pub(crate) async fn run_nbd_client(address: SocketAddr) -> Result<(), String> {
@@ -44,30 +67,30 @@ pub(crate) async fn run_nbd_client(address: SocketAddr) -> Result<(), String> {
 pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     const ENCLAVE_RUN_RESOLV_FILE: &str = "/run/resolvconf/resolv.conf";
 
-    const NBD_RUN_RESOLV_DIR: &str = "/mnt/enclave-fs/run/resolvconf";
+    let nbd_run_resolv_dir: &str = &format!("{}/run/resolvconf", ENCLAVE_FS_OVERLAY_ROOT);
 
-    const NBD_ETC_DIR: &str = "/mnt/enclave-fs/etc";
+    let nbd_etc_dir: &str = &format!("{}/etc", ENCLAVE_FS_OVERLAY_ROOT);
 
-    const NBD_RUN_RESOLV_FILE: &str = "/mnt/enclave-fs/run/resolvconf/resolv.conf";
+    let nbd_run_resolv_file: &str = &format!("{}/run/resolvconf/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
-    const NBD_ETC_RESOLV_FILE: &str = "/mnt/enclave-fs/etc/resolv.conf";
+    let nbd_etc_resolv_file: &str = &format!("{}/etc/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
-    fs::create_dir_all(NBD_RUN_RESOLV_DIR).map_err(|err| format!("Failed creating {} dir. {:?}", NBD_RUN_RESOLV_DIR, err))?;
-    fs::create_dir_all(NBD_ETC_DIR).map_err(|err| format!("Failed creating {} dir. {:?}", NBD_ETC_DIR, err))?;
+    fs::create_dir_all(nbd_run_resolv_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
+    fs::create_dir_all(nbd_etc_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
 
     // We copy resolv.conf from the enclave kernel into the block file mount point
     // so that DNS will work correctly after we do a `chroot`.
     // Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, NBD_RUN_RESOLV_FILE).map_err(|err| {
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file).map_err(|err| {
         format!(
             "Failed copying resolv file from {} to {}. {:?}",
-            ENCLAVE_RUN_RESOLV_FILE, NBD_RUN_RESOLV_FILE, err
+            ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file, err
         )
     })?;
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, NBD_ETC_RESOLV_FILE).map_err(|err| {
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file).map_err(|err| {
         format!(
             "Failed copying resolv file from {} to {}. {:?}",
-            ENCLAVE_RUN_RESOLV_FILE, NBD_ETC_RESOLV_FILE, err
+            ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file, err
         )
     })?;
 
@@ -83,6 +106,7 @@ async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), Stri
 
     mount_command.args(args);
 
+    debug!("Running {} {:?}", subprocess_path, args);
     let mount_process = mount_command
         .spawn()
         .map_err(|err| format!("Failed to run {}. {:?}. Args {:?}", subprocess_path, err, args))?;
