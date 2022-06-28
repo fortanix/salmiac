@@ -23,13 +23,7 @@ async fn main() -> Result<(), String> {
         .map(|e| Path::new(e))
         .expect("Path to a settings file must be provided");
 
-    let use_file_system = if matches.is_present("use-file-system") {
-        true
-    } else {
-        false
-    };
-
-    match enclave::run(vsock_port, &settings_path, use_file_system).await {
+    match enclave::run(vsock_port, &settings_path).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             debug!("User program exits with code: {}", code);
             process::exit(code)
@@ -63,12 +57,6 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .help("Path to a settings file")
                 .takes_value(true)
                 .required(true),
-        )
-        .arg(
-            Arg::with_name("use-file-system")
-                .long("use-file-system")
-                .takes_value(false)
-                .required(false),
         )
         .get_matches()
 }

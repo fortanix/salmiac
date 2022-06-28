@@ -31,7 +31,7 @@ const NBD_BLOCK_FILE: &'static str = "/opt/fortanix/enclave-os/Blockfile.ext4";
 
 const NBD_PORT: u16 = 7777;
 
-pub async fn run(vsock_port: u32, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
+pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave.");
 
     let mut enclave_port = create_vsock_stream(vsock_port).await?;
@@ -40,6 +40,8 @@ pub async fn run(vsock_port: u32, use_file_system: bool) -> Result<UserProgramEx
 
     let setup_result = setup_parent(&mut enclave_port).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
+
+    let use_file_system = extract_enum_value!(enclave_port.read_lv().await?, SetupMessages::UseFileSystem(e) => e)?;
     let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
 
     if use_file_system {

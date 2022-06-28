@@ -4,9 +4,11 @@ use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
 use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
-use crate::image_builder::{EnclaveImageBuilder, ParentImageBuilder};
-use api_model::shared::EnclaveSettings;
-use api_model::{AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion};
+use crate::image_builder::{EnclaveImageBuilder, EnclaveSettings, ParentImageBuilder};
+use api_model::{
+    AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
+    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
+};
 use model_types::HexString;
 
 use std::collections::{HashMap, HashSet};
@@ -16,6 +18,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+use api_model::shared::UserConfig;
 
 pub mod file;
 pub mod image;
@@ -76,7 +79,7 @@ pub async fn run(args: NitroEnclavesConversionRequest, use_file_system: bool) ->
 async fn run0(
     args: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
-    use_file_system: bool
+    use_file_system: bool,
 ) -> Result<NitroEnclavesConversionResponse> {
     if args.request.input_image.name == args.request.output_image.name {
         return Err(ConverterError {
@@ -130,16 +133,17 @@ async fn run0(
 
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
+        user_name: input_image.image.details.config.user.clone(),
+        env_vars: args.request.converter_options.env_vars
+    };
+    let user_config = UserConfig {
         user_program_config,
         certificate_config: args.request.converter_options.certificates,
-        user: input_image.image.details.config.user.clone()
     };
+
     let sender = images_to_clean_snd.clone();
     let nitro_image_result = enclave_builder
-        .create_image(&input_repository,
-                      enclave_settings,
-                      &args.request.converter_options.env_vars,
-                      sender)
+        .create_image(&input_repository, enclave_settings, user_config,sender)
         .await?;
 
     let parent_builder = ParentImageBuilder {
@@ -147,7 +151,6 @@ async fn run0(
         parent_image,
         dir: &temp_dir,
         start_options: args.nitro_enclaves_options,
-        block_file_present: nitro_image_result.block_file_present
     };
 
     info!("Building result image!");

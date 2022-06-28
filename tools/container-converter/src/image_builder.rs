@@ -1,20 +1,20 @@
 use docker_image_reference::Reference as DockerReference;
 use log::info;
+use tar::Archive;
 use tempfile::TempDir;
 
 use crate::file::{DockerCopyArgs, Resource, UnixFile};
 use crate::image::{create_nitro_image, process_output, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
-use api_model::shared::EnclaveSettings;
-use api_model::NitroEnclavesConversionRequestOptions;
+use api_model::shared::{EnclaveManifest, UserConfig};
+use api_model::{NitroEnclavesConversionRequestOptions};
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::sync::mpsc::Sender;
-use tar::Archive;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: DockerReference<'a>,
@@ -24,10 +24,14 @@ pub struct EnclaveImageBuilder<'a> {
     pub enclave_base_image: Option<String>,
 }
 
+pub struct EnclaveSettings {
+    pub user_name: String,
+
+    pub env_vars: Vec<String>
+}
+
 pub struct EnclaveBuilderResult {
     pub pcr_list: PCRList,
-
-    pub block_file_present: bool
 }
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
@@ -49,15 +53,34 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
-        env_vars: &Vec<String>,
+        user_config: UserConfig,
         images_to_clean_snd: Sender<ImageToClean>
     ) -> Result<EnclaveBuilderResult> {
-        self.create_requisites(enclave_settings, env_vars).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        let build_context_dir = self.create_build_context_dir()?;
 
-        info!("Enclave prerequisites have been created!");
+        self.create_requisites(enclave_settings, &build_context_dir)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+
+        let fs_root_hash = if self.enclave_base_image.is_some() {
+            let root_hash = self.create_block_file(docker_util).await?;
+            info!("Block file has been created!");
+
+            Some(root_hash)
+        } else {
+            None
+        };
+
+        let enclave_manifest = EnclaveManifest {
+            user_config,
+            fs_root_hash,
+        };
+
+        self.create_manifest_file(enclave_manifest, &build_context_dir)?;
+
+        info!("Enclave build prerequisites have been created!");
 
         let enclave_image_str = self.enclave_image();
         let enclave_image_reference = DockerReference::from_str(&enclave_image_str).map_err(|message| ConverterError {
@@ -70,23 +93,11 @@ impl<'a> EnclaveImageBuilder<'a> {
         let _ = create_image(
             docker_util,
             &enclave_image_reference,
-            self.dir.path(),
+            &build_context_dir,
             ConverterErrorKind::EnclaveImageCreation,
         )
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
-
-        self.create_block_file(docker_util).await?;
-        info!("Block file has been created!");
-
-        let block_file_present = if self.enclave_base_image.is_some() {
-            self.create_block_file(docker_util).await?;
-            info!("Block file has been created!");
-
-            true
-        } else {
-            false
-        };
 
         let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
@@ -96,29 +107,64 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         Ok(EnclaveBuilderResult {
             pcr_list: nitro_measurements.pcr_list,
-            block_file_present
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<()> {
-        let (block_file_input_root, block_file_mount_root) = self.create_block_file_dirs()?;
-        let block_file_input_dir = block_file_input_root.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
-        let block_file_mount_dir = block_file_mount_root.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
+    fn create_build_context_dir(&self) -> Result<PathBuf> {
+        let result = self.dir.path().join("enclave-build-context");
 
-        fs::create_dir(&block_file_input_dir)
-            .map_err(|err| ConverterError {
-                message: format!("Failed creating dir {}. {:?}", block_file_input_dir.display(), err),
-                kind: ConverterErrorKind::BlockFileCreation,
-            })?;
+        fs::create_dir(&result).map_err(|err| ConverterError {
+            message: format!("Failed creating dir {}. {:?}", result.display(), err),
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
 
-        fs::create_dir(&block_file_mount_dir)
-            .map_err(|err| ConverterError {
-                message: format!("Failed creating dir {}. {:?}", block_file_mount_dir.display(), err),
-                kind: ConverterErrorKind::BlockFileCreation,
-            })?;
+        Ok(result)
+    }
 
-        self.export_image_file_system(docker_util, &block_file_input_dir)
-            .await?;
+    fn create_manifest_file(&self, enclave_manifest: EnclaveManifest, dir: &Path) -> Result<()> {
+        let data = serde_json::to_vec(&enclave_manifest).map_err(|err| ConverterError {
+            message: format!("Failed serializing enclave settings file. {:?}", err),
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
+        let resource = [Resource {
+            name: "enclave-settings.json",
+            data: &data,
+            is_executable: false,
+        }];
+
+        file::create_resources(&resource, dir).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::RequisitesCreation,
+        })
+    }
+
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<String> {
+        let block_file_script = [Resource {
+            name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
+            data: include_bytes!("resources/fs/configure"),
+            is_executable: true,
+        }];
+
+        file::create_resources(&block_file_script, self.dir.path()).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
+        let block_file_input_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
+        let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
+
+        fs::create_dir(&block_file_input_dir).map_err(|err| ConverterError {
+            message: format!("Failed creating dir {}. {:?}", block_file_input_dir.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        fs::create_dir(&block_file_mount_dir).map_err(|err| ConverterError {
+            message: format!("Failed creating dir {}. {:?}", block_file_mount_dir.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        self.export_image_file_system(docker_util, &block_file_input_dir).await?;
 
         let mut block_file_process = self.block_file_process(&block_file_input_dir, &block_file_mount_dir);
 
@@ -127,12 +173,21 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        let _ = process_output(result, "create-block-file").map_err(|message| ConverterError {
+        let out = process_output(result, "create-block-file").map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        Ok(())
+        match out.find("Root hash:") {
+            Some(pos) => {
+                // 10 is a length of 'Root hash:' string
+                Ok(out[pos + 10..].trim().to_string())
+            }
+            _ => Err(ConverterError {
+                message: format!("Failed to find root hash in stdout. Stdout: {}", out),
+                kind: ConverterErrorKind::BlockFileCreation,
+            }),
+        }
     }
 
     fn block_file_process(&self, input_dir: &Path, mount_dir: &Path) -> Command {
@@ -146,25 +201,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         let mut result = process::Command::new(block_file_script_path);
 
         result.args(&path_args);
-        result.arg("true");
 
         result
-    }
-
-    fn create_block_file_dirs(&self) -> Result<(TempDir, TempDir)> {
-        fn temp_dir(in_dir: &Path) -> Result<TempDir> {
-            tempfile::Builder::new()
-                .tempdir_in(in_dir)
-                .map_err(|err| ConverterError {
-                    message: format!("Failed creating temp dir in {} for block file process. {:?}", in_dir.display(), err),
-                    kind: ConverterErrorKind::RequisitesCreation,
-                })
-        }
-
-        let input_dir = temp_dir(self.dir.path())?;
-        let mount_dir = temp_dir(self.dir.path())?;
-
-        Ok((input_dir, mount_dir))
     }
 
     async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
@@ -198,47 +236,29 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image.name().to_string() + ":" + &new_tag
     }
 
-    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
-        Resource {
-            name: "enclave",
-            data: include_bytes!("resources/enclave/enclave"),
-            is_executable: true,
-        },
-        Resource {
-            name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
-            data: include_bytes!("resources/fs/configure"),
-            is_executable: true,
-        }
-    ];
+    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[Resource {
+        name: "enclave",
+        data: include_bytes!("resources/enclave/enclave"),
+        is_executable: true,
+    }];
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
 
-    fn create_requisites(&self, enclave_settings: EnclaveSettings, env_vars: &[String]) -> std::result::Result<(), String> {
-        let mut docker_file = file::create_docker_file(self.dir.path())?;
+    fn create_requisites(&self, enclave_settings: EnclaveSettings, dir: &Path) -> std::result::Result<(), String> {
+        let mut docker_file = file::create_docker_file(dir)?;
 
-        self.populate_docker_file(&mut docker_file, &enclave_settings, env_vars)?;
+        self.populate_docker_file(&mut docker_file, enclave_settings)?;
 
         if cfg!(debug_assertions) {
-            file::log_docker_file(self.dir.path())?;
+            file::log_docker_file(dir)?;
         }
 
-        let mut resources = EnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES.to_vec();
-
-        let data = serde_json::to_vec(&enclave_settings)
-            .map_err(|err| format!("Failed serializing enclave settings file. {:?}", err))?;
-
-        resources.push(Resource {
-            name: "enclave-settings.json",
-            data: &data,
-            is_executable: false,
-        });
-
-        file::create_resources(&resources, self.dir.path())?;
+        file::create_resources(EnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES, dir)?;
 
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: &EnclaveSettings, env_vars: &[String]) -> std::result::Result<(), String> {
+    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let copy = DockerCopyArgs {
@@ -252,10 +272,10 @@ impl<'a> EnclaveImageBuilder<'a> {
             let enclave_settings_file = install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
 
             let user_name = {
-                if let Some(pos) = enclave_settings.user.find(":") {
-                    &enclave_settings.user[..pos]
+                if let Some(pos) = enclave_settings.user_name.find(":") {
+                    &enclave_settings.user_name[..pos]
                 } else {
-                    &enclave_settings.user
+                    &enclave_settings.user_name
                 }
             };
 
@@ -267,28 +287,21 @@ impl<'a> EnclaveImageBuilder<'a> {
                 String::new()
             };
 
-            let use_file_system_flag = if self.enclave_base_image.is_some() {
-                "--use-file-system"
-            } else {
-                ""
-            };
-
             format!(
-                "{} {} --vsock-port 5006 --settings-path {} {}",
+                "{} {} --vsock-port 5006 --settings-path {}",
                 switch_user_cmd,
                 enclave_bin.display(),
-                enclave_settings_file.display(),
-                use_file_system_flag
+                enclave_settings_file.display()
             )
         };
 
         let client_image = &self.client_image.to_string();
         let from = match &self.enclave_base_image {
-            Some(e) => { e }
-            _ => { client_image }
+            Some(e) => e,
+            _ => client_image,
         };
 
-        let mut env = env_vars.to_vec();
+        let mut env = enclave_settings.env_vars;
         env.push(rust_log_env_var("enclave"));
 
         file::populate_docker_file(
@@ -309,8 +322,6 @@ pub struct ParentImageBuilder<'a> {
     pub dir: &'a TempDir,
 
     pub start_options: NitroEnclavesConversionRequestOptions,
-
-    pub block_file_present: bool
 }
 
 impl<'a> ParentImageBuilder<'a> {
@@ -318,12 +329,27 @@ impl<'a> ParentImageBuilder<'a> {
 
     const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
-    fn startup_path(&self) -> PathBuf {
-        self.dir.path().join("start-parent.sh")
+    const STARTUP_SCRIPT_NAME: &'static str = "start-parent.sh";
+
+    const BINARY_NAME: &'static str = "parent";
+
+    fn create_build_context_dir(&self) -> Result<PathBuf> {
+        let result = self.dir.path().join("parent-build-context");
+
+        fs::create_dir(&result).map_err(|err| ConverterError {
+            message: format!("Failed creating dir {}. {:?}", result.display(), err),
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
+        Ok(result)
     }
 
     pub async fn create_image(&self, docker_util: &dyn DockerUtil) -> Result<ImageWithDetails> {
-        self.create_requisites().map_err(|message| ConverterError {
+        let build_context_dir = self.create_build_context_dir()?;
+
+        let block_file_exists = self.move_enclave_files_into_build_context(&build_context_dir)?;
+
+        self.create_requisites(&build_context_dir, block_file_exists).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
@@ -332,7 +358,7 @@ impl<'a> ParentImageBuilder<'a> {
         let result = create_image(
             docker_util,
             &self.output_image,
-            self.dir.path(),
+            &build_context_dir,
             ConverterErrorKind::ParentImageCreation,
         )
         .await?;
@@ -342,34 +368,67 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    fn create_requisites(&self) -> std::result::Result<(), String> {
-        let mut docker_file = file::create_docker_file(self.dir.path())?;
-
-        self.populate_docker_file(&mut docker_file)?;
-
-        if cfg!(debug_assertions) {
-            file::log_docker_file(self.dir.path())?;
+    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<bool> {
+        fn move_file(from: &Path, to: &Path) -> Result<()> {
+            fs::rename(from, to).map_err(|message| ConverterError {
+                message: format!(
+                    "Failed moving file {} into build context {}. {:?}",
+                    from.display(),
+                    to.display(),
+                    message
+                ),
+                kind: ConverterErrorKind::RequisitesCreation,
+            })
         }
 
-        file::create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES, self.dir.path())?;
+        move_file(
+            &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
+            &build_context_dir.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
+        )?;
 
-        self.create_parent_startup_script()?;
+        let block_file = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
+        if block_file.exists() {
+            move_file(
+                &block_file,
+                &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+            )?;
+
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn create_requisites(&self, dir: &Path, block_file_exists: bool) -> std::result::Result<(), String> {
+        let mut docker_file = file::create_docker_file(dir)?;
+
+        let mut copy_items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
+
+        if block_file_exists {
+            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
+        }
+
+        self.populate_docker_file(&mut docker_file, copy_items)?;
 
         if cfg!(debug_assertions) {
-            file::log_file(&self.startup_path())?;
+            file::log_docker_file(dir)?;
+        }
+
+        file::create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES, dir)?;
+        let startup_script_path = dir.join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
+
+        self.append_start_enclave_command(&startup_script_path)?;
+
+        if cfg!(debug_assertions) {
+            file::log_file(&startup_script_path)?;
         }
 
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File) -> std::result::Result<(), String> {
-        let mut items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
-        if self.block_file_present {
-            items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
-        }
-
+    fn populate_docker_file(&self, file: &mut fs::File, copy_items: Vec<&str>) -> std::result::Result<(), String> {
         let copy = DockerCopyArgs {
-            items,
+            items: copy_items,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -384,10 +443,10 @@ impl<'a> ParentImageBuilder<'a> {
         file::populate_docker_file(file, &self.parent_image, &copy, &env_vars, &run_parent_cmd)
     }
 
-    fn create_parent_startup_script(&self) -> std::result::Result<(), String> {
+    fn append_start_enclave_command(&self, startup_script_path: &Path) -> std::result::Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(self.startup_path())
+            .open(startup_script_path)
             .map_err(|err| format!("Failed to open parent startup script {:?}", err))?;
 
         let start_enclave_command = self.start_enclave_command();
@@ -410,24 +469,18 @@ impl<'a> ParentImageBuilder<'a> {
         // to console. cmd simply runs the enclave with no additional
         // logging
         let (dbg_cmd, cmd) = self.get_nitro_run_commands(&install_path);
-        let use_file_system_flag = if self.block_file_present {
-            "--use-file-system"
-        } else {
-            ""
-        };
         // We start the parent side of the vsock proxy before running the enclave because we want it running
         // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
         // parent process so our container will stay running as long as the parent process stays running.
         format!(
             "\n\
              # Parent startup code \n\
-             {} --vsock-port 5006 {} & \n\
+             {} --vsock-port 5006 & \n\
              dbg_cmd=\"{}\" \n\
              cmd=\"{}\" \n\
              if [ -n \"$ENCLAVEOS_DEBUG\" ] ; then eval \"$dbg_cmd\" ; else eval \"$cmd\" ; fi; \n\
              fg \n",
             parent_bin.display(),
-            use_file_system_flag,
             dbg_cmd,
             cmd
         )
@@ -435,21 +488,21 @@ impl<'a> ParentImageBuilder<'a> {
 
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         file::Resource {
-            name: "start-parent.sh",
+            name: ParentImageBuilder::STARTUP_SCRIPT_NAME,
             data: include_bytes!("resources/parent/start-parent.sh"),
             is_executable: true,
         },
         file::Resource {
-            name: "parent",
+            name: ParentImageBuilder::BINARY_NAME,
             data: include_bytes!("resources/parent/parent"),
             is_executable: true,
         },
     ];
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
-        "start-parent.sh",
-        "parent",
-        EnclaveImageBuilder::ENCLAVE_FILE_NAME
+        ParentImageBuilder::STARTUP_SCRIPT_NAME,
+        ParentImageBuilder::BINARY_NAME,
+        EnclaveImageBuilder::ENCLAVE_FILE_NAME,
     ];
 
     fn eos_debug_env_var(&self) -> String {
@@ -493,7 +546,7 @@ impl<'a> ParentImageBuilder<'a> {
         // --enclave-name here is the name of the .eif file which is fixed to "enclave"
         let dbg_cmd = format!(
             "{} --debug-mode \n\
-                                      nitro-cli console --enclave-name enclave ",
+            nitro-cli console --enclave-name enclave ",
             nitro_run_cmd
         );
         return (dbg_cmd, nitro_run_cmd);
@@ -600,7 +653,7 @@ mod tests {
         let enclave_builder = EnclaveImageBuilder {
             client_image: DockerReference::from_str("test").expect("Failed creating docker reference"),
             dir: &temp_dir,
-            enclave_base_image: None
+            enclave_base_image: None,
         };
 
         enclave_builder

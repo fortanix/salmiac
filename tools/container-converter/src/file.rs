@@ -16,10 +16,7 @@ pub struct Resource<'a> {
 
 pub fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String> {
     for resource in resources {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join(&resource.name))
+        let mut file = fs::File::create(dir.join(&resource.name))
             .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
 
         file.write_all(&resource.data)
