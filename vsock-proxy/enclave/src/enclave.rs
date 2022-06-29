@@ -11,10 +11,8 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, mount_file_system, mount_nbd_device,
-                         run_nbd_client, create_overlay_dirs, mount_overlay_fs, ENCLAVE_FS_OVERLAY_ROOT};
-
-use api_model::shared::EnclaveManifest;
+use crate::file_system::{copy_dns_file_to_mount, mount_file_system_nodes, run_nbd_client, create_overlay_dirs, mount_overlay_fs, ENCLAVE_FS_OVERLAY_ROOT, setup_dm_verity, DMVerityConfig, NBD_DEVICE, mount_read_only_file_system, DM_VERITY_VOLUME};
+use api_model::shared::{EnclaveManifest};
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::NetlinkARP;
@@ -53,14 +51,19 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
 
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
-    let use_file_system = enclave_settings.fs_root_hash.is_some();
-    if use_file_system {
-        parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
+    let use_file_system = match &enclave_settings.file_system_config {
+        Some(config) => {
+            parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
 
-        setup_file_system(&mut parent_port).await?;
-    } else {
-        parent_port.write_lv(&SetupMessages::UseFileSystem(false)).await?;
-    }
+            setup_file_system(&mut parent_port, &config.root_hash, config.hash_offset).await?;
+
+            true
+        }
+        _ => {
+            parent_port.write_lv(&SetupMessages::UseFileSystem(false)).await?;
+            false
+        }
+    };
 
     // We can request application configuration only if we know application id.
     if let (Some(certificate_info), Some(_)) = (setup_result.certificate_info, app_config.id) {
@@ -96,22 +99,32 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     }
 }
 
-async fn setup_file_system(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
+async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, hash_offset: u32) -> Result<(), String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
     run_nbd_client(nbd_config).await?;
     info!("Connected to NBD server.");
 
-    mount_nbd_device().await?;
-    info!("Finished block file mount.");
+    let verity_config = DMVerityConfig {
+        hash_offset,
+        nbd_device: NBD_DEVICE,
+        volume_name: DM_VERITY_VOLUME,
+        root_hash: root_hash.to_string()
+    };
+
+    setup_dm_verity(&verity_config).await?;
+    info!("Finished setup dm-verity.");
 
     create_overlay_dirs()?;
     info!("Created directories needed for overlay fs mount.");
 
+    mount_read_only_file_system().await?;
+    info!("Finished read only file system mount.");
+
     mount_overlay_fs().await?;
     info!("Mounted enclave root with overlay-fs.");
 
-    mount_file_system().await?;
+    mount_file_system_nodes().await?;
     copy_dns_file_to_mount()?;
     info!("Finished file system mount.");
 

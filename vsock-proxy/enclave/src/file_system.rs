@@ -4,30 +4,35 @@ use log::debug;
 use std::fs;
 use std::net::SocketAddr;
 
-pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/enclave-fs";
+pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 pub(crate) const ENCLAVE_FS_UPPER: &str = "/mnt/upper";
 pub(crate) const ENCLAVE_FS_WORK: &str = "/mnt/overlay-root/work";
 pub(crate) const ENCLAVE_FS_OVERLAY_ROOT: &str = "/mnt/overlay-root";
 
-const NBD_DEVICE: &str = "/dev/nbd0";
+pub(crate) const NBD_DEVICE: &str = "/dev/nbd0";
+pub(crate) const DM_VERITY_VOLUME: &str = "rodir";
 
-pub(crate) async fn mount_file_system() -> Result<(), String> {
+pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
     run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
     run_mount(&["--rbind", "/sys", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
     run_mount(&["--rbind", "/dev", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await
 }
 
+pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
+    let dm_verity_device = "/dev/mapper/".to_string() + DM_VERITY_VOLUME;
+
+    run_mount(&["-o", "ro", &dm_verity_device, ENCLAVE_FS_LOWER]).await
+}
+
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
-    let overlay_dir_config = format!("lowerdir={},upperdir={},workdir={}",
-                                     ENCLAVE_FS_LOWER, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK);
+    let lower_dir = ENCLAVE_FS_LOWER.to_string() + "/enclave-fs";
+    let overlay_dir_config = format!("lowerdir={},upperdir={},workdir={}", lower_dir, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK);
 
     run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT ]).await
-
-    //uncomment while debugging - list overlay mount to check if it was successful
-    //debug_list_dir_contents(ENCLAVE_FS_OVERLAY_ROOT)
 }
 
 pub(crate) fn create_overlay_dirs() -> Result<(), String> {
+    fs::create_dir(ENCLAVE_FS_LOWER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
     fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
     fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
     fs::create_dir(ENCLAVE_FS_WORK).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
@@ -35,25 +40,28 @@ pub(crate) fn create_overlay_dirs() -> Result<(), String> {
     Ok(())
 }
 
-fn debug_list_dir_contents(dir_path: &str) -> Result<(), String> {
-    let mounted_dir =
-        fs::read_dir(dir_path).map_err(|err| format!("Failed reading dir {}. {:?}", dir_path, err))?;
+pub(crate) struct DMVerityConfig {
+    pub hash_offset: u32,
 
-    for contents in mounted_dir {
-        match contents {
-            Ok(dir_entry) => {
-                debug!("Mounted {} dir contains {}", dir_path, dir_entry.path().display())
-            }
-            Err(err) => return Err(format!("Mounted {} dir has corrupted entry. {:?}", dir_path, err)),
-        }
-    }
-    Ok(())
+    pub nbd_device: &'static str,
+
+    pub volume_name: &'static str,
+
+    pub root_hash: String
 }
 
-pub(crate) async fn mount_nbd_device() -> Result<(), String> {
-    run_mount(&[NBD_DEVICE, "/mnt"]).await?;
-    // List the directory to check that mount was successful at runtime
-    debug_list_dir_contents(ENCLAVE_FS_LOWER)
+pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), String> {
+    let args: [&str; 7] = [
+        "open",
+        "--hash-offset",
+        &config.hash_offset.to_string(),
+        &config.nbd_device,
+        &config.volume_name,
+        &config.nbd_device,
+        &config.root_hash
+    ];
+
+    run_subprocess("veritysetup", &args).await
 }
 
 pub(crate) async fn run_nbd_client(address: SocketAddr) -> Result<(), String> {

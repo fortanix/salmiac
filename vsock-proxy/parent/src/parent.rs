@@ -80,7 +80,8 @@ fn write_nbd_config(fs_tap_l3_address: IpNetwork) -> Result<(), String> {
         listenaddr = {}
     [enclave-fs]
         authfile =
-        exportname = {}",
+        exportname = {}
+        readonly = true",
         fs_tap_l3_address.ip().to_string(),
         NBD_BLOCK_FILE
     );

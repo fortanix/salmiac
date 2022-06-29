@@ -7,7 +7,7 @@ use crate::file::{DockerCopyArgs, Resource, UnixFile};
 use crate::image::{create_nitro_image, process_output, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
-use api_model::shared::{EnclaveManifest, UserConfig};
+use api_model::shared::{EnclaveManifest, UserConfig, FileSystemConfig};
 use api_model::{NitroEnclavesConversionRequestOptions};
 
 use std::fs;
@@ -15,6 +15,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::sync::mpsc::Sender;
+use std::str::FromStr;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: DockerReference<'a>,
@@ -75,7 +76,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let enclave_manifest = EnclaveManifest {
             user_config,
-            fs_root_hash,
+            file_system_config: fs_root_hash,
         };
 
         self.create_manifest_file(enclave_manifest, &build_context_dir)?;
@@ -139,7 +140,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<String> {
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
         let block_file_script = [Resource {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
             data: include_bytes!("resources/fs/configure"),
@@ -178,16 +179,38 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        match out.find("Root hash:") {
-            Some(pos) => {
-                // 10 is a length of 'Root hash:' string
-                Ok(out[pos + 10..].trim().to_string())
+        EnclaveImageBuilder::create_file_system_config(&out)
+    }
+
+    fn create_file_system_config(stdout: &str) -> Result<FileSystemConfig> {
+        fn extract_value<'a>(stdout: &'a str, field: &str) -> Result<&'a str> {
+            match stdout.find(field) {
+                Some(pos) => {
+                    let line_end_pos = stdout[pos..].find("\n").unwrap();
+
+                    Ok(stdout[pos + field.len()..pos + line_end_pos].trim())
+                }
+                _ => {
+                    Err(ConverterError {
+                        message: format!("Failed to find {} in stdout. Stdout: {}", field, stdout),
+                        kind: ConverterErrorKind::BlockFileCreation,
+                    })
+                },
             }
-            _ => Err(ConverterError {
-                message: format!("Failed to find root hash in stdout. Stdout: {}", out),
-                kind: ConverterErrorKind::BlockFileCreation,
-            }),
         }
+
+        let root_hash = extract_value(stdout, "Root hash:")?;
+        let raw_hash_offset = extract_value(stdout, "Hash offset:")?;
+
+        let hash_offset = u32::from_str(raw_hash_offset).map_err(|err| ConverterError {
+            message: format!("Failed to convert hash offset {} to int. {:?}", raw_hash_offset, err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        Ok(FileSystemConfig {
+            root_hash: root_hash.to_string(),
+            hash_offset
+        })
     }
 
     fn block_file_process(&self, input_dir: &Path, mount_dir: &Path) -> Command {
