@@ -41,7 +41,7 @@ pub(crate) fn create_overlay_dirs() -> Result<(), String> {
 }
 
 pub(crate) struct DMVerityConfig {
-    pub hash_offset: u32,
+    pub hash_offset: u64,
 
     pub nbd_device: &'static str,
 

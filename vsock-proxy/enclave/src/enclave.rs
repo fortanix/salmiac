@@ -99,7 +99,7 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
     }
 }
 
-async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, hash_offset: u32) -> Result<(), String> {
+async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, hash_offset: u64) -> Result<(), String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
     run_nbd_client(nbd_config).await?;

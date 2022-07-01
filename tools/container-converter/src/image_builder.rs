@@ -65,13 +65,14 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        let fs_root_hash = if self.enclave_base_image.is_some() {
-            let root_hash = self.create_block_file(docker_util).await?;
-            info!("Block file has been created!");
+        let fs_root_hash = match &self.enclave_base_image {
+            Some(_) => {
+                let root_hash = self.create_block_file(docker_util).await?;
+                info!("Block file has been created!");
 
-            Some(root_hash)
-        } else {
-            None
+                Some(root_hash)
+            }
+            _ => { None }
         };
 
         let enclave_manifest = EnclaveManifest {
@@ -183,26 +184,23 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     fn create_file_system_config(stdout: &str) -> Result<FileSystemConfig> {
-        fn extract_value<'a>(stdout: &'a str, field: &str) -> Result<&'a str> {
-            match stdout.find(field) {
-                Some(pos) => {
-                    let line_end_pos = stdout[pos..].find("\n").unwrap();
+        fn field_value(stdout: &str, field_start: usize) -> Option<&str> {
+            stdout[field_start..].find("\n").map(|field_end| stdout[field_start..field_start + field_end].trim())
+        }
 
-                    Ok(stdout[pos + field.len()..pos + line_end_pos].trim())
-                }
-                _ => {
-                    Err(ConverterError {
-                        message: format!("Failed to find {} in stdout. Stdout: {}", field, stdout),
-                        kind: ConverterErrorKind::BlockFileCreation,
-                    })
-                },
-            }
+        fn extract_value<'a>(stdout: &'a str, field_header: &str) -> Result<&'a str> {
+            stdout.find(field_header)
+                .and_then(|pos| field_value(stdout, pos + field_header.len()))
+                .ok_or(ConverterError {
+                    message: format!("Failed to find {} in stdout. Stdout: {}", field_header, stdout),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })
         }
 
         let root_hash = extract_value(stdout, "Root hash:")?;
         let raw_hash_offset = extract_value(stdout, "Hash offset:")?;
 
-        let hash_offset = u32::from_str(raw_hash_offset).map_err(|err| ConverterError {
+        let hash_offset = u64::from_str(raw_hash_offset).map_err(|err| ConverterError {
             message: format!("Failed to convert hash offset {} to int. {:?}", raw_hash_offset, err),
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
