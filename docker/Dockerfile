@@ -27,7 +27,8 @@ COPY staging/nitro-enclave-base.tar /
 # amzn-linux-nbd directory is available in the project root directory
 # when ci.sh is run. ci.sh is responsible for fetching amzn-linux-nbd
 # artifact from the fortanix S3
-COPY amzn-linux-nbd/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
-COPY amzn-linux-nbd/bzImage /usr/share/nitro_enclaves/blobs/bzImage
+# TODO: Enable the below once converter docker build is part of CI
+# COPY amzn-linux-nbd/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
+# COPY amzn-linux-nbd/bzImage /usr/share/nitro_enclaves/blobs/bzImage
 
 ENTRYPOINT [ "./server" ]
