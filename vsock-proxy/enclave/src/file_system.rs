@@ -110,18 +110,18 @@ async fn run_mount(args: &[&str]) -> Result<(), String> {
 }
 
 async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), String> {
-    let mut mount_command = Command::new(subprocess_path);
+    let mut command = Command::new(subprocess_path);
 
-    mount_command.args(args);
+    command.args(args);
 
-    debug!("Running {} {:?}", subprocess_path, args);
-    let mount_process = mount_command
+    debug!("Running subprocess {} {:?}", subprocess_path, args);
+    let process = command
         .spawn()
-        .map_err(|err| format!("Failed to run {}. {:?}. Args {:?}", subprocess_path, err, args))?;
+        .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
 
-    let out = mount_process.output().await.map_err(|err| {
+    let out = process.output().await.map_err(|err| {
         format!(
-            "Error while waiting for {} to finish: {:?}. Args {:?}",
+            "Error while waiting for subprocess {} to finish: {:?}. Args {:?}",
             subprocess_path, err, args
         )
     })?;

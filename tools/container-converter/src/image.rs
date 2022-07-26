@@ -6,6 +6,7 @@ use serde::Deserialize;
 use shiplift::image::{ImageDetails, PushOptions};
 use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
 
+use crate::image_builder::run_subprocess;
 use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
 use api_model::shared::UserProgramConfig;
 use api_model::AuthConfig;
@@ -14,7 +15,6 @@ use shiplift::container::ContainerCreateInfo;
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::process;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
@@ -37,52 +37,32 @@ pub struct PCRList {
     pub pcr8: Option<String>,
 }
 
-pub fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroCliOutput, ConverterError> {
+pub async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroCliOutput, ConverterError> {
     let output = output_file.to_str().ok_or(ConverterError {
         message: format!("Failed to cast path {:?} to string", output_file),
         kind: ConverterErrorKind::NitroFileCreation,
     })?;
 
-    let nitro_cli_args = ["build-enclave", "--docker-uri", &image.to_string(), "--output-file", output];
+    let image_as_str = image.to_string();
 
-    let nitro_cli_command = process::Command::new("nitro-cli")
-        .args(&nitro_cli_args)
-        .output()
-        .map_err(|err| ConverterError {
-            message: format!("Failure executing nitro-cli. {:?}", err),
+    let nitro_cli_args = [
+        "build-enclave".as_ref(),
+        "--docker-uri".as_ref(),
+        image_as_str.as_ref(),
+        "--output-file".as_ref(),
+        output.as_ref()];
+
+    let process_output = run_subprocess("nitro-cli".as_ref(), &nitro_cli_args)
+        .await
+        .map_err(|message| ConverterError {
+            message,
             kind: ConverterErrorKind::NitroFileCreation,
         })?;
-
-    let process_output = process_output(nitro_cli_command, "nitro-cli").map_err(|message| ConverterError {
-        message,
-        kind: ConverterErrorKind::NitroFileCreation,
-    })?;
 
     serde_json::from_str::<NitroCliOutput>(&process_output).map_err(|err| ConverterError {
         message: format!("Bad measurements. {:?}", err),
         kind: ConverterErrorKind::NitroFileCreation,
     })
-}
-
-pub fn process_output(output: process::Output, process_name: &str) -> Result<String, String> {
-    if !output.status.success() {
-        let result = String::from_utf8_lossy(&output.stderr);
-
-        error!("status: {}", output.status);
-        error!("stderr: {}", result);
-
-        Err(format!(
-            "External process {} exited with {}. Stderr: {}",
-            process_name, output.status, result
-        ))
-    } else {
-        let result = String::from_utf8_lossy(&output.stdout);
-
-        info!("status: {}", output.status);
-        info!("stdout: {}", result);
-
-        Ok(result.to_string())
-    }
 }
 
 /// Convenience functions to work with docker daemon

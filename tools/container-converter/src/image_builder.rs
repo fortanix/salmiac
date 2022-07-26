@@ -1,10 +1,11 @@
+use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
-use log::info;
+use log::{info, error, debug};
 use tar::Archive;
 use tempfile::TempDir;
 
 use crate::file::{DockerCopyArgs, Resource, UnixFile};
-use crate::image::{create_nitro_image, process_output, DockerUtil, ImageWithDetails, PCRList};
+use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
 use api_model::shared::{EnclaveManifest, UserConfig, FileSystemConfig};
@@ -13,9 +14,9 @@ use api_model::{NitroEnclavesConversionRequestOptions};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
 use std::sync::mpsc::Sender;
 use std::str::FromStr;
+use std::ffi::OsStr;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: DockerReference<'a>,
@@ -50,6 +51,10 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
 
+    pub const RW_BLOCK_FILE_OUT: &'static str = "Blockfile-rw.ext4";
+
+    pub const RW_BLOCK_FILE_DEFAULT_SIZE: u32 = 256;
+
     pub async fn create_image(
         &self,
         docker_util: &dyn DockerUtil,
@@ -68,7 +73,10 @@ impl<'a> EnclaveImageBuilder<'a> {
         let fs_root_hash = match &self.enclave_base_image {
             Some(_) => {
                 let root_hash = self.create_block_file(docker_util).await?;
-                info!("Block file has been created!");
+                info!("Client FS Block file has been created!");
+
+                self.create_rw_block_file().await?;
+                info!("RW Block file has been created!");
 
                 Some(root_hash)
             }
@@ -101,9 +109,11 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
         .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))?;
 
-        let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
+        let nitro_measurements = {
+            let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
-        let nitro_measurements = create_nitro_image(&enclave_image_reference, &nitro_image_path)?;
+            create_nitro_image(&enclave_image_reference, &nitro_image_path).await?
+        };
 
         info!("Nitro image has been created!");
 
@@ -141,6 +151,27 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
+    async fn create_rw_block_file(&self) -> Result<()> {
+        let block_file_out_path = self.dir.path().join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
+        let of_arg = format!("of={}", block_file_out_path.display());
+        let count_arg = format!("count={}", EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE);
+
+        let args = [
+            "if=/dev/zero".as_ref(),
+            of_arg.as_ref(),
+            "bs=1M".as_ref(),
+            count_arg.as_ref()
+        ];
+
+        run_subprocess("dd".as_ref(), &args)
+            .await
+            .map(|_| ())
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::BlockFileCreation,
+            })
+    }
+
     async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
         let block_file_script = [Resource {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
@@ -168,19 +199,26 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         self.export_image_file_system(docker_util, &block_file_input_dir).await?;
 
-        let mut block_file_process = self.block_file_process(&block_file_input_dir, &block_file_mount_dir);
+        let result = {
+            let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
+            let args = [
+                block_file_input_dir.as_os_str(),
+                block_file_mount_dir.as_os_str(),
+                block_file_out.as_os_str(),
+            ];
+            let block_file_script_path = self.dir
+                .path()
+                .join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
 
-        let result = block_file_process.output().map_err(|err| ConverterError {
-            message: format!("Failed creating block file. {:?}", err),
-            kind: ConverterErrorKind::BlockFileCreation,
-        })?;
+            run_subprocess(block_file_script_path.as_os_str(), &args)
+                .await
+                .map_err(|message| ConverterError {
+                    message,
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })?
+        };
 
-        let out = process_output(result, "create-block-file").map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::BlockFileCreation,
-        })?;
-
-        EnclaveImageBuilder::create_file_system_config(&out)
+        EnclaveImageBuilder::create_file_system_config(&result)
     }
 
     fn create_file_system_config(stdout: &str) -> Result<FileSystemConfig> {
@@ -209,21 +247,6 @@ impl<'a> EnclaveImageBuilder<'a> {
             root_hash: root_hash.to_string(),
             hash_offset
         })
-    }
-
-    fn block_file_process(&self, input_dir: &Path, mount_dir: &Path) -> Command {
-        let path_args = [
-            input_dir,
-            mount_dir,
-            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-        ];
-        let block_file_script_path = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
-
-        let mut result = process::Command::new(block_file_script_path);
-
-        result.args(&path_args);
-
-        result
     }
 
     async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
@@ -414,6 +437,12 @@ impl<'a> ParentImageBuilder<'a> {
                 &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
             )?;
 
+            let rw_block_file = self.dir.path().join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
+            move_file(
+                &rw_block_file,
+                &build_context_dir.join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT),
+            )?;
+
             Ok(true)
         } else {
             Ok(false)
@@ -426,7 +455,8 @@ impl<'a> ParentImageBuilder<'a> {
         let mut copy_items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
 
         if block_file_exists {
-            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT)
+            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT);
+            copy_items.push(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
         }
 
         self.populate_docker_file(&mut docker_file, copy_items)?;
@@ -599,6 +629,44 @@ fn rust_log_env_var(project_name: &str) -> String {
     };
 
     format!("RUST_LOG={}={}", project_name, log_level)
+}
+
+pub async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
+    let mut command = Command::new(subprocess_path);
+
+    command.stdout(Stdio::piped());
+    command.args(args);
+
+    debug!("Running subprocess {:?} {:?}", subprocess_path, args);
+    let process = command
+        .spawn()
+        .map_err(|err| format!("Failed to run subprocess {:?}. {:?}. Args {:?}", subprocess_path, err, args))?;
+
+    let output = process.output().await.map_err(|err| {
+        format!(
+            "Error while waiting for subprocess {:?} to finish: {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
+
+    if !output.status.success() {
+        let result = String::from_utf8_lossy(&output.stderr);
+
+        error!("status: {}", output.status);
+        error!("stderr: {}", result);
+
+        Err(format!(
+            "External process {:?} exited with {}. Stderr: {}",
+            subprocess_path, output.status, result
+        ))
+    } else {
+        let result = String::from_utf8_lossy(&output.stdout);
+
+        info!("status: {}", output.status);
+        info!("stdout: {}", result);
+
+        Ok(result.to_string())
+    }
 }
 
 #[cfg(test)]
