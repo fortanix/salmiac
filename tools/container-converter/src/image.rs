@@ -50,7 +50,8 @@ pub async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path)
         "--docker-uri".as_ref(),
         image_as_str.as_ref(),
         "--output-file".as_ref(),
-        output.as_ref()];
+        output.as_ref(),
+    ];
 
     let process_output = run_subprocess("nitro-cli".as_ref(), &nitro_cli_args)
         .await

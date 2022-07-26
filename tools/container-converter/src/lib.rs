@@ -11,6 +11,7 @@ use api_model::{
 };
 use model_types::HexString;
 
+use api_model::shared::UserConfig;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
@@ -18,7 +19,6 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use api_model::shared::UserConfig;
 
 pub mod file;
 pub mod image;
@@ -134,7 +134,7 @@ async fn run0(
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
         user_name: input_image.image.details.config.user.clone(),
-        env_vars: args.request.converter_options.env_vars
+        env_vars: args.request.converter_options.env_vars,
     };
     let user_config = UserConfig {
         user_program_config,
@@ -143,7 +143,7 @@ async fn run0(
 
     let sender = images_to_clean_snd.clone();
     let nitro_image_result = enclave_builder
-        .create_image(&input_repository, enclave_settings, user_config,sender)
+        .create_image(&input_repository, enclave_settings, user_config, sender)
         .await?;
 
     let parent_builder = ParentImageBuilder {

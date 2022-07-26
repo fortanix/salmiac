@@ -1,6 +1,6 @@
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
-use log::{info, error, debug};
+use log::{debug, error, info};
 use tar::Archive;
 use tempfile::TempDir;
 
@@ -8,15 +8,15 @@ use crate::file::{DockerCopyArgs, Resource, UnixFile};
 use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
-use api_model::shared::{EnclaveManifest, UserConfig, FileSystemConfig};
-use api_model::{NitroEnclavesConversionRequestOptions};
+use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
+use api_model::NitroEnclavesConversionRequestOptions;
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 use std::str::FromStr;
-use std::ffi::OsStr;
+use std::sync::mpsc::Sender;
 
 pub struct EnclaveImageBuilder<'a> {
     pub client_image: DockerReference<'a>,
@@ -29,7 +29,7 @@ pub struct EnclaveImageBuilder<'a> {
 pub struct EnclaveSettings {
     pub user_name: String,
 
-    pub env_vars: Vec<String>
+    pub env_vars: Vec<String>,
 }
 
 pub struct EnclaveBuilderResult {
@@ -60,7 +60,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        images_to_clean_snd: Sender<ImageToClean>
+        images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<EnclaveBuilderResult> {
         let build_context_dir = self.create_build_context_dir()?;
 
@@ -80,7 +80,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
                 Some(root_hash)
             }
-            _ => { None }
+            _ => None,
         };
 
         let enclave_manifest = EnclaveManifest {
@@ -156,12 +156,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let of_arg = format!("of={}", block_file_out_path.display());
         let count_arg = format!("count={}", EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE);
 
-        let args = [
-            "if=/dev/zero".as_ref(),
-            of_arg.as_ref(),
-            "bs=1M".as_ref(),
-            count_arg.as_ref()
-        ];
+        let args = ["if=/dev/zero".as_ref(), of_arg.as_ref(), "bs=1M".as_ref(), count_arg.as_ref()];
 
         run_subprocess("dd".as_ref(), &args)
             .await
@@ -206,9 +201,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 block_file_mount_dir.as_os_str(),
                 block_file_out.as_os_str(),
             ];
-            let block_file_script_path = self.dir
-                .path()
-                .join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
+            let block_file_script_path = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
 
             run_subprocess(block_file_script_path.as_os_str(), &args)
                 .await
@@ -223,11 +216,14 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     fn create_file_system_config(stdout: &str) -> Result<FileSystemConfig> {
         fn field_value(stdout: &str, field_start: usize) -> Option<&str> {
-            stdout[field_start..].find("\n").map(|field_end| stdout[field_start..field_start + field_end].trim())
+            stdout[field_start..]
+                .find("\n")
+                .map(|field_end| stdout[field_start..field_start + field_end].trim())
         }
 
         fn extract_value<'a>(stdout: &'a str, field_header: &str) -> Result<&'a str> {
-            stdout.find(field_header)
+            stdout
+                .find(field_header)
                 .and_then(|pos| field_value(stdout, pos + field_header.len()))
                 .ok_or(ConverterError {
                     message: format!("Failed to find {} in stdout. Stdout: {}", field_header, stdout),
@@ -245,7 +241,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         Ok(FileSystemConfig {
             root_hash: root_hash.to_string(),
-            hash_offset
+            hash_offset,
         })
     }
 
@@ -348,13 +344,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let mut env = enclave_settings.env_vars;
         env.push(rust_log_env_var("enclave"));
 
-        file::populate_docker_file(
-            file,
-            from,
-            &copy,
-            &env,
-            &run_enclave_cmd,
-        )
+        file::populate_docker_file(file, from, &copy, &env, &run_enclave_cmd)
     }
 }
 
@@ -393,10 +383,11 @@ impl<'a> ParentImageBuilder<'a> {
 
         let block_file_exists = self.move_enclave_files_into_build_context(&build_context_dir)?;
 
-        self.create_requisites(&build_context_dir, block_file_exists).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        self.create_requisites(&build_context_dir, block_file_exists)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
         info!("Parent prerequisites have been created!");
 
         let result = create_image(
@@ -432,10 +423,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         let block_file = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
         if block_file.exists() {
-            move_file(
-                &block_file,
-                &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-            )?;
+            move_file(&block_file, &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT))?;
 
             let rw_block_file = self.dir.path().join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
             move_file(
@@ -489,7 +477,8 @@ impl<'a> ParentImageBuilder<'a> {
             rust_log_env_var("parent"),
             self.cpu_count_env_var(),
             self.mem_size_env_var(),
-            self.eos_debug_env_var()];
+            self.eos_debug_env_var(),
+        ];
 
         file::populate_docker_file(file, &self.parent_image, &copy, &env_vars, &run_parent_cmd)
     }
@@ -622,11 +611,7 @@ async fn create_image(
 }
 
 fn rust_log_env_var(project_name: &str) -> String {
-    let log_level = if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "info"
-    };
+    let log_level = if cfg!(debug_assertions) { "debug" } else { "info" };
 
     format!("RUST_LOG={}={}", project_name, log_level)
 }
