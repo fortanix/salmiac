@@ -53,7 +53,8 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub const RW_BLOCK_FILE_OUT: &'static str = "Blockfile-rw.ext4";
 
-    pub const RW_BLOCK_FILE_DEFAULT_SIZE: u32 = 256;
+    // 256 MB converted to bytes
+    pub const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
 
     pub async fn create_image(
         &self,
@@ -73,10 +74,10 @@ impl<'a> EnclaveImageBuilder<'a> {
         let fs_root_hash = match &self.enclave_base_image {
             Some(_) => {
                 let root_hash = self.create_block_file(docker_util).await?;
-                info!("Client FS Block file has been created!");
+                info!("Client FS Block file has been created.");
 
                 self.create_rw_block_file().await?;
-                info!("RW Block file has been created!");
+                info!("RW Block file has been created.");
 
                 Some(root_hash)
             }
@@ -153,12 +154,20 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     async fn create_rw_block_file(&self) -> Result<()> {
         let block_file_out_path = self.dir.path().join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
-        let of_arg = format!("of={}", block_file_out_path.display());
-        let count_arg = format!("count={}", EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE);
 
-        let args = ["if=/dev/zero".as_ref(), of_arg.as_ref(), "bs=1M".as_ref(), count_arg.as_ref()];
+        let block_file = fs::File::create(&block_file_out_path).map_err(|err| ConverterError {
+            message: format!("Failed creating RW block file {}. {:?}", block_file_out_path.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
 
-        run_subprocess("dd".as_ref(), &args)
+        block_file.set_len(EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE).map_err(|err| ConverterError {
+            message: format!("Failed truncating RW block file {} to size {}. {:?}", block_file_out_path.display(), EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE, err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        // format empty Block file with ext4 file system
+        let args = [block_file_out_path.as_ref()];
+        run_subprocess("mkfs.ext4".as_ref(), &args)
             .await
             .map(|_| ())
             .map_err(|message| ConverterError {
