@@ -11,7 +11,7 @@ use crate::{log_packet_processing, UserProgramExitStatus, MAX_ETHERNET_HEADER_SI
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
 
-use std::net::{IpAddr};
+use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -24,21 +24,21 @@ pub enum SetupMessages {
     UserProgramExit(UserProgramExitStatus),
     ApplicationConfig(ApplicationConfiguration),
     UseFileSystem(bool),
-    NBDConfiguration(NBDConfiguration)
+    NBDConfiguration(NBDConfiguration),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NBDConfiguration {
     pub address: IpAddr,
 
-    pub exports: Vec<NBDExport>
+    pub exports: Vec<NBDExport>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NBDExport {
     pub name: String,
 
-    pub port: u16
+    pub port: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -1,4 +1,4 @@
-use async_process::{Command};
+use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
@@ -12,16 +12,18 @@ use crate::network::{
     PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
 };
 use crate::packet_capture::start_pcap_loops;
-use shared::device::{start_tap_loops, ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, SetupMessages, NBDConfiguration, NBDExport};
+use shared::device::{
+    start_tap_loops, ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
+};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{VSOCK_PARENT_CID};
+use shared::VSOCK_PARENT_CID;
 use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
 
 use std::env;
 use std::fs;
 use std::io::Write;
+use std::net::IpAddr;
 use std::str::FromStr;
-use std::net::{IpAddr};
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -32,13 +34,13 @@ const NBD_EXPORTS: &'static [NBDExportConfig] = &[
         name: "enclave-fs",
         block_file_path: "/opt/fortanix/enclave-os/Blockfile.ext4",
         port: 7777,
-        is_read_only: true
+        is_read_only: true,
     },
     NBDExportConfig {
         name: "enclave-rw-fs",
         block_file_path: "/opt/fortanix/enclave-os/Blockfile-rw.ext4",
         port: 7778,
-        is_read_only: false
+        is_read_only: false,
     },
 ];
 
@@ -56,16 +58,17 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
 
     if use_file_system {
-        let exports = NBD_EXPORTS.iter()
+        let exports = NBD_EXPORTS
+            .iter()
             .map(|e| NBDExport {
                 name: e.name.to_string(),
-                port: e.port
+                port: e.port,
             })
             .collect();
 
         let configuration = NBDConfiguration {
             address: fs_tap_l3_address,
-            exports
+            exports,
         };
 
         enclave_port.write_lv(&SetupMessages::NBDConfiguration(configuration)).await?;
@@ -96,7 +99,7 @@ struct NBDExportConfig {
 
     pub port: u16,
 
-    pub is_read_only: bool
+    pub is_read_only: bool,
 }
 
 fn write_nbd_config(l3_address: IpAddr, exports: &[NBDExportConfig]) -> Result<(), String> {
@@ -105,20 +108,25 @@ fn write_nbd_config(l3_address: IpAddr, exports: &[NBDExportConfig]) -> Result<(
     let mut nbd_config_file =
         fs::File::create(NBD_CONFIG_FILE).map_err(|err| format!("Failed creating {} file. {:?}", NBD_CONFIG_FILE, err))?;
 
-    let mut config = format!("
+    let mut config = format!(
+        "
         [generic]
             includedir = /etc/nbd-server/conf.d
             allowlist = true
             listenaddr = {}
-    ", l3_address.to_string());
+    ",
+        l3_address.to_string()
+    );
 
     for export in exports {
-        let export_configuration = format!("
+        let export_configuration = format!(
+            "
             [{}]
                 authfile =
                 exportname = {}
                 readonly = {}
-                port = {}", export.name, export.block_file_path, export.is_read_only, export.port
+                port = {}",
+            export.name, export.block_file_path, export.is_read_only, export.port
         );
         config.push_str(&export_configuration);
     }
@@ -154,8 +162,10 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
     let result = format!(
         "NBD server exited with code {}. Stdout: {}. Stderr: {}",
         out.status,
-        String::from_utf8(out.stdout.clone()).unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
-        String::from_utf8(out.stderr.clone()).unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
+        String::from_utf8(out.stdout.clone())
+            .unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
+        String::from_utf8(out.stderr.clone())
+            .unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
     );
 
     // NBD server runs forever and can exit only with an error.
@@ -164,7 +174,7 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
 
 fn start_background_tasks(
     parent_setup_result: ParentSetupResult,
-    use_file_system: bool
+    use_file_system: bool,
 ) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 

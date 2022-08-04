@@ -1,9 +1,9 @@
 use async_process::{Command, Stdio};
 use log::debug;
 
-use std::fs;
-use std::net::{IpAddr};
 use futures::AsyncWriteExt;
+use std::fs;
+use std::net::IpAddr;
 
 pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 pub(crate) const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -37,13 +37,7 @@ pub(crate) async fn generate_keyfile() -> Result<(), String> {
 }
 
 pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
-    let crypt_setup_args: [&str; 5] = [
-        "open",
-        "--type",
-        "plain",
-        NBD_RW_DEVICE,
-        DM_CRYPT_DEVICE
-    ];
+    let crypt_setup_args: [&str; 5] = ["open", "--type", "plain", NBD_RW_DEVICE, DM_CRYPT_DEVICE];
 
     run_subprocess1("cryptsetup", &crypt_setup_args).await?;
 
@@ -56,15 +50,19 @@ pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
     let lower_dir = ENCLAVE_FS_LOWER.to_string() + "/enclave-fs";
-    let overlay_dir_config = format!("lowerdir={},upperdir={},workdir={}", lower_dir, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK);
+    let overlay_dir_config = format!(
+        "lowerdir={},upperdir={},workdir={}",
+        lower_dir, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
+    );
 
-    run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT ]).await
+    run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT]).await
 }
 
 pub(crate) fn create_overlay_dirs() -> Result<(), String> {
     fs::create_dir(ENCLAVE_FS_LOWER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
     fs::create_dir(ENCLAVE_FS_RW_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
-    fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
+    fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT)
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
 
     Ok(())
 }
@@ -83,7 +81,7 @@ pub(crate) struct DMVerityConfig {
 
     pub volume_name: &'static str,
 
-    pub root_hash: String
+    pub root_hash: String,
 }
 
 pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), String> {
@@ -94,7 +92,7 @@ pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), Strin
         &config.nbd_device,
         &config.volume_name,
         &config.nbd_device,
-        &config.root_hash
+        &config.root_hash,
     ];
 
     run_subprocess("veritysetup", &args).await
