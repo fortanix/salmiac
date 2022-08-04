@@ -1,17 +1,24 @@
-use async_process::Command;
+use async_process::{Command, Stdio};
 use log::debug;
 
 use std::fs;
-use std::net::SocketAddr;
+use std::net::{IpAddr};
+use futures::AsyncWriteExt;
 
 pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
-pub(crate) const ENCLAVE_FS_UPPER: &str = "/mnt/upper";
-pub(crate) const ENCLAVE_FS_WORK: &str = "/mnt/overlay-root/work";
+pub(crate) const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
+pub(crate) const ENCLAVE_FS_UPPER: &str = "/mnt/overlayfs/upper";
+pub(crate) const ENCLAVE_FS_WORK: &str = "/mnt/overlayfs/work";
 pub(crate) const ENCLAVE_FS_OVERLAY_ROOT: &str = "/mnt/overlay-root";
 pub(crate) const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
 pub(crate) const NBD_DEVICE: &str = "/dev/nbd0";
+pub(crate) const NBD_RW_DEVICE: &str = "/dev/nbd1";
+pub(crate) const DEVICE_MAPPER: &str = "/dev/mapper/";
+
 pub(crate) const DM_VERITY_VOLUME: &str = "rodir";
+
+pub(crate) const DM_CRYPT_DEVICE: &str = "cryptdevice";
 
 pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
     run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
@@ -20,13 +27,31 @@ pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
 }
 
 pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
-    let dm_verity_device = "/dev/mapper/".to_string() + DM_VERITY_VOLUME;
+    let dm_verity_device = DEVICE_MAPPER.to_string() + DM_VERITY_VOLUME;
 
     run_mount(&["-o", "ro", &dm_verity_device, ENCLAVE_FS_LOWER]).await
 }
 
 pub(crate) async fn generate_keyfile() -> Result<(), String> {
     run_subprocess("/bin/dd", &["bs=1024", "count=4", "if=/dev/random", &format!("of={}", CRYPT_KEYFILE), "iflag=fullblock"]).await
+}
+
+pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
+    let crypt_setup_args: [&str; 5] = [
+        "open",
+        "--type",
+        "plain",
+        NBD_RW_DEVICE,
+        DM_CRYPT_DEVICE
+    ];
+
+    run_subprocess1("cryptsetup", &crypt_setup_args).await?;
+
+    let dm_crypt_mapped_device = DEVICE_MAPPER.to_string() + DM_CRYPT_DEVICE;
+
+    run_subprocess("mkfs.ext4", &[&dm_crypt_mapped_device]).await?;
+
+    run_mount(&[&dm_crypt_mapped_device, ENCLAVE_FS_RW_ROOT]).await
 }
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
@@ -38,9 +63,15 @@ pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
 
 pub(crate) fn create_overlay_dirs() -> Result<(), String> {
     fs::create_dir(ENCLAVE_FS_LOWER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
-    fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
+    fs::create_dir(ENCLAVE_FS_RW_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
     fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
+
+    Ok(())
+}
+
+pub(crate) fn create_overlay_rw_dirs() -> Result<(), String> {
     fs::create_dir(ENCLAVE_FS_WORK).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
+    fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
 
     Ok(())
 }
@@ -69,8 +100,8 @@ pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), Strin
     run_subprocess("veritysetup", &args).await
 }
 
-pub(crate) async fn run_nbd_client(address: SocketAddr) -> Result<(), String> {
-    let args: [&str; 4] = [&address.ip().to_string(), &address.port().to_string(), "-N", "enclave-fs"];
+pub(crate) async fn run_nbd_client(server_address: IpAddr, block_file_port: u16, mount_name: &str) -> Result<(), String> {
+    let args: [&str; 4] = [&server_address.to_string(), &block_file_port.to_string(), "-N", mount_name];
     // NBD client exits with zero if it is able to connect to the server
     // and create /dev/nbdX device. After that we can `mount` said device
     // and use it to access the block file in `parent`.
@@ -123,6 +154,40 @@ async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), Stri
     let process = command
         .spawn()
         .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
+
+    let out = process.output().await.map_err(|err| {
+        format!(
+            "Error while waiting for subprocess {} to finish: {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
+
+    if !out.status.success() {
+        Err(format!(
+            "Subprocess {} failed with exit code {:?}. Args {:?}",
+            subprocess_path, out.status, args
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+async fn run_subprocess1(subprocess_path: &str, args: &[&str]) -> Result<(), String> {
+    let mut command = Command::new(subprocess_path);
+
+    command.args(args);
+    command.stdin(Stdio::piped());
+
+    debug!("Running subprocess {} {:?}", subprocess_path, args);
+    let mut process = command
+        .spawn()
+        .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
+
+    let mut stdin = process.stdin.as_mut().expect("Failed openining stdin");
+
+    AsyncWriteExt::write_all(&mut stdin, "testsekey".as_bytes())
+        .await
+        .map_err(|err| format!("Cannot write to stdin {:?}", err))?;
 
     let out = process.output().await.map_err(|err| {
         format!(

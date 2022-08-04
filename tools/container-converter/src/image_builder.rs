@@ -165,15 +165,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        // format empty Block file with ext4 file system
-        let args = [block_file_out_path.as_ref()];
-        run_subprocess("mkfs.ext4".as_ref(), &args)
-            .await
-            .map(|_| ())
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::BlockFileCreation,
-            })
+        Ok(())
     }
 
     async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
