@@ -144,6 +144,8 @@ async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, 
     mount_read_write_file_system().await?;
     info!("Finished read/write file system mount.");
 
+    // we can create read/write folders of the overlay file system (known as upper dir and working dir)
+    // only after calling dm-crypt because dm-crypt formats the volume before mounting.
     create_overlay_rw_dirs()?;
     info!("Created directories needed for overlay read/write part.");
 
