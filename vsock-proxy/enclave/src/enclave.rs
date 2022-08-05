@@ -11,7 +11,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, mount_file_system_nodes, run_nbd_client, create_overlay_dirs, mount_overlay_fs, ENCLAVE_FS_OVERLAY_ROOT, setup_dm_verity, DMVerityConfig, NBD_DEVICE, mount_read_only_file_system, DM_VERITY_VOLUME};
+use crate::file_system::{copy_dns_file_to_mount, mount_file_system_nodes, run_nbd_client, create_overlay_dirs, mount_overlay_fs, ENCLAVE_FS_OVERLAY_ROOT, setup_dm_verity, DMVerityConfig, NBD_DEVICE, mount_read_only_file_system, DM_VERITY_VOLUME, CRYPT_KEYFILE, generate_keyfile};
 use api_model::shared::{EnclaveManifest};
 use api_model::CertificateConfig;
 use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
@@ -120,6 +120,10 @@ async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, 
 
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
+
+    //Use CRYPT_KEYFILE while setting up dm-crypt mount
+    generate_keyfile().await?;
+    info!("Generated key file at {}", CRYPT_KEYFILE);
 
     mount_overlay_fs().await?;
     info!("Mounted enclave root with overlay-fs.");

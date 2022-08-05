@@ -8,6 +8,7 @@ pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 pub(crate) const ENCLAVE_FS_UPPER: &str = "/mnt/upper";
 pub(crate) const ENCLAVE_FS_WORK: &str = "/mnt/overlay-root/work";
 pub(crate) const ENCLAVE_FS_OVERLAY_ROOT: &str = "/mnt/overlay-root";
+pub(crate) const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
 pub(crate) const NBD_DEVICE: &str = "/dev/nbd0";
 pub(crate) const DM_VERITY_VOLUME: &str = "rodir";
@@ -22,6 +23,10 @@ pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
     let dm_verity_device = "/dev/mapper/".to_string() + DM_VERITY_VOLUME;
 
     run_mount(&["-o", "ro", &dm_verity_device, ENCLAVE_FS_LOWER]).await
+}
+
+pub(crate) async fn generate_keyfile() -> Result<(), String> {
+    run_subprocess("/bin/dd", &["bs=1024", "count=4", "if=/dev/random", &format!("of={}", CRYPT_KEYFILE), "iflag=fullblock"]).await
 }
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
