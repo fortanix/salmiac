@@ -33,7 +33,17 @@ pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
 }
 
 pub(crate) async fn generate_keyfile() -> Result<(), String> {
-    run_subprocess("/bin/dd", &["bs=1024", "count=4", "if=/dev/random", &format!("of={}", CRYPT_KEYFILE), "iflag=fullblock"]).await
+    run_subprocess(
+        "/bin/dd",
+        &[
+            "bs=1024",
+            "count=4",
+            "if=/dev/random",
+            &format!("of={}", CRYPT_KEYFILE),
+            "iflag=fullblock",
+        ],
+    )
+    .await
 }
 
 pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
@@ -156,7 +166,10 @@ async fn run_subprocess0(subprocess_path: &str, args: &[&str], stdin_args: &[&st
         command.stdin(Stdio::piped());
     }
 
-    debug!("Running subprocess {} {:?}. Stdin args {:?}", subprocess_path, args, stdin_args);
+    debug!(
+        "Running subprocess {} {:?}. Stdin args {:?}",
+        subprocess_path, args, stdin_args
+    );
     let mut process = command
         .spawn()
         .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
