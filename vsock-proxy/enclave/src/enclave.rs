@@ -117,7 +117,7 @@ pub(crate) async fn await_user_program_return(
 pub(crate) async fn cleanup() -> Result<(), String> {
     sync_with_block_file()?;
 
-    info!("Enclave cleanup has finished successfully!");
+    info!("Enclave cleanup has finished successfully.");
     Ok(())
 }
 
