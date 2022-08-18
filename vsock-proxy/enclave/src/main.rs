@@ -4,7 +4,7 @@ mod enclave;
 mod file_system;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use log::debug;
+use log::{debug, error};
 
 use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
 
@@ -23,7 +23,25 @@ async fn main() -> Result<(), String> {
         .map(|e| Path::new(e))
         .expect("Path to a settings file must be provided");
 
-    let (vsock, _background_tasks, user_program) = enclave::startup(vsock_port, &settings_path).await?;
+    match run(vsock_port, &settings_path).await {
+        Ok(UserProgramExitStatus::ExitCode(code)) => {
+            debug!("User program exits with code: {}", code);
+            process::exit(code)
+        }
+        Ok(UserProgramExitStatus::TerminatedBySignal) => {
+            debug!("User program is terminated by signal.");
+            process::exit(-1);
+        },
+        Err(e) => {
+            error!("Enclave exits with failure: {}", e);
+
+            process::exit(-1);
+        }
+    }
+}
+
+async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
+    let (vsock, _background_tasks, user_program) = enclave::startup(vsock_port, settings_path).await?;
 
     let exit_status = enclave::await_user_program_return(user_program).await?;
 
@@ -31,16 +49,7 @@ async fn main() -> Result<(), String> {
 
     enclave::send_user_program_exit_status(vsock, exit_status.clone()).await?;
 
-    match exit_status {
-        UserProgramExitStatus::ExitCode(code) => {
-            debug!("User program exits with code: {}", code);
-            process::exit(code)
-        }
-        _ => {
-            debug!("User program is terminated by signal.");
-            process::exit(-1);
-        }
-    }
+    Ok(exit_status)
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {
