@@ -8,12 +8,18 @@ use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::AsyncDevice;
 use tun::Device;
 
-use api_model::shared::{EnclaveManifest, FileSystemConfig};
-use api_model::CertificateConfig;
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, DMVerityConfig, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, CRYPT_KEYFILE, generate_keyfile, sync_with_block_file};
-use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages, NBDConfiguration};
+use crate::file_system::{
+    copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes,
+    mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity,
+    sync_with_block_file, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE,
+};
+use api_model::shared::{EnclaveManifest, FileSystemConfig};
+use api_model::CertificateConfig;
+use shared::device::{
+    create_async_tap_device, start_tap_loops, tap_device_config, NBDConfiguration, NetworkDeviceSettings, SetupMessages,
+};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
@@ -33,7 +39,17 @@ const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
-pub(crate) async fn startup(vsock_port: u32, settings_path: &Path) -> Result<(VsockStream, FuturesUnordered<JoinHandle<Result<(), String>>>, JoinHandle<Result<UserProgramExitStatus, String>>), String> {
+pub(crate) async fn startup(
+    vsock_port: u32,
+    settings_path: &Path,
+) -> Result<
+    (
+        VsockStream,
+        FuturesUnordered<JoinHandle<Result<(), String>>>,
+        JoinHandle<Result<UserProgramExitStatus, String>>,
+    ),
+    String,
+> {
     let enclave_settings = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
@@ -49,7 +65,7 @@ pub(crate) async fn startup(vsock_port: u32, settings_path: &Path) -> Result<(Vs
         &enclave_settings.user_config.certificate_config,
         &app_config.id,
     )
-        .await?;
+    .await?;
 
     let background_tasks = start_background_tasks(setup_result.tap_devices);
 
@@ -90,7 +106,9 @@ pub(crate) async fn startup(vsock_port: u32, settings_path: &Path) -> Result<(Vs
     Ok((parent_port, background_tasks, user_program))
 }
 
-pub(crate) async fn await_user_program_return(user_program: JoinHandle<Result<UserProgramExitStatus, String>>) -> Result<UserProgramExitStatus, String> {
+pub(crate) async fn await_user_program_return(
+    user_program: JoinHandle<Result<UserProgramExitStatus, String>>,
+) -> Result<UserProgramExitStatus, String> {
     user_program
         .await
         .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
@@ -103,7 +121,10 @@ pub(crate) async fn cleanup() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) async fn send_user_program_exit_status(mut vsock: VsockStream, exit_status: UserProgramExitStatus) -> Result<(), String> {
+pub(crate) async fn send_user_program_exit_status(
+    mut vsock: VsockStream,
+    exit_status: UserProgramExitStatus,
+) -> Result<(), String> {
     vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
 }
 
@@ -167,10 +188,7 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
     result
 }
 
-async fn start_user_program(
-    enclave_manifest: EnclaveManifest,
-    use_file_system: bool,
-) -> Result<UserProgramExitStatus, String> {
+async fn start_user_program(enclave_manifest: EnclaveManifest, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
     let output = if use_file_system {
         let mut client_command = Command::new("chroot");
         client_command.args([

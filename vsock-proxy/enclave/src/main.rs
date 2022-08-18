@@ -4,7 +4,7 @@ mod enclave;
 mod file_system;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use log::{debug};
+use log::debug;
 
 use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
 

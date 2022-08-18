@@ -1,4 +1,4 @@
-use async_process::{Command};
+use async_process::Command;
 use log::debug;
 use nix::unistd::sync as linux_sync;
 
@@ -47,7 +47,15 @@ pub(crate) async fn generate_keyfile() -> Result<(), String> {
 }
 
 pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
-    let crypt_setup_args: [&str; 7] = ["open", "--key-file", CRYPT_KEYFILE, "--type", "plain", NBD_RW_DEVICE, DM_CRYPT_DEVICE];
+    let crypt_setup_args: [&str; 7] = [
+        "open",
+        "--key-file",
+        CRYPT_KEYFILE,
+        "--type",
+        "plain",
+        NBD_RW_DEVICE,
+        DM_CRYPT_DEVICE,
+    ];
 
     run_subprocess("cryptsetup", &crypt_setup_args).await?;
 
@@ -152,13 +160,11 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
 /// Writes any data buffered in memory out to a block file.
 /// Without this function any file system changes committed in the enclave will be lost after enclave exits.
 pub(crate) fn sync_with_block_file() -> Result<(), String> {
-    const DROP_CACHES_PATH :&'static str = "/proc/sys/vm/drop_caches";
+    const DROP_CACHES_PATH: &'static str = "/proc/sys/vm/drop_caches";
 
     linux_sync();
 
-    fs::write(DROP_CACHES_PATH, "3".as_bytes()).map_err(|e| {
-        format!("Failed writing to {}. Err: {:?} ", DROP_CACHES_PATH, e)
-    })
+    fs::write(DROP_CACHES_PATH, "3".as_bytes()).map_err(|e| format!("Failed writing to {}. Err: {:?} ", DROP_CACHES_PATH, e))
 }
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {
@@ -170,10 +176,7 @@ async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), Stri
 
     command.args(args);
 
-    debug!(
-        "Running subprocess {} {:?}.",
-        subprocess_path, args
-    );
+    debug!("Running subprocess {} {:?}.", subprocess_path, args);
     let process = command
         .spawn()
         .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
