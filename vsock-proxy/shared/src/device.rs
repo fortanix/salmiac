@@ -147,7 +147,7 @@ pub struct TapLoopsResult {
 pub fn start_tap_loops(tap_device: AsyncDevice, vsock: AsyncVsockStream, mtu: u32) -> TapLoopsResult {
     let (tap_read, tap_write) = io::split(tap_device);
     let (vsock_read, vsock_write) = io::split(vsock);
-
+    
     let read_handle = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
 
     let write_handle = tokio::spawn(write_to_tap_async(tap_write, vsock_read));

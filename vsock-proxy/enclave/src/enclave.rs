@@ -1,26 +1,24 @@
 use async_process::Command;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use log::{debug, info};
 use nix::ioctl_write_ptr;
 use nix::net::if_::if_nametoindex;
 use tokio::task::JoinHandle;
-use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::AsyncDevice;
 use tun::Device;
 
-use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
-use api_model::shared::EnclaveManifest;
+use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, DMVerityConfig, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, CRYPT_KEYFILE, generate_keyfile};
-
-use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages};
+use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, DMVerityConfig, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, CRYPT_KEYFILE, generate_keyfile, sync_with_block_file};
+use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NetworkDeviceSettings, SetupMessages, NBDConfiguration};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus, VSOCK_PARENT_CID};
+use shared::{extract_enum_value, UserProgramExitStatus, VSOCK_PARENT_CID};
 
 use std::convert::From;
 use std::fs;
@@ -35,7 +33,7 @@ const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
-pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
+pub(crate) async fn startup(vsock_port: u32, settings_path: &Path) -> Result<(VsockStream, FuturesUnordered<JoinHandle<Result<(), String>>>, JoinHandle<Result<UserProgramExitStatus, String>>), String> {
     let enclave_settings = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave settings {:?}", enclave_settings);
@@ -51,9 +49,9 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
         &enclave_settings.user_config.certificate_config,
         &app_config.id,
     )
-    .await?;
+        .await?;
 
-    let mut background_tasks = start_background_tasks(setup_result.tap_devices);
+    let background_tasks = start_background_tasks(setup_result.tap_devices);
 
     // NBD and application configuration are functionalities that work over the network,
     // which means that we can call them only after we start our tap loops above
@@ -61,7 +59,10 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
         Some(config) => {
             parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
 
-            setup_file_system(&mut parent_port, &config.root_hash, config.hash_offset).await?;
+            info!("Awaiting NBD config");
+            let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+
+            setup_file_system(&nbd_config, &config).await?;
 
             true
         }
@@ -82,44 +83,42 @@ pub async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExi
         )?;
     }
 
-    let user_program = tokio::spawn(start_user_program(enclave_settings, parent_port, use_file_system));
+    let user_program = tokio::spawn(start_user_program(enclave_settings, use_file_system));
 
     debug!("Started client program.");
 
-    // We wait for the first future to complete.
-    // `background_tasks` will never complete as they run for the whole duration of the program
-    // and if the client program finishes then we are done.
-    if !background_tasks.is_empty() {
-        tokio::select! {
-            result = background_tasks.next() => {
-                handle_background_task_exit(result, "tap loops and entropy loop")
-            },
-            result = user_program => {
-                result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-            },
-        }
-    } else {
-        user_program
-            .await
-            .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-    }
+    Ok((parent_port, background_tasks, user_program))
 }
 
-async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, hash_offset: u64) -> Result<(), String> {
-    info!("Awaiting NBD config");
-    let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+pub(crate) async fn await_user_program_return(user_program: JoinHandle<Result<UserProgramExitStatus, String>>) -> Result<UserProgramExitStatus, String> {
+    user_program
+        .await
+        .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+}
 
-    for export in nbd_config.exports {
+pub(crate) async fn cleanup() -> Result<(), String> {
+    sync_with_block_file()?;
+
+    info!("Enclave cleanup has finished successfully!");
+    Ok(())
+}
+
+pub(crate) async fn send_user_program_exit_status(mut vsock: VsockStream, exit_status: UserProgramExitStatus) -> Result<(), String> {
+    vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
+}
+
+async fn setup_file_system(nbd_config: &NBDConfiguration, file_system_config: &FileSystemConfig) -> Result<(), String> {
+    for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;
         info!("Export {} is connected to NBD", export.name);
     }
     info!("All block files are connected and ready.");
 
     let verity_config = DMVerityConfig {
-        hash_offset,
+        hash_offset: file_system_config.hash_offset,
         nbd_device: NBD_DEVICE,
         volume_name: DM_VERITY_VOLUME,
-        root_hash: root_hash.to_string(),
+        root_hash: file_system_config.root_hash.to_string(),
     };
 
     setup_dm_verity(&verity_config).await?;
@@ -131,7 +130,6 @@ async fn setup_file_system(parent_port: &mut AsyncVsockStream, root_hash: &str, 
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
 
-    //Use CRYPT_KEYFILE while setting up dm-crypt mount
     generate_keyfile().await?;
     info!("Generated key file at {}", CRYPT_KEYFILE);
 
@@ -171,7 +169,6 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 
 async fn start_user_program(
     enclave_manifest: EnclaveManifest,
-    mut vsock: AsyncVsockStream,
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
     let output = if use_file_system {
@@ -215,8 +212,6 @@ async fn start_user_program(
     } else {
         UserProgramExitStatus::TerminatedBySignal
     };
-
-    vsock.write_lv(&SetupMessages::UserProgramExit(result.clone())).await?;
 
     Ok(result)
 }

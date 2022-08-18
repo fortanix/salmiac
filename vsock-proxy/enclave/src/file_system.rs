@@ -1,7 +1,7 @@
-use async_process::{Command, Stdio};
+use async_process::{Command};
 use log::debug;
+use nix::unistd::sync as linux_sync;
 
-use futures::AsyncWriteExt;
 use std::fs;
 use std::net::IpAddr;
 
@@ -149,6 +149,18 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     Ok(())
 }
 
+/// Writes any data buffered in memory out to a block file.
+/// Without this function any file system changes committed in the enclave will be lost after enclave exits.
+pub(crate) fn sync_with_block_file() -> Result<(), String> {
+    const DROP_CACHES_PATH :&'static str = "/proc/sys/vm/drop_caches";
+
+    linux_sync();
+
+    fs::write(DROP_CACHES_PATH, "3".as_bytes()).map_err(|e| {
+        format!("Failed writing to {}. Err: {:?} ", DROP_CACHES_PATH, e)
+    })
+}
+
 async fn run_mount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/mount", args).await
 }
@@ -162,7 +174,7 @@ async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), Stri
         "Running subprocess {} {:?}.",
         subprocess_path, args
     );
-    let mut process = command
+    let process = command
         .spawn()
         .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
 
