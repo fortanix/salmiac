@@ -157,14 +157,33 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     Ok(())
 }
 
-/// Writes any data buffered in memory out to a block file.
-/// Without this function any file system changes committed in the enclave will be lost after enclave exits.
-pub(crate) fn sync_with_block_file() -> Result<(), String> {
-    const DROP_CACHES_PATH: &'static str = "/proc/sys/vm/drop_caches";
+pub(crate) async fn unmount_overlay_fs() -> Result<(), String> {
+    run_unmount(&[ENCLAVE_FS_RW_ROOT]).await?;
+    run_unmount(&["-R", ENCLAVE_FS_LOWER]).await?;
+    run_unmount(&["-v", ENCLAVE_FS_OVERLAY_ROOT]).await
+}
 
-    linux_sync();
+pub(crate) async fn unmount_file_system_nodes() -> Result<(), String> {
+    run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_unmount(&["-R", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_unmount(&["-R", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await
+}
 
-    fs::write(DROP_CACHES_PATH, "3".as_bytes()).map_err(|e| format!("Failed writing to {}. Err: {:?} ", DROP_CACHES_PATH, e))
+pub(crate) async fn close_dm_crypt_device() -> Result<(), String> {
+    run_subprocess("cryptsetup", &["close", DM_CRYPT_DEVICE]).await
+}
+
+pub(crate) async fn close_dm_verity_volume() -> Result<(), String> {
+    run_subprocess("veritysetup", &["close", DM_VERITY_VOLUME]).await
+}
+
+pub(crate) async fn disconnect_from_nbd() -> Result<(), String> {
+    run_subprocess("nbd-client", &["-d", NBD_DEVICE]).await?;
+    run_subprocess("nbd-client", &["-d", NBD_RW_DEVICE]).await
+}
+
+async fn run_unmount(args: &[&str]) -> Result<(), String> {
+    run_subprocess("/usr/bin/umount", args).await
 }
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {

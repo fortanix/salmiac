@@ -10,11 +10,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{
-    copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes,
-    mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity,
-    sync_with_block_file, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE,
-};
+use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, sync_with_block_file, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, close_dm_verity_volume, close_dm_crypt_device, unmount_overlay_fs, unmount_file_system_nodes, disconnect_from_nbd};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
 use shared::device::{
@@ -46,7 +42,7 @@ pub(crate) async fn startup(
     (
         VsockStream,
         FuturesUnordered<JoinHandle<Result<(), String>>>,
-        JoinHandle<Result<UserProgramExitStatus, String>>,
+        JoinHandle<Result<UserProgramExitStatus, String>>
     ),
     String,
 > {
@@ -115,8 +111,18 @@ pub(crate) async fn await_user_program_return(
 }
 
 pub(crate) async fn cleanup() -> Result<(), String> {
-    sync_with_block_file()?;
+    unmount_file_system_nodes().await?;
+    info!("Unmounted file system nodes.");
 
+    unmount_overlay_fs().await?;
+    info!("Unmounted overlay file system.");
+
+    close_dm_crypt_device().await?;
+    info!("Closed dm-crypt device.");
+
+    close_dm_verity_volume().await?;
+    info!("Closed dm-verity volume.");
+    
     info!("Enclave cleanup has finished successfully.");
     Ok(())
 }
