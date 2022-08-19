@@ -47,9 +47,9 @@ pub(crate) async fn generate_keyfile() -> Result<(), String> {
 }
 
 pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
-    let crypt_setup_args: [&str; 5] = ["open", "--type", "plain", NBD_RW_DEVICE, DM_CRYPT_DEVICE];
+    let crypt_setup_args: [&str; 7] = ["open", "--key-file", CRYPT_KEYFILE, "--type", "plain", NBD_RW_DEVICE, DM_CRYPT_DEVICE];
 
-    run_subprocess0("cryptsetup", &crypt_setup_args, &["testkey"]).await?;
+    run_subprocess("cryptsetup", &crypt_setup_args).await?;
 
     let dm_crypt_mapped_device = DEVICE_MAPPER.to_string() + DM_CRYPT_DEVICE;
 
@@ -154,33 +154,17 @@ async fn run_mount(args: &[&str]) -> Result<(), String> {
 }
 
 async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), String> {
-    run_subprocess0(subprocess_path, args, &[]).await
-}
-
-async fn run_subprocess0(subprocess_path: &str, args: &[&str], stdin_args: &[&str]) -> Result<(), String> {
     let mut command = Command::new(subprocess_path);
 
     command.args(args);
 
-    if !stdin_args.is_empty() {
-        command.stdin(Stdio::piped());
-    }
-
     debug!(
-        "Running subprocess {} {:?}. Stdin args {:?}",
-        subprocess_path, args, stdin_args
+        "Running subprocess {} {:?}.",
+        subprocess_path, args
     );
     let mut process = command
         .spawn()
         .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
-
-    if let Some(mut stdin) = process.stdin.as_mut() {
-        for arg in stdin_args {
-            AsyncWriteExt::write_all(&mut stdin, arg.as_bytes())
-                .await
-                .map_err(|err| format!("Cannot write to stdin {:?}", err))?;
-        }
-    }
 
     let out = process.output().await.map_err(|err| {
         format!(

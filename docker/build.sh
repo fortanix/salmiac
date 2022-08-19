@@ -8,11 +8,6 @@ set -exo pipefail
 
 source "$(dirname ${BASH_SOURCE[0]})"/../tools/ci-scripts/build-utils.sh
 
-if [ "$ROCHE_MODE" != "ci-sgx" -o "$RELEASE_OPT" != "--release" ]; then
-    echo "Skipping docker build because config is not for release"
-    eval $exit_or_return
-fi
-
 PRODUCT_BACKEND="nitro-converter"
 PRODUCT_BACKEND_RUNNER="server"
 PARENT_BASE_IMAGE="nitro-parent-base.tar"
@@ -21,9 +16,16 @@ ENCLAVE_BASE_IMAGE="nitro-enclave-base.tar"
 PRODUCT_DOCKER_BUILD_DIR="$(dirname ${BASH_SOURCE[0]})"
 
 pushd "$PRODUCT_DOCKER_BUILD_DIR"
+
 # build_docker_image will only do something for SGX release config
-build_docker_image $PRODUCT_BACKEND \
+# build_docker_image() only builds the converter in release mode,
+# this variable allows us to build the converter in debug mode as well
+# and make the build part of PR jobs.
+# It is not preferred to build salmiac in release mode in PR jobs
+# since rust takes much longer to compile and build the project.
+SALM_CONV_BUILD=true build_docker_image $PRODUCT_BACKEND \
     $ARTIFACTS_DIR/$PRODUCT_BACKEND_RUNNER \
     $ARTIFACTS_DIR/$PARENT_BASE_IMAGE \
     $ARTIFACTS_DIR/$ENCLAVE_BASE_IMAGE
+
 popd
