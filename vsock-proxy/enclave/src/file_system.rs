@@ -1,6 +1,5 @@
 use async_process::Command;
 use log::debug;
-use nix::unistd::sync as linux_sync;
 
 use std::fs;
 use std::net::IpAddr;
@@ -177,10 +176,11 @@ pub(crate) async fn close_dm_verity_volume() -> Result<(), String> {
     run_subprocess("veritysetup", &["close", DM_VERITY_VOLUME]).await
 }
 
-pub(crate) async fn disconnect_from_nbd() -> Result<(), String> {
+//TODO: use this after implementing graceful exit from background tasks
+/*pub(crate) async fn disconnect_from_nbd() -> Result<(), String> {
     run_subprocess("nbd-client", &["-d", NBD_DEVICE]).await?;
     run_subprocess("nbd-client", &["-d", NBD_RW_DEVICE]).await
-}
+}*/
 
 async fn run_unmount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/umount", args).await

@@ -10,7 +10,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, sync_with_block_file, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, close_dm_verity_volume, close_dm_crypt_device, unmount_overlay_fs, unmount_file_system_nodes, disconnect_from_nbd};
+use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, close_dm_verity_volume, close_dm_crypt_device, unmount_overlay_fs, unmount_file_system_nodes};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
 use shared::device::{
@@ -63,6 +63,9 @@ pub(crate) async fn startup(
     )
     .await?;
 
+    // Background tasks are futures that run for the whole duration of the enclave.
+    // They represent background processes that run forever like forwarding network packets
+    // between tap devices. They never exit during normal enclave execution and it is considered an error if they do.
     let background_tasks = start_background_tasks(setup_result.tap_devices);
 
     // NBD and application configuration are functionalities that work over the network,
