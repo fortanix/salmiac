@@ -1,7 +1,6 @@
-use async_process::{Command, Stdio};
+use async_process::Command;
 use log::debug;
 
-use futures::AsyncWriteExt;
 use std::fs;
 use std::net::IpAddr;
 
@@ -47,7 +46,15 @@ pub(crate) async fn generate_keyfile() -> Result<(), String> {
 }
 
 pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
-    let crypt_setup_args: [&str; 7] = ["open", "--key-file", CRYPT_KEYFILE, "--type", "plain", NBD_RW_DEVICE, DM_CRYPT_DEVICE];
+    let crypt_setup_args: [&str; 7] = [
+        "open",
+        "--key-file",
+        CRYPT_KEYFILE,
+        "--type",
+        "plain",
+        NBD_RW_DEVICE,
+        DM_CRYPT_DEVICE,
+    ];
 
     run_subprocess("cryptsetup", &crypt_setup_args).await?;
 
@@ -149,6 +156,36 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) async fn unmount_overlay_fs() -> Result<(), String> {
+    run_unmount(&[ENCLAVE_FS_RW_ROOT]).await?;
+    run_unmount(&["-R", ENCLAVE_FS_LOWER]).await?;
+    run_unmount(&["-v", ENCLAVE_FS_OVERLAY_ROOT]).await
+}
+
+pub(crate) async fn unmount_file_system_nodes() -> Result<(), String> {
+    run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_unmount(&["-R", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_unmount(&["-R", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await
+}
+
+pub(crate) async fn close_dm_crypt_device() -> Result<(), String> {
+    run_subprocess("cryptsetup", &["close", DM_CRYPT_DEVICE]).await
+}
+
+pub(crate) async fn close_dm_verity_volume() -> Result<(), String> {
+    run_subprocess("veritysetup", &["close", DM_VERITY_VOLUME]).await
+}
+
+//TODO: use this after implementing graceful exit from background tasks
+/*pub(crate) async fn disconnect_from_nbd() -> Result<(), String> {
+    run_subprocess("nbd-client", &["-d", NBD_DEVICE]).await?;
+    run_subprocess("nbd-client", &["-d", NBD_RW_DEVICE]).await
+}*/
+
+async fn run_unmount(args: &[&str]) -> Result<(), String> {
+    run_subprocess("/usr/bin/umount", args).await
+}
+
 async fn run_mount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/mount", args).await
 }
@@ -158,11 +195,8 @@ async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), Stri
 
     command.args(args);
 
-    debug!(
-        "Running subprocess {} {:?}.",
-        subprocess_path, args
-    );
-    let mut process = command
+    debug!("Running subprocess {} {:?}.", subprocess_path, args);
+    let process = command
         .spawn()
         .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
 
