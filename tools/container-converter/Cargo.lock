@@ -836,6 +836,13 @@ dependencies = [
 name = "model-macros"
 version = "0.1.0"
 dependencies = [
+ "model-macros-inner",
+]
+
+[[package]]
+name = "model-macros-inner"
+version = "0.1.0"
+dependencies = [
  "error-spanned",
  "macro-helpers",
  "model-macro-types",
