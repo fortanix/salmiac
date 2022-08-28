@@ -373,6 +373,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "flags-trait"
+version = "0.1.0"
+
+[[package]]
 name = "flate2"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -836,6 +840,7 @@ dependencies = [
 name = "model-macros"
 version = "0.1.0"
 dependencies = [
+ "flags-trait",
  "model-macros-inner",
 ]
 
