@@ -4,7 +4,7 @@ pub mod socket;
 
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinError;
+use tokio::task::{JoinError};
 
 use std::borrow::Borrow;
 use std::convert::TryFrom;
@@ -114,6 +114,10 @@ macro_rules! find_map {
     };
 }
 
+/// Executes block of code `$value` asynchronously while simultaneously checking on `tasks` futures
+/// If any future from `$tasks` list completes (with error or not) before `$value` the whole block exits with an `Err`
+/// # Returns
+/// The result of `$value` block when it completes or `Err` if any future from `$tasks` list completes first
 #[macro_export]
 macro_rules! with_background_tasks {
     ($tasks:expr, $value:block) => {{

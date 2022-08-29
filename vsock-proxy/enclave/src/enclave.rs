@@ -420,7 +420,7 @@ async fn setup_enclave_certification(
     Ok(first_certificate)
 }
 
-pub(crate) async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
+async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
     let result = AsyncVsockStream::connect(VSOCK_PARENT_CID, port)
         .await
         .map_err(|err| format!("Failed to connect to parent: {:?}", err))?;
