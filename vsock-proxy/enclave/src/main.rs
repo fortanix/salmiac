@@ -23,7 +23,7 @@ async fn main() -> Result<(), String> {
         .map(|e| Path::new(e))
         .expect("Path to a settings file must be provided");
 
-    match run(vsock_port, &settings_path).await {
+    match enclave::run(vsock_port, &settings_path).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             debug!("User program exits with code: {}", code);
             process::exit(code)
@@ -38,18 +38,6 @@ async fn main() -> Result<(), String> {
             process::exit(-1);
         }
     }
-}
-
-async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
-    let (vsock, _background_tasks, user_program) = enclave::startup(vsock_port, settings_path).await?;
-
-    let exit_status = enclave::await_user_program_return(user_program).await?;
-
-    enclave::cleanup().await?;
-
-    enclave::send_user_program_exit_status(vsock, exit_status.clone()).await?;
-
-    Ok(exit_status)
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {

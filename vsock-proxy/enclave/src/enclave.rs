@@ -13,14 +13,12 @@ use crate::certificate::{request_certificate, write_certificate_info_to_file_sys
 use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, close_dm_verity_volume, close_dm_crypt_device, unmount_overlay_fs, unmount_file_system_nodes};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
-use shared::device::{
-    create_async_tap_device, start_tap_loops, tap_device_config, NBDConfiguration, NetworkDeviceSettings, SetupMessages,
-};
+use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NBDConfiguration, NetworkDeviceSettings, SetupMessages, ApplicationConfiguration};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{extract_enum_value, UserProgramExitStatus, VSOCK_PARENT_CID};
+use shared::{extract_enum_value, UserProgramExitStatus, VSOCK_PARENT_CID, with_background_tasks};
 
 use std::convert::From;
 use std::fs;
@@ -35,85 +33,88 @@ const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
-pub(crate) async fn startup(
-    vsock_port: u32,
-    settings_path: &Path,
-) -> Result<
-    (
-        VsockStream,
-        FuturesUnordered<JoinHandle<Result<(), String>>>,
-        JoinHandle<Result<UserProgramExitStatus, String>>
-    ),
-    String,
-> {
-    let enclave_settings = read_enclave_manifest(settings_path)?;
-
-    debug!("Received enclave settings {:?}", enclave_settings);
-
+pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
-    info!("Connected to parent.");
+    let mut setup_result = startup(&mut parent_port, settings_path).await?;
 
-    let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
-
-    let setup_result = setup_enclave(
-        &mut parent_port,
-        &enclave_settings.user_config.certificate_config,
-        &app_config.id,
-    )
-    .await?;
+    let tap_devices = setup_tap_devices(&mut parent_port).await?;
 
     // Background tasks are futures that run for the whole duration of the enclave.
     // They represent background processes that run forever like forwarding network packets
     // between tap devices. They never exit during normal enclave execution and it is considered an error if they do.
-    let background_tasks = start_background_tasks(setup_result.tap_devices);
+    let mut background_tasks = start_background_tasks(tap_devices);
 
-    // NBD and application configuration are functionalities that work over the network,
-    // which means that we can call them only after we start our tap loops above
-    let use_file_system = match &enclave_settings.file_system_config {
-        Some(config) => {
-            parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
+    let certificate_info = setup_result.certificate_info.take();
 
-            info!("Awaiting NBD config");
-            let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+    with_background_tasks!(background_tasks, {
+        let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
 
-            setup_file_system(&nbd_config, &config).await?;
+        setup_app_configuration(&setup_result.app_config, certificate_info)?;
 
-            true
-        }
-        _ => {
-            parent_port.write_lv(&SetupMessages::UseFileSystem(false)).await?;
-            false
-        }
-    };
+        let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, use_file_system).await?;
 
-    // We can request application configuration only if we know application id.
-    if let (Some(certificate_info), Some(_)) = (setup_result.certificate_info, app_config.id) {
+        cleanup().await?;
+
+        send_user_program_exit_status(&mut parent_port, exit_status.clone()).await?;
+
+        Ok(exit_status)
+    })
+}
+
+async fn startup(
+    parent_port: &mut AsyncVsockStream,
+    settings_path: &Path,
+) -> Result<EnclaveSetupResult, String> {
+    let enclave_manifest = read_enclave_manifest(settings_path)?;
+
+    debug!("Received enclave manifest {:?}", enclave_manifest);
+
+    let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
+
+    let certificate_info = setup_enclave_certification(parent_port, &app_config.id, &enclave_manifest.user_config.certificate_config).await?;
+
+    Ok(EnclaveSetupResult {
+        certificate_info,
+        app_config,
+        enclave_manifest
+    })
+}
+
+fn setup_app_configuration(app_config: &ApplicationConfiguration, certificate_info: Option<CertificateResult>) -> Result<(), String> {
+    if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         setup_application_configuration(
             certificate_info,
             &app_config.ccm_backend_url,
             app_config.skip_server_verify,
             api,
-        )?;
+        )
+    } else {
+        Ok(())
     }
-
-    let user_program = tokio::spawn(start_user_program(enclave_settings, use_file_system));
-
-    debug!("Started client program.");
-
-    Ok((parent_port, background_tasks, user_program))
 }
 
-pub(crate) async fn await_user_program_return(
-    user_program: JoinHandle<Result<UserProgramExitStatus, String>>,
-) -> Result<UserProgramExitStatus, String> {
-    user_program
-        .await
-        .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut AsyncVsockStream) -> Result<bool, String> {
+    match &enclave_manifest.file_system_config {
+        Some(config) => {
+            parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
+
+            info!("Awaiting NBD config");
+            let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+
+            setup_file_system0(&nbd_config, &config).await?;
+
+            Ok(true)
+        }
+        _ => {
+            parent_port.write_lv(&SetupMessages::UseFileSystem(false)).await?;
+            Ok(false)
+        }
+    }
 }
 
-pub(crate) async fn cleanup() -> Result<(), String> {
+async fn cleanup() -> Result<(), String> {
     unmount_file_system_nodes().await?;
     info!("Unmounted file system nodes.");
 
@@ -130,14 +131,38 @@ pub(crate) async fn cleanup() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) async fn send_user_program_exit_status(
-    mut vsock: VsockStream,
+async fn send_user_program_exit_status(
+    vsock: &mut VsockStream,
     exit_status: UserProgramExitStatus,
 ) -> Result<(), String> {
     vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
 }
 
-async fn setup_file_system(nbd_config: &NBDConfiguration, file_system_config: &FileSystemConfig) -> Result<(), String> {
+fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
+    let result = FuturesUnordered::new();
+
+    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
+    result.push(entropy_loop);
+
+    for tap_device in tap_devices {
+        let res = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
+
+        result.push(res.read_handle);
+        result.push(res.write_handle);
+    }
+
+    result
+}
+
+async fn start_and_await_user_program_return(enclave_manifest: EnclaveManifest, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
+    let user_program = tokio::spawn(start_user_program(enclave_manifest, use_file_system));
+
+    user_program
+        .await
+        .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+}
+
+async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &FileSystemConfig) -> Result<(), String> {
     for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;
         info!("Export {} is connected to NBD", export.name);
@@ -179,22 +204,6 @@ async fn setup_file_system(nbd_config: &NBDConfiguration, file_system_config: &F
     info!("Finished file system mount.");
 
     Ok(())
-}
-
-fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
-    let result = FuturesUnordered::new();
-
-    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
-    result.push(entropy_loop);
-
-    for tap_device in tap_devices {
-        let res = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
-
-        result.push(res.read_handle);
-        result.push(res.write_handle);
-    }
-
-    result
 }
 
 async fn start_user_program(enclave_manifest: EnclaveManifest, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
@@ -243,11 +252,7 @@ async fn start_user_program(enclave_manifest: EnclaveManifest, use_file_system: 
     Ok(result)
 }
 
-async fn setup_enclave(
-    vsock: &mut AsyncVsockStream,
-    cert_configs: &Vec<CertificateConfig>,
-    application_id: &Option<String>,
-) -> Result<EnclaveSetupResult, String> {
+async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<Vec<TapDeviceInfo>, String> {
     let mut tap_devices = setup_enclave_networking(vsock).await?;
     info!("Finished networking setup.");
 
@@ -255,12 +260,7 @@ async fn setup_enclave(
     tap_devices.push(file_system_tap);
     info!("Finished file system tap device setup.");
 
-    let certificate_info = setup_enclave_certification(vsock, application_id, &cert_configs).await?;
-
-    Ok(EnclaveSetupResult {
-        tap_devices,
-        certificate_info,
-    })
+    Ok(tap_devices)
 }
 
 async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<TapDeviceInfo, String> {
@@ -280,17 +280,19 @@ async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<Ta
 }
 
 struct EnclaveSetupResult {
-    tap_devices: Vec<TapDeviceInfo>,
-
     certificate_info: Option<CertificateResult>,
+
+    app_config: ApplicationConfiguration,
+
+    enclave_manifest: EnclaveManifest
 }
 
 struct TapDeviceInfo {
-    pub vsock: AsyncVsockStream,
+    vsock: AsyncVsockStream,
 
-    pub tap: AsyncDevice,
+    tap: AsyncDevice,
 
-    pub mtu: u32,
+    mtu: u32,
 }
 
 async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<Vec<TapDeviceInfo>, String> {
@@ -409,10 +411,14 @@ async fn setup_enclave_certification(
     Ok(first_certificate)
 }
 
-async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
-    AsyncVsockStream::connect(VSOCK_PARENT_CID, port)
+pub(crate) async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
+    let result = AsyncVsockStream::connect(VSOCK_PARENT_CID, port)
         .await
-        .map_err(|err| format!("Failed to connect to parent: {:?}", err))
+        .map_err(|err| format!("Failed to connect to parent: {:?}", err))?;
+
+    info!("Connected to parent.");
+
+    Ok(result)
 }
 
 fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {

@@ -1,6 +1,5 @@
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
-use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use tokio::task::JoinHandle;
@@ -17,7 +16,7 @@ use shared::device::{
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
-use shared::{extract_enum_value, handle_background_task_exit, UserProgramExitStatus};
+use shared::{extract_enum_value, UserProgramExitStatus, with_background_tasks};
 
 use std::env;
 use std::fs;
@@ -57,39 +56,34 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
     let use_file_system = extract_enum_value!(enclave_port.read_lv().await?, SetupMessages::UseFileSystem(e) => e)?;
     let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
 
-    if use_file_system {
-        let exports = NBD_EXPORTS
-            .iter()
-            .map(|e| NBDExport {
-                name: e.name.to_string(),
-                port: e.port,
-            })
-            .collect();
-
-        let configuration = NBDConfiguration {
-            address: fs_tap_l3_address,
-            exports,
-        };
-
-        enclave_port.write_lv(&SetupMessages::NBDConfiguration(configuration)).await?;
-    }
-
-    let user_program = tokio::spawn(await_user_program_return(enclave_port));
-
-    if !background_tasks.is_empty() {
-        tokio::select! {
-            result = background_tasks.next() => {
-                handle_background_task_exit(result, "pcap loop")
-            },
-            result = user_program => {
-                result.map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-            },
+    with_background_tasks!(background_tasks, {
+        if use_file_system {
+            send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
         }
-    } else {
+
+        let user_program = tokio::spawn(await_user_program_return(enclave_port));
+
         user_program
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-    }
+    })
+}
+
+async fn send_nbd_configuration(enclave_port: &mut AsyncVsockStream, fs_tap_l3_address: IpAddr) -> Result<(), String> {
+    let exports = NBD_EXPORTS
+        .iter()
+        .map(|e| NBDExport {
+            name: e.name.to_string(),
+            port: e.port,
+        })
+        .collect();
+
+    let configuration = NBDConfiguration {
+        address: fs_tap_l3_address,
+        exports,
+    };
+
+    enclave_port.write_lv(&SetupMessages::NBDConfiguration(configuration)).await
 }
 
 struct NBDExportConfig {
@@ -159,17 +153,20 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
         .await
         .map_err(|err| format!("Error while waiting for NBD server to finish: {:?}", err))?;
 
-    let result = format!(
-        "NBD server exited with code {}. Stdout: {}. Stderr: {}",
-        out.status,
-        String::from_utf8(out.stdout.clone())
-            .unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
-        String::from_utf8(out.stderr.clone())
-            .unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
-    );
+    if out.status.success() {
+        Ok(())
+    } else {
+        let result = format!(
+            "NBD server exited with code {}. Stdout: {}. Stderr: {}",
+            out.status,
+            String::from_utf8(out.stdout.clone())
+                .unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
+            String::from_utf8(out.stderr.clone())
+                .unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
+        );
 
-    // NBD server runs forever and can exit only with an error.
-    Err(result)
+        Err(result)
+    }
 }
 
 fn start_background_tasks(
