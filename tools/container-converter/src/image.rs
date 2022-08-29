@@ -288,7 +288,7 @@ impl DockerUtil for DockerDaemon {
                     info!("{:?}", output)
                 }
                 Err(e) => {
-                    return Err(format!("{:?}", e));
+                    return Err(format!("Unable to load docker image {:?} - is docker socket accessible? : {:?}", tar_path, e));
                 }
             }
         }
