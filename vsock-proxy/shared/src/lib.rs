@@ -116,21 +116,19 @@ macro_rules! find_map {
 
 #[macro_export]
 macro_rules! with_background_tasks {
-    ($tasks:expr, $value:block) => {
-        {
-            use shared::handle_background_task_exit;
-            use futures::StreamExt;
+    ($tasks:expr, $value:block) => {{
+        use futures::StreamExt;
+        use shared::handle_background_task_exit;
 
-            tokio::select! {
-                result = $tasks.next() => {
-                    handle_background_task_exit(result)
-                },
-                result = async { $value } => {
-                    result
-                },
-            }
+        tokio::select! {
+            result = $tasks.next() => {
+                handle_background_task_exit(result)
+            },
+            result = async { $value } => {
+                result
+            },
         }
-    };
+    }};
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -147,10 +145,10 @@ pub fn handle_background_task_exit<T>(result: Option<Result<Result<(), String>, 
             } else {
                 Err(format!("Background task has been cancelled."))
             }
-        },
+        }
         Some(Ok(Err(err))) => Err(format!("Background task finished with error. {}", err)),
 
         // Background tasks should never exit with success inside `with_background_tasks` block
-        _ => Err(format!("Background task finished unexpectedly."))
+        _ => Err(format!("Background task finished unexpectedly.")),
     }
 }

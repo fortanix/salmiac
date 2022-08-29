@@ -31,7 +31,7 @@ async fn main() -> Result<(), String> {
         Ok(UserProgramExitStatus::TerminatedBySignal) => {
             debug!("User program is terminated by signal.");
             process::exit(-1);
-        },
+        }
         Err(e) => {
             error!("Enclave exits with failure: {}", e);
 

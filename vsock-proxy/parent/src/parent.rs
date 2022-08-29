@@ -16,7 +16,7 @@ use shared::device::{
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
-use shared::{extract_enum_value, UserProgramExitStatus, with_background_tasks};
+use shared::{extract_enum_value, with_background_tasks, UserProgramExitStatus};
 
 use std::env;
 use std::fs;

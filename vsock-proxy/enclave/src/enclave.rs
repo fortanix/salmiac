@@ -10,15 +10,23 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
 use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
-use crate::file_system::{copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, DMVerityConfig, CRYPT_KEYFILE, DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE, close_dm_verity_volume, close_dm_crypt_device, unmount_overlay_fs, unmount_file_system_nodes};
+use crate::file_system::{
+    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs,
+    generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system,
+    run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, CRYPT_KEYFILE,
+    DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE,
+};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
-use shared::device::{create_async_tap_device, start_tap_loops, tap_device_config, NBDConfiguration, NetworkDeviceSettings, SetupMessages, ApplicationConfiguration};
+use shared::device::{
+    create_async_tap_device, start_tap_loops, tap_device_config, ApplicationConfiguration, NBDConfiguration,
+    NetworkDeviceSettings, SetupMessages,
+};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{extract_enum_value, UserProgramExitStatus, VSOCK_PARENT_CID, with_background_tasks};
+use shared::{extract_enum_value, with_background_tasks, UserProgramExitStatus, VSOCK_PARENT_CID};
 
 use std::convert::From;
 use std::fs;
@@ -62,26 +70,27 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     })
 }
 
-async fn startup(
-    parent_port: &mut AsyncVsockStream,
-    settings_path: &Path,
-) -> Result<EnclaveSetupResult, String> {
+async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Result<EnclaveSetupResult, String> {
     let enclave_manifest = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
-    let certificate_info = setup_enclave_certification(parent_port, &app_config.id, &enclave_manifest.user_config.certificate_config).await?;
+    let certificate_info =
+        setup_enclave_certification(parent_port, &app_config.id, &enclave_manifest.user_config.certificate_config).await?;
 
     Ok(EnclaveSetupResult {
         certificate_info,
         app_config,
-        enclave_manifest
+        enclave_manifest,
     })
 }
 
-fn setup_app_configuration(app_config: &ApplicationConfiguration, certificate_info: Option<CertificateResult>) -> Result<(), String> {
+fn setup_app_configuration(
+    app_config: &ApplicationConfiguration,
+    certificate_info: Option<CertificateResult>,
+) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         setup_application_configuration(
@@ -126,15 +135,12 @@ async fn cleanup() -> Result<(), String> {
 
     close_dm_verity_volume().await?;
     info!("Closed dm-verity volume.");
-    
+
     info!("Enclave cleanup has finished successfully.");
     Ok(())
 }
 
-async fn send_user_program_exit_status(
-    vsock: &mut VsockStream,
-    exit_status: UserProgramExitStatus,
-) -> Result<(), String> {
+async fn send_user_program_exit_status(vsock: &mut VsockStream, exit_status: UserProgramExitStatus) -> Result<(), String> {
     vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
 }
 
@@ -154,7 +160,10 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
     result
 }
 
-async fn start_and_await_user_program_return(enclave_manifest: EnclaveManifest, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
+async fn start_and_await_user_program_return(
+    enclave_manifest: EnclaveManifest,
+    use_file_system: bool,
+) -> Result<UserProgramExitStatus, String> {
     let user_program = tokio::spawn(start_user_program(enclave_manifest, use_file_system));
 
     user_program
@@ -284,7 +293,7 @@ struct EnclaveSetupResult {
 
     app_config: ApplicationConfiguration,
 
-    enclave_manifest: EnclaveManifest
+    enclave_manifest: EnclaveManifest,
 }
 
 struct TapDeviceInfo {
