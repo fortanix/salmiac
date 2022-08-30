@@ -4,7 +4,6 @@ pub mod socket;
 
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
-use tokio::task::{JoinError};
 
 use std::borrow::Borrow;
 use std::convert::TryFrom;
@@ -122,7 +121,23 @@ macro_rules! find_map {
 macro_rules! with_background_tasks {
     ($tasks:expr, $value:block) => {{
         use futures::StreamExt;
-        use shared::handle_background_task_exit;
+        use tokio::task::JoinError;
+
+        fn handle_background_task_exit<T>(result: Option<Result<Result<(), String>, JoinError>>) -> Result<T, String> {
+            match result {
+                Some(Err(err)) => {
+                    if let Ok(reason) = err.try_into_panic() {
+                        Err(format!("Background task panicked at {:?}", reason))
+                    } else {
+                        Err(format!("Background task has been cancelled."))
+                    }
+                }
+                Some(Ok(Err(err))) => Err(format!("Background task finished with error. {}", err)),
+
+                // Background tasks should never exit with success inside `with_background_tasks` block
+                _ => Err(format!("Background task finished unexpectedly.")),
+            }
+        }
 
         tokio::select! {
             result = $tasks.next() => {
@@ -139,20 +154,4 @@ macro_rules! with_background_tasks {
 pub enum UserProgramExitStatus {
     ExitCode(i32),
     TerminatedBySignal,
-}
-
-pub fn handle_background_task_exit<T>(result: Option<Result<Result<(), String>, JoinError>>) -> Result<T, String> {
-    match result {
-        Some(Err(err)) => {
-            if let Ok(reason) = err.try_into_panic() {
-                Err(format!("Background task panicked at {:?}", reason))
-            } else {
-                Err(format!("Background task has been cancelled."))
-            }
-        }
-        Some(Ok(Err(err))) => Err(format!("Background task finished with error. {}", err)),
-
-        // Background tasks should never exit with success inside `with_background_tasks` block
-        _ => Err(format!("Background task finished unexpectedly.")),
-    }
 }
