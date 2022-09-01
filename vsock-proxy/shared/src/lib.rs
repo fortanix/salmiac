@@ -1,9 +1,9 @@
-pub mod device;
+pub mod models;
 pub mod netlink;
 pub mod socket;
+pub mod tap;
 
 use clap::ArgMatches;
-use serde::{Deserialize, Serialize};
 
 use std::borrow::Borrow;
 use std::convert::TryFrom;
@@ -148,10 +148,4 @@ macro_rules! with_background_tasks {
             },
         }
     }};
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum UserProgramExitStatus {
-    ExitCode(i32),
-    TerminatedBySignal,
 }

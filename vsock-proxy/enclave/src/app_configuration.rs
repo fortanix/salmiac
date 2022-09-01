@@ -8,7 +8,7 @@ use mbedtls::x509::Certificate;
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
-use shared::device::CCMBackendUrl;
+use shared::models::CCMBackendUrl;
 
 use sdkms::api_model::Blob;
 use std::collections::BTreeMap;
@@ -416,7 +416,7 @@ mod tests {
         RuntimeConfiguration, SdkmsDataset,
     };
 
-    use shared::device::CCMBackendUrl;
+    use shared::models::CCMBackendUrl;
     use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;

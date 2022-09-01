@@ -17,15 +17,13 @@ use crate::file_system::{
 };
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
-use shared::device::{
-    create_async_tap_device, start_tap_loops, tap_device_config, ApplicationConfiguration, NBDConfiguration,
-    NetworkDeviceSettings, SetupMessages,
-};
+use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
+use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{extract_enum_value, with_background_tasks, UserProgramExitStatus, VSOCK_PARENT_CID};
+use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 
 use std::convert::From;
 use std::fs;

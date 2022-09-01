@@ -3,7 +3,7 @@ use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
-use shared::device::SetupMessages;
+use shared::models::SetupMessages;
 use shared::extract_enum_value;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 

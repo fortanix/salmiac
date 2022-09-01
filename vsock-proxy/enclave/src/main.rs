@@ -6,7 +6,8 @@ mod file_system;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{debug, error};
 
-use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
+use shared::{parse_console_argument, NumArg};
+use shared::models::UserProgramExitStatus;
 
 use std::path::Path;
 use std::process;

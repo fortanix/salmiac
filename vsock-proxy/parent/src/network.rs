@@ -10,9 +10,10 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
 use crate::parent::{accept, listen_to_parent};
-use shared::device::{
-    create_async_tap_device, tap_device_config, FSNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages,
+use shared::models::{
+    FSNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages,
 };
+use shared::tap::{create_async_tap_device, tap_device_config};
 use shared::netlink::arp::ARPEntry;
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::Route;
