@@ -37,47 +37,40 @@ const CREDENTIALS_FILE: &str = "credentials.bin";
 const LOCATION_FILE: &str = "location.txt";
 
 pub fn setup_application_configuration(
-    certificate_info: CertificateResult,
+    em_app_credentials: &EmAppCredentials,
     ccm_backend_url: &CCMBackendUrl,
-    skip_server_verify: bool,
     api: Box<dyn ApplicationConfiguration>,
+    fs_root: &Path
 ) -> Result<(), String> {
-    info!("Setting up application configuration.");
-
-    let em_app_credentials = EmAppCredentials::new(certificate_info, skip_server_verify)?;
-
-    let app_config = setup_runtime_configuration(ccm_backend_url, &em_app_credentials, &api.runtime_config_api())?;
-
-    setup_datasets(&app_config.extra, &em_app_credentials, &api.dataset_api())?;
-
-    setup_app_configs(&app_config.config.app_config)
-}
-
-fn setup_runtime_configuration(
-    ccm_backend_url: &CCMBackendUrl,
-    credentials: &EmAppCredentials,
-    api: &Box<dyn RuntimeConfiguration>,
-) -> Result<RuntimeAppConfig, String> {
     info!("Requesting application configuration.");
 
-    let app_config = api.get_runtime_configuration(&ccm_backend_url, &credentials)?;
+    let app_config = api.runtime_config_api()
+        .get_runtime_configuration(&ccm_backend_url, em_app_credentials)?;
 
+    write_runtime_configuration_to_file(&app_config, fs_root)?;
+
+    setup_datasets(&app_config.extra, em_app_credentials, &api.dataset_api(), fs_root)?;
+
+    setup_app_configs(&app_config.config.app_config, fs_root)
+}
+
+fn write_runtime_configuration_to_file(app_config: &RuntimeAppConfig, fs_root: &Path) -> Result<(), String> {
     let data =
-        serde_json::to_string(&app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
+        serde_json::to_string(app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
 
-    fs::create_dir_all(Path::new(APPLICATION_CONFIG_DIR))
+    fs::create_dir_all(fs_root.join(Path::new(APPLICATION_CONFIG_DIR)))
         .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
 
-    write_to_file(Path::new(APPLICATION_CONFIG_FILE), &data)
-        .map_err(|err| format!("Failed to write data to application config file. {:?}", err))?;
+    write_to_file(&fs_root.join(Path::new(APPLICATION_CONFIG_FILE)), &data, "application config")?;
 
-    Ok(app_config)
+    Ok(())
 }
 
 fn setup_datasets(
     config: &ApplicationConfigExtra,
     credentials: &EmAppCredentials,
     api: &Box<dyn SdkmsDataset>,
+    fs_root: &Path
 ) -> Result<(), String> {
     info!("Requesting application data sets.");
 
@@ -92,40 +85,21 @@ fn setup_datasets(
                 if let Some(sdkms_credentials) = &dataset.credentials.sdkms {
                     let response = api.get_dataset(sdkms_credentials, credentials)?;
 
-                    let files = DataSetFiles::new(name, port);
+                    let files = DataSetFiles::new(name, port, fs_root);
 
                     fs::create_dir_all(&files.dataset_dir)
                         .map_err(|err| format!("Failed to create data set directory. {:?}", err))?;
 
-                    fs::write(&files.credentials_file, &response).map_err(|err| {
-                        format!(
-                            "Failed to write data set into a file {}. {:?}",
-                            files.credentials_file.display(),
-                            err
-                        )
-                    })?;
-
-                    fs::write(&files.location_file, &dataset.location).map_err(|err| {
-                        format!(
-                            "Failed to write location into a file {}. {:?}",
-                            files.location_file.display(),
-                            err
-                        )
-                    })?;
+                    write_to_file(&files.credentials_file, &response, "data set")?;
+                    write_to_file(&files.location_file, &dataset.location, "location")?;
                 }
             } else if let Some(application) = &object.application {
-                let files = ApplicationFiles::new(name, port);
+                let files = ApplicationFiles::new(name, port, fs_root);
 
                 fs::create_dir_all(&files.application_dir)
                     .map_err(|err| format!("Failed to create application directory. {:?}", err))?;
 
-                fs::write(&files.location_file, &application.workflow_domain).map_err(|err| {
-                    format!(
-                        "Failed to write workflow domain into a file {}. {:?}",
-                        files.location_file.display(),
-                        err
-                    )
-                })?;
+                write_to_file(&files.location_file, &application.workflow_domain, "workflow domain")?;
             }
         }
     }
@@ -133,10 +107,10 @@ fn setup_datasets(
     Ok(())
 }
 
-fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>) -> Result<(), String> {
+fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>, fs_root: &Path) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        let file_path =
-            normalize_path(&file).map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
+        let file_path = normalize_path(&file)
+            .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
 
         if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
@@ -150,14 +124,14 @@ fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>) -
             file
         ))?;
 
-        fs::create_dir_all(dir).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
+        fs::create_dir_all(fs_root.join(dir))
+            .map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
 
         if let Some(encoded_contents) = &contents_opt.contents {
             let decoded_contents = base64::decode(encoded_contents)
                 .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
 
-            fs::write(&file_path, &decoded_contents)
-                .map_err(|err| format!("Failed to write application config contents to file {}. {:?}", file, err))?;
+            write_to_file(&fs_root.join(file_path), &decoded_contents, "application config contents")?;
         } else {
             warn!(
                 "Found application config {} with no contents. Created file will be empty.",
@@ -170,17 +144,17 @@ fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>) -
 }
 
 struct DataSetFiles {
-    pub dataset_dir: PathBuf,
+    dataset_dir: PathBuf,
 
-    pub credentials_file: PathBuf,
+    credentials_file: PathBuf,
 
-    pub location_file: PathBuf,
+    location_file: PathBuf,
 }
 
 impl DataSetFiles {
-    pub fn new(name: &str, port: &str) -> Self {
+    pub fn new(name: &str, port: &str, fs_root: &Path) -> Self {
         let dir = format!(dataset_dir!(), port, name);
-        let dataset_dir = Path::new(&dir).to_path_buf();
+        let dataset_dir = fs_root.join(Path::new(&dir));
         let credentials_file = dataset_dir.join(CREDENTIALS_FILE);
         let location_file = dataset_dir.join(LOCATION_FILE);
 
@@ -193,15 +167,15 @@ impl DataSetFiles {
 }
 
 struct ApplicationFiles {
-    pub application_dir: PathBuf,
+    application_dir: PathBuf,
 
-    pub location_file: PathBuf,
+    location_file: PathBuf,
 }
 
 impl ApplicationFiles {
-    pub fn new(name: &str, port: &str) -> Self {
+    pub fn new(name: &str, port: &str, fs_root: &Path) -> Self {
         let dir = format!(application_dir!(), port, name);
-        let application_dir = Path::new(&dir).to_path_buf();
+        let application_dir = fs_root.join(Path::new(&dir));
         let location_file = application_dir.join(LOCATION_FILE);
 
         ApplicationFiles {
@@ -630,7 +604,7 @@ mod tests {
             json_data: VALID_APP_CONF,
         });
 
-        let result = setup_datasets(&config, &credentials, &api);
+        let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
         assert!(
             result.is_err(),
             "setup_datasets should return error if there are no connections in ApplicationConfigExtra"
@@ -671,10 +645,10 @@ mod tests {
             json_data: VALID_APP_CONF,
         });
 
-        let files = DataSetFiles::new("test_location", "test_port");
+        let files = DataSetFiles::new("test_location", "test_port",Path::new("/"));
         let _temp_dir = TempDir(&files.dataset_dir);
 
-        let result = setup_datasets(&config, &credentials, &api);
+        let result = setup_datasets(&config, &credentials, &api,Path::new("/"));
         assert!(result.is_ok(), "{:?}", result);
 
         let credentials = fs::read_to_string(&files.credentials_file).expect("Failed reading credentials file");
@@ -711,10 +685,10 @@ mod tests {
             json_data: VALID_APP_CONF,
         });
 
-        let files = ApplicationFiles::new("test_location", "test_port");
+        let files = ApplicationFiles::new("test_location", "test_port",Path::new("/"));
         let _temp_dir = TempDir(&files.application_dir);
 
-        let result = setup_datasets(&config, &credentials, &api);
+        let result = setup_datasets(&config, &credentials, &api,Path::new("/"));
         assert!(result.is_ok(), "{:?}", result);
 
         let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
@@ -728,7 +702,7 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        setup_app_configs(&runtime_config.config.app_config).expect("Failed setting up runtime app config");
+        setup_app_configs(&runtime_config.config.app_config,Path::new("/")).expect("Failed setting up runtime app config");
 
         let result =
             fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt").expect("Failed reading app config file");
@@ -742,7 +716,7 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        setup_app_configs(&runtime_config.config.app_config).expect("Failed setting up runtime app config");
+        setup_app_configs(&runtime_config.config.app_config,Path::new("/")).expect("Failed setting up runtime app config");
 
         let result = fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt")
             .expect("Failed reading app config file");
@@ -756,7 +730,7 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        assert!(setup_app_configs(&runtime_config.config.app_config).is_err());
+        assert!(setup_app_configs(&runtime_config.config.app_config,Path::new("/")).is_err());
     }
 
     #[test]

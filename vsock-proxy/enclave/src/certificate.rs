@@ -3,12 +3,9 @@ use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
-use crate::enclave::write_to_file;
 use shared::device::SetupMessages;
 use shared::extract_enum_value;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-
-use std::path::Path;
 
 const RSA_SIZE: u32 = 3072;
 
@@ -45,13 +42,4 @@ pub async fn request_certificate(
     let certificate = extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)?;
 
     Ok(CertificateResult { certificate, key })
-}
-
-pub fn write_certificate_info_to_file_system(key: &str, certificate: &str, settings: &CertificateConfig) -> Result<(), String> {
-    let key_path = settings.key_path.as_ref().map_or("key", |e| e.as_str());
-
-    let certificate_path = settings.cert_path.as_ref().map_or("cert", |e| e.as_str());
-
-    write_to_file(Path::new(key_path), &key)?;
-    write_to_file(Path::new(certificate_path), &certificate)
 }

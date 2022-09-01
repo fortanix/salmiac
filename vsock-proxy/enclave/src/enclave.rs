@@ -8,13 +8,12 @@ use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::AsyncDevice;
 use tun::Device;
 
-use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration};
-use crate::certificate::{request_certificate, write_certificate_info_to_file_system, CertificateResult};
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
+use crate::certificate::{request_certificate, CertificateResult};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs,
     generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system,
-    run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, CRYPT_KEYFILE,
-    DM_VERITY_VOLUME, ENCLAVE_FS_OVERLAY_ROOT, NBD_DEVICE,
+    run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
@@ -40,6 +39,8 @@ use std::time::Duration;
 const ENTROPY_BYTES_COUNT: usize = 126;
 
 const ENTROPY_REFRESH_PERIOD: u64 = 30;
+
+const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
@@ -93,12 +94,10 @@ fn setup_app_configuration(
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
-        setup_application_configuration(
-            certificate_info,
-            &app_config.ccm_backend_url,
-            app_config.skip_server_verify,
-            api,
-        )
+        let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
+
+        info!("Setting up application configuration.");
+        setup_application_configuration(&credentials, &app_config.ccm_backend_url, api, Path::new(ENCLAVE_FS_OVERLAY_ROOT))
     } else {
         Ok(())
     }
@@ -178,12 +177,7 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     }
     info!("All block files are connected and ready.");
 
-    let verity_config = DMVerityConfig {
-        hash_offset: file_system_config.hash_offset,
-        nbd_device: NBD_DEVICE,
-        volume_name: DM_VERITY_VOLUME,
-        root_hash: file_system_config.root_hash.to_string(),
-    };
+    let verity_config = DMVerityConfig::new(file_system_config.hash_offset, file_system_config.root_hash.to_string());
 
     setup_dm_verity(&verity_config).await?;
     info!("Finished setup dm-verity.");
@@ -194,10 +188,11 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
 
-    generate_keyfile().await?;
-    info!("Generated key file at {}", CRYPT_KEYFILE);
+    let crypt_file_path = Path::new(CRYPT_KEYFILE);
+    generate_keyfile(crypt_file_path).await?;
+    info!("Generated key file at {}", crypt_file_path.display());
 
-    mount_read_write_file_system().await?;
+    mount_read_write_file_system(crypt_file_path).await?;
     info!("Finished read/write file system mount.");
 
     // we can create read/write folders of the overlay file system (known as upper dir and working dir)
@@ -396,15 +391,22 @@ async fn setup_enclave_certification(
     let mut first_certificate: Option<CertificateResult> = None;
 
     // Zero or more certificate requests.
-    for cert in cert_settings {
-        let mut certificate_result = request_certificate(vsock, cert, app_config_id).await?;
+    for cert_config in cert_settings {
+        let mut certificate_result = request_certificate(vsock, cert_config, app_config_id).await?;
 
         let key_as_pem = certificate_result
             .key
             .write_private_pem_string()
             .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
-        write_certificate_info_to_file_system(&key_as_pem, &certificate_result.certificate, cert)?;
+        {
+            let fs_root = Path::new(ENCLAVE_FS_OVERLAY_ROOT);
+            let config_path = fs_root.join(cert_config.key_path_or_default());
+            let cert_path = fs_root.join(cert_config.cert_path_or_default());
+
+            write_to_file(&config_path, &key_as_pem, "key")?;
+            write_to_file(&cert_path, &certificate_result.certificate, "certificate")?;
+        }
 
         if let None = first_certificate {
             first_certificate = Some(certificate_result);
@@ -535,6 +537,7 @@ impl Drop for NSMDevice {
     }
 }
 
-pub fn write_to_file(path: &Path, data: &str) -> Result<(), String> {
-    fs::write(path, data.as_bytes()).map_err(|err| format!("Failed to write data into file {}. {:?}", path.display(), err))
+pub fn write_to_file<C: AsRef<[u8]>>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
+    fs::write(path, data)
+        .map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
 }
