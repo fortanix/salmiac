@@ -2,8 +2,13 @@ FROM 513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-parent-base:1.0.0 as nit
 
 FROM ubuntu:20.04
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && \
-    apt-get install -y libssl1.1
+    apt-get install -y \
+    cryptsetup-bin \
+    libssl1.1 \
+    sudo
 
 COPY --from=nitro-cli /usr/bin/nitro-cli /usr/bin/
 COPY --from=nitro-cli /usr/share/nitro_enclaves/ /usr/share/
