@@ -57,7 +57,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     with_background_tasks!(background_tasks, {
         let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
 
-        setup_app_configuration(&setup_result.app_config, certificate_info)?;
+        setup_app_configuration(&setup_result.app_config, certificate_info, use_file_system)?;
 
         let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, use_file_system).await?;
 
@@ -89,17 +89,23 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
+    use_file_system: bool
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
+        let fs_root = if use_file_system {
+            Path::new(ENCLAVE_FS_OVERLAY_ROOT)
+        } else {
+            Path::new("/")
+        };
 
         info!("Setting up application configuration.");
         setup_application_configuration(
             &credentials,
             &app_config.ccm_backend_url,
             api,
-            Path::new(ENCLAVE_FS_OVERLAY_ROOT),
+            fs_root,
         )
     } else {
         Ok(())
