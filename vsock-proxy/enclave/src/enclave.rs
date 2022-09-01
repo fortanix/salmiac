@@ -97,7 +97,12 @@ fn setup_app_configuration(
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
 
         info!("Setting up application configuration.");
-        setup_application_configuration(&credentials, &app_config.ccm_backend_url, api, Path::new(ENCLAVE_FS_OVERLAY_ROOT))
+        setup_application_configuration(
+            &credentials,
+            &app_config.ccm_backend_url,
+            api,
+            Path::new(ENCLAVE_FS_OVERLAY_ROOT),
+        )
     } else {
         Ok(())
     }
@@ -538,6 +543,5 @@ impl Drop for NSMDevice {
 }
 
 pub fn write_to_file<C: AsRef<[u8]>>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
-    fs::write(path, data)
-        .map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
+    fs::write(path, data).map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
 }

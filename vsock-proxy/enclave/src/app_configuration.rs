@@ -40,11 +40,12 @@ pub fn setup_application_configuration(
     em_app_credentials: &EmAppCredentials,
     ccm_backend_url: &CCMBackendUrl,
     api: Box<dyn ApplicationConfiguration>,
-    fs_root: &Path
+    fs_root: &Path,
 ) -> Result<(), String> {
     info!("Requesting application configuration.");
 
-    let app_config = api.runtime_config_api()
+    let app_config = api
+        .runtime_config_api()
         .get_runtime_configuration(&ccm_backend_url, em_app_credentials)?;
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
@@ -70,7 +71,7 @@ fn setup_datasets(
     config: &ApplicationConfigExtra,
     credentials: &EmAppCredentials,
     api: &Box<dyn SdkmsDataset>,
-    fs_root: &Path
+    fs_root: &Path,
 ) -> Result<(), String> {
     info!("Requesting application data sets.");
 
@@ -109,8 +110,8 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>, fs_root: &Path) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        let file_path = normalize_path(&file)
-            .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
+        let file_path =
+            normalize_path(&file).map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
 
         if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
@@ -124,8 +125,7 @@ fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>, f
             file
         ))?;
 
-        fs::create_dir_all(fs_root.join(dir))
-            .map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
+        fs::create_dir_all(fs_root.join(dir)).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
 
         if let Some(encoded_contents) = &contents_opt.contents {
             let decoded_contents = base64::decode(encoded_contents)
@@ -645,10 +645,10 @@ mod tests {
             json_data: VALID_APP_CONF,
         });
 
-        let files = DataSetFiles::new("test_location", "test_port",Path::new("/"));
+        let files = DataSetFiles::new("test_location", "test_port", Path::new("/"));
         let _temp_dir = TempDir(&files.dataset_dir);
 
-        let result = setup_datasets(&config, &credentials, &api,Path::new("/"));
+        let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
         assert!(result.is_ok(), "{:?}", result);
 
         let credentials = fs::read_to_string(&files.credentials_file).expect("Failed reading credentials file");
@@ -685,10 +685,10 @@ mod tests {
             json_data: VALID_APP_CONF,
         });
 
-        let files = ApplicationFiles::new("test_location", "test_port",Path::new("/"));
+        let files = ApplicationFiles::new("test_location", "test_port", Path::new("/"));
         let _temp_dir = TempDir(&files.application_dir);
 
-        let result = setup_datasets(&config, &credentials, &api,Path::new("/"));
+        let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
         assert!(result.is_ok(), "{:?}", result);
 
         let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
@@ -702,7 +702,7 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        setup_app_configs(&runtime_config.config.app_config,Path::new("/")).expect("Failed setting up runtime app config");
+        setup_app_configs(&runtime_config.config.app_config, Path::new("/")).expect("Failed setting up runtime app config");
 
         let result =
             fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/app_conf.txt").expect("Failed reading app config file");
@@ -716,7 +716,7 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        setup_app_configs(&runtime_config.config.app_config,Path::new("/")).expect("Failed setting up runtime app config");
+        setup_app_configs(&runtime_config.config.app_config, Path::new("/")).expect("Failed setting up runtime app config");
 
         let result = fs::read_to_string(&"/opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt")
             .expect("Failed reading app config file");
@@ -730,7 +730,7 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        assert!(setup_app_configs(&runtime_config.config.app_config,Path::new("/")).is_err());
+        assert!(setup_app_configs(&runtime_config.config.app_config, Path::new("/")).is_err());
     }
 
     #[test]
