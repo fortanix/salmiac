@@ -16,6 +16,10 @@ ENCLAVE_BASE_IMAGE="nitro-enclave-base.tar"
 PRODUCT_DOCKER_BUILD_DIR="$(dirname ${BASH_SOURCE[0]})"
 
 pushd "$PRODUCT_DOCKER_BUILD_DIR"
+# Run the script which fetches the modified enclave kernel from fortanix
+# S3. This enclave kernel has the nbd & dm-crypt kernel module built into
+# it, which allow us to have a persistant filesystem for nitro enclaves
+source build-enclave-kernel.sh fetch
 
 # build_docker_image will only do something for SGX release config
 # build_docker_image() only builds the converter in release mode,
@@ -27,5 +31,7 @@ SALM_CONV_BUILD=true build_docker_image $PRODUCT_BACKEND \
     $ARTIFACTS_DIR/$PRODUCT_BACKEND_RUNNER \
     $ARTIFACTS_DIR/$PARENT_BASE_IMAGE \
     $ARTIFACTS_DIR/$ENCLAVE_BASE_IMAGE
+
+source build-enclave-kernel.sh clean
 
 popd
