@@ -5,7 +5,8 @@ mod parent;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info};
 
-use shared::{parse_console_argument, NumArg, UserProgramExitStatus};
+use shared::{parse_console_argument, NumArg};
+use shared::models::UserProgramExitStatus;
 
 use std::process;
 

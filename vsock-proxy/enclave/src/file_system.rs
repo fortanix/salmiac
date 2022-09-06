@@ -3,21 +3,21 @@ use log::debug;
 
 use std::fs;
 use std::net::IpAddr;
+use std::path::Path;
 
-pub(crate) const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
-pub(crate) const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
-pub(crate) const ENCLAVE_FS_UPPER: &str = "/mnt/overlayfs/upper";
-pub(crate) const ENCLAVE_FS_WORK: &str = "/mnt/overlayfs/work";
+const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
+const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
+const ENCLAVE_FS_UPPER: &str = "/mnt/overlayfs/upper";
+const ENCLAVE_FS_WORK: &str = "/mnt/overlayfs/work";
 pub(crate) const ENCLAVE_FS_OVERLAY_ROOT: &str = "/mnt/overlay-root";
-pub(crate) const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
-pub(crate) const NBD_DEVICE: &str = "/dev/nbd0";
-pub(crate) const NBD_RW_DEVICE: &str = "/dev/nbd1";
-pub(crate) const DEVICE_MAPPER: &str = "/dev/mapper/";
+const NBD_DEVICE: &str = "/dev/nbd0";
+const NBD_RW_DEVICE: &str = "/dev/nbd1";
+const DEVICE_MAPPER: &str = "/dev/mapper/";
 
-pub(crate) const DM_VERITY_VOLUME: &str = "rodir";
+const DM_VERITY_VOLUME: &str = "rodir";
 
-pub(crate) const DM_CRYPT_DEVICE: &str = "cryptdevice";
+const DM_CRYPT_DEVICE: &str = "cryptdevice";
 
 pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
     run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
@@ -31,39 +31,44 @@ pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
     run_mount(&["-o", "ro", &dm_verity_device, ENCLAVE_FS_LOWER]).await
 }
 
-pub(crate) async fn generate_keyfile() -> Result<(), String> {
+pub(crate) async fn generate_keyfile(file_path: &Path) -> Result<(), String> {
     run_subprocess(
         "/bin/dd",
         &[
             "bs=1024",
             "count=4",
             "if=/dev/random",
-            &format!("of={}", CRYPT_KEYFILE),
+            &format!("of={}", file_path.display()),
             "iflag=fullblock",
         ],
     )
     .await
 }
 
-async fn luks_format_device(key_path :&str, device_path :&str) -> Result<(), String> {
+async fn luks_format_device(key_path :&Path, device_path :&str) -> Result<(), String> {
     /* Format the device as a luks2 device. This step must not be performed on a device
      * which already contains usable data in it. It creates a luks2 style header on
      * the device and configures one of the key slots.
      * The minimum size of a luks2 header is 16MB - it is important that the size of
      * the device meets this requirement (RW_BLOCK_FILE_DEFAULT_SIZE).
      */
-    let luks_format_args = [ "luksFormat", "-q", "--type", "luks2", device_path, key_path];
+    let key_path_as_str = key_path
+        .to_str()
+        .ok_or(format!("Failed converting path {} to string", key_path.display()))?;
+
+    let luks_format_args = [ "luksFormat", "-q", "--type", "luks2", device_path, key_path_as_str];
     run_subprocess("cryptsetup", &luks_format_args).await
 }
 
-pub(crate) async fn mount_read_write_file_system() -> Result<(), String> {
-
-    luks_format_device(CRYPT_KEYFILE, NBD_RW_DEVICE).await?;
-
+pub(crate) async fn mount_read_write_file_system(crypt_file: &Path) -> Result<(), String> {
+	luks_format_device(crypt_file, NBD_RW_DEVICE).await?;
+	
     let crypt_setup_args: [&str; 7] = [
         "open",
         "--key-file",
-        CRYPT_KEYFILE,
+        crypt_file
+            .to_str()
+            .ok_or(format!("Failed converting path {} to string", crypt_file.display()))?,
         "--type",
         "luks2",
         NBD_RW_DEVICE,
@@ -113,6 +118,17 @@ pub(crate) struct DMVerityConfig {
     pub volume_name: &'static str,
 
     pub root_hash: String,
+}
+
+impl DMVerityConfig {
+    pub fn new(hash_offset: u64, root_hash: String) -> Self {
+        DMVerityConfig {
+            hash_offset,
+            nbd_device: NBD_DEVICE,
+            volume_name: DM_VERITY_VOLUME,
+            root_hash,
+        }
+    }
 }
 
 pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), String> {

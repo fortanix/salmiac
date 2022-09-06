@@ -11,12 +11,11 @@ use crate::network::{
     PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
 };
 use crate::packet_capture::start_pcap_loops;
-use shared::device::{
-    start_tap_loops, ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
-};
+use shared::models::{ApplicationConfiguration, CCMBackendUrl, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus};
+use shared::tap::{start_tap_loops};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::VSOCK_PARENT_CID;
-use shared::{extract_enum_value, with_background_tasks, UserProgramExitStatus};
+use shared::{extract_enum_value, with_background_tasks};
 
 use std::env;
 use std::fs;
