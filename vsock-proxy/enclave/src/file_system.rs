@@ -45,19 +45,23 @@ pub(crate) async fn generate_keyfile(file_path: &Path) -> Result<(), String> {
     .await
 }
 
-async fn luks_format_device(key_path :&str, device_path :&str) -> Result<(), String> {
+async fn luks_format_device(key_path :&Path, device_path :&str) -> Result<(), String> {
     /* Format the device as a luks2 device. This step must not be performed on a device
      * which already contains usable data in it. It creates a luks2 style header on
      * the device and configures one of the key slots.
      * The minimum size of a luks2 header is 16MB - it is important that the size of
      * the device meets this requirement (RW_BLOCK_FILE_DEFAULT_SIZE).
      */
-    let luks_format_args = [ "luksFormat", "-q", "--type", "luks2", device_path, key_path];
+    let key_path_as_str = key_path
+        .to_str()
+        .ok_or(format!("Failed converting path {} to string", key_path.display()))?;
+
+    let luks_format_args = [ "luksFormat", "-q", "--type", "luks2", device_path, key_path_as_str];
     run_subprocess("cryptsetup", &luks_format_args).await
 }
 
 pub(crate) async fn mount_read_write_file_system(crypt_file: &Path) -> Result<(), String> {
-	luks_format_device(CRYPT_KEYFILE, NBD_RW_DEVICE).await?;
+	luks_format_device(crypt_file, NBD_RW_DEVICE).await?;
 	
     let crypt_setup_args: [&str; 7] = [
         "open",
