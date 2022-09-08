@@ -5,10 +5,10 @@ mod parent;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info};
 
-use shared::{parse_console_argument, NumArg};
 use shared::models::UserProgramExitStatus;
+use shared::{parse_console_argument, NumArg};
 
-use std::{process};
+use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
@@ -17,7 +17,8 @@ async fn main() -> Result<(), String> {
     let matches = console_arguments();
 
     let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
-    let enclave_extra_args = matches.values_of("unknown")
+    let enclave_extra_args = matches
+        .values_of("unknown")
         .unwrap_or_default()
         .into_iter()
         .map(|e| e.to_string())
@@ -55,11 +56,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         )
         // Together with settings `AppSettings::AllowExternalSubcommands` and `AppSettings::AllowLeadingHyphen`
         // this `arg()` will capture all arguments not specified above it
-        .arg(
-            Arg::with_name("unknown")
-                .multiple(true)
-                .allow_hyphen_values(true),
-        );
+        .arg(Arg::with_name("unknown").multiple(true).allow_hyphen_values(true));
 
     result.get_matches()
 }

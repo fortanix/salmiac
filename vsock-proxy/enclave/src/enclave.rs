@@ -18,11 +18,11 @@ use crate::file_system::{
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
 use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
-use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 
 use std::convert::From;
@@ -74,7 +74,8 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
-    let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
+    let mut extra_user_program_args =
+        extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
     if enclave_manifest.is_debug {
         let existing_arguments = &mut enclave_manifest.user_config.user_program_config.arguments;
@@ -97,7 +98,7 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
-    use_file_system: bool
+    use_file_system: bool,
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
@@ -109,12 +110,7 @@ fn setup_app_configuration(
         };
 
         info!("Setting up application configuration.");
-        setup_application_configuration(
-            &credentials,
-            &app_config.ccm_backend_url,
-            api,
-            fs_root,
-        )
+        setup_application_configuration(&credentials, &app_config.ccm_backend_url, api, fs_root)
     } else {
         Ok(())
     }
