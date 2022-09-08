@@ -70,9 +70,17 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 }
 
 async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Result<EnclaveSetupResult, String> {
-    let enclave_manifest = read_enclave_manifest(settings_path)?;
+    let mut enclave_manifest = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
+
+    let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
+
+    if enclave_manifest.is_debug {
+        let existing_arguments = &mut enclave_manifest.user_config.user_program_config.arguments;
+
+        existing_arguments.append(&mut extra_user_program_args);
+    }
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 

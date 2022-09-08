@@ -42,12 +42,13 @@ const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     },
 ];
 
-pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
+pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
     info!("Awaiting confirmation from enclave.");
 
     let mut enclave_port = create_vsock_stream(vsock_port).await?;
 
     info!("Connected to enclave.");
+    send_enclave_extra_console_args(&mut enclave_port, enclave_extra_args).await?;
 
     let setup_result = setup_parent(&mut enclave_port).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
@@ -66,6 +67,10 @@ pub async fn run(vsock_port: u32) -> Result<UserProgramExitStatus, String> {
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     })
+}
+
+async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, arguments: Vec<String>) -> Result<(), String> {
+    enclave_port.write_lv(&SetupMessages::ExtraUserProgramArguments(arguments)).await
 }
 
 async fn send_nbd_configuration(enclave_port: &mut AsyncVsockStream, fs_tap_l3_address: IpAddr) -> Result<(), String> {

@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::borrow::Borrow;
 
 #[derive(Clone)]
 pub struct Resource<'a> {
@@ -40,28 +41,6 @@ pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
         .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))
 }
 
-pub fn populate_docker_file(
-    file: &mut fs::File,
-    image_name: &str,
-    add: &DockerCopyArgs,
-    env: &[String],
-    cmd: &str,
-) -> Result<(), String> {
-    let filled_contents = format!(
-        "FROM {} \n\
-         ADD {} \n\
-         ENV {} \n\
-         CMD  {} \n",
-        image_name,
-        add.to_string(),
-        env.join(" "),
-        cmd
-    );
-
-    file.write_all(filled_contents.as_bytes())
-        .map_err(|err| format!("Failed to write to file {:?}", err))
-}
-
 pub fn log_docker_file(dir: &Path) -> Result<(), String> {
     log_file(&*dir.join("Dockerfile"))
 }
@@ -86,13 +65,49 @@ pub fn log_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub struct DockerCopyArgs<'a> {
-    pub items: Vec<&'a str>,
+pub(crate) struct DockerFile<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> {
+    pub from: &'a str,
+
+    pub add: Option<DockerCopyArgs<'a, V>>,
+
+    pub env: &'a [T],
+
+    pub cmd: Option<&'a str>,
+
+    pub entrypoint: Option<&'a str>
+}
+
+impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for DockerFile<'a, T, V> {
+    fn to_string(&self) -> String {
+        let mut result = format!("FROM {} \n", self.from);
+
+        if let Some(add) = &self.add {
+            result.push_str(&format!("ADD {} \n", add.to_string()));
+        }
+
+        if !self.env.is_empty() {
+            result.push_str(&format!("ENV {} \n", self.env.join(" ")));
+        }
+
+        if let Some(cmd) = &self.cmd {
+            result.push_str(&format!("CMD {} \n", cmd));
+        }
+
+        if let Some(entrypoint) = &self.entrypoint {
+            result.push_str(&format!("ENTRYPOINT [\"{}\"] \n", entrypoint));
+        }
+
+        result
+    }
+}
+
+pub(crate) struct DockerCopyArgs<'a, T: AsRef<str> + Borrow<str>> {
+    pub items: &'a [T],
 
     pub destination: String,
 }
 
-impl<'a> DockerCopyArgs<'a> {
+impl<'a, T: AsRef<str> + Borrow<str>> ToString for DockerCopyArgs<'a, T> {
     fn to_string(&self) -> String {
         format!("{} {}", self.items.join(" "), self.destination)
     }
