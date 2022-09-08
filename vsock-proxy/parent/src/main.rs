@@ -55,7 +55,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .required(true),
         )
         // Together with settings `AppSettings::AllowExternalSubcommands` and `AppSettings::AllowLeadingHyphen`
-        // this `arg()` will capture all arguments not specified above it
+        // this `arg()` will capture all not defined arguments
         .arg(Arg::with_name("unknown").multiple(true).allow_hyphen_values(true));
 
     result.get_matches()

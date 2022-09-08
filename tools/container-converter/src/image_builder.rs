@@ -306,7 +306,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
-        let copy = DockerCopyArgs {
+        let add = DockerCopyArgs {
             items: EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
@@ -351,7 +351,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let docker_file = DockerFile {
             from,
-            add: Some(copy),
+            add: Some(add),
             env: &env,
             cmd: Some(&run_enclave_cmd),
             entrypoint: None
