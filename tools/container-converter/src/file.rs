@@ -65,7 +65,7 @@ pub fn log_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// A type that describes docker file contents by section 
+/// A type that describes docker file contents by section
 pub(crate) struct DockerFile<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> {
     pub from: &'a str,
 
