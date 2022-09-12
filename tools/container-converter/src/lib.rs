@@ -135,6 +135,7 @@ async fn run0(
     let enclave_settings = EnclaveSettings {
         user_name: input_image.image.details.config.user.clone(),
         env_vars: args.request.converter_options.env_vars,
+        is_debug: args.request.converter_options.debug.unwrap_or(false)
     };
     let user_config = UserConfig {
         user_program_config,

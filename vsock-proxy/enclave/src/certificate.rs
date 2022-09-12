@@ -3,8 +3,8 @@ use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
-use shared::models::SetupMessages;
 use shared::extract_enum_value;
+use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 
 const RSA_SIZE: u32 = 3072;
