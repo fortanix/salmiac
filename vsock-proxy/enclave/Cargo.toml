@@ -17,15 +17,13 @@ nix = "0.15.0"
 futures = "0.3"
 rtnetlink = "0.8.0"
 tun = {version = "0.5.3" ,features = ["async"] }
-tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "time"] }
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }
 tokio-vsock = "0.3.1"
 em-app = { git = "https://github.com/fortanix/rust-sgx.git"}
 mbedtls = "0.8.1"
 serde_json = "1.0.68"
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
-nsm-lib = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api.git", branch = "main" }
-nsm-io = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api.git", branch = "main" }
 api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
 sdkms = { version = "0.2.1", default-features = false }
 ipnetwork = { version = "0.18.0", features = ["serde"] }

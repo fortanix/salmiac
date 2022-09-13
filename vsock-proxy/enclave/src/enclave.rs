@@ -1,7 +1,6 @@
 use async_process::Command;
 use futures::stream::FuturesUnordered;
 use log::{debug, info};
-use nix::ioctl_write_ptr;
 use nix::net::if_::if_nametoindex;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
@@ -28,15 +27,7 @@ use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 use std::convert::From;
 use std::fs;
 use std::io::Write;
-use std::mem;
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
-use std::thread;
-use std::time::Duration;
-
-const ENTROPY_BYTES_COUNT: usize = 126;
-
-const ENTROPY_REFRESH_PERIOD: u64 = 30;
 
 const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
@@ -158,9 +149,6 @@ async fn send_user_program_exit_status(vsock: &mut VsockStream, exit_status: Use
 
 fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
     let result = FuturesUnordered::new();
-
-    let entropy_loop = tokio::task::spawn_blocking(|| start_entropy_seeding_loop(ENTROPY_BYTES_COUNT, ENTROPY_REFRESH_PERIOD));
-    result.push(entropy_loop);
 
     for tap_device in tap_devices {
         let res = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
@@ -449,105 +437,6 @@ fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {
     let settings_raw = fs::read_to_string(path).map_err(|err| format!("Failed to read enclave manifest file. {:?}", err))?;
 
     serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave manifest. {:?}", err))
-}
-
-// Linux ioctl #define RNDADDTOENTCNT	_IOW( 'R', 0x01, int )
-ioctl_write_ptr!(set_entropy, 'R' as u8, 0x01, u32);
-
-const GET_RANDOM_MAX_OUTPUT: usize = 256;
-
-// This is a workaround for indefinite blocking when someone tries to read from /dev/random device.
-// The reason for blocking is that as of now the enclave doesn’t provide any entropy for the random device
-// and linux can’t return any random number for the caller and blocks indefinitely.
-// The workaround will be removed when NSM is able to seed the entropy automatically as described here:
-// https://github.com/aws/aws-nitro-enclaves-sdk-bootstrap/pull/9
-fn start_entropy_seeding_loop(entropy_bytes_count: usize, refresh_period: u64) -> Result<(), String> {
-    let nsm_device = NSMDevice::new()?;
-
-    let mut random_device = fs::OpenOptions::new()
-        .write(true)
-        .open("/dev/random")
-        .map_err(|err| format!("Failed to open /dev/random. {:?}", err))?;
-
-    let result = thread::spawn(move || -> Result<(), String> {
-        loop {
-            seed_entropy(entropy_bytes_count, &nsm_device, &mut random_device)?;
-
-            debug!("Successfully seeded entropy with {} bytes", entropy_bytes_count);
-
-            thread::sleep(Duration::new(refresh_period, 0))
-        }
-    });
-
-    result
-        .join()
-        .map_err(|err| format!("Failure in entropy seeding loop. {:?}", err))?
-}
-
-fn seed_entropy(entropy_bytes_count: usize, nsm_device: &NSMDevice, random_device: &mut fs::File) -> Result<(), String> {
-    let mut count = 0 as usize;
-
-    while count != entropy_bytes_count {
-        let mut buf = [0 as u8; GET_RANDOM_MAX_OUTPUT];
-
-        let array_size = mem::size_of::<[u8; GET_RANDOM_MAX_OUTPUT]>();
-        let mut buf_len = if array_size > (entropy_bytes_count - count) {
-            entropy_bytes_count - count
-        } else {
-            array_size
-        };
-
-        match unsafe { nsm::nsm_get_random(nsm_device.descriptor, buf.as_mut_ptr(), &mut buf_len) } {
-            nsm_io::ErrorCode::Success => {}
-            err => return Err(format!("Failed to get random from nsm. {:?}", err)),
-        }
-
-        if buf_len == 0 {
-            return Err(format!("Nsm returned 0 entropy"));
-        }
-
-        // write new entropy seed into /dev/random
-        random_device
-            .write_all(&mut buf)
-            .map_err(|err| format!("Failed to write entropy to /dev/random. {:?}", err))?;
-
-        let entropy_bits = (buf_len * 8) as u32;
-
-        // Now we can increment entropy count of the entropy pool
-        // by calling a proper ioctl on /dev/random as described here:
-        // https://man7.org/linux/man-pages/man4/random.4.html
-        match unsafe { set_entropy(random_device.as_raw_fd(), &entropy_bits) } {
-            Ok(result_code) if result_code < 0 => return Err(format!("Ioctl exited with code: {}", result_code)),
-            Err(err) => return Err(format!("Ioctl exited with error: {:?}", err)),
-            _ => {}
-        }
-        count += buf_len;
-    }
-
-    Ok(())
-}
-
-// Wraps NSM descriptor to implement Drop
-struct NSMDevice {
-    descriptor: i32,
-}
-
-impl NSMDevice {
-    fn new() -> Result<Self, String> {
-        let descriptor = nsm::nsm_lib_init();
-
-        if descriptor < 0 {
-            return Err(format!("Failed initializing nsm lib. Returned {}", descriptor));
-        }
-
-        Ok(NSMDevice { descriptor })
-    }
-}
-
-impl Drop for NSMDevice {
-    fn drop(&mut self) {
-        nsm::nsm_lib_exit(self.descriptor);
-    }
 }
 
 pub fn write_to_file<C: AsRef<[u8]>>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
