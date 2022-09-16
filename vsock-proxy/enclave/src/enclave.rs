@@ -52,7 +52,9 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, use_file_system).await?;
 
-        cleanup().await?;
+        if use_file_system {
+            cleanup().await?;
+        }
 
         send_user_program_exit_status(&mut parent_port, exit_status.clone()).await?;
 
