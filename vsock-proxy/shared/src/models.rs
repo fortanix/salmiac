@@ -19,6 +19,7 @@ pub enum SetupMessages {
     UseFileSystem(bool),
     NBDConfiguration(NBDConfiguration),
     ExtraUserProgramArguments(Vec<String>),
+    ExitEnclave
 }
 
 #[derive(Serialize, Deserialize, Debug)]

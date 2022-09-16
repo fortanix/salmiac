@@ -25,6 +25,7 @@ use std::fs;
 use std::io::Write;
 use std::net::IpAddr;
 use std::str::FromStr;
+use futures::StreamExt;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -59,7 +60,7 @@ pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<Use
     let use_file_system = extract_enum_value!(enclave_port.read_lv().await?, SetupMessages::UseFileSystem(e) => e)?;
     let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
 
-    with_background_tasks!(background_tasks, {
+    let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
         if use_file_system {
             send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
         }
@@ -69,7 +70,36 @@ pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<Use
         user_program
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-    })
+    })?;
+
+    cleanup(background_tasks).await?;
+
+    send_enclave_exit(&mut enclave_port).await?;
+
+    Ok(exit_code)
+}
+
+async fn cleanup(mut background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
+    for background_task in &background_tasks {
+        background_task.abort();
+    }
+
+    // Wait until all background tasks are properly cancelled
+    for result in background_tasks.next().await {
+        match result {
+            Err(err) if err.is_cancelled() => { }
+            _ => {
+                warn!("Failed to cancel background task!")
+            }
+        }
+    }
+
+    info!("All background tasks have exited successfully.");
+    Ok(())
+}
+
+async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
+    enclave_port.write_lv(&SetupMessages::ExitEnclave).await
 }
 
 async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, arguments: Vec<String>) -> Result<(), String> {
@@ -263,8 +293,10 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
     Ok(())
 }
 
-async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
-    extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)
+async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<(UserProgramExitStatus, AsyncVsockStream), String> {
+    let result = extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)?;
+
+    Ok((result, vsock))
 }
 
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
