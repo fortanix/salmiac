@@ -25,7 +25,6 @@ use std::fs;
 use std::io::Write;
 use std::net::IpAddr;
 use std::str::FromStr;
-use futures::StreamExt;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -72,25 +71,17 @@ pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<Use
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     })?;
 
-    cleanup(background_tasks).await?;
+    cleanup(background_tasks)?;
 
     send_enclave_exit(&mut enclave_port).await?;
 
     Ok(exit_code)
 }
 
-async fn cleanup(mut background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
+fn cleanup(background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
     for background_task in &background_tasks {
-        background_task.abort();
-    }
-
-    // Wait until all background tasks are properly cancelled
-    for result in background_tasks.next().await {
-        match result {
-            Err(err) if err.is_cancelled() => { }
-            _ => {
-                warn!("Failed to cancel background task!")
-            }
+        while !background_task.is_finished() {
+            background_task.abort();
         }
     }
 
