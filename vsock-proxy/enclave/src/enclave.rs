@@ -8,7 +8,7 @@ use tun::AsyncDevice;
 use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{request_certificate, CertificateResult};
+use crate::certificate::{request_certificate, CertificateResult, CertificateWithPath, write_certificate};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs,
     generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system,
@@ -27,7 +27,7 @@ use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 use std::convert::From;
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
@@ -43,12 +43,19 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     // between tap devices. They never exit during normal enclave execution and it is considered an error if they do.
     let mut background_tasks = start_background_tasks(tap_devices);
 
-    let certificate_info = setup_result.certificate_info.take();
-
     with_background_tasks!(background_tasks, {
         let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
 
-        setup_app_configuration(&setup_result.app_config, certificate_info, use_file_system)?;
+        for certificate in &mut setup_result.certificate_info {
+            write_certificate(certificate)?;
+        }
+
+        let first_certificate = setup_result.certificate_info
+            .into_iter()
+            .next()
+            .map(|e| e.certificate_result);
+
+        setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.fs_root)?;
 
         let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, use_file_system).await?;
 
@@ -78,29 +85,35 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
+    let fs_root = if enclave_manifest.file_system_config.is_some() {
+        Path::new(ENCLAVE_FS_OVERLAY_ROOT)
+    } else {
+        Path::new("/")
+    };
+
     let certificate_info =
-        setup_enclave_certification(parent_port, &app_config.id, &enclave_manifest.user_config.certificate_config).await?;
+        setup_enclave_certification(
+            parent_port,
+            &app_config.id,
+            &enclave_manifest.user_config.certificate_config,
+            fs_root).await?;
 
     Ok(EnclaveSetupResult {
         certificate_info,
         app_config,
         enclave_manifest,
+        fs_root: fs_root.to_path_buf()
     })
 }
 
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
-    use_file_system: bool,
+    fs_root: &Path
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
-        let fs_root = if use_file_system {
-            Path::new(ENCLAVE_FS_OVERLAY_ROOT)
-        } else {
-            Path::new("/")
-        };
 
         info!("Setting up application configuration.");
         setup_application_configuration(&credentials, &app_config.ccm_backend_url, api, fs_root)
@@ -287,11 +300,13 @@ async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<Ta
 }
 
 struct EnclaveSetupResult {
-    certificate_info: Option<CertificateResult>,
+    certificate_info: Vec<CertificateWithPath>,
 
     app_config: ApplicationConfiguration,
 
     enclave_manifest: EnclaveManifest,
+
+    fs_root: PathBuf
 }
 
 struct TapDeviceInfo {
@@ -389,40 +404,22 @@ async fn setup_enclave_certification(
     vsock: &mut AsyncVsockStream,
     app_config_id: &Option<String>,
     cert_settings: &Vec<CertificateConfig>,
-) -> Result<Option<CertificateResult>, String> {
-    let mut num_certs: u64 = 0;
-    let mut first_certificate: Option<CertificateResult> = None;
+    fs_root: &Path
+) -> Result<Vec<CertificateWithPath>, String> {
+    let mut result = Vec::new();
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        let mut certificate_result = request_certificate(vsock, cert_config, app_config_id).await?;
+        let certificate_result = request_certificate(vsock, cert_config, app_config_id).await?;
 
-        let key_as_pem = certificate_result
-            .key
-            .write_private_pem_string()
-            .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
-
-        {
-            let fs_root = Path::new(ENCLAVE_FS_OVERLAY_ROOT);
-            let config_path = fs_root.join(cert_config.key_path_or_default());
-            let cert_path = fs_root.join(cert_config.cert_path_or_default());
-
-            write_to_file(&config_path, &key_as_pem, "key")?;
-            write_to_file(&cert_path, &certificate_result.certificate, "certificate")?;
-        }
-
-        if let None = first_certificate {
-            first_certificate = Some(certificate_result);
-        }
-
-        num_certs += 1;
+        result.push(CertificateWithPath::new(certificate_result, cert_config, fs_root));
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
 
-    info!("Finished requesting {} certificates.", num_certs);
+    info!("Finished requesting {} certificates.", result.len());
 
-    Ok(first_certificate)
+    Ok(result)
 }
 
 async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
