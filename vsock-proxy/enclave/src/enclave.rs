@@ -46,7 +46,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
     let certificate_info = setup_result.certificate_info.take();
 
-    with_background_tasks!(background_tasks, {
+    let result = with_background_tasks!(background_tasks, {
         let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
 
         setup_app_configuration(&setup_result.app_config, certificate_info, use_file_system)?;
@@ -60,7 +60,15 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         send_user_program_exit_status(&mut parent_port, exit_status.clone()).await?;
 
         Ok(exit_status)
-    })
+    });
+
+    await_enclave_exit(&mut parent_port).await?;
+
+    result
+}
+
+async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
+    extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExitEnclave => ())
 }
 
 async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Result<EnclaveSetupResult, String> {

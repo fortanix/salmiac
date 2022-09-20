@@ -60,7 +60,7 @@ pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<Use
     let use_file_system = extract_enum_value!(enclave_port.read_lv().await?, SetupMessages::UseFileSystem(e) => e)?;
     let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
 
-    with_background_tasks!(background_tasks, {
+    let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
         if use_file_system {
             send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
         }
@@ -70,7 +70,28 @@ pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<Use
         user_program
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-    })
+    })?;
+
+    cleanup(background_tasks)?;
+
+    send_enclave_exit(&mut enclave_port).await?;
+
+    Ok(exit_code)
+}
+
+fn cleanup(background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
+    for background_task in &background_tasks {
+        while !background_task.is_finished() {
+            background_task.abort();
+        }
+    }
+
+    info!("All background tasks have exited successfully.");
+    Ok(())
+}
+
+async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
+    enclave_port.write_lv(&SetupMessages::ExitEnclave).await
 }
 
 async fn send_env_variables(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
@@ -269,8 +290,10 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
     Ok(())
 }
 
-async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
-    extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)
+async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<(UserProgramExitStatus, AsyncVsockStream), String> {
+    let result = extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)?;
+
+    Ok((result, vsock))
 }
 
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
