@@ -159,12 +159,14 @@ fn async_packet_capture_config() -> Config {
 
     config.with_blocking(false);
 
-    // We capture only incoming packets inside the parent, however by default pcap captures
-    // all the packets that come through the network device (like tcpdump).
-    // Without this filter what would happen is that pcap will capture packets forwarded from enclave's TAP device, which in turn
+    // We capture only incoming packets inside the parent, however by default pcap
+    // captures all the packets that come through the network device (like
+    // tcpdump). Without this filter what would happen is that pcap will capture
+    // packets forwarded from enclave's TAP device, which in turn
     // will get forwarded back into the enclave by the parent.
-    // This doesn't break the networking as incorrect packets will get dropped by the enclave,
-    // but that way it generates unnecessary traffic that we don't need.
+    // This doesn't break the networking as incorrect packets will get dropped by
+    // the enclave, but that way it generates unnecessary traffic that we don't
+    // need.
     config.with_bpf("inbound".to_string());
 
     config

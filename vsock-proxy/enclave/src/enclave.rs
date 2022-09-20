@@ -39,8 +39,9 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let tap_devices = setup_tap_devices(&mut parent_port).await?;
 
     // Background tasks are futures that run for the whole duration of the enclave.
-    // They represent background processes that run forever like forwarding network packets
-    // between tap devices. They never exit during normal enclave execution and it is considered an error if they do.
+    // They represent background processes that run forever like forwarding network
+    // packets between tap devices. They never exit during normal enclave
+    // execution and it is considered an error if they do.
     let mut background_tasks = start_background_tasks(tap_devices);
 
     let certificate_info = setup_result.certificate_info.take();
@@ -50,7 +51,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         setup_app_configuration(&setup_result.app_config, certificate_info, use_file_system)?;
 
-        let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, use_file_system).await?;
+        let exit_status = start_and_await_user_program_return(setup_result, use_file_system).await?;
 
         if use_file_system {
             cleanup().await?;
@@ -66,6 +67,8 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
     let mut enclave_manifest = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
+
+    let env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
 
     let mut extra_user_program_args =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
@@ -85,6 +88,7 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
         certificate_info,
         app_config,
         enclave_manifest,
+        env_vars,
     })
 }
 
@@ -163,10 +167,10 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 }
 
 async fn start_and_await_user_program_return(
-    enclave_manifest: EnclaveManifest,
+    enc_setup_res: EnclaveSetupResult,
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = tokio::spawn(start_user_program(enclave_manifest, use_file_system));
+    let user_program = tokio::spawn(start_user_program(enc_setup_res, use_file_system));
 
     user_program
         .await
@@ -198,8 +202,9 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     mount_read_write_file_system(crypt_file_path).await?;
     info!("Finished read/write file system mount.");
 
-    // we can create read/write folders of the overlay file system (known as upper dir and working dir)
-    // only after calling dm-crypt because dm-crypt formats the volume before mounting.
+    // we can create read/write folders of the overlay file system (known as upper
+    // dir and working dir) only after calling dm-crypt because dm-crypt formats
+    // the volume before mounting.
     create_overlay_rw_dirs()?;
     info!("Created directories needed for overlay read/write part.");
 
@@ -213,32 +218,56 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     Ok(())
 }
 
-async fn start_user_program(enclave_manifest: EnclaveManifest, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
-    let output = if use_file_system {
-        let mut client_command = Command::new("chroot");
+fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
+    for (key, val) in env_vars {
+        // Only filter out hostname and path for now.
+        // TODO:: Filter out env variables based on what is
+        // specified in the converter request
+        if key != "HOSTNAME" && key != "PATH" {
+            debug!("Adding env {:?}={:?}", key, val);
+            command.env(key, val);
+        }
+    }
+}
+
+async fn start_user_program(enc_setup_res: EnclaveSetupResult, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
+    let mut client_command;
+    if use_file_system {
+        client_command = Command::new("chroot");
         client_command.args([
             ENCLAVE_FS_OVERLAY_ROOT,
-            &enclave_manifest.user_config.user_program_config.entry_point,
+            &enc_setup_res.enclave_manifest.user_config.user_program_config.entry_point,
         ]);
-
-        if !enclave_manifest.user_config.user_program_config.arguments.is_empty() {
-            client_command.args(enclave_manifest.user_config.user_program_config.arguments.clone());
-        }
-
-        let client_program = client_command
-            .spawn()
-            .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
-
-        client_program
-            .output()
-            .await
-            .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
     } else {
-        let mut client_command = Command::new(enclave_manifest.user_config.user_program_config.entry_point.clone());
+        client_command = Command::new(
+            enc_setup_res
+                .enclave_manifest
+                .user_config
+                .user_program_config
+                .entry_point
+                .clone(),
+        );
+    }
 
-        if !enclave_manifest.user_config.user_program_config.arguments.is_empty() {
-            client_command.args(enclave_manifest.user_config.user_program_config.arguments.clone());
+    let output = {
+        if !enc_setup_res
+            .enclave_manifest
+            .user_config
+            .user_program_config
+            .arguments
+            .is_empty()
+        {
+            client_command.args(
+                enc_setup_res
+                    .enclave_manifest
+                    .user_config
+                    .user_program_config
+                    .arguments
+                    .clone(),
+            );
         }
+
+        set_env_vars(&mut client_command, enc_setup_res.env_vars);
 
         let client_program = client_command
             .spawn()
@@ -292,6 +321,8 @@ struct EnclaveSetupResult {
     app_config: ApplicationConfiguration,
 
     enclave_manifest: EnclaveManifest,
+
+    env_vars: Vec<(String, String)>,
 }
 
 struct TapDeviceInfo {
@@ -355,8 +386,9 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
         .await?;
 
     // It is required that we add routes first and than the gateway
-    // Kernel allows us to add the gateway only if there is a reachable route for gateway's address in the routing table.
-    // Without said route(s) the kernel will return NETWORK_UNREACHABLE status code for our add_gateway function.
+    // Kernel allows us to add the gateway only if there is a reachable route for
+    // gateway's address in the routing table. Without said route(s) the kernel
+    // will return NETWORK_UNREACHABLE status code for our add_gateway function.
     for route in &parent_settings.routes {
         match netlink.add_route_for_device(tap_index, route).await {
             Err(e) => {
@@ -373,9 +405,11 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
         debug!("Gateway {:?} is set.", parent_settings.gateway);
     }
 
-    // It might be the case when parent's neighbour resolution depends on a static manually inserted ARP entries
-    // and not on protocol's capability to automatically learn neighbours. In this case we have to manually copy
-    // those entries from parent as it becomes the only way for the enclave to know it's neighbours.
+    // It might be the case when parent's neighbour resolution depends on a static
+    // manually inserted ARP entries and not on protocol's capability to
+    // automatically learn neighbours. In this case we have to manually copy
+    // those entries from parent as it becomes the only way for the enclave to know
+    // it's neighbours.
     for arp_entry in &parent_settings.static_arp_entries {
         netlink.add_neighbour_for_device(tap_index, arp_entry).await?;
 

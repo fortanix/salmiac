@@ -82,8 +82,8 @@ macro_rules! impl_numarg(
 )+););
 impl_numarg!(u32);
 
-/// Deconstructs enum using provided pattern expression `$pattern` => `$extracted_value`
-/// # Returns
+/// Deconstructs enum using provided pattern expression `$pattern` =>
+/// `$extracted_value` # Returns
 /// `Ok($extracted_value)` if `$value` matches `$pattern` and `Err` otherwise
 #[macro_export]
 macro_rules! extract_enum_value {
@@ -99,10 +99,11 @@ macro_rules! extract_enum_value {
     };
 }
 
-/// Finds first value in iterable `$value` that matches provided pattern expression `pattern` => `extracted_value`
-/// The type of `$value`must implement `IntoIterator` for this macros to work
-/// # Returns
-/// `Some($extracted_value)` if `$value` contains an element that matches `$pattern` and `None` otherwise
+/// Finds first value in iterable `$value` that matches provided pattern
+/// expression `pattern` => `extracted_value` The type of `$value`must implement
+/// `IntoIterator` for this macros to work # Returns
+/// `Some($extracted_value)` if `$value` contains an element that matches
+/// `$pattern` and `None` otherwise
 #[macro_export]
 macro_rules! find_map {
     ($value:expr, $pattern:pat => $extracted_value:expr) => {
@@ -113,10 +114,11 @@ macro_rules! find_map {
     };
 }
 
-/// Executes block of code `$value` asynchronously while simultaneously checking on `tasks` futures
-/// If any future from `$tasks` list completes (with error or not) before `$value` the whole block exits with an `Err`
-/// # Returns
-/// The result of `$value` block when it completes or `Err` if any future from `$tasks` list completes first
+/// Executes block of code `$value` asynchronously while simultaneously checking
+/// on `tasks` futures If any future from `$tasks` list completes (with error or
+/// not) before `$value` the whole block exits with an `Err` # Returns
+/// The result of `$value` block when it completes or `Err` if any future from
+/// `$tasks` list completes first
 #[macro_export]
 macro_rules! with_background_tasks {
     ($tasks:expr, $value:block) => {{
