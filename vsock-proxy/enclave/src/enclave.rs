@@ -58,7 +58,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.fs_root)?;
 
-        let exit_status = start_and_await_user_program_return(setup_result, use_file_system).await?;
+        let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, setup_result.env_vars, use_file_system).await?;
 
         if use_file_system {
             cleanup().await?;
@@ -188,10 +188,11 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 }
 
 async fn start_and_await_user_program_return(
-    enc_setup_res: EnclaveSetupResult,
+    enclave_manifest: EnclaveManifest,
+    env_vars: Vec<(String, String)>,
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = tokio::spawn(start_user_program(enc_setup_res, use_file_system));
+    let user_program = tokio::spawn(start_user_program(enclave_manifest, env_vars, use_file_system));
 
     user_program
         .await
@@ -251,18 +252,16 @@ fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
     }
 }
 
-async fn start_user_program(enc_setup_res: EnclaveSetupResult, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
+async fn start_user_program(enclave_manifest: EnclaveManifest, env_vars: Vec<(String, String)>, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
     let mut client_command;
     if use_file_system {
         client_command = Command::new("chroot");
         client_command.args([
             ENCLAVE_FS_OVERLAY_ROOT,
-            &enc_setup_res.enclave_manifest.user_config.user_program_config.entry_point,
+            &enclave_manifest.user_config.user_program_config.entry_point,
         ]);
     } else {
-        client_command = Command::new(
-            enc_setup_res
-                .enclave_manifest
+        client_command = Command::new(enclave_manifest
                 .user_config
                 .user_program_config
                 .entry_point
@@ -271,16 +270,13 @@ async fn start_user_program(enc_setup_res: EnclaveSetupResult, use_file_system: 
     }
 
     let output = {
-        if !enc_setup_res
-            .enclave_manifest
+        if !enclave_manifest
             .user_config
             .user_program_config
             .arguments
             .is_empty()
         {
-            client_command.args(
-                enc_setup_res
-                    .enclave_manifest
+            client_command.args(enclave_manifest
                     .user_config
                     .user_program_config
                     .arguments
@@ -288,7 +284,7 @@ async fn start_user_program(enc_setup_res: EnclaveSetupResult, use_file_system: 
             );
         }
 
-        set_env_vars(&mut client_command, enc_setup_res.env_vars);
+        set_env_vars(&mut client_command, env_vars);
 
         let client_program = client_command
             .spawn()
