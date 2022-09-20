@@ -44,7 +44,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     // execution and it is considered an error if they do.
     let mut background_tasks = start_background_tasks(tap_devices);
 
-    with_background_tasks!(background_tasks, {
+    let result = with_background_tasks!(background_tasks, {
         let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
 
         for certificate in &mut setup_result.certificate_info {
