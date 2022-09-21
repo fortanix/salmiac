@@ -277,7 +277,7 @@ impl DockerUtil for DockerDaemon {
     }
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String> {
-        let tar = fs::File::open(tar_path).map_err(|err| format!("Unable to open image file, {:?}", err))?;
+        let tar = fs::File::open(tar_path).map_err(|err| format!("Unable to open image file - {:?} : {:?}", tar_path, err))?;
 
         let reader = Box::from(tar);
         let mut stream = self.docker.images().import(reader);

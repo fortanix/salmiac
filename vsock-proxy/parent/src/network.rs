@@ -10,10 +10,7 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
 use crate::parent::{accept, listen_to_parent};
-use shared::models::{
-    FSNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages,
-};
-use shared::tap::{create_async_tap_device, tap_device_config};
+use shared::models::{FSNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::ARPEntry;
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::Route;
@@ -21,6 +18,7 @@ use shared::netlink::route::{Gateway, NetlinkRoute};
 use shared::netlink::Netlink;
 use shared::netlink::{LinkMessageExt, NetlinkCommon};
 use shared::socket::AsyncWriteLvStream;
+use shared::tap::{create_async_tap_device, tap_device_config};
 
 use std::convert::From;
 use std::convert::TryFrom;
@@ -255,11 +253,15 @@ fn field_offset_in_packet<'a>(full_packet: &'a [u8], header: &'a [u8], header_fi
     assert!(full_packet.start <= field.start); // assertion 2
     assert!(field.end <= full_packet.end); // assertion 3
                                            // SAFETY, w.r.t. `field.start` and `full_packet.start`:
-                                           // Both pointers are in bounds of the same allocated object (`full_packet`, assertions 2 & 3).
-                                           // Both pointers are derived from a pointer to the same object (`full_packet`, assertions 2 & 3).
-                                           // The distance between the pointers, in bytes, is an exact multiple of the size of u8 (trivial, as the size is 1).
-                                           // The distance between the pointers, in bytes, doesn't overflow an isize (assertion 1).
-                                           // The distance between the pointers doesn't wrap around the address space (assertion 2).
+                                           // Both pointers are in bounds of the same allocated object (`full_packet`,
+                                           // assertions 2 & 3). Both pointers
+                                           // are derived from a pointer to the same object (`full_packet`, assertions 2 &
+                                           // 3). The distance between the
+                                           // pointers, in bytes, is an exact multiple of the size of u8 (trivial, as the
+                                           // size is 1). The distance between
+                                           // the pointers, in bytes, doesn't overflow an isize (assertion 1).
+                                           // The distance between the pointers doesn't wrap around the address space
+                                           // (assertion 2).
     unsafe { field.start.offset_from(full_packet.start) as usize }
 }
 
@@ -303,16 +305,18 @@ pub(crate) async fn setup_file_system_tap_devices(
     })
 }
 
-/// Returns first available pair of free addresses inside a private network range that are not present in `in_use` `Vec`.
-/// We use said addresses to create an isolated private network for enclave-parent communication.
+/// Returns first available pair of free addresses inside a private network
+/// range that are not present in `in_use` `Vec`. We use said addresses to
+/// create an isolated private network for enclave-parent communication.
 ///
-/// In detail the function performs a linear search among the 3 ranges of private network addresses
-/// (https://en.wikipedia.org/wiki/Private_network) and returns when it finds 2 ip addresses
+/// In detail the function performs a linear search among the 3 ranges of
+/// private network addresses (https://en.wikipedia.org/wiki/Private_network) and returns when it finds 2 ip addresses
 /// that are not contained in `in_use` `Vec`.
 /// # Arguments
-/// `in_use` - a `Vec` of ip addresses that are already in use by other network devices
-/// # Returns
-/// A pair of addresses, where first value is parent's address and second one is enclave's address.
+/// `in_use` - a `Vec` of ip addresses that are already in use by other network
+/// devices # Returns
+/// A pair of addresses, where first value is parent's address and second one is
+/// enclave's address.
 pub(crate) fn choose_network_addresses_for_fs_taps(in_use: Vec<Ipv4Network>) -> Result<(IpNetwork, IpNetwork), String> {
     let private_networks: [Ipv4Network; 3] = [
         Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),

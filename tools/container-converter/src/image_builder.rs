@@ -4,7 +4,7 @@ use log::{debug, error, info};
 use tar::Archive;
 use tempfile::TempDir;
 
-use crate::file::{DockerCopyArgs, Resource, UnixFile};
+use crate::file::{DockerCopyArgs, Resource, UnixFile, DockerFile};
 use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
@@ -30,6 +30,8 @@ pub struct EnclaveSettings {
     pub user_name: String,
 
     pub env_vars: Vec<String>,
+
+    pub is_debug: bool
 }
 
 pub struct EnclaveBuilderResult {
@@ -64,6 +66,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<EnclaveBuilderResult> {
         let build_context_dir = self.create_build_context_dir()?;
+        let is_debug = enclave_settings.is_debug;
 
         self.create_requisites(enclave_settings, &build_context_dir)
             .map_err(|message| ConverterError {
@@ -87,6 +90,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let enclave_manifest = EnclaveManifest {
             user_config,
             file_system_config: fs_root_hash,
+            is_debug
         };
 
         self.create_manifest_file(enclave_manifest, &build_context_dir)?;
@@ -302,8 +306,8 @@ impl<'a> EnclaveImageBuilder<'a> {
     fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
-        let copy = DockerCopyArgs {
-            items: EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec(),
+        let add = DockerCopyArgs {
+            items: EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -345,7 +349,16 @@ impl<'a> EnclaveImageBuilder<'a> {
         let mut env = enclave_settings.env_vars;
         env.push(rust_log_env_var("enclave"));
 
-        file::populate_docker_file(file, from, &copy, &env, &run_enclave_cmd)
+        let docker_file = DockerFile {
+            from,
+            add: Some(add),
+            env: &env,
+            cmd: Some(&run_enclave_cmd),
+            entrypoint: None
+        };
+
+        file.write_all(docker_file.to_string().as_bytes())
+            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))
     }
 }
 
@@ -448,7 +461,7 @@ impl<'a> ParentImageBuilder<'a> {
             copy_items.push(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
         }
 
-        self.populate_docker_file(&mut docker_file, copy_items)?;
+        self.populate_docker_file(&mut docker_file, &copy_items)?;
 
         if cfg!(debug_assertions) {
             file::log_docker_file(dir)?;
@@ -466,22 +479,36 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, copy_items: Vec<&str>) -> std::result::Result<(), String> {
-        let copy = DockerCopyArgs {
-            items: copy_items,
+    fn populate_docker_file(&self, file: &mut fs::File, copy_items: &[&str]) -> std::result::Result<(), String> {
+        let add = DockerCopyArgs {
+            items: &copy_items,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
         let run_parent_cmd = Path::new(INSTALLATION_DIR).join("start-parent.sh").display().to_string();
 
+        let log_env = rust_log_env_var("parent");
+        let cpu_count_env = self.cpu_count_env_var();
+        let mem_size_env = self.mem_size_env_var();
+        let eos_debug_env = self.eos_debug_env_var();
+
         let env_vars = [
-            rust_log_env_var("parent"),
-            self.cpu_count_env_var(),
-            self.mem_size_env_var(),
-            self.eos_debug_env_var(),
+            log_env.as_str(),
+            cpu_count_env.as_str(),
+            mem_size_env.as_str(),
+            eos_debug_env.as_str()
         ];
 
-        file::populate_docker_file(file, &self.parent_image, &copy, &env_vars, &run_parent_cmd)
+        let docker_file = DockerFile {
+            from: &self.parent_image,
+            add: Some(add),
+            env: &env_vars,
+            cmd: None,
+            entrypoint: Some(&run_parent_cmd)
+        };
+
+        file.write_all(docker_file.to_string().as_bytes())
+            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))
     }
 
     fn append_start_enclave_command(&self, startup_script_path: &Path) -> std::result::Result<(), String> {
@@ -516,7 +543,7 @@ impl<'a> ParentImageBuilder<'a> {
         format!(
             "\n\
              # Parent startup code \n\
-             {} --vsock-port 5006 & \n\
+             {} --vsock-port 5006 \"$@\" & \n\
              dbg_cmd=\"{}\" \n\
              cmd=\"{}\" \n\
              if [ -n \"$ENCLAVEOS_DEBUG\" ] ; then eval \"$dbg_cmd\" ; else eval \"$cmd\" ; fi; \n\

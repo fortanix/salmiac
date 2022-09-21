@@ -18,6 +18,9 @@ pub enum SetupMessages {
     ApplicationConfig(ApplicationConfiguration),
     UseFileSystem(bool),
     NBDConfiguration(NBDConfiguration),
+    EnvVariables(Vec<(String, String)>),
+    ExtraUserProgramArguments(Vec<String>),
+    ExitEnclave
 }
 
 #[derive(Serialize, Deserialize, Debug)]
