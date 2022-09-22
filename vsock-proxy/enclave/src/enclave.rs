@@ -8,7 +8,7 @@ use tun::AsyncDevice;
 use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{request_certificate, CertificateResult, CertificateWithPath, write_certificate};
+use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs,
     generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system,
@@ -34,9 +34,7 @@ const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
-    let mut setup_result = startup(&mut parent_port, settings_path).await?;
-
-    let tap_devices = setup_tap_devices(&mut parent_port).await?;
+    let (setup_result, tap_devices) = startup(&mut parent_port, settings_path).await?;
 
     // Background tasks are futures that run for the whole duration of the enclave.
     // They represent background processes that run forever like forwarding network
@@ -45,20 +43,26 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let mut background_tasks = start_background_tasks(tap_devices);
 
     let result = with_background_tasks!(background_tasks, {
+        let mut certificate_info = setup_enclave_certification(
+            &mut parent_port,
+            &setup_result.app_config.id,
+            &setup_result.enclave_manifest.user_config.certificate_config,
+            &setup_result.fs_root
+        )
+        .await?;
+
         let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
 
-        for certificate in &mut setup_result.certificate_info {
+        for certificate in &mut certificate_info {
             write_certificate(certificate)?;
         }
 
-        let first_certificate = setup_result.certificate_info
-            .into_iter()
-            .next()
-            .map(|e| e.certificate_result);
+        let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
 
         setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.fs_root)?;
 
-        let exit_status = start_and_await_user_program_return(setup_result.enclave_manifest, setup_result.env_vars, use_file_system).await?;
+        let exit_status =
+            start_and_await_user_program_return(setup_result.enclave_manifest, setup_result.env_vars, use_file_system).await?;
 
         if use_file_system {
             cleanup().await?;
@@ -78,7 +82,12 @@ async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), St
     extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExitEnclave => ())
 }
 
-async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Result<EnclaveSetupResult, String> {
+// Return a tuple of EnclaveSetupResult and TapDeviceInfo so that they can be
+// consumed by different functions used by the caller
+async fn startup(
+    parent_port: &mut AsyncVsockStream,
+    settings_path: &Path,
+) -> Result<(EnclaveSetupResult, Vec<TapDeviceInfo>), String> {
     let mut enclave_manifest = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
@@ -96,32 +105,29 @@ async fn startup(parent_port: &mut AsyncVsockStream, settings_path: &Path) -> Re
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
+    let tap_devices = setup_tap_devices(parent_port).await?;
+
     let fs_root = if enclave_manifest.file_system_config.is_some() {
         Path::new(ENCLAVE_FS_OVERLAY_ROOT)
     } else {
         Path::new("/")
     };
 
-    let certificate_info =
-        setup_enclave_certification(
-            parent_port,
-            &app_config.id,
-            &enclave_manifest.user_config.certificate_config,
-            fs_root).await?;
-
-    Ok(EnclaveSetupResult {
-        certificate_info,
-        app_config,
-        enclave_manifest,
-        fs_root: fs_root.to_path_buf(),
-        env_vars,
-    })
+    Ok((
+        EnclaveSetupResult {
+            app_config,
+            enclave_manifest,
+            fs_root: fs_root.to_path_buf(),
+            env_vars,
+        },
+        tap_devices,
+    ))
 }
 
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
-    fs_root: &Path
+    fs_root: &Path,
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
@@ -252,7 +258,11 @@ fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
     }
 }
 
-async fn start_user_program(enclave_manifest: EnclaveManifest, env_vars: Vec<(String, String)>, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
+async fn start_user_program(
+    enclave_manifest: EnclaveManifest,
+    env_vars: Vec<(String, String)>,
+    use_file_system: bool,
+) -> Result<UserProgramExitStatus, String> {
     let mut client_command;
     if use_file_system {
         client_command = Command::new("chroot");
@@ -261,27 +271,12 @@ async fn start_user_program(enclave_manifest: EnclaveManifest, env_vars: Vec<(St
             &enclave_manifest.user_config.user_program_config.entry_point,
         ]);
     } else {
-        client_command = Command::new(enclave_manifest
-                .user_config
-                .user_program_config
-                .entry_point
-                .clone(),
-        );
+        client_command = Command::new(enclave_manifest.user_config.user_program_config.entry_point.clone());
     }
 
     let output = {
-        if !enclave_manifest
-            .user_config
-            .user_program_config
-            .arguments
-            .is_empty()
-        {
-            client_command.args(enclave_manifest
-                    .user_config
-                    .user_program_config
-                    .arguments
-                    .clone(),
-            );
+        if !enclave_manifest.user_config.user_program_config.arguments.is_empty() {
+            client_command.args(enclave_manifest.user_config.user_program_config.arguments.clone());
         }
 
         set_env_vars(&mut client_command, env_vars);
@@ -333,15 +328,13 @@ async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<Ta
 }
 
 struct EnclaveSetupResult {
-    certificate_info: Vec<CertificateWithPath>,
-
     app_config: ApplicationConfiguration,
 
     enclave_manifest: EnclaveManifest,
 
     fs_root: PathBuf,
 
-    env_vars: Vec<(String, String)>
+    env_vars: Vec<(String, String)>,
 }
 
 struct TapDeviceInfo {
@@ -442,7 +435,7 @@ async fn setup_enclave_certification(
     vsock: &mut AsyncVsockStream,
     app_config_id: &Option<String>,
     cert_settings: &Vec<CertificateConfig>,
-    fs_root: &Path
+    fs_root: &Path,
 ) -> Result<Vec<CertificateWithPath>, String> {
     let mut result = Vec::new();
 
