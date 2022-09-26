@@ -524,9 +524,6 @@ dependencies = [
 [[package]]
 name = "enclave-startup"
 version = "0.1.0"
-dependencies = [
- "clap",
-]
 
 [[package]]
 name = "env_logger"
