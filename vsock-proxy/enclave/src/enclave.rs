@@ -9,11 +9,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{request_certificate, CertificateResult};
-use crate::file_system::{
-    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs,
-    generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system,
-    run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT,
-};
+use crate::file_system::{close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, copy_startup_binary_to_mount};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
 use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
@@ -30,6 +26,8 @@ use std::io::Write;
 use std::path::Path;
 
 const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
+
+const STARTUP_BINARY: &str = "/enclave-startup";
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
@@ -207,7 +205,10 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     info!("Mounted enclave root with overlay-fs.");
 
     mount_file_system_nodes().await?;
+
     copy_dns_file_to_mount()?;
+    copy_startup_binary_to_mount(STARTUP_BINARY)?;
+
     info!("Finished file system mount.");
 
     Ok(())
@@ -216,14 +217,16 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
 async fn start_user_program(enclave_manifest: EnclaveManifest, use_file_system: bool) -> Result<UserProgramExitStatus, String> {
     let output = if use_file_system {
         let mut client_command = Command::new("chroot");
+        let user_program = enclave_manifest.user_config.user_program_config;
+
         client_command.args([
             ENCLAVE_FS_OVERLAY_ROOT,
-            &enclave_manifest.user_config.user_program_config.entry_point,
+            STARTUP_BINARY,
+            &user_program.working_dir,
+            &user_program.entry_point,
         ]);
 
-        if !enclave_manifest.user_config.user_program_config.arguments.is_empty() {
-            client_command.args(enclave_manifest.user_config.user_program_config.arguments.clone());
-        }
+        client_command.args(user_program.arguments.clone());
 
         let client_program = client_command
             .spawn()

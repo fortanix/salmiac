@@ -8,7 +8,7 @@ use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, Regis
 
 use crate::image_builder::run_subprocess;
 use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
-use api_model::shared::UserProgramConfig;
+use api_model::shared::{UserProgramConfig, WorkingDir};
 use api_model::AuthConfig;
 
 use shiplift::container::ContainerCreateInfo;
@@ -107,7 +107,7 @@ impl ImageWithDetails {
     pub fn create_user_program_config(&self) -> Result<UserProgramConfig, ConverterError> {
         let config = &self.details.config;
 
-        if let Some(ref raw_entry_point) = config.entrypoint {
+        let (entry_point, arguments) = if let Some(ref raw_entry_point) = config.entrypoint {
             let (entry_point, mut entry_point_arguments) =
                 ImageWithDetails::extract_entry_point_with_arguments(raw_entry_point)?;
 
@@ -115,20 +115,21 @@ impl ImageWithDetails {
 
             entry_point_arguments.append(&mut cmd_argument_list);
 
-            Ok(UserProgramConfig {
-                entry_point,
-                arguments: entry_point_arguments,
-            })
+            (entry_point, entry_point_arguments)
         } else {
             let cmd = config.cmd.as_ref().ok_or(ConverterError {
                 message: "Input image must have a CMD clause if ENTRYPOINT is not present.".to_string(),
                 kind: ConverterErrorKind::BadRequest,
             })?;
 
-            let (entry_point, arguments) = ImageWithDetails::extract_entry_point_with_arguments(cmd)?;
+            ImageWithDetails::extract_entry_point_with_arguments(cmd)?
+        };
 
-            Ok(UserProgramConfig { entry_point, arguments })
-        }
+        Ok(UserProgramConfig {
+            entry_point,
+            arguments,
+            working_dir: WorkingDir::from(config.working_dir.clone())
+        })
     }
 
     pub fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage {

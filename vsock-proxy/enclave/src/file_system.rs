@@ -153,6 +153,19 @@ pub(crate) async fn run_nbd_client(server_address: IpAddr, block_file_port: u16,
     run_subprocess("nbd-client", &args).await
 }
 
+pub(crate) fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), String> {
+    const STARTUP_PATH: &str = "/opt/fortanix/enclave-os";
+
+    let from = STARTUP_PATH.to_string() + startup_binary;
+    let to = ENCLAVE_FS_OVERLAY_ROOT.to_string() + startup_binary;
+
+    fs::copy(&from, &to).map_err(|err| {
+        format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err)
+    })?;
+
+    Ok(())
+}
+
 pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     const ENCLAVE_RUN_RESOLV_FILE: &str = "/run/resolvconf/resolv.conf";
 

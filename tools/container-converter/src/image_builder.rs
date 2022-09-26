@@ -281,13 +281,20 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image.name().to_string() + ":" + &new_tag
     }
 
-    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[Resource {
-        name: "enclave",
-        data: include_bytes!("resources/enclave/enclave"),
-        is_executable: true,
-    }];
+    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
+        Resource {
+            name: "enclave",
+            data: include_bytes!("resources/enclave/enclave"),
+            is_executable: true,
+        },
+        Resource {
+            name: "enclave-startup",
+            data: include_bytes!("resources/enclave/enclave-startup"),
+            is_executable: true,
+        }
+    ];
 
-    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json"];
+    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json", "enclave-startup"];
 
     fn create_requisites(&self, enclave_settings: EnclaveSettings, dir: &Path) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(dir)?;

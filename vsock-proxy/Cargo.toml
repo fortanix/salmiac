@@ -3,5 +3,6 @@
 members = [
     "shared",
     "parent",
-    "enclave"
+    "enclave",
+    "enclave-startup"
 ]

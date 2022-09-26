@@ -22,6 +22,7 @@ mkdir -p ../tools/container-converter/src/resources/enclave
 mkdir -p ../tools/container-converter/src/resources/parent
 
 cp "target/${vsock_proxy_bin_folder}/enclave" ../tools/container-converter/src/resources/enclave
+cp "target/${vsock_proxy_bin_folder}/enclave-startup" ../tools/container-converter/src/resources/enclave/enclave-startup
 cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/resources/parent
 
 cd ../tools/container-converter
