@@ -4,5 +4,4 @@ members = [
     "shared",
     "parent",
     "enclave",
-    "enclave-startup"
 ]

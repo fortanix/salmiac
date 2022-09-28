@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 cargo_build_flag=""
 vsock_proxy_bin_folder=""
@@ -15,18 +15,29 @@ if [ ! -z "$2" ]; then
   features_list="--features "$2
 fi;
 
-cd vsock-proxy
+pushd vsock-proxy
 cargo build $cargo_build_flag $features_list
 
-mkdir -p ../tools/container-converter/src/resources/enclave
-mkdir -p ../tools/container-converter/src/resources/parent
+mkdir -p tools/container-converter/src/resources/enclave
+mkdir -p tools/container-converter/src/resources/parent
 
 cp "target/${vsock_proxy_bin_folder}/enclave" ../tools/container-converter/src/resources/enclave
-cp "target/${vsock_proxy_bin_folder}/enclave-startup" ../tools/container-converter/src/resources/enclave/enclave-startup
 cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/resources/parent
 
-cd ../tools/container-converter
+popd
+
+pushd enclave-startup
+cargo build $cargo_build_flag $features_list
+cp "target/${vsock_proxy_bin_folder}/enclave-startup" ../tools/container-converter/src/resources/enclave/enclave-startup
+
+popd
+
+pushd tools/container-converter
 cargo build $cargo_build_flag $features_list
 
-cd ../../container-converter-service
+popd
+
+pushd container-converter-service
 cargo build $cargo_build_flag $features_list
+
+popd

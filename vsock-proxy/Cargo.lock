@@ -522,10 +522,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enclave-startup"
-version = "0.1.0"
-
-[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

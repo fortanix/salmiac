@@ -1,5 +1,6 @@
 use std::process::Command;
-use std::{process, env};
+use std::{env};
+use std::os::unix::process::CommandExt;
 
 /// A program that implements a working directory switch before running user application.
 /// Working directory different from root ("/") comes from a client images with WORKDIR clause
@@ -28,13 +29,9 @@ fn main() -> Result<(), String> {
     let mut client_command = Command::new(bin);
     client_command.args(bin_args);
 
-    let user_program = client_command.spawn()
-        .map_err(|err| format!("Failed to start subprocess {}. {:?}", bin, err))?;
+    // on success this function will not return, not returning has the same
+    // implications as calling `process::exit`
+    let err = client_command.exec();
 
-    let result = user_program.wait_with_output()
-        .map_err(|err| format!("Failed to run subprocess {}. {:?}", bin, err))?;
-
-    let exit_code = result.status.code().unwrap_or(-1);
-
-    process::exit(exit_code)
+    Err(format!("Failed to run subprocess {}. {:?}", bin, err))
 }
