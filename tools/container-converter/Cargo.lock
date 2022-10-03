@@ -1243,6 +1243,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
+
+[[package]]
 name = "shiplift"
 version = "0.7.0"
 source = "git+https://github.com/charlolizard/shiplift.git?branch=no-gzip-on-build#7fe1c6623ae73bee5fd1d43008f09451ae1c03ab"
@@ -1596,6 +1602,7 @@ checksum = "c6d5d669b51467dcf7b2f1a796ce0f955f05f01cafda6c19d6e95f730df29238"
 dependencies = [
  "getrandom",
  "serde",
+ "sha1_smol",
 ]
 
 [[package]]
