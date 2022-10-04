@@ -9,11 +9,7 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
-use crate::file_system::{
-    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs,
-    generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system,
-    run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT,
-};
+use crate::file_system::{close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, copy_startup_binary_to_mount};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
 use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
@@ -286,7 +282,7 @@ async fn start_user_program(
 		client_command
 
     } else {
-        let client_command = Command::new(user_program_config.entry_point.clone());
+        let mut client_command = Command::new(user_program.entry_point.clone());
 
         client_command.args(user_program.arguments.clone());
 
@@ -294,15 +290,15 @@ async fn start_user_program(
     };
 
 	set_env_vars(&mut client_command, env_vars);
-    
-    let client_program = client_command
-            .spawn()
-            .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
-        client_program
-            .output()
-            .await
-            .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?
+    let client_program = client_command
+        .spawn()
+        .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
+
+    let output = client_program
+        .output()
+        .await
+        .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
 
     let result = if let Some(code) = output.status.code() {
         UserProgramExitStatus::ExitCode(code)
