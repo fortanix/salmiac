@@ -21,7 +21,7 @@ async fn main() -> Result<(), String> {
     let request = serde_json::from_str::<NitroEnclavesConversionRequest>(&request_file)
         .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
 
-    match container_converter::run(request, console_arguments.is_present("use-file-system")).await {
+    match container_converter::run(request, false).await {
         Ok(response) => {
             println!("{:?}", response);
             Ok(())

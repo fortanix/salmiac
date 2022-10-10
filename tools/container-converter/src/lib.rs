@@ -5,13 +5,10 @@ use tempfile::TempDir;
 
 use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
 use crate::image_builder::{EnclaveImageBuilder, EnclaveSettings, ParentImageBuilder};
-use api_model::{
-    AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
-    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
-};
+use api_model::{AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion, ConverterOptions};
 use model_types::HexString;
 
-use api_model::shared::UserConfig;
+use api_model::shared::{UserConfig, UserProgramConfig};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
@@ -77,11 +74,11 @@ pub async fn run(args: NitroEnclavesConversionRequest, use_file_system: bool) ->
 }
 
 async fn run0(
-    args: NitroEnclavesConversionRequest,
+    conversion_request: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
     use_file_system: bool,
 ) -> Result<NitroEnclavesConversionResponse> {
-    if args.request.input_image.name == args.request.output_image.name {
+    if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
         return Err(ConverterError {
             message: "Input and output images must be different".to_string(),
             kind: ConverterErrorKind::BadRequest,
@@ -101,16 +98,18 @@ async fn run0(
         None
     };
 
-    let client_image = docker_reference(&args.request.input_image.name)?;
-    let output_image = output_docker_reference(&args.request.output_image.name)?;
+    let client_image = docker_reference(&conversion_request.request.input_image.name)?;
 
-    let input_repository = DockerDaemon::new(&args.request.input_image.auth_config);
+    let input_repository = DockerDaemon::new(&conversion_request.request.input_image.auth_config);
 
     info!("Retrieving client image!");
     let input_image = input_repository
         .get_image(&client_image)
         .await
-        .map(|e| e.make_temporary(ImageKind::Input, images_to_clean_snd.clone()))
+        .map(|details| ImageWithDetails {
+            reference: client_image,
+            details
+        }.make_temporary(ImageKind::Input, images_to_clean_snd.clone()))
         .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::ImageGet,
@@ -122,24 +121,26 @@ async fn run0(
         kind: ConverterErrorKind::RequisitesCreation,
     })?;
 
-    let user_program_config = input_image.image.create_user_program_config()?;
+    let user_program_config = create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
+
     debug!("User program config is: {:?}", user_program_config);
 
+    let user_name = input_image.image.details.config.user.clone();
     let enclave_builder = EnclaveImageBuilder {
-        client_image,
+        client_image_reference: &input_image.image.reference,
         dir: &temp_dir,
         enclave_base_image,
     };
 
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
-        user_name: input_image.image.details.config.user.clone(),
-        env_vars: args.request.converter_options.env_vars,
-        is_debug: args.request.converter_options.debug.unwrap_or(false)
+        user_name,
+        env_vars: conversion_request.request.converter_options.env_vars,
+        is_debug: conversion_request.request.converter_options.debug.unwrap_or(false)
     };
     let user_config = UserConfig {
         user_program_config,
-        certificate_config: args.request.converter_options.certificates,
+        certificate_config: conversion_request.request.converter_options.certificates,
     };
 
     let sender = images_to_clean_snd.clone();
@@ -148,35 +149,51 @@ async fn run0(
         .await?;
 
     let parent_builder = ParentImageBuilder {
-        output_image,
         parent_image,
         dir: &temp_dir,
-        start_options: args.nitro_enclaves_options,
+        start_options: conversion_request.nitro_enclaves_options,
     };
 
     info!("Building result image!");
-    let result_image = parent_builder
-        .create_image(&input_repository)
+    let output_image = output_docker_reference(&conversion_request.request.output_image.name)?;
+    let result = parent_builder
+        .create_image(&input_repository, output_image)
         .await
         .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
 
-    let result_repository = DockerDaemon::new(&args.request.output_image.auth_config);
+    push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
 
-    info!("Pushing resulting image to {}!", &parent_builder.output_image.to_string());
+    create_response(&result.image, nitro_image_result.pcr_list)
+}
+
+fn create_user_program_config(converter_options: &ConverterOptions, input_image: &ImageWithDetails<'_>) -> Result<UserProgramConfig> {
+    if !converter_options.entry_point.is_empty() {
+        Ok(UserProgramConfig {
+            entry_point: converter_options.entry_point.join(" "),
+            arguments: converter_options.entry_point_args.clone(),
+            working_dir: input_image.working_dir()
+        })
+    } else {
+        input_image.create_user_program_config()
+    }
+}
+
+async fn push_result_image(image: &ImageWithDetails<'_>, destination_auth: &Option<AuthConfig>) -> Result<()> {
+    let result_repository = DockerDaemon::new(destination_auth);
+
+    let image_reference = image.reference.to_string();
+    info!("Pushing resulting image to {}!", image_reference);
     result_repository
-        .push_image(&result_image.image, &parent_builder.output_image)
+        .push_image(image)
         .await
         .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::ImagePush,
         })?;
 
-    info!(
-        "Resulting image has been successfully pushed to {} !",
-        &parent_builder.output_image.to_string()
-    );
+    info!("Resulting image has been successfully pushed to {} !", image_reference);
 
-    create_response(&result_image.image, nitro_image_result.pcr_list)
+    Ok(())
 }
 
 fn create_response(image: &ImageWithDetails, pcr_list: PCRList) -> Result<NitroEnclavesConversionResponse> {
@@ -201,7 +218,7 @@ fn create_response(image: &ImageWithDetails, pcr_list: PCRList) -> Result<NitroE
 
     let result = NitroEnclavesConversionResponse {
         converted_image: ConvertedImageInfo {
-            name: image.name.clone(),
+            name: image.reference.to_string(),
             sha: hex_response(image.short_id())?,
             size: image.details.size as usize,
         },

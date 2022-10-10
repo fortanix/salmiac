@@ -19,7 +19,7 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 
 pub struct EnclaveImageBuilder<'a> {
-    pub client_image: DockerReference<'a>,
+    pub client_image_reference: &'a DockerReference<'a>,
 
     pub dir: &'a TempDir,
 
@@ -105,9 +105,9 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
         // After nitro-cli finishes we can safely reclaim it.
-        let _ = create_image(
+        let result = create_image(
             docker_util,
-            &enclave_image_reference,
+            enclave_image_reference,
             &build_context_dir,
             ConverterErrorKind::EnclaveImageCreation,
         )
@@ -117,7 +117,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let nitro_measurements = {
             let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
-            create_nitro_image(&enclave_image_reference, &nitro_image_path).await?
+            create_nitro_image(&result.image.reference, &nitro_image_path).await?
         };
 
         info!("Nitro image has been created!");
@@ -252,7 +252,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
         let client_file_system = docker_util
-            .export_image_file_system(&self.client_image)
+            .export_image_file_system(&self.client_image_reference)
             .await
             .map_err(|message| ConverterError {
                 message,
@@ -273,12 +273,12 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     fn enclave_image(&self) -> String {
         let new_tag = self
-            .client_image
+            .client_image_reference
             .tag()
             .map(|e| e.to_string() + "-enclave")
             .unwrap_or("enclave".to_string());
 
-        self.client_image.name().to_string() + ":" + &new_tag
+        self.client_image_reference.name().to_string() + ":" + &new_tag
     }
 
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
@@ -347,7 +347,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             )
         };
 
-        let client_image = &self.client_image.to_string();
+        let client_image = &self.client_image_reference.to_string();
         let from = match &self.enclave_base_image {
             Some(e) => e,
             _ => client_image,
@@ -370,8 +370,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 }
 
 pub struct ParentImageBuilder<'a> {
-    pub output_image: DockerReference<'a>,
-
     pub parent_image: String,
 
     pub dir: &'a TempDir,
@@ -399,7 +397,7 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    pub async fn create_image(&self, docker_util: &dyn DockerUtil) -> Result<ImageWithDetails> {
+    pub async fn create_image(&self, docker_util: &dyn DockerUtil, image_reference: DockerReference<'a>) -> Result<ImageWithDetails<'a>> {
         let build_context_dir = self.create_build_context_dir()?;
 
         let block_file_exists = self.move_enclave_files_into_build_context(&build_context_dir)?;
@@ -413,7 +411,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         let result = create_image(
             docker_util,
-            &self.output_image,
+            image_reference,
             &build_context_dir,
             ConverterErrorKind::ParentImageCreation,
         )
@@ -628,20 +626,27 @@ impl<'a> ParentImageBuilder<'a> {
     }
 }
 
-async fn create_image(
+async fn create_image<'a>(
     docker_util: &dyn DockerUtil,
-    image: &DockerReference<'_>,
+    image: DockerReference<'a>,
     dir: &Path,
     kind: ConverterErrorKind,
-) -> Result<ImageWithDetails> {
+) -> Result<ImageWithDetails<'a>> {
     docker_util
-        .create_image(dir, image)
+        .create_image(dir, &image)
         .await
         .map_err(|message| ConverterError { message, kind })?;
 
-    docker_util.get_image(image).await.map_err(|message| ConverterError {
-        message,
-        kind: ConverterErrorKind::ImageGet,
+    let details = docker_util.get_image(&image)
+        .await
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImageGet,
+        })?;
+
+    Ok(ImageWithDetails {
+        reference: image,
+        details,
     })
 }
 
@@ -702,12 +707,13 @@ mod tests {
     use std::path::Path;
     use tar::{Builder, Header};
     use tempfile::TempDir;
+    use shiplift::image::ImageDetails;
 
     struct TestDockerDaemon {}
 
     #[async_trait]
     impl DockerUtil for TestDockerDaemon {
-        async fn get_image(&self, _image: &Reference<'_>) -> Result<ImageWithDetails, String> {
+        async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
             todo!()
         }
 
@@ -715,7 +721,7 @@ mod tests {
             todo!()
         }
 
-        async fn push_image(&self, _image: &ImageWithDetails, _address: &Reference<'_>) -> Result<(), String> {
+        async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String> {
             todo!()
         }
 
@@ -759,8 +765,9 @@ mod tests {
     async fn export_image_file_system_correct_pass() {
         let temp_dir = TempDir::new().expect("Failed creating temp dir");
 
+        let client_image_reference = DockerReference::from_str("test").expect("Failed creating docker reference");
         let enclave_builder = EnclaveImageBuilder {
-            client_image: DockerReference::from_str("test").expect("Failed creating docker reference"),
+            client_image_reference: &client_image_reference,
             dir: &temp_dir,
             enclave_base_image: None,
         };

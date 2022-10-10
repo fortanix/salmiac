@@ -69,11 +69,11 @@ pub async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path)
 /// Convenience functions to work with docker daemon
 #[async_trait]
 pub trait DockerUtil: Send + Sync {
-    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageWithDetails, String>;
+    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String>;
 
-    async fn push_image(&self, image: &ImageWithDetails, address: &DockerReference<'_>) -> Result<(), String>;
+    async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String>;
 
     async fn create_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String>;
 
@@ -97,13 +97,13 @@ pub trait DockerUtil: Send + Sync {
     }
 }
 
-pub struct ImageWithDetails {
-    pub name: String,
+pub struct ImageWithDetails<'a> {
+    pub reference: DockerReference<'a>,
 
     pub details: ImageDetails,
 }
 
-impl ImageWithDetails {
+impl<'a> ImageWithDetails<'a> {
     pub fn create_user_program_config(&self) -> Result<UserProgramConfig, ConverterError> {
         let config = &self.details.config;
 
@@ -128,11 +128,15 @@ impl ImageWithDetails {
         Ok(UserProgramConfig {
             entry_point,
             arguments,
-            working_dir: WorkingDir::from(config.working_dir.clone())
+            working_dir: self.working_dir()
         })
     }
 
-    pub fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage {
+    pub fn working_dir(&self) -> WorkingDir {
+        WorkingDir::from(self.details.config.working_dir.clone())
+    }
+
+    pub fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage<'a> {
         TempImage {
             image: self,
             kind,
@@ -169,23 +173,23 @@ impl ImageWithDetails {
 
 // An image that deletes itself from a local docker repository
 // when it goes out of scope
-pub struct TempImage {
-    pub image: ImageWithDetails,
+pub struct TempImage<'a> {
+    pub image: ImageWithDetails<'a>,
 
     pub kind: ImageKind,
 
     pub sender: mpsc::Sender<ImageToClean>,
 }
 
-impl Drop for TempImage {
+impl<'a> Drop for TempImage<'a> {
     fn drop(&mut self) {
         let result = ImageToClean {
-            name: self.image.name.clone(),
+            name: self.image.reference.to_string(),
             kind: self.kind.clone(),
         };
 
         if let Err(e) = self.sender.send(result) {
-            warn!("Failed sending image {} to resource cleaner task. {:?}", self.image.name, e);
+            warn!("Failed sending image {} to resource cleaner task. {:?}", self.image.reference, e);
         }
     }
 }
@@ -212,20 +216,17 @@ impl DockerDaemon {
         DockerDaemon { docker, credentials }
     }
 
-    async fn get_remote_image(&self, image: &DockerReference<'_>) -> Result<Option<ImageWithDetails>, String> {
+    async fn get_remote_image(&self, image: &DockerReference<'_>) -> Result<Option<ImageDetails>, String> {
         self.pull_image(image).await?;
 
         Ok(self.get_local_image(image).await)
     }
 
-    async fn get_local_image(&self, address: &DockerReference<'_>) -> Option<ImageWithDetails> {
+    async fn get_local_image(&self, address: &DockerReference<'_>) -> Option<ImageDetails> {
         let image = self.docker.images().get(address.to_string());
 
         match image.inspect().await {
-            Ok(details) => Some(ImageWithDetails {
-                name: address.to_string(),
-                details,
-            }),
+            Ok(details) => Some(details),
             Err(err) => {
                 warn!(
                     "Encountered error when searching for local image {}. {:?}. Assuming image not found.",
@@ -263,7 +264,7 @@ impl DockerDaemon {
 
 #[async_trait]
 impl DockerUtil for DockerDaemon {
-    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageWithDetails, String> {
+    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
         if let Some(local_image) = self.get_local_image(&image).await {
             Ok(local_image)
         } else {
@@ -297,25 +298,25 @@ impl DockerUtil for DockerDaemon {
         Ok(())
     }
 
-    async fn push_image(&self, image: &ImageWithDetails, address: &DockerReference<'_>) -> Result<(), String> {
-        let repository = address.name();
+    async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String> {
+        let repository = image.reference.name();
         let mut tag_options = TagOptions::builder();
         tag_options.repo(repository);
 
         let mut push_options = PushOptions::builder();
         push_options.auth(self.credentials.clone());
 
-        if let Some(tag_value) = address.tag() {
+        if let Some(tag_value) = image.reference.tag() {
             tag_options.tag(tag_value);
             push_options.tag(tag_value.to_string());
         }
 
-        let image_interface = Image::new(&self.docker, image.name.clone());
+        let image_interface = Image::new(&self.docker, image.reference.to_string());
 
         image_interface.tag(&tag_options.build()).await.map_err(|err| {
             format!(
                 "Failed to tag image {} with repo {}. Err {:?}",
-                image.details.id, address, err
+                image.details.id, image.reference.to_string(), err
             )
         })?;
 
