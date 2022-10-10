@@ -5,7 +5,10 @@ use tempfile::TempDir;
 
 use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
 use crate::image_builder::{EnclaveImageBuilder, EnclaveSettings, ParentImageBuilder};
-use api_model::{AuthConfig, ConvertedImageInfo, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion, ConverterOptions};
+use api_model::{
+    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
+    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
+};
 use model_types::HexString;
 
 use api_model::shared::{UserConfig, UserProgramConfig};
@@ -106,10 +109,13 @@ async fn run0(
     let input_image = input_repository
         .get_image(&client_image)
         .await
-        .map(|details| ImageWithDetails {
-            reference: client_image,
-            details
-        }.make_temporary(ImageKind::Input, images_to_clean_snd.clone()))
+        .map(|details| {
+            ImageWithDetails {
+                reference: client_image,
+                details,
+            }
+            .make_temporary(ImageKind::Input, images_to_clean_snd.clone())
+        })
         .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::ImageGet,
@@ -136,7 +142,7 @@ async fn run0(
     let enclave_settings = EnclaveSettings {
         user_name,
         env_vars: conversion_request.request.converter_options.env_vars,
-        is_debug: conversion_request.request.converter_options.debug.unwrap_or(false)
+        is_debug: conversion_request.request.converter_options.debug.unwrap_or(false),
     };
     let user_config = UserConfig {
         user_program_config,
@@ -166,12 +172,15 @@ async fn run0(
     create_response(&result.image, nitro_image_result.pcr_list)
 }
 
-fn create_user_program_config(converter_options: &ConverterOptions, input_image: &ImageWithDetails<'_>) -> Result<UserProgramConfig> {
+fn create_user_program_config(
+    converter_options: &ConverterOptions,
+    input_image: &ImageWithDetails<'_>,
+) -> Result<UserProgramConfig> {
     if !converter_options.entry_point.is_empty() {
         Ok(UserProgramConfig {
             entry_point: converter_options.entry_point.join(" "),
             arguments: converter_options.entry_point_args.clone(),
-            working_dir: input_image.working_dir()
+            working_dir: input_image.working_dir(),
         })
     } else {
         input_image.create_user_program_config()
@@ -183,13 +192,10 @@ async fn push_result_image(image: &ImageWithDetails<'_>, destination_auth: &Opti
 
     let image_reference = image.reference.to_string();
     info!("Pushing resulting image to {}!", image_reference);
-    result_repository
-        .push_image(image)
-        .await
-        .map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::ImagePush,
-        })?;
+    result_repository.push_image(image).await.map_err(|message| ConverterError {
+        message,
+        kind: ConverterErrorKind::ImagePush,
+    })?;
 
     info!("Resulting image has been successfully pushed to {} !", image_reference);
 

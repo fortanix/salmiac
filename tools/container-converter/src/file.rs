@@ -1,10 +1,10 @@
 use log::debug;
 
+use std::borrow::Borrow;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::borrow::Borrow;
 
 #[derive(Clone)]
 pub struct Resource<'a> {
@@ -75,7 +75,7 @@ pub(crate) struct DockerFile<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Bo
 
     pub cmd: Option<&'a str>,
 
-    pub entrypoint: Option<&'a str>
+    pub entrypoint: Option<&'a str>,
 }
 
 impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for DockerFile<'a, T, V> {

@@ -4,7 +4,7 @@ use log::{debug, error, info};
 use tar::Archive;
 use tempfile::TempDir;
 
-use crate::file::{DockerCopyArgs, Resource, UnixFile, DockerFile};
+use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile};
 use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
@@ -31,7 +31,7 @@ pub struct EnclaveSettings {
 
     pub env_vars: Vec<String>,
 
-    pub is_debug: bool
+    pub is_debug: bool,
 }
 
 pub struct EnclaveBuilderResult {
@@ -90,7 +90,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let enclave_manifest = EnclaveManifest {
             user_config,
             file_system_config: fs_root_hash,
-            is_debug
+            is_debug,
         };
 
         self.create_manifest_file(enclave_manifest, &build_context_dir)?;
@@ -164,10 +164,17 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        block_file.set_len(EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE).map_err(|err| ConverterError {
-            message: format!("Failed truncating RW block file {} to size {}. {:?}", block_file_out_path.display(), EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE, err),
-            kind: ConverterErrorKind::BlockFileCreation,
-        })?;
+        block_file
+            .set_len(EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE)
+            .map_err(|err| ConverterError {
+                message: format!(
+                    "Failed truncating RW block file {} to size {}. {:?}",
+                    block_file_out_path.display(),
+                    EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE,
+                    err
+                ),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
 
         Ok(())
     }
@@ -291,7 +298,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             name: "enclave-startup",
             data: include_bytes!("resources/enclave/enclave-startup"),
             is_executable: true,
-        }
+        },
     ];
 
     const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json", "enclave-startup"];
@@ -361,7 +368,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             add: Some(add),
             env: &env,
             cmd: Some(&run_enclave_cmd),
-            entrypoint: None
+            entrypoint: None,
         };
 
         file.write_all(docker_file.to_string().as_bytes())
@@ -397,7 +404,11 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    pub async fn create_image(&self, docker_util: &dyn DockerUtil, image_reference: DockerReference<'a>) -> Result<ImageWithDetails<'a>> {
+    pub async fn create_image(
+        &self,
+        docker_util: &dyn DockerUtil,
+        image_reference: DockerReference<'a>,
+    ) -> Result<ImageWithDetails<'a>> {
         let build_context_dir = self.create_build_context_dir()?;
 
         let block_file_exists = self.move_enclave_files_into_build_context(&build_context_dir)?;
@@ -501,7 +512,7 @@ impl<'a> ParentImageBuilder<'a> {
             log_env.as_str(),
             cpu_count_env.as_str(),
             mem_size_env.as_str(),
-            eos_debug_env.as_str()
+            eos_debug_env.as_str(),
         ];
 
         let docker_file = DockerFile {
@@ -509,7 +520,7 @@ impl<'a> ParentImageBuilder<'a> {
             add: Some(add),
             env: &env_vars,
             cmd: None,
-            entrypoint: Some(&run_parent_cmd)
+            entrypoint: Some(&run_parent_cmd),
         };
 
         file.write_all(docker_file.to_string().as_bytes())
@@ -637,12 +648,10 @@ async fn create_image<'a>(
         .await
         .map_err(|message| ConverterError { message, kind })?;
 
-    let details = docker_util.get_image(&image)
-        .await
-        .map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::ImageGet,
-        })?;
+    let details = docker_util.get_image(&image).await.map_err(|message| ConverterError {
+        message,
+        kind: ConverterErrorKind::ImageGet,
+    })?;
 
     Ok(ImageWithDetails {
         reference: image,
@@ -702,12 +711,12 @@ mod tests {
     use docker_image_reference::Reference;
     use docker_image_reference::Reference as DockerReference;
     use shiplift::container::ContainerCreateInfo;
+    use shiplift::image::ImageDetails;
     use std::fs;
     use std::io::Read;
     use std::path::Path;
     use tar::{Builder, Header};
     use tempfile::TempDir;
-    use shiplift::image::ImageDetails;
 
     struct TestDockerDaemon {}
 

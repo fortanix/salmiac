@@ -128,7 +128,7 @@ impl<'a> ImageWithDetails<'a> {
         Ok(UserProgramConfig {
             entry_point,
             arguments,
-            working_dir: self.working_dir()
+            working_dir: self.working_dir(),
         })
     }
 
@@ -189,7 +189,10 @@ impl<'a> Drop for TempImage<'a> {
         };
 
         if let Err(e) = self.sender.send(result) {
-            warn!("Failed sending image {} to resource cleaner task. {:?}", self.image.reference, e);
+            warn!(
+                "Failed sending image {} to resource cleaner task. {:?}",
+                self.image.reference, e
+            );
         }
     }
 }
@@ -290,7 +293,10 @@ impl DockerUtil for DockerDaemon {
                     info!("{:?}", output)
                 }
                 Err(e) => {
-                    return Err(format!("Unable to load docker image {:?} - is docker socket accessible? : {:?}", tar_path, e));
+                    return Err(format!(
+                        "Unable to load docker image {:?} - is docker socket accessible? : {:?}",
+                        tar_path, e
+                    ));
                 }
             }
         }
@@ -316,7 +322,9 @@ impl DockerUtil for DockerDaemon {
         image_interface.tag(&tag_options.build()).await.map_err(|err| {
             format!(
                 "Failed to tag image {} with repo {}. Err {:?}",
-                image.details.id, image.reference.to_string(), err
+                image.details.id,
+                image.reference.to_string(),
+                err
             )
         })?;
 
