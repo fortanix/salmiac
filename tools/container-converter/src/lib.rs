@@ -131,17 +131,28 @@ async fn run0(
 
     debug!("User program config is: {:?}", user_program_config);
 
-    let user_name = input_image.image.details.config.user.clone();
     let enclave_builder = EnclaveImageBuilder {
         client_image_reference: &input_image.image.reference,
         dir: &temp_dir,
         enclave_base_image,
     };
 
+    let env_vars = {
+        let mut result = conversion_request.request.converter_options.env_vars;
+
+        if let Some(env_list) = &input_image.image.details.config.env {
+            for env in env_list {
+                result.push(env.clone());
+            }
+        }
+
+        result
+    };
+    
     info!("Building enclave image!");
     let enclave_settings = EnclaveSettings {
-        user_name,
-        env_vars: conversion_request.request.converter_options.env_vars,
+        user_name: input_image.image.details.config.user.clone(),
+        env_vars,
         is_debug: conversion_request.request.converter_options.debug.unwrap_or(false),
     };
     let user_config = UserConfig {
