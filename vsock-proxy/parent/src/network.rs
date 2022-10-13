@@ -314,7 +314,8 @@ pub(crate) async fn setup_file_system_tap_devices(
 /// that are not contained in `in_use` `Vec`.
 /// # Arguments
 /// `in_use` - a `Vec` of ip addresses that are already in use by other network
-/// devices # Returns
+/// devices
+/// # Returns
 /// A pair of addresses, where first value is parent's address and second one is
 /// enclave's address.
 pub(crate) fn choose_network_addresses_for_fs_taps(in_use: Vec<Ipv4Network>) -> Result<(IpNetwork, IpNetwork), String> {

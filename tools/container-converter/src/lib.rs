@@ -127,43 +127,32 @@ async fn run0(
         kind: ConverterErrorKind::RequisitesCreation,
     })?;
 
-    let user_program_config = create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
-
-    debug!("User program config is: {:?}", user_program_config);
-
-    let enclave_builder = EnclaveImageBuilder {
-        client_image_reference: &input_image.image.reference,
-        dir: &temp_dir,
-        enclave_base_image,
-    };
-
-    let env_vars = {
-        let mut result = conversion_request.request.converter_options.env_vars;
-
-        if let Some(env_list) = &input_image.image.details.config.env {
-            for env in env_list {
-                result.push(env.clone());
-            }
-        }
-
-        result
-    };
-    
     info!("Building enclave image!");
-    let enclave_settings = EnclaveSettings {
-        user_name: input_image.image.details.config.user.clone(),
-        env_vars,
-        is_debug: conversion_request.request.converter_options.debug.unwrap_or(false),
-    };
-    let user_config = UserConfig {
-        user_program_config,
-        certificate_config: conversion_request.request.converter_options.certificates,
-    };
+    let nitro_image_result = {
+        let user_program_config =
+            create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
 
-    let sender = images_to_clean_snd.clone();
-    let nitro_image_result = enclave_builder
-        .create_image(&input_repository, enclave_settings, user_config, sender)
-        .await?;
+        debug!("User program config is: {:?}", user_program_config);
+
+        let enclave_builder = EnclaveImageBuilder {
+            client_image_reference: &input_image.image.reference,
+            dir: &temp_dir,
+            enclave_base_image,
+        };
+
+        let enclave_settings = EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
+
+        let user_config = UserConfig {
+            user_program_config,
+            certificate_config: conversion_request.request.converter_options.certificates,
+        };
+
+        let sender = images_to_clean_snd.clone();
+
+        enclave_builder
+            .create_image(&input_repository, enclave_settings, user_config, sender)
+            .await?
+    };
 
     let parent_builder = ParentImageBuilder {
         parent_image,

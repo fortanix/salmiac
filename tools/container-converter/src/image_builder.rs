@@ -9,7 +9,7 @@ use crate::image::{create_nitro_image, DockerUtil, ImageWithDetails, PCRList};
 use crate::{file, ConverterError, ConverterErrorKind};
 use crate::{ImageKind, ImageToClean, Result};
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
-use api_model::NitroEnclavesConversionRequestOptions;
+use api_model::{ConverterOptions, NitroEnclavesConversionRequestOptions};
 
 use std::ffi::OsStr;
 use std::fs;
@@ -27,11 +27,35 @@ pub struct EnclaveImageBuilder<'a> {
 }
 
 pub struct EnclaveSettings {
-    pub user_name: String,
+    user_name: String,
 
-    pub env_vars: Vec<String>,
+    env_vars: Vec<String>,
 
-    pub is_debug: bool,
+    is_debug: bool,
+}
+
+impl EnclaveSettings {
+    pub fn new(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Self {
+        let env_vars = {
+            let mut result = input_image.details.config.env.as_ref().map(|e| e.clone()).unwrap_or(vec![]);
+
+            // Docker `ENV` assigns environment variables by the order of definition, thus making
+            // latest definition of the same variable override previous definition.
+            // We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
+            // by adding all `conversion_request` variables to the end of `env_vars` vector.
+            for request_env in &converter_options.env_vars {
+                result.push(request_env.clone());
+            }
+
+            result
+        };
+
+        EnclaveSettings {
+            user_name: input_image.details.config.user.clone(),
+            env_vars,
+            is_debug: converter_options.debug.unwrap_or(false),
+        }
+    }
 }
 
 pub struct EnclaveBuilderResult {
@@ -706,11 +730,15 @@ pub async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::re
 #[cfg(test)]
 mod tests {
     use crate::image::{DockerUtil, ImageWithDetails};
+    use crate::image_builder::EnclaveSettings;
     use crate::EnclaveImageBuilder;
+    use api_model::ConverterOptions;
     use async_trait::async_trait;
+    use chrono::{DateTime, Utc};
     use docker_image_reference::Reference;
     use docker_image_reference::Reference as DockerReference;
     use shiplift::container::ContainerCreateInfo;
+    use shiplift::image::ContainerConfig;
     use shiplift::image::ImageDetails;
     use std::fs;
     use std::io::Read;
@@ -722,7 +750,7 @@ mod tests {
 
     #[async_trait]
     impl DockerUtil for TestDockerDaemon {
-        async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
+        async fn get_image(&self, _image: &DockerReference<'_>) -> Result<ImageDetails, String> {
             todo!()
         }
 
@@ -730,7 +758,7 @@ mod tests {
             todo!()
         }
 
-        async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String> {
+        async fn push_image(&self, _image: &ImageWithDetails) -> Result<(), String> {
             todo!()
         }
 
@@ -795,5 +823,103 @@ mod tests {
         result_file.read_to_string(&mut result).expect("Failed reading result file");
 
         assert_eq!(result, TEST_DATA)
+    }
+
+    #[test]
+    fn enclave_settings_ctor_should_produce_correct_env_vars_string() {
+        let reference = DockerReference::from_str("test").unwrap();
+        let details = ImageDetails {
+            architecture: "".to_string(),
+            author: "".to_string(),
+            comment: "".to_string(),
+            config: ContainerConfig {
+                attach_stderr: false,
+                attach_stdin: false,
+                attach_stdout: false,
+                cmd: None,
+                domainname: "".to_string(),
+                entrypoint: None,
+                env: None,
+                exposed_ports: None,
+                hostname: "".to_string(),
+                image: "".to_string(),
+                labels: None,
+                on_build: None,
+                open_stdin: false,
+                stdin_once: false,
+                tty: false,
+                user: "".to_string(),
+                working_dir: "".to_string(),
+            },
+            created: DateTime::<Utc>::MAX_UTC,
+            docker_version: "".to_string(),
+            id: "".to_string(),
+            os: "".to_string(),
+            parent: "".to_string(),
+            repo_tags: None,
+            repo_digests: None,
+            size: 0,
+            virtual_size: 0,
+        };
+
+        let mut input_image = ImageWithDetails { reference, details };
+
+        let mut converter_options = ConverterOptions {
+            allow_cmdline_args: None,
+            allow_docker_pull_failure: None,
+            app: None,
+            ca_certificates: vec![],
+            certificates: vec![],
+            debug: None,
+            entry_point: vec![],
+            entry_point_args: vec![],
+            push_converted_image: None,
+            env_vars: vec![],
+            java_mode: None,
+        };
+
+        let mut test = |input_image_env_vars: Option<Vec<String>>,
+                        converter_request_env_vars: Vec<String>,
+                        reference: Vec<String>|
+         -> () {
+            input_image.details.config.env = input_image_env_vars;
+            converter_options.env_vars = converter_request_env_vars;
+
+            let result = EnclaveSettings::new(&input_image, &converter_options);
+
+            assert_eq!(result.env_vars, reference);
+        };
+
+        test(
+            Some(vec![
+                "A=A_VALUE".to_string(),
+                "B=B_VALUE".to_string(),
+                "C=C_VALUE".to_string(),
+            ]),
+            vec!["A=A_VALUE_NEW".to_string(), "C=C_VALUE_NEW".to_string()],
+            vec![
+                "A=A_VALUE".to_string(),
+                "B=B_VALUE".to_string(),
+                "C=C_VALUE".to_string(),
+                "A=A_VALUE_NEW".to_string(),
+                "C=C_VALUE_NEW".to_string(),
+            ],
+        );
+
+        test(
+            None,
+            vec!["A=A_VALUE_NEW".to_string(), "C=C_VALUE_NEW".to_string()],
+            vec!["A=A_VALUE_NEW".to_string(), "C=C_VALUE_NEW".to_string()],
+        );
+
+        test(
+            Some(vec![
+                "A=A_VALUE".to_string(),
+                "B=B_VALUE".to_string(),
+                "C=C_VALUE".to_string(),
+            ]),
+            vec![],
+            vec!["A=A_VALUE".to_string(), "B=B_VALUE".to_string(), "C=C_VALUE".to_string()],
+        );
     }
 }

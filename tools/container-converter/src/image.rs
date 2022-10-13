@@ -14,6 +14,7 @@ use api_model::AuthConfig;
 use shiplift::container::ContainerCreateInfo;
 use std::env;
 use std::fs;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -194,6 +195,14 @@ impl<'a> Drop for TempImage<'a> {
                 self.image.reference, e
             );
         }
+    }
+}
+
+impl<'a> Deref for TempImage<'a> {
+    type Target = ImageWithDetails<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image
     }
 }
 
