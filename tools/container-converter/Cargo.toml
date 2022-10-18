@@ -12,7 +12,7 @@ async-trait = "0.1.51"
 env_logger = "0.7"
 log = "0.4"
 clap = "2.33"
-shiplift = { git = "https://github.com/charlolizard/shiplift.git", branch = "no-gzip-on-build" }
+shiplift = { git = "https://github.com/fortanix/shiplift.git", branch = "master" }
 futures = "0.3"
 tar = "0.4"
 tokio = { version = "1.0.1", features = ["macros", "rt"] }

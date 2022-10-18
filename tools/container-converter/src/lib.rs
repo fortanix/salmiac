@@ -167,7 +167,12 @@ async fn run0(
         .await
         .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
 
-    push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
+    if conversion_request.request.converter_options.push_converted_image.unwrap_or(false) == true {
+        info!("Attempting to push output image");
+        push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
+    } else {
+        info!("Skipping output image push");
+    }
 
     create_response(&result.image, nitro_image_result.pcr_list)
 }

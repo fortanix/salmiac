@@ -355,7 +355,8 @@ impl DockerUtil for DockerDaemon {
             .to_str()
             .ok_or(format!("Failed to convert path {} to UTF8 string.", docker_dir.display()))?;
 
-        let build_options = BuildOptions::builder(path_as_string).tag(image.to_string()).build();
+        let mut build_opts_builder = BuildOptions::builder(path_as_string);
+        let build_options = build_opts_builder.set_skip_gzip(true).tag(image.to_string()).build();
 
         env::set_var("DOCKER_BUILDKIT", "1");
 

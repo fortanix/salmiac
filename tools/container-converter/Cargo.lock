@@ -1377,7 +1377,7 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 [[package]]
 name = "shiplift"
 version = "0.7.0"
-source = "git+https://github.com/charlolizard/shiplift.git?branch=no-gzip-on-build#7fe1c6623ae73bee5fd1d43008f09451ae1c03ab"
+source = "git+https://github.com/fortanix/shiplift.git?branch=master#4e0d84fba85ee32fbc65455310471b18730af996"
 dependencies = [
  "base64",
  "byteorder",
