@@ -127,32 +127,32 @@ async fn run0(
         kind: ConverterErrorKind::RequisitesCreation,
     })?;
 
-    let user_program_config = create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
-
-    debug!("User program config is: {:?}", user_program_config);
-
-    let user_name = input_image.image.details.config.user.clone();
-    let enclave_builder = EnclaveImageBuilder {
-        client_image_reference: &input_image.image.reference,
-        dir: &temp_dir,
-        enclave_base_image,
-    };
-
     info!("Building enclave image!");
-    let enclave_settings = EnclaveSettings {
-        user_name,
-        env_vars: conversion_request.request.converter_options.env_vars,
-        is_debug: conversion_request.request.converter_options.debug.unwrap_or(false),
-    };
-    let user_config = UserConfig {
-        user_program_config,
-        certificate_config: conversion_request.request.converter_options.certificates,
-    };
+    let nitro_image_result = {
+        let user_program_config =
+            create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
 
-    let sender = images_to_clean_snd.clone();
-    let nitro_image_result = enclave_builder
-        .create_image(&input_repository, enclave_settings, user_config, sender)
-        .await?;
+        debug!("User program config is: {:?}", user_program_config);
+
+        let enclave_builder = EnclaveImageBuilder {
+            client_image_reference: &input_image.image.reference,
+            dir: &temp_dir,
+            enclave_base_image,
+        };
+
+        let enclave_settings = EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
+
+        let user_config = UserConfig {
+            user_program_config,
+            certificate_config: conversion_request.request.converter_options.certificates,
+        };
+
+        let sender = images_to_clean_snd.clone();
+
+        enclave_builder
+            .create_image(&input_repository, enclave_settings, user_config, sender)
+            .await?
+    };
 
     let parent_builder = ParentImageBuilder {
         parent_image,
@@ -167,7 +167,12 @@ async fn run0(
         .await
         .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
 
-    push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
+    if conversion_request.request.converter_options.push_converted_image.unwrap_or(false) == true {
+        info!("Attempting to push output image");
+        push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
+    } else {
+        info!("Skipping output image push");
+    }
 
     create_response(&result.image, nitro_image_result.pcr_list)
 }

@@ -14,6 +14,7 @@ use api_model::AuthConfig;
 use shiplift::container::ContainerCreateInfo;
 use std::env;
 use std::fs;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -197,6 +198,14 @@ impl<'a> Drop for TempImage<'a> {
     }
 }
 
+impl<'a> Deref for TempImage<'a> {
+    type Target = ImageWithDetails<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image
+    }
+}
+
 pub struct DockerDaemon {
     docker: Docker,
     credentials: RegistryAuth,
@@ -346,7 +355,8 @@ impl DockerUtil for DockerDaemon {
             .to_str()
             .ok_or(format!("Failed to convert path {} to UTF8 string.", docker_dir.display()))?;
 
-        let build_options = BuildOptions::builder(path_as_string).tag(image.to_string()).build();
+        let mut build_opts_builder = BuildOptions::builder(path_as_string);
+        let build_options = build_opts_builder.set_skip_gzip(true).tag(image.to_string()).build();
 
         env::set_var("DOCKER_BUILDKIT", "1");
 
