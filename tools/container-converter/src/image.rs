@@ -21,25 +21,25 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
 #[derive(Deserialize)]
-pub struct NitroCliOutput {
+pub(crate) struct NitroCliOutput {
     #[serde(rename(deserialize = "Measurements"))]
-    pub pcr_list: PCRList,
+    pub(crate) pcr_list: PCRList,
 }
 
 #[derive(Deserialize)]
-pub struct PCRList {
+pub(crate) struct PCRList {
     #[serde(alias = "PCR0")]
-    pub pcr0: String,
+    pub(crate) pcr0: String,
     #[serde(alias = "PCR1")]
-    pub pcr1: String,
+    pub(crate) pcr1: String,
     #[serde(alias = "PCR2")]
-    pub pcr2: String,
+    pub(crate) pcr2: String,
     /// Only present if enclave file is built with signing certificate
     #[serde(alias = "PCR8")]
-    pub pcr8: Option<String>,
+    pub(crate) pcr8: Option<String>,
 }
 
-pub async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroCliOutput, ConverterError> {
+pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroCliOutput, ConverterError> {
     let output = output_file.to_str().ok_or(ConverterError {
         message: format!("Failed to cast path {:?} to string", output_file),
         kind: ConverterErrorKind::NitroFileCreation,
@@ -70,7 +70,7 @@ pub async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path)
 
 /// Convenience functions to work with docker daemon
 #[async_trait]
-pub trait DockerUtil: Send + Sync {
+pub(crate) trait DockerUtil: Send + Sync {
     async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String>;
@@ -99,14 +99,14 @@ pub trait DockerUtil: Send + Sync {
     }
 }
 
-pub struct ImageWithDetails<'a> {
-    pub reference: DockerReference<'a>,
+pub(crate) struct ImageWithDetails<'a> {
+    pub(crate) reference: DockerReference<'a>,
 
-    pub details: ImageDetails,
+    pub(crate) details: ImageDetails,
 }
 
 impl<'a> ImageWithDetails<'a> {
-    pub fn create_user_program_config(&self) -> Result<UserProgramConfig, ConverterError> {
+    pub(crate) fn create_user_program_config(&self) -> Result<UserProgramConfig, ConverterError> {
         let config = &self.details.config;
 
         let (entry_point, arguments) = if let Some(ref raw_entry_point) = config.entrypoint {
@@ -134,11 +134,11 @@ impl<'a> ImageWithDetails<'a> {
         })
     }
 
-    pub fn working_dir(&self) -> WorkingDir {
+    pub(crate) fn working_dir(&self) -> WorkingDir {
         WorkingDir::from(self.details.config.working_dir.clone())
     }
 
-    pub fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage<'a> {
+    pub(crate) fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage<'a> {
         TempImage {
             image: self,
             kind,
@@ -147,7 +147,7 @@ impl<'a> ImageWithDetails<'a> {
     }
 
     // Extracts first 12 unique bytes of id
-    pub fn short_id(&self) -> &str {
+    pub(crate) fn short_id(&self) -> &str {
         let id = &self.details.id;
 
         if id.starts_with("sha256:") {
@@ -175,12 +175,12 @@ impl<'a> ImageWithDetails<'a> {
 
 // An image that deletes itself from a local docker repository
 // when it goes out of scope
-pub struct TempImage<'a> {
-    pub image: ImageWithDetails<'a>,
+pub(crate) struct TempImage<'a> {
+    pub(crate) image: ImageWithDetails<'a>,
 
-    pub kind: ImageKind,
+    pub(crate) kind: ImageKind,
 
-    pub sender: mpsc::Sender<ImageToClean>,
+    pub(crate) sender: mpsc::Sender<ImageToClean>,
 }
 
 impl<'a> Drop for TempImage<'a> {
@@ -207,13 +207,13 @@ impl<'a> Deref for TempImage<'a> {
     }
 }
 
-pub struct DockerDaemon {
+pub(crate) struct DockerDaemon {
     docker: Docker,
     credentials: RegistryAuth,
 }
 
 impl DockerDaemon {
-    pub fn new(credentials: &Option<AuthConfig>) -> Self {
+    pub(crate) fn new(credentials: &Option<AuthConfig>) -> Self {
         let docker = Docker::new();
 
         let credentials = {

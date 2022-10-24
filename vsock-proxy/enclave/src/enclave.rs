@@ -80,8 +80,6 @@ async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), St
     extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExitEnclave => ())
 }
 
-// Return a tuple of EnclaveSetupResult and TapDeviceInfo so that they can be
-// consumed by different functions used by the caller
 async fn startup(
     parent_port: &mut AsyncVsockStream,
     settings_path: &Path,
@@ -184,8 +182,8 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
     for tap_device in tap_devices {
         let res = start_tap_loops(tap_device.tap, tap_device.vsock, tap_device.mtu);
 
-        result.push(res.read_handle);
-        result.push(res.write_handle);
+        result.push(res.tap_to_vsock);
+        result.push(res.vsock_to_tap);
     }
 
     result
@@ -478,6 +476,6 @@ fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {
     serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave manifest. {:?}", err))
 }
 
-pub fn write_to_file<C: AsRef<[u8]>>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
+pub(crate) fn write_to_file<C: AsRef<[u8]>>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
     fs::write(path, data).map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
 }

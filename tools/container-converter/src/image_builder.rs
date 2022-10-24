@@ -27,7 +27,7 @@ pub struct EnclaveImageBuilder<'a> {
     pub enclave_base_image: Option<String>,
 }
 
-pub struct EnclaveSettings {
+pub(crate) struct EnclaveSettings {
     user_name: String,
 
     env_vars: Vec<String>,
@@ -36,7 +36,7 @@ pub struct EnclaveSettings {
 }
 
 impl EnclaveSettings {
-    pub fn new(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Self {
+    pub(crate) fn new(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Self {
         let env_vars = {
             let mut result = input_image.details.config.env.as_ref().map(|e| e.clone()).unwrap_or(vec![]);
 
@@ -59,8 +59,8 @@ impl EnclaveSettings {
     }
 }
 
-pub struct EnclaveBuilderResult {
-    pub pcr_list: PCRList,
+pub(crate) struct EnclaveBuilderResult {
+    pub(crate) pcr_list: PCRList,
 }
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
@@ -83,7 +83,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     // 256 MB converted to bytes
     pub const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
 
-    pub async fn create_image(
+    pub(crate) async fn create_image(
         &self,
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
@@ -429,7 +429,7 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    pub async fn create_image(
+    pub(crate) async fn create_image(
         &self,
         docker_util: &dyn DockerUtil,
         image_reference: DockerReference<'a>,
@@ -690,7 +690,7 @@ fn rust_log_env_var(project_name: &str) -> String {
     format!("RUST_LOG={}={}", project_name, log_level)
 }
 
-pub async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
+pub(crate) async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
     let mut command = Command::new(subprocess_path);
 
     command.stdout(Stdio::piped());

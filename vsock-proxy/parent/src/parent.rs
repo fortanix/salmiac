@@ -214,15 +214,15 @@ fn start_background_tasks(
     for paired_device in parent_setup_result.network_devices {
         let res = start_pcap_loops(paired_device.pcap, paired_device.vsock)?;
 
-        result.push(res.read_handle);
-        result.push(res.write_handle);
+        result.push(res.pcap_to_vsock);
+        result.push(res.vsock_to_pcap);
     }
 
     let fs_device = parent_setup_result.file_system_tap;
     let fs_tap_loops = start_tap_loops(fs_device.tap, fs_device.vsock, FS_TAP_MTU);
 
-    result.push(fs_tap_loops.read_handle);
-    result.push(fs_tap_loops.write_handle);
+    result.push(fs_tap_loops.tap_to_vsock);
+    result.push(fs_tap_loops.vsock_to_tap);
 
     if use_file_system {
         write_nbd_config(fs_device.tap_l3_address.ip(), NBD_EXPORTS)?;

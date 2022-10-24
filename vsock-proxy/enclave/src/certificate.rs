@@ -7,20 +7,21 @@ use shared::extract_enum_value;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use crate::enclave::write_to_file;
+
 use std::path::{Path, PathBuf};
 
 const RSA_SIZE: u32 = 3072;
 
 const RSA_EXPONENT: u32 = 0x10001;
 
-pub struct CertificateResult {
-    pub certificate: String,
+pub(crate) struct CertificateResult {
+    pub(crate) certificate: String,
 
-    pub key: Pk,
+    pub(crate) key: Pk,
 }
 
-pub struct CertificateWithPath {
-    pub certificate_result: CertificateResult,
+pub(crate) struct CertificateWithPath {
+    pub(crate) certificate_result: CertificateResult,
 
     key_path: PathBuf,
 
@@ -28,7 +29,7 @@ pub struct CertificateWithPath {
 }
 
 impl CertificateWithPath {
-    pub fn new(certificate_result: CertificateResult, cert_config: &CertificateConfig, fs_root: &Path) -> Self {
+    pub(crate) fn new(certificate_result: CertificateResult, cert_config: &CertificateConfig, fs_root: &Path) -> Self {
         let key_path = fs_root.join(cert_config.key_path_or_default());
         let certificate_path = fs_root.join(cert_config.cert_path_or_default());
 
@@ -40,7 +41,7 @@ impl CertificateWithPath {
     }
 }
 
-pub fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Result<(), String> {
+pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Result<(), String> {
     let key_as_pem = cert_with_path
         .certificate_result
         .key
@@ -51,7 +52,7 @@ pub fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Result<(),
     write_to_file(&cert_with_path.certificate_path, &cert_with_path.certificate_result.certificate, "certificate")
 }
 
-pub async fn request_certificate(
+pub(crate) async fn request_certificate(
     vsock: &mut AsyncVsockStream,
     cert_settings: &CertificateConfig,
     app_config_id: &Option<String>,

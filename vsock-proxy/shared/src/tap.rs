@@ -6,7 +6,7 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
 use crate::models::NetworkDeviceSettings;
-use crate::{log_packet_processing, MAX_ETHERNET_HEADER_SIZE, PACKET_LOG_STEP};
+use crate::{MAX_ETHERNET_HEADER_SIZE};
 
 pub fn create_async_tap_device(config: &tun::Configuration) -> Result<AsyncDevice, String> {
     tun::create_as_async(config).map_err(|err| format!("Cannot create async tap device {:?}", err))
@@ -32,22 +32,27 @@ impl From<&NetworkDeviceSettings> for tun::Configuration {
 }
 
 pub struct TapLoopsResult {
-    pub read_handle: JoinHandle<Result<(), String>>,
+    pub tap_to_vsock: JoinHandle<Result<(), String>>,
 
-    pub write_handle: JoinHandle<Result<(), String>>,
+    pub vsock_to_tap: JoinHandle<Result<(), String>>,
 }
 
+/// Starts two network forwarding tasks which allow networking to function inside an enclave.
+/// One task forwards packets from tap device and into the vsock and other does the same in the opposite direction.
+/// Network forwarding tasks never exit during normal enclave execution and it is considered an error if they do.
+/// # Returns
+/// Handles to two network forwarding tasks
 pub fn start_tap_loops(tap_device: AsyncDevice, vsock: AsyncVsockStream, mtu: u32) -> TapLoopsResult {
     let (tap_read, tap_write) = io::split(tap_device);
     let (vsock_read, vsock_write) = io::split(vsock);
 
-    let read_handle = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
+    let tap_to_vsock = tokio::spawn(read_from_tap_async(tap_read, vsock_write, mtu));
 
-    let write_handle = tokio::spawn(write_to_tap_async(tap_write, vsock_read));
+    let vsock_to_tap = tokio::spawn(write_to_tap_async(tap_write, vsock_read));
 
     TapLoopsResult {
-        read_handle,
-        write_handle,
+        tap_to_vsock,
+        vsock_to_tap,
     }
 }
 
@@ -57,7 +62,6 @@ async fn read_from_tap_async(
     buf_len: u32,
 ) -> Result<(), String> {
     let mut buf = vec![0 as u8; (MAX_ETHERNET_HEADER_SIZE + buf_len) as usize];
-    let mut count = 0 as u32;
 
     loop {
         let amount = AsyncReadExt::read(&mut device, &mut buf)
@@ -68,21 +72,15 @@ async fn read_from_tap_async(
             .write_lv_bytes(&buf[..amount])
             .await
             .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
-
-        count = log_packet_processing(count, PACKET_LOG_STEP, "enclave tap");
     }
 }
 
 async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
-    let mut count = 0 as u32;
-
     loop {
         let packet = vsock.read_lv_bytes().await?;
 
         AsyncWriteExt::write_all(&mut device, &packet)
             .await
             .map_err(|err| format!("Cannot write to tap {:?}", err))?;
-
-        count = log_packet_processing(count, PACKET_LOG_STEP, "enclave vsock");
     }
 }

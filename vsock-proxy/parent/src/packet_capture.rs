@@ -10,7 +10,6 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 
 use crate::network::{recompute_packet_checksum, ChecksumComputationError};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{log_packet_processing, PACKET_LOG_STEP};
 
 use std::collections::HashSet;
 use std::sync::mpsc;
@@ -18,24 +17,29 @@ use std::sync::mpsc::TryRecvError;
 use std::thread;
 
 pub(crate) struct PcapLoopsResult {
-    pub read_handle: JoinHandle<Result<(), String>>,
+    pub(crate) pcap_to_vsock: JoinHandle<Result<(), String>>,
 
-    pub write_handle: JoinHandle<Result<(), String>>,
+    pub(crate) vsock_to_pcap: JoinHandle<Result<(), String>>,
 }
 
+/// Starts two network forwarding tasks which allow networking to function inside a parent.
+/// One task forwards packets from pcap device and into the vsock and other does the same in the opposite direction.
+/// Network forwarding tasks never exit during normal parent execution and it is considered an error if they do.
+/// # Returns
+/// Handles to two network forwarding tasks
 pub(crate) fn start_pcap_loops(network_device: Device, vsock: AsyncVsockStream) -> Result<PcapLoopsResult, String> {
     let read_capture = open_async_packet_capture(&network_device.name)?;
     let write_capture = open_packet_capture(network_device)?;
 
     let (vsock_read, vsock_write) = io::split(vsock);
 
-    let read_handle = tokio::spawn(read_from_device_async(read_capture, vsock_write));
+    let pcap_to_vsock = tokio::spawn(read_from_device_async(read_capture, vsock_write));
 
-    let write_handle = tokio::spawn(write_to_device_async(write_capture, vsock_read));
+    let vsock_to_pcap = tokio::spawn(write_to_device_async(write_capture, vsock_read));
 
     Ok(PcapLoopsResult {
-        read_handle,
-        write_handle,
+        pcap_to_vsock,
+        vsock_to_pcap,
     })
 }
 
@@ -43,7 +47,6 @@ async fn read_from_device_async(
     mut capture: Fuse<pcap_async::PacketStream>,
     mut enclave_stream: WriteHalf<AsyncVsockStream>,
 ) -> Result<(), String> {
-    let mut count = 0 as u32;
     let mut unsupported_protocols = HashSet::<u8>::new();
 
     loop {
@@ -73,8 +76,6 @@ async fn read_from_device_async(
                 }
 
                 enclave_stream.write_lv_bytes(&data).await?;
-
-                count = log_packet_processing(count, PACKET_LOG_STEP, "parent pcap");
             } else {
                 warn!(
                     "Dropped PCAP captured packet! \
@@ -92,10 +93,11 @@ async fn write_to_device_async(
     mut capture: Capture<Active>,
     mut from_enclave: ReadHalf<AsyncVsockStream>,
 ) -> Result<(), String> {
-    let mut count = 0 as u32;
     let (packet_tx, packet_rx) = mpsc::channel();
     let (error_tx, error_rx) = mpsc::sync_channel(1);
 
+    // This is a fix to avoid blocking when writing packets to pcap,
+    // as there is no async write function available in pcap crate.
     thread::spawn(move || {
         while let Ok(packet) = packet_rx.recv() {
             if let Err(e) = capture.sendpacket(packet) {
@@ -125,8 +127,6 @@ async fn write_to_device_async(
         packet_tx
             .send(packet)
             .map_err(|err| format!("Failed to send packet to pcap writer thread {:?}", err))?;
-
-        count = log_packet_processing(count, PACKET_LOG_STEP, "parent vsock");
     }
 }
 

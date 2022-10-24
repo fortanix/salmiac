@@ -7,15 +7,15 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 #[derive(Clone)]
-pub struct Resource<'a> {
-    pub name: &'a str,
+pub(crate) struct Resource<'a> {
+    pub(crate) name: &'a str,
 
-    pub data: &'a [u8],
+    pub(crate) data: &'a [u8],
 
-    pub is_executable: bool,
+    pub(crate) is_executable: bool,
 }
 
-pub fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String> {
+pub(crate) fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String> {
     for resource in resources {
         let mut file = fs::File::create(dir.join(&resource.name))
             .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
@@ -32,7 +32,7 @@ pub fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String
     Ok(())
 }
 
-pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
+pub(crate) fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
     fs::OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -41,11 +41,11 @@ pub fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
         .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))
 }
 
-pub fn log_docker_file(dir: &Path) -> Result<(), String> {
+pub(crate) fn log_docker_file(dir: &Path) -> Result<(), String> {
     log_file(&*dir.join("Dockerfile"))
 }
 
-pub fn log_file(path: &Path) -> Result<(), String> {
+pub(crate) fn log_file(path: &Path) -> Result<(), String> {
     let file_name = path.file_name().and_then(|e| e.to_str()).unwrap_or("<Unknown file>");
 
     let file = fs::OpenOptions::new()
@@ -67,15 +67,15 @@ pub fn log_file(path: &Path) -> Result<(), String> {
 
 /// A type that describes docker file contents by section
 pub(crate) struct DockerFile<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> {
-    pub from: &'a str,
+    pub(crate) from: &'a str,
 
-    pub add: Option<DockerCopyArgs<'a, V>>,
+    pub(crate) add: Option<DockerCopyArgs<'a, V>>,
 
-    pub env: &'a [T],
+    pub(crate) env: &'a [T],
 
-    pub cmd: Option<&'a str>,
+    pub(crate) cmd: Option<&'a str>,
 
-    pub entrypoint: Option<&'a str>,
+    pub(crate) entrypoint: Option<&'a str>,
 }
 
 impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for DockerFile<'a, T, V> {
@@ -103,9 +103,9 @@ impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for 
 }
 
 pub(crate) struct DockerCopyArgs<'a, T: AsRef<str> + Borrow<str>> {
-    pub items: &'a [T],
+    pub(crate) items: &'a [T],
 
-    pub destination: String,
+    pub(crate) destination: String,
 }
 
 impl<'a, T: AsRef<str> + Borrow<str>> ToString for DockerCopyArgs<'a, T> {
@@ -114,7 +114,7 @@ impl<'a, T: AsRef<str> + Borrow<str>> ToString for DockerCopyArgs<'a, T> {
     }
 }
 
-pub trait UnixFile {
+pub(crate) trait UnixFile {
     fn set_execute(&mut self) -> std::io::Result<()>;
 }
 

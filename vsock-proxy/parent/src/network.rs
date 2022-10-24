@@ -36,12 +36,13 @@ const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
 pub const FS_TAP_MTU: u32 = 9001;
 
+// Prefix size that allows only 2 addresses in a network
 const FS_TAP_NETWORK_PREFIX_SIZE: u8 = 30;
 
 pub(crate) struct PairedPcapDevice {
-    pub pcap: Device,
+    pub(crate) pcap: Device,
 
-    pub vsock: AsyncVsockStream,
+    pub(crate) vsock: AsyncVsockStream,
 }
 
 pub(crate) async fn setup_network_devices(
@@ -266,11 +267,11 @@ fn field_offset_in_packet<'a>(full_packet: &'a [u8], header: &'a [u8], header_fi
 }
 
 pub(crate) struct PairedTapDevice {
-    pub tap: AsyncDevice,
+    pub(crate) tap: AsyncDevice,
 
-    pub tap_l3_address: IpNetwork,
+    pub(crate) tap_l3_address: IpNetwork,
 
-    pub vsock: AsyncVsockStream,
+    pub(crate) vsock: AsyncVsockStream,
 }
 
 pub(crate) async fn setup_file_system_tap_devices(
