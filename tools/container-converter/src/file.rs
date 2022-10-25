@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+/// A type that describes an arbitrary file needed to build an image
 #[derive(Clone)]
 pub(crate) struct Resource<'a> {
     pub(crate) name: &'a str,

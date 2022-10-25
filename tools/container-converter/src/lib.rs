@@ -1,28 +1,34 @@
+use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
-use log::{debug, info, warn};
+use log::{debug, info, warn, error};
 use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
-use crate::image::{DockerDaemon, DockerUtil, ImageWithDetails, PCRList};
-use crate::image_builder::{EnclaveImageBuilder, EnclaveSettings, ParentImageBuilder};
+use crate::docker::{DockerDaemon, DockerUtil};
+use crate::image_builder::enclave::PCRList;
+use image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
+use image_builder::parent::ParentImageBuilder;
+use api_model::shared::{UserConfig, UserProgramConfig};
 use api_model::{
     AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
     NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
 };
 use model_types::HexString;
 
-use api_model::shared::{UserConfig, UserProgramConfig};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+use std::ffi::OsStr;
+use crate::image::{ImageWithDetails, ImageKind, ImageToClean, docker_reference, output_docker_reference};
+use std::str::FromStr;
 
 pub mod file;
-pub mod image;
+pub mod docker;
 pub mod image_builder;
+pub mod image;
 
 pub type Result<T> = std::result::Result<T, ConverterError>;
 
@@ -196,7 +202,9 @@ async fn push_result_image(image: &ImageWithDetails<'_>, destination_auth: &Opti
     let result_repository = DockerDaemon::new(destination_auth);
 
     let image_reference = image.reference.to_string();
+
     info!("Pushing resulting image to {}!", image_reference);
+
     result_repository.push_image(image).await.map_err(|message| ConverterError {
         message,
         kind: ConverterErrorKind::ImagePush,
@@ -241,84 +249,6 @@ fn create_response(image: &ImageWithDetails, pcr_list: PCRList) -> Result<NitroE
     };
 
     Ok(result)
-}
-
-pub struct ImageToClean {
-    pub name: String,
-
-    pub kind: ImageKind,
-}
-
-#[derive(Eq, Hash, PartialEq, Clone, Debug, Ord, PartialOrd)]
-pub enum ImageKind {
-    Input,
-    Intermediate,
-    Result,
-}
-
-impl FromStr for ImageKind {
-    type Err = String;
-
-    fn from_str(input: &str) -> std::result::Result<ImageKind, Self::Err> {
-        match &*input.trim().to_lowercase() {
-            "input" => Ok(ImageKind::Input),
-            "intermediate" => Ok(ImageKind::Intermediate),
-            "result" => Ok(ImageKind::Result),
-            _ => Err(format!("Unknown ImageType enum value: '{}'", input).to_string()),
-        }
-    }
-}
-
-async fn clean_docker_images(
-    docker: Docker,
-    images_receiver: mpsc::Receiver<ImageToClean>,
-    preserve: HashSet<ImageKind>,
-) -> Result<()> {
-    let mut received_images: Vec<String> = Vec::new();
-
-    // this loop will exit after all receivers have exited from
-    // the image convert function irregardless if the function
-    // exited normally or panicked.
-    while let Ok(image) = images_receiver.recv() {
-        if !preserve.contains(&image.kind) {
-            received_images.push(image.name)
-        }
-    }
-
-    for image in received_images {
-        let image_interface = Image::new(&docker, image.clone());
-
-        match image_interface.delete().await {
-            Ok(_) => {
-                info!("Successfully cleaned intermediate image {}", image);
-            }
-            Err(e) => {
-                warn!("Error cleaning intermediate image {}. {:?}", image, e);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn docker_reference(image: &str) -> Result<DockerReference> {
-    DockerReference::from_str(image).map_err(|err| ConverterError {
-        message: err.to_string(),
-        kind: ConverterErrorKind::BadRequest,
-    })
-}
-
-fn output_docker_reference(image: &str) -> Result<DockerReference> {
-    docker_reference(image).and_then(|e| {
-        if e.tag().is_none() || e.has_digest() {
-            Err(ConverterError {
-                message: "Output image must have a tag and have no digest!".to_string(),
-                kind: ConverterErrorKind::BadRequest,
-            })
-        } else {
-            Ok(e)
-        }
-    })
 }
 
 async fn get_enclave_base_image(image: String) -> Result<()> {
@@ -383,6 +313,76 @@ fn preserve_images_list() -> Result<HashSet<ImageKind>> {
     }
 
     Ok(result)
+}
+
+async fn clean_docker_images(
+    docker: Docker,
+    images_receiver: mpsc::Receiver<ImageToClean>,
+    preserve: HashSet<ImageKind>,
+) -> Result<()> {
+    let mut received_images: Vec<String> = Vec::new();
+
+    // this loop will exit after all receivers have exited from
+    // the image convert function irregardless if the function
+    // exited normally or panicked.
+    while let Ok(image) = images_receiver.recv() {
+        if !preserve.contains(&image.kind) {
+            received_images.push(image.name)
+        }
+    }
+
+    for image in received_images {
+        let image_interface = Image::new(&docker, image.clone());
+
+        match image_interface.delete().await {
+            Ok(_) => {
+                info!("Successfully cleaned intermediate image {}", image);
+            }
+            Err(e) => {
+                warn!("Error cleaning intermediate image {}. {:?}", image, e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
+    let mut command = Command::new(subprocess_path);
+
+    command.stdout(Stdio::piped());
+    command.args(args);
+
+    debug!("Running subprocess {:?} {:?}", subprocess_path, args);
+    let process = command
+        .spawn()
+        .map_err(|err| format!("Failed to run subprocess {:?}. {:?}. Args {:?}", subprocess_path, err, args))?;
+
+    let output = process.output().await.map_err(|err| {
+        format!(
+            "Error while waiting for subprocess {:?} to finish: {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
+
+    if !output.status.success() {
+        let result = String::from_utf8_lossy(&output.stderr);
+
+        error!("status: {}", output.status);
+        error!("stderr: {}", result);
+
+        Err(format!(
+            "External process {:?} exited with {}. Stderr: {}",
+            subprocess_path, output.status, result
+        ))
+    } else {
+        let result = String::from_utf8_lossy(&output.stdout);
+
+        info!("status: {}", output.status);
+        info!("stdout: {}", result);
+
+        Ok(result.to_string())
+    }
 }
 
 #[cfg(test)]
