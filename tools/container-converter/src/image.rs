@@ -14,7 +14,7 @@ pub struct ImageWithDetails<'a> {
 }
 
 impl<'a> ImageWithDetails<'a> {
-    pub(crate) fn create_user_program_config(&self) -> Result<UserProgramConfig> {
+    pub fn create_user_program_config(&self) -> Result<UserProgramConfig> {
         let config = &self.details.config;
 
         let (entry_point, arguments) = if let Some(ref raw_entry_point) = config.entrypoint {
