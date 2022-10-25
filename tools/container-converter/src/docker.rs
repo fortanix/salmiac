@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use docker_image_reference::Reference as DockerReference;
 use futures::StreamExt;
 use log::{debug, error, info, warn};
+use shiplift::container::ContainerCreateInfo;
 use shiplift::image::{ImageDetails, PushOptions};
 use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
-use shiplift::container::ContainerCreateInfo;
 
-use api_model::AuthConfig;
 use crate::image::ImageWithDetails;
+use api_model::AuthConfig;
 
 use std::env;
 use std::fs;

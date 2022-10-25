@@ -159,9 +159,7 @@ pub(crate) fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), S
     let from = STARTUP_PATH.to_string() + startup_binary;
     let to = ENCLAVE_FS_OVERLAY_ROOT.to_string() + startup_binary;
 
-    fs::copy(&from, &to).map_err(|err| {
-        format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err)
-    })?;
+    fs::copy(&from, &to).map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
 
     Ok(())
 }

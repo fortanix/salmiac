@@ -1,19 +1,19 @@
 use docker_image_reference::Reference as DockerReference;
-use log::{info};
+use log::info;
 use tempfile::TempDir;
 
+use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile};
-use crate::docker::{DockerUtil};
+use crate::Result;
 use crate::{file, ConverterError, ConverterErrorKind};
-use crate::{Result};
-use api_model::{NitroEnclavesConversionRequestOptions};
+use api_model::NitroEnclavesConversionRequestOptions;
 
+use crate::image::ImageWithDetails;
+use crate::image_builder::enclave::EnclaveImageBuilder;
+use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use crate::image_builder::enclave::EnclaveImageBuilder;
-use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
-use crate::image::ImageWithDetails;
 
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image: String,
@@ -67,11 +67,12 @@ impl<'a> ParentImageBuilder<'a> {
             })?;
         info!("Parent prerequisites have been created!");
 
-        let result = docker_util.create_image(image_reference, &build_context_dir)
+        let result = docker_util
+            .create_image(image_reference, &build_context_dir)
             .await
             .map_err(|message| ConverterError {
                 message,
-                kind:ConverterErrorKind::ParentImageCreation,
+                kind: ConverterErrorKind::ParentImageCreation,
             })?;
 
         info!("Parent image has been created!");

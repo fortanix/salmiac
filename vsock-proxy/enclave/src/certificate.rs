@@ -3,10 +3,10 @@ use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
+use crate::enclave::write_to_file;
 use shared::extract_enum_value;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use crate::enclave::write_to_file;
 
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ pub(crate) struct CertificateWithPath {
 
     key_path: PathBuf,
 
-    certificate_path: PathBuf
+    certificate_path: PathBuf,
 }
 
 impl CertificateWithPath {
@@ -36,7 +36,7 @@ impl CertificateWithPath {
         CertificateWithPath {
             certificate_result,
             key_path,
-            certificate_path
+            certificate_path,
         }
     }
 }
@@ -49,7 +49,11 @@ pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Res
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
     write_to_file(&cert_with_path.key_path, &key_as_pem, "key")?;
-    write_to_file(&cert_with_path.certificate_path, &cert_with_path.certificate_result.certificate, "certificate")
+    write_to_file(
+        &cert_with_path.certificate_path,
+        &cert_with_path.certificate_result.certificate,
+        "certificate",
+    )
 }
 
 pub(crate) async fn request_certificate(

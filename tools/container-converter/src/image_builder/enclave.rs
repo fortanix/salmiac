@@ -1,25 +1,25 @@
 use docker_image_reference::Reference as DockerReference;
-use log::{info};
+use log::info;
 use serde::Deserialize;
 use tar::Archive;
 use tempfile::TempDir;
 
+use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource};
-use crate::docker::{DockerUtil};
-use crate::{file, ConverterError, ConverterErrorKind};
-use crate::{Result};
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
 use crate::run_subprocess;
+use crate::Result;
+use crate::{file, ConverterError, ConverterErrorKind};
 
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
-use api_model::{ConverterOptions};
+use api_model::ConverterOptions;
 
+use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
-use crate::image::{ImageWithDetails, ImageToClean, ImageKind};
 
 #[derive(Deserialize)]
 pub(crate) struct NitroCliOutput {
@@ -193,12 +193,13 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
         // After nitro-cli finishes we can safely reclaim it.
-        let result = docker_util.create_image(enclave_image_reference, &build_context_dir)
+        let result = docker_util
+            .create_image(enclave_image_reference, &build_context_dir)
             .await
             .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))
             .map_err(|message| ConverterError {
                 message,
-                kind: ConverterErrorKind::EnclaveImageCreation
+                kind: ConverterErrorKind::EnclaveImageCreation,
             })?;
 
         let nitro_measurements = {

@@ -12,6 +12,7 @@ fn rust_log_env_var(project_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::docker::{DockerUtil, ImageWithDetails};
+    use crate::image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
     use crate::image_builder::EnclaveSettings;
     use crate::EnclaveImageBuilder;
     use api_model::ConverterOptions;
@@ -27,7 +28,6 @@ mod tests {
     use std::path::Path;
     use tar::{Builder, Header};
     use tempfile::TempDir;
-    use crate::image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
 
     struct TestDockerDaemon {}
 
@@ -164,7 +164,7 @@ mod tests {
         let mut test = |input_image_env_vars: Option<Vec<String>>,
                         converter_request_env_vars: Vec<String>,
                         reference: Vec<String>|
-                        -> () {
+         -> () {
             input_image.details.config.env = input_image_env_vars;
             converter_options.env_vars = converter_request_env_vars;
 

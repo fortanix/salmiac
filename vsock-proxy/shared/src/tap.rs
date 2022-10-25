@@ -6,7 +6,7 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
 use crate::models::NetworkDeviceSettings;
-use crate::{MAX_ETHERNET_HEADER_SIZE};
+use crate::MAX_ETHERNET_HEADER_SIZE;
 
 pub fn create_async_tap_device(config: &tun::Configuration) -> Result<AsyncDevice, String> {
     tun::create_as_async(config).map_err(|err| format!("Cannot create async tap device {:?}", err))

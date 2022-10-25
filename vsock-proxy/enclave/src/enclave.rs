@@ -9,7 +9,12 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
-use crate::file_system::{close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, create_overlay_dirs, create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, copy_startup_binary_to_mount};
+use crate::file_system::{
+    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
+    create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
+    DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT,
+};
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
 use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
@@ -45,7 +50,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             &mut parent_port,
             &setup_result.app_config.id,
             &setup_result.enclave_manifest.user_config.certificate_config,
-            &setup_result.fs_root
+            &setup_result.fs_root,
         )
         .await?;
 
@@ -262,7 +267,6 @@ async fn start_user_program(
     env_vars: Vec<(String, String)>,
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
-
     let user_program = enclave_manifest.user_config.user_program_config;
 
     let mut client_command = if use_file_system {
@@ -277,8 +281,7 @@ async fn start_user_program(
 
         client_command.args(user_program.arguments.clone());
 
-		client_command
-
+        client_command
     } else {
         let mut client_command = Command::new(user_program.entry_point.clone());
 
@@ -287,7 +290,7 @@ async fn start_user_program(
         client_command
     };
 
-	set_env_vars(&mut client_command, env_vars);
+    set_env_vars(&mut client_command, env_vars);
 
     let client_program = client_command
         .spawn()

@@ -1,11 +1,11 @@
+use crate::{ConverterError, ConverterErrorKind, DockerReference, Result};
+use api_model::shared::{UserProgramConfig, WorkingDir};
 use shiplift::image::ImageDetails;
-use crate::{ConverterErrorKind, ConverterError, DockerReference, Result};
-use api_model::shared::{WorkingDir, UserProgramConfig};
 
-use std::sync::mpsc::Sender;
-use std::sync::mpsc;
-use std::str::FromStr;
 use std::ops::Deref;
+use std::str::FromStr;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 
 pub struct ImageWithDetails<'a> {
     pub reference: DockerReference<'a>,
@@ -101,7 +101,8 @@ impl<'a> Drop for TempImage<'a> {
         if let Err(e) = self.sender.send(result) {
             log::warn!(
                 "Failed sending image {} to resource cleaner task. {:?}",
-                self.image.reference, e
+                self.image.reference,
+                e
             );
         }
     }

@@ -20,7 +20,7 @@ pub enum SetupMessages {
     NBDConfiguration(NBDConfiguration),
     EnvVariables(Vec<(String, String)>),
     ExtraUserProgramArguments(Vec<String>),
-    ExitEnclave
+    ExitEnclave,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -1,34 +1,34 @@
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image_builder::enclave::PCRList;
-use image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
-use image_builder::parent::ParentImageBuilder;
 use api_model::shared::{UserConfig, UserProgramConfig};
 use api_model::{
     AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
     NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
 };
+use image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
+use image_builder::parent::ParentImageBuilder;
 use model_types::HexString;
 
+use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use std::ffi::OsStr;
-use crate::image::{ImageWithDetails, ImageKind, ImageToClean, docker_reference, output_docker_reference};
-use std::str::FromStr;
 
-pub mod file;
 pub mod docker;
-pub mod image_builder;
+pub mod file;
 pub mod image;
+pub mod image_builder;
 
 pub type Result<T> = std::result::Result<T, ConverterError>;
 
