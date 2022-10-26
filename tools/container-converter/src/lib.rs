@@ -362,7 +362,7 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
     match env::var(var_name) {
         Ok(e) => Some(e),
         Err(err) => {
-            warn!("Failed reading env var {}, assuming var is not set. {:?}", var_name, err);
+            warn!("Env var {} is not set. {:?}", var_name, err);
             None
         }
     }

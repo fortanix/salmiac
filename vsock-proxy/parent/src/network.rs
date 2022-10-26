@@ -90,7 +90,7 @@ pub(crate) async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDe
                 }
                 Err(e) => {
                     warn!(
-                        "Failed retrieving network settings for device {}, device won't be setup! {}",
+                        "Network settings for device {} could not be obtained, device won't be setup! {}",
                         device_name, e
                     )
                 }
