@@ -382,7 +382,7 @@ fn get_app_config_id() -> Option<String> {
         Ok(result) => Some(result),
         Err(err) => {
             warn!(
-                "Failed reading env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID, assuming var is not set. {:?}",
+                "Env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID is not set. {:?}",
                 err
             );
             None
@@ -394,7 +394,7 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
     match env::var(var_name) {
         Ok(result) => Some(result),
         Err(err) => {
-            warn!("Failed reading env var {}, assuming var is not set. {:?}", var_name, err);
+            warn!("Env var {} is not set. {:?}", var_name, err);
             None
         }
     }
