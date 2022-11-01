@@ -15,10 +15,12 @@ fn main() -> Result<(), String> {
     }
 
     let workdir = &args[1];
-    let bin = &args[2];
+    let user = &args[2];
+    let group = &args[3];
+    let bin = &args[4];
 
-    let bin_args = if args.len() > 3 {
-        &args[3..]
+    let bin_args = if args.len() > 5 {
+        &args[5..]
     } else {
         &[]
     };
@@ -26,7 +28,24 @@ fn main() -> Result<(), String> {
     env::set_current_dir(workdir)
         .map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
 
-    let mut client_command = Command::new(bin);
+    let mut client_command = if user != "root" {
+        let mut result = Command::new("runuser");
+
+        result.arg("-u");
+        result.arg(user);
+
+        if group != "root" {
+            result.arg("-g");
+            result.arg(group);
+        }
+        
+        result.arg(bin);
+
+        result
+    } else {
+        Command::new(bin)
+    };
+
     client_command.args(bin_args);
 
     // on success this function will not return, not returning has the same
