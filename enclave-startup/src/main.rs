@@ -1,6 +1,6 @@
-use std::process::Command;
-use std::{env};
+use std::env;
 use std::os::unix::process::CommandExt;
+use std::process::Command;
 
 /// A program that implements a working directory switch before running user application.
 /// Working directory different from root ("/") comes from a client images with WORKDIR clause
@@ -11,7 +11,7 @@ fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
-        return Err("Working directory (first argument) and binary to run (second argument) must be supplied.".to_string())
+        return Err("Working directory (first argument) and binary to run (second argument) must be supplied.".to_string());
     }
 
     let workdir = &args[1];
@@ -19,14 +19,9 @@ fn main() -> Result<(), String> {
     let group = &args[3];
     let bin = &args[4];
 
-    let bin_args = if args.len() > 5 {
-        &args[5..]
-    } else {
-        &[]
-    };
+    let bin_args = if args.len() > 5 { &args[5..] } else { &[] };
 
-    env::set_current_dir(workdir)
-        .map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
+    env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
 
     let mut client_command = if user != "root" {
         let mut result = Command::new("runuser");
@@ -38,7 +33,7 @@ fn main() -> Result<(), String> {
             result.arg("-g");
             result.arg(group);
         }
-        
+
         result.arg(bin);
 
         result

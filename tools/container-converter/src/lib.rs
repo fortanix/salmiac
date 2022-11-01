@@ -195,7 +195,7 @@ fn create_user_program_config(
             arguments: converter_options.entry_point_args.clone(),
             working_dir: input_image.working_dir(),
             user,
-            group
+            group,
         })
     } else {
         input_image.create_user_program_config()

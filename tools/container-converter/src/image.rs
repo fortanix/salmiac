@@ -10,6 +10,7 @@ use shiplift::image::{ImageDetails, PushOptions};
 use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
 use crate::image_builder::run_subprocess;
 use api_model::shared::{UserProgramConfig, WorkingDir, User};
+use api_model::shared::{User, UserProgramConfig, WorkingDir};
 use api_model::AuthConfig;
 use api_model::shared::{UserProgramConfig, WorkingDir};
 use shiplift::image::ImageDetails;
@@ -54,7 +55,7 @@ impl<'a> ImageWithDetails<'a> {
             arguments,
             working_dir: self.working_dir(),
             user,
-            group
+            group,
         })
     }
 
@@ -101,7 +102,6 @@ impl<'a> ImageWithDetails<'a> {
     }
 
     fn extract_user_and_group(user_unparsed: &str) -> (User, User) {
-
         // Parses pattern <user>[:<group>]
         // https://docs.docker.com/engine/reference/builder/#user
         if let Some(group_pos) = user_unparsed.find(":") {
@@ -207,9 +207,9 @@ fn bytes_to_mebibytes(bytes: u64) -> f64 {
 mod tests {
     use crate::image::ImageWithDetails;
     use crate::DockerReference;
-    use shiplift::image::{ImageDetails, ContainerConfig};
-    use chrono::{DateTime, Utc};
     use api_model::shared::User;
+    use chrono::{DateTime, Utc};
+    use shiplift::image::{ContainerConfig, ImageDetails};
 
     #[test]
     fn extract_user_and_group_correct_pass() {
