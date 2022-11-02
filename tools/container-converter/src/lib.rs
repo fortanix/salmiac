@@ -113,7 +113,7 @@ async fn run0(
 
     info!("Retrieving client image!");
     let input_image = input_repository
-        .get_image(&client_image)
+        .get_latest_image_details(&client_image)
         .await
         .map(|details| {
             ImageWithDetails {
@@ -278,7 +278,7 @@ async fn get_base_image(image: String, username: Option<String>, password: Optio
     })?;
 
     let _result = repository
-        .get_image(&image_reference)
+        .get_latest_image_details(&image_reference)
         .await
         .map_err(|message| ConverterError {
             message: format!("Failed retrieving requisite {} image. {:?}", image, message),

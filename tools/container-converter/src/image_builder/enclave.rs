@@ -16,13 +16,13 @@ use api_model::ConverterOptions;
 
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
 use std::fs;
-use std::io::Write;
+use std::io::{Write, Seek};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 
 #[derive(Deserialize)]
-pub(crate) struct NitroCliOutput {
+pub(crate) struct NitroEnclaveMeasurements {
     #[serde(rename(deserialize = "Measurements"))]
     pub(crate) pcr_list: PCRList,
 }
@@ -40,7 +40,7 @@ pub(crate) struct PCRList {
     pub(crate) pcr8: Option<String>,
 }
 
-pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroCliOutput> {
+pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroEnclaveMeasurements> {
     let output = output_file.to_str().ok_or(ConverterError {
         message: format!("Failed to cast path {:?} to string", output_file),
         kind: ConverterErrorKind::NitroFileCreation,
@@ -63,7 +63,7 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
             kind: ConverterErrorKind::NitroFileCreation,
         })?;
 
-    serde_json::from_str::<NitroCliOutput>(&process_output).map_err(|err| ConverterError {
+    serde_json::from_str::<NitroEnclaveMeasurements>(&process_output).map_err(|err| ConverterError {
         message: format!("Bad measurements. {:?}", err),
         kind: ConverterErrorKind::NitroFileCreation,
     })
@@ -215,21 +215,37 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    pub(crate) async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, out_dir: &Path) -> Result<()> {
-        let client_file_system = docker_util
-            .export_image_file_system(&self.client_image_reference)
+    pub(crate) async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, archive_path: &Path, out_dir: &Path) -> Result<()> {
+        let mut archive_file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open(&archive_path)
+            .map_err(|err| ConverterError {
+                message: format!("Failed creating image fs archive at {}. {:?}", archive_path.display(), err),
+                kind: ConverterErrorKind::ImageFileSystemExport,
+            })?;
+
+        docker_util
+            .export_image_file_system(&self.client_image_reference, &mut archive_file)
             .await
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::ImageFileSystemExport,
             })?;
 
-        let mut tar = Archive::new(&client_file_system as &[u8]);
+        archive_file.rewind().map_err(|err| ConverterError {
+            message: format!("Failed seek in image fs archive at {}. {:?}", archive_path.display(), err),
+            kind: ConverterErrorKind::ImageFileSystemExport,
+        })?;
+
+        let mut tar = Archive::new(archive_file);
 
         tar.unpack(out_dir).map_err(|err| ConverterError {
             message: format!(
                 "Failed unpacking client fs archive {}. {:?}",
-                EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR,
+                out_dir.display(),
                 err
             ),
             kind: ConverterErrorKind::ImageFileSystemExport,
@@ -313,7 +329,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        self.export_image_file_system(docker_util, &block_file_input_dir).await?;
+        self.export_image_file_system(docker_util, &block_file_input_dir.join("fs.tar"), &block_file_input_dir).await?;
 
         let result = {
             let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);

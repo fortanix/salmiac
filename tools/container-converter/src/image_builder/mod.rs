@@ -11,10 +11,8 @@ fn rust_log_env_var(project_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::docker::{DockerUtil, ImageWithDetails};
+    use crate::docker::{DockerUtil};
     use crate::image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
-    use crate::image_builder::EnclaveSettings;
-    use crate::EnclaveImageBuilder;
     use api_model::ConverterOptions;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
@@ -28,12 +26,18 @@ mod tests {
     use std::path::Path;
     use tar::{Builder, Header};
     use tempfile::TempDir;
+    use std::fs::File;
+    use crate::image::ImageWithDetails;
 
     struct TestDockerDaemon {}
 
     #[async_trait]
     impl DockerUtil for TestDockerDaemon {
-        async fn get_image(&self, _image: &DockerReference<'_>) -> Result<ImageDetails, String> {
+        async fn get_latest_image_details(&self, _image: &DockerReference<'_>) -> Result<ImageDetails, String> {
+            todo!()
+        }
+
+        async fn get_local_image_details(&self, _image: &Reference<'_>) -> Result<ImageDetails, String> {
             todo!()
         }
 
@@ -60,7 +64,7 @@ mod tests {
             Ok(())
         }
 
-        async fn export_container_file_system(&self, _container_name: &str) -> Result<Vec<u8>, String> {
+        async fn export_container_file_system(&self, _container_name: &str, file: &mut File) -> Result<(), String> {
             let mut header = Header::new_gnu();
             let data: &[u8] = TEST_DATA.as_bytes();
 
@@ -68,12 +72,12 @@ mod tests {
             header.set_mode(0o777);
             header.set_cksum();
 
-            let mut archive = Builder::new(Vec::new());
+            let mut archive = Builder::new(file);
             archive
                 .append_data(&mut header, TEST_FS_FILE, data)
                 .expect("Failed writing test data to archive.");
 
-            Ok(archive.into_inner().expect("Failed finishing archive."))
+            Ok(())
         }
     }
 
@@ -93,13 +97,13 @@ mod tests {
         };
 
         enclave_builder
-            .export_image_file_system(&TestDockerDaemon {}, temp_dir.path())
+            .export_image_file_system(&TestDockerDaemon {}, &temp_dir.path().join("fs.tar"), &temp_dir.path())
             .await
             .expect("Failed exporting image file system");
 
         let mut result_file = fs::OpenOptions::new()
             .read(true)
-            .open(temp_dir.path().join(TEST_FS_FILE))
+            .open(&temp_dir.path().join(TEST_FS_FILE))
             .expect("Cannot open result file");
 
         let mut result = String::new();

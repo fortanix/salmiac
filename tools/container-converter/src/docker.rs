@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use docker_image_reference::Reference as DockerReference;
+use docker_image_reference::{Reference as DockerReference, Reference};
 use futures::StreamExt;
 use log::{debug, error, info, warn};
 use shiplift::container::ContainerCreateInfo;
@@ -13,11 +13,16 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::collections::HashSet;
+use std::io::Write;
+use std::fs::File;
 
 /// Convenience functions to work with docker daemon
 #[async_trait]
 pub trait DockerUtil: Send + Sync {
-    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
+
+    async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
+
+    async fn get_local_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String>;
 
@@ -29,11 +34,11 @@ pub trait DockerUtil: Send + Sync {
 
     async fn force_delete_container(&self, container_name: &str) -> Result<(), String>;
 
-    async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String>;
+    async fn export_container_file_system(&self, container_name: &str, file: &mut File) -> Result<(), String>;
 
-    async fn export_image_file_system(&self, image: &DockerReference<'_>) -> Result<Vec<u8>, String> {
+    async fn export_image_file_system(&self, image: &DockerReference<'_>, file: &mut File) -> Result<(), String> {
         let container_info = self.create_container(image).await?;
-        let result = self.export_container_file_system(&container_info.id).await?;
+        self.export_container_file_system(&container_info.id, file).await?;
 
         // container is used only to export image file system
         // after we finish the export the container has no use for us and can be deleted
@@ -41,13 +46,13 @@ pub trait DockerUtil: Send + Sync {
 
         info!("Deleted container {}", container_info.id);
 
-        Ok(result)
+        Ok(())
     }
 
     async fn create_image<'a>(&self, image: DockerReference<'a>, dir: &Path) -> Result<ImageWithDetails<'a>, String> {
         self.build_image(dir, &image).await?;
 
-        let details = self.get_image(&image).await?;
+        let details = self.get_local_image_details(&image).await?;
 
         Ok(ImageWithDetails {
             reference: image,
@@ -78,12 +83,6 @@ impl DockerDaemon {
         DockerDaemon { docker, credentials }
     }
 
-    async fn get_remote_image(&self, image: &DockerReference<'_>) -> Result<Option<ImageDetails>, String> {
-        self.pull_image(image).await?;
-
-        Ok(self.get_local_image(image).await)
-    }
-
     async fn get_local_image(&self, address: &DockerReference<'_>) -> Option<ImageDetails> {
         let image = self.docker.images().get(address.to_string());
 
@@ -91,7 +90,7 @@ impl DockerDaemon {
             Ok(details) => Some(details),
             Err(err) => {
                 warn!(
-                    "Encountered error when searching for local image {}. {:?}. Assuming image not found.",
+                    "Encountered error when searching for local image {}. {:?}.",
                     address.to_string(),
                     err
                 );
@@ -164,18 +163,22 @@ impl DockerDaemon {
 
 #[async_trait]
 impl DockerUtil for DockerDaemon {
-    async fn get_image(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
-        if let Some(local_image) = self.get_local_image(&image).await {
-            Ok(local_image)
-        } else {
+    async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
+        // Do a pull first to make sure that we always pick the latest image version from remote repository
+        if let Err(_) = self.pull_image(image).await {
             debug!(
-                "Image {} not found in local repository, pulling from remote.",
+                "Image {} not found in remote repository, checking local.",
                 image.to_string()
             );
-            self.get_remote_image(image)
-                .await
-                .and_then(|e| e.ok_or(format!("Image {} not found.", image.to_string())))
         }
+
+        self.get_local_image_details(&image).await
+    }
+
+    async fn get_local_image_details(&self, image: &Reference<'_>) -> Result<ImageDetails, String> {
+        self.get_local_image(&image)
+            .await
+            .ok_or(format!("Image {} not found in local repository.", image.to_string()))
     }
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String> {
@@ -285,14 +288,14 @@ impl DockerUtil for DockerDaemon {
             .map_err(|err| format!("Failed deleting docker container {}. {:?}.", container_name, err))
     }
 
-    async fn export_container_file_system(&self, container_name: &str) -> Result<Vec<u8>, String> {
-        let mut result = Vec::new();
+    async fn export_container_file_system(&self, container_name: &str, file: &mut File) -> Result<(), String> {
         let mut stream = Box::pin(self.docker.containers().get(container_name).export());
 
         while let Some(export_result) = stream.next().await {
             match export_result {
-                Ok(mut output) => {
-                    result.append(&mut output);
+                Ok(output) => {
+                    file.write_all(&output)
+                        .map_err(|err| format!("Failed writing to container fs archive. {:?}", err))?;
                 }
                 Err(e) => {
                     error!("{:?}", e);
@@ -301,6 +304,6 @@ impl DockerUtil for DockerDaemon {
             }
         }
 
-        Ok(result)
+        Ok(())
     }
 }
