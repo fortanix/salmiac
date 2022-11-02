@@ -119,8 +119,8 @@ impl DockerDaemon {
 
         Ok(())
     }
-
-    async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), String> {
+    
+    async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), shiplift::Error> {
         let mut pull_options = PullOptions::builder();
         pull_options.image(address.name());
         pull_options.auth(self.credentials.clone());
@@ -154,7 +154,7 @@ impl DockerDaemon {
                         }
                     }
                 }
-                Err(e) => return Err(format!("{}", e)),
+                Err(err) => return Err(err),
             }
         }
         Ok(())
@@ -165,11 +165,17 @@ impl DockerDaemon {
 impl DockerUtil for DockerDaemon {
     async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
         // Do a pull first to make sure that we always pick the latest image version from remote repository
-        if let Err(_) = self.pull_image(image).await {
-            debug!(
-                "Image {} not found in remote repository, checking local.",
-                image.to_string()
-            );
+        match self.pull_image(image).await {
+            Err(shiplift::Error::Fault { code, .. }) if code == 404 => {
+                debug!(
+                    "Image {} not found in remote repository, checking local.",
+                    image.to_string()
+                );
+            }
+            Err(err) => {
+                return Err(format!("Failed pulling image {} from remote repository. {:?}", image.to_string(), err))
+            }
+            Ok(_) => { }
         }
 
         self.get_local_image_details(&image).await
