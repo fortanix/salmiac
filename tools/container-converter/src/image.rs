@@ -3,17 +3,18 @@ use docker_image_reference::Reference as DockerReference;
 use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
-use shiplift::image::{ImageDetails, PushOptions};
 use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
-
-use crate::image_builder::run_subprocess;
-use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
-use api_model::shared::{UserProgramConfig, WorkingDir};
-use api_model::AuthConfig;
-
 use shiplift::container::ContainerCreateInfo;
+use shiplift::image::{ImageDetails, PushOptions};
+
+use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
+use crate::image_builder::run_subprocess;
+use api_model::AuthConfig;
+use api_model::shared::{UserProgramConfig, WorkingDir};
+
 use std::env;
 use std::fs;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::mpsc;
@@ -250,6 +251,23 @@ impl DockerDaemon {
         }
     }
 
+    pub fn image_download_hazard_check(image_size: u64) -> Result<(), String> {
+        debug!("image_size >= {} B", image_size);
+        const MAX_COMPRESSED_IMAGE_BYTES: u64 = 3 * 1024 * 1024 * 1024;  // 3 GB
+
+        // Heuristic: subject to change.
+        let hazard = image_size > MAX_COMPRESSED_IMAGE_BYTES;
+
+        if hazard {
+            let image_size_mb = bytes_to_mebibytes(image_size);
+            let max_mb = bytes_to_mebibytes(MAX_COMPRESSED_IMAGE_BYTES);
+            return Err(format!("compressed image size >= {:.3} MiB > {:.3} MiB maximum",
+                               image_size_mb, max_mb));
+        }
+
+        Ok(())
+    }
+
     async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), String> {
         let mut pull_options = PullOptions::builder();
         pull_options.image(address.name());
@@ -261,10 +279,28 @@ impl DockerDaemon {
 
         let mut stream = self.docker.images().pull(&pull_options.build());
 
+        let mut layers = HashSet::new();
+        let mut total_bytes: u64 = 0;
         while let Some(pull_result) = stream.next().await {
             match pull_result {
                 Ok(output) => {
-                    info!("{:?}", output)
+                    debug!("{:?}", output);
+                    if let Some((layer_id, layer_bytes)) = output.image_layer_bytes() {
+                        // We have layer information.
+                        if !layers.contains(&layer_id) {
+                            // This is a new layer.
+                            total_bytes += layer_bytes;
+                            layers.insert(layer_id.clone());
+                            info!("\n{} image layer {} compressed bytes: {} ({:.3} MB total so far)",
+                                        address, &layer_id, layer_bytes, total_bytes as f64 / (1024.0 * 1024.0));
+                            if let Err(msg) = Self::image_download_hazard_check(total_bytes) {
+                                let err_msg = format!("Aborting {} image download: system stability hazard: {}",
+                                            address, msg);
+                                error!("{}", err_msg);
+                                return Err(err_msg);
+                            }
+                        }
+                    }
                 }
                 Err(e) => return Err(format!("{}", e)),
             }
@@ -299,7 +335,7 @@ impl DockerUtil for DockerDaemon {
         while let Some(import_result) = stream.next().await {
             match import_result {
                 Ok(output) => {
-                    info!("{:?}", output)
+                    info!("{:?}", output);
                 }
                 Err(e) => {
                     return Err(format!(
@@ -415,4 +451,8 @@ impl DockerUtil for DockerDaemon {
 
         Ok(result)
     }
+}
+
+fn bytes_to_mebibytes(bytes: u64) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
 }

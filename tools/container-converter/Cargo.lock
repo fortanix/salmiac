@@ -291,6 +291,7 @@ dependencies = [
  "clap",
  "docker-image-reference",
  "env_logger",
+ "exitcode",
  "futures",
  "log",
  "model_types",
@@ -429,6 +430,12 @@ name = "event-listener"
 version = "2.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77f3309417938f28bf8228fcff79a4a37103981e3e186d2ccd19c74b38f4eb71"
+
+[[package]]
+name = "exitcode"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de853764b47027c2e862a995c34978ffa63c1501f2e15f987ba11bd4f9bba193"
 
 [[package]]
 name = "fastrand"
@@ -1414,7 +1421,7 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 [[package]]
 name = "shiplift"
 version = "0.7.0"
-source = "git+https://github.com/fortanix/shiplift.git?branch=master#4e0d84fba85ee32fbc65455310471b18730af996"
+source = "git+https://github.com/fortanix/shiplift.git?branch=master#16bc73448d05ef343fd4c9c700327912ace6241a"
 dependencies = [
  "base64",
  "byteorder",

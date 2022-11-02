@@ -10,6 +10,7 @@ edition = "2018"
 async-process = "1.2.0"
 async-trait = "0.1.51"
 env_logger = "0.7"
+exitcode = "1.1.2"
 log = "0.4"
 clap = "2.33"
 shiplift = { git = "https://github.com/fortanix/shiplift.git", branch = "master" }
