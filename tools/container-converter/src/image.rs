@@ -9,12 +9,8 @@ use shiplift::image::{ImageDetails, PushOptions};
 
 use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
 use crate::image_builder::run_subprocess;
-use api_model::shared::{UserProgramConfig, WorkingDir, User};
 use api_model::shared::{User, UserProgramConfig, WorkingDir};
 use api_model::AuthConfig;
-use api_model::shared::{UserProgramConfig, WorkingDir};
-use shiplift::image::ImageDetails;
-
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::mpsc;
@@ -202,6 +198,7 @@ pub(crate) fn output_docker_reference(image: &str) -> Result<DockerReference> {
 
 fn bytes_to_mebibytes(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
+}
 
 #[cfg(test)]
 mod tests {
