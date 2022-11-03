@@ -329,7 +329,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        self.export_image_file_system(docker_util, &block_file_input_dir.join("fs.tar"), &block_file_input_dir).await?;
+        self.export_image_file_system(docker_util, &self.dir.path().join("fs.tar"), &block_file_input_dir).await?;
 
         let result = {
             let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
