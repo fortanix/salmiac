@@ -146,15 +146,19 @@ impl DockerDaemon {
                             info!("\n{} image layer {} compressed bytes: {} ({:.3} MB total so far)",
                                   address, &layer_id, layer_bytes, total_bytes as f64 / (1024.0 * 1024.0));
                             if let Err(msg) = Self::image_download_hazard_check(total_bytes) {
-                                let err_msg = format!("Aborting {} image download: system stability hazard: {}",
+                                let message = format!("Aborting {} image download: system stability hazard: {}",
                                                       address, msg);
-                                error!("{}", err_msg);
-                                return Err(err_msg);
+                                error!("{}", message);
+
+                                return Err(shiplift::Error::Fault {
+                                    code: http::StatusCode::INTERNAL_SERVER_ERROR,
+                                    message
+                                });
                             }
                         }
                     }
                 }
-                Err(err) => return Err(err),
+                Err(e) => return Err(e),
             }
         }
         Ok(())
@@ -166,7 +170,7 @@ impl DockerUtil for DockerDaemon {
     async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
         // Do a pull first to make sure that we always pick the latest image version from remote repository
         match self.pull_image(image).await {
-            Err(shiplift::Error::Fault { code, .. }) if code == 404 => {
+            Err(shiplift::Error::Fault { code, .. }) if code == http::StatusCode::NOT_FOUND => {
                 debug!(
                     "Image {} not found in remote repository, checking local.",
                     image.to_string()
