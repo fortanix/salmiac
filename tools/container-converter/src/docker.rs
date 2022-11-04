@@ -63,22 +63,21 @@ pub trait DockerUtil: Send + Sync {
 
 pub struct DockerDaemon {
     docker: Docker,
-    credentials: RegistryAuth,
+    credentials: Option<RegistryAuth>,
 }
 
 impl DockerDaemon {
-    pub fn new(credentials: &Option<AuthConfig>) -> Self {
+    pub fn new(credentials_arg: &Option<AuthConfig>) -> Self {
         let docker = Docker::new();
 
-        let credentials = {
+        let credentials = credentials_arg.as_ref().map(|creds| {
             let mut builder = RegistryAuth::builder();
 
-            if let Some(creds) = credentials {
-                builder.username(&creds.username);
-                builder.password(&creds.password);
-            }
+            builder.username(&creds.username);
+            builder.password(&creds.password);
+
             builder.build()
-        };
+        });
 
         DockerDaemon { docker, credentials }
     }
@@ -119,11 +118,14 @@ impl DockerDaemon {
 
         Ok(())
     }
-    
+
     async fn pull_image(&self, address: &DockerReference<'_>) -> Result<(), shiplift::Error> {
         let mut pull_options = PullOptions::builder();
         pull_options.image(address.name());
-        pull_options.auth(self.credentials.clone());
+
+        if let Some(credentials) = self.credentials.clone() {
+            pull_options.auth(credentials);
+        }
 
         if let Some(tag) = address.tag() {
             pull_options.tag(tag);
@@ -176,8 +178,13 @@ impl DockerUtil for DockerDaemon {
                     image.to_string()
                 );
             }
-            Err(err) => {
+            // assume that if we have auth credentials then our pull request is well formed
+            // and if anything happens it is indeed an unrecoverable failure
+            Err(err) => if self.credentials.is_some() {
                 return Err(format!("Failed pulling image {} from remote repository. {:?}", image.to_string(), err))
+            }
+            Err(err) => {
+                debug!("Failed pulling image {} from remote repository, error: {:?}. Checking local", image.to_string(), err);
             }
             Ok(_) => { }
         }
@@ -220,7 +227,10 @@ impl DockerUtil for DockerDaemon {
         tag_options.repo(repository);
 
         let mut push_options = PushOptions::builder();
-        push_options.auth(self.credentials.clone());
+
+        if let Some(credentials) = self.credentials.clone() {
+            push_options.auth(credentials);
+        }
 
         if let Some(tag_value) = image.reference.tag() {
             tag_options.tag(tag_value);
