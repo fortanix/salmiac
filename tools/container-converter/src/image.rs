@@ -1,16 +1,10 @@
-use async_trait::async_trait;
 use docker_image_reference::Reference as DockerReference;
-use futures::StreamExt;
-use log::{debug, error, info, warn};
-use serde::Deserialize;
-use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
-use shiplift::container::ContainerCreateInfo;
-use shiplift::image::{ImageDetails, PushOptions};
+use shiplift::image::{ImageDetails};
 
-use crate::{ConverterError, ConverterErrorKind, ImageKind, ImageToClean};
-use crate::image_builder::run_subprocess;
+use crate::{ConverterError, ConverterErrorKind};
+use crate::Result;
+
 use api_model::shared::{User, UserProgramConfig, WorkingDir};
-use api_model::AuthConfig;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::mpsc;
@@ -193,11 +187,6 @@ pub(crate) fn output_docker_reference(image: &str) -> Result<DockerReference> {
             Ok(e)
         }
     })
-    }
-}
-
-fn bytes_to_mebibytes(bytes: u64) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0)
 }
 
 #[cfg(test)]
@@ -264,5 +253,4 @@ mod tests {
         test(":root".to_string(), (User::from("root"), User::from("root")));
         test("test:".to_string(), (User::from("test"), User::from("root")));
     }
->>>>>>> - code changes
 }
