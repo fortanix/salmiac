@@ -45,13 +45,13 @@ pub(crate) async fn generate_keyfile(file_path: &Path) -> Result<(), String> {
     .await
 }
 
+/// Formats the device as a luks2 device. This step must not be performed on a
+/// device which already contains usable data in it. It creates a luks2
+/// style header on the device and configures one of the key slots.
+/// # Notes
+/// The minimum size of a luks2 header is 16MB - it is important that the size
+/// of the device meets this requirement (RW_BLOCK_FILE_DEFAULT_SIZE).
 async fn luks_format_device(key_path: &Path, device_path: &str) -> Result<(), String> {
-    /* Format the device as a luks2 device. This step must not be performed on a device
-     * which already contains usable data in it. It creates a luks2 style header on
-     * the device and configures one of the key slots.
-     * The minimum size of a luks2 header is 16MB - it is important that the size of
-     * the device meets this requirement (RW_BLOCK_FILE_DEFAULT_SIZE).
-     */
     let key_path_as_str = key_path
         .to_str()
         .ok_or(format!("Failed converting path {} to string", key_path.display()))?;
@@ -111,17 +111,17 @@ pub(crate) fn create_overlay_rw_dirs() -> Result<(), String> {
 }
 
 pub(crate) struct DMVerityConfig {
-    pub hash_offset: u64,
+    hash_offset: u64,
 
-    pub nbd_device: &'static str,
+    nbd_device: &'static str,
 
-    pub volume_name: &'static str,
+    volume_name: &'static str,
 
-    pub root_hash: String,
+    root_hash: String,
 }
 
 impl DMVerityConfig {
-    pub fn new(hash_offset: u64, root_hash: String) -> Self {
+    pub(crate) fn new(hash_offset: u64, root_hash: String) -> Self {
         DMVerityConfig {
             hash_offset,
             nbd_device: NBD_DEVICE,
@@ -151,6 +151,17 @@ pub(crate) async fn run_nbd_client(server_address: IpAddr, block_file_port: u16,
     // and create /dev/nbdX device. After that we can `mount` said device
     // and use it to access the block file in `parent`.
     run_subprocess("nbd-client", &args).await
+}
+
+pub(crate) fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), String> {
+    const STARTUP_PATH: &str = "/opt/fortanix/enclave-os";
+
+    let from = STARTUP_PATH.to_string() + startup_binary;
+    let to = ENCLAVE_FS_OVERLAY_ROOT.to_string() + startup_binary;
+
+    fs::copy(&from, &to).map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
+
+    Ok(())
 }
 
 pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
@@ -205,12 +216,6 @@ pub(crate) async fn close_dm_crypt_device() -> Result<(), String> {
 pub(crate) async fn close_dm_verity_volume() -> Result<(), String> {
     run_subprocess("veritysetup", &["close", DM_VERITY_VOLUME]).await
 }
-
-//TODO: use this after implementing graceful exit from background tasks
-/*pub(crate) async fn disconnect_from_nbd() -> Result<(), String> {
-    run_subprocess("nbd-client", &["-d", NBD_DEVICE]).await?;
-    run_subprocess("nbd-client", &["-d", NBD_RW_DEVICE]).await
-}*/
 
 async fn run_unmount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/umount", args).await

@@ -14,31 +14,26 @@ use std::num::ParseIntError;
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
 pub const MAX_ETHERNET_HEADER_SIZE: u32 = 22;
 
+/// Converts array slice into a `Ipv4Addr`
+/// # Returns
+/// `Ok` if slice has a size of 4 elements and `Err` otherwise
 pub fn vec_to_ip4(vec: &[u8]) -> Result<Ipv4Addr, String> {
     let as_array = <[u8; 4]>::try_from(&vec[..]).map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
 
     Ok(Ipv4Addr::from(as_array))
 }
 
+/// Converts array slice into a `Ipv6Addr`
+/// # Returns
+/// `Ok` if slice has a size of 8 elements and `Err` otherwise
 pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
     let as_array = <[u16; 8]>::try_from(&vec[..]).map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
 
     Ok(Ipv6Addr::from(as_array))
 }
 
-pub const VSOCK_PARENT_CID: u32 = 3; // From AWS Nitro documentation.
-
-pub const PACKET_LOG_STEP: u32 = 5000;
-
-pub fn log_packet_processing(count: u32, step: u32, source: &str) -> u32 {
-    let result = count.overflowing_add(1).0;
-
-    if result % step == 0 {
-        log::debug!("Successfully served another {} packets from {}!", step, source);
-    }
-
-    result
-}
+// Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
+pub const VSOCK_PARENT_CID: u32 = 3;
 
 pub fn parse_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
@@ -99,10 +94,12 @@ macro_rules! extract_enum_value {
     };
 }
 
-/// Finds first value in iterable `$value` that matches provided pattern expression `pattern` => `extracted_value`
-/// The type of `$value`must implement `IntoIterator` for this macros to work
+/// Finds first value in iterable `$value` that matches provided pattern
+/// expression `pattern` => `extracted_value` The type of `$value`must implement
+/// `IntoIterator` for this macros to work
 /// # Returns
-/// `Some($extracted_value)` if `$value` contains an element that matches `$pattern` and `None` otherwise
+/// `Some($extracted_value)` if `$value` contains an element that matches
+/// `$pattern` and `None` otherwise
 #[macro_export]
 macro_rules! find_map {
     ($value:expr, $pattern:pat => $extracted_value:expr) => {
@@ -113,10 +110,12 @@ macro_rules! find_map {
     };
 }
 
-/// Executes block of code `$value` asynchronously while simultaneously checking on `tasks` futures
-/// If any future from `$tasks` list completes (with error or not) before `$value` the whole block exits with an `Err`
+/// Executes block of code `$value` asynchronously while simultaneously checking
+/// on `tasks` futures. If any future from `$tasks` list completes (with error or
+/// not) before `$value` the whole block exits with an `Err`
 /// # Returns
-/// The result of `$value` block when it completes or `Err` if any future from `$tasks` list completes first
+/// The result of `$value` block when it completes or `Err` if any future from
+/// `$tasks` list completes first
 #[macro_export]
 macro_rules! with_background_tasks {
     ($tasks:expr, $value:block) => {{

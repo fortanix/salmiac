@@ -3,5 +3,5 @@
 members = [
     "shared",
     "parent",
-    "enclave"
+    "enclave",
 ]

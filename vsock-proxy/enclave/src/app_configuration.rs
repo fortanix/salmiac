@@ -36,7 +36,7 @@ const CREDENTIALS_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
 
-pub fn setup_application_configuration(
+pub(crate) fn setup_application_configuration(
     em_app_credentials: &EmAppCredentials,
     ccm_backend_url: &CCMBackendUrl,
     api: Box<dyn ApplicationConfiguration>,
@@ -152,7 +152,7 @@ struct DataSetFiles {
 }
 
 impl DataSetFiles {
-    pub fn new(name: &str, port: &str, fs_root: &Path) -> Self {
+    fn new(name: &str, port: &str, fs_root: &Path) -> Self {
         let dir = format!(dataset_dir!(), port, name);
         let dataset_dir = fs_root.join(Path::new(&dir));
         let credentials_file = dataset_dir.join(CREDENTIALS_FILE);
@@ -173,7 +173,7 @@ struct ApplicationFiles {
 }
 
 impl ApplicationFiles {
-    pub fn new(name: &str, port: &str, fs_root: &Path) -> Self {
+    fn new(name: &str, port: &str, fs_root: &Path) -> Self {
         let dir = format!(application_dir!(), port, name);
         let application_dir = fs_root.join(Path::new(&dir));
         let location_file = application_dir.join(LOCATION_FILE);
@@ -240,20 +240,20 @@ fn normalize_path(raw_path: &str) -> Result<PathBuf, String> {
     Ok(result)
 }
 
-pub trait ApplicationConfiguration {
+pub(crate) trait ApplicationConfiguration {
     fn runtime_config_api(&self) -> &Box<dyn RuntimeConfiguration>;
 
     fn dataset_api(&self) -> &Box<dyn SdkmsDataset>;
 }
 
-pub struct EmAppApplicationConfiguration {
+pub(crate) struct EmAppApplicationConfiguration {
     pub runtime_config_api: Box<dyn RuntimeConfiguration>,
 
     pub dataset_api: Box<dyn SdkmsDataset>,
 }
 
 impl EmAppApplicationConfiguration {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         EmAppApplicationConfiguration {
             runtime_config_api: Box::new(EmAppRuntimeConfiguration {}),
             dataset_api: Box::new(EmAppSdkmsDataset {}),
@@ -290,7 +290,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
     }
 }
 
-pub trait RuntimeConfiguration {
+pub(crate) trait RuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
         ccm_backend_url: &CCMBackendUrl,
@@ -318,7 +318,7 @@ impl SdkmsDataset for EmAppSdkmsDataset {
     }
 }
 
-pub trait SdkmsDataset {
+pub(crate) trait SdkmsDataset {
     fn get_dataset(
         &self,
         sdkms_credentials: &ApplicationConfigSdkmsCredentials,
@@ -326,7 +326,7 @@ pub trait SdkmsDataset {
     ) -> Result<Blob, String>;
 }
 
-pub struct EmAppCredentials {
+pub(crate) struct EmAppCredentials {
     certificate: Arc<MbedtlsList<Certificate>>,
 
     key: Arc<Pk>,
@@ -335,7 +335,7 @@ pub struct EmAppCredentials {
 }
 
 impl EmAppCredentials {
-    pub fn new(mut certificate_info: CertificateResult, skip_server_verify: bool) -> Result<Self, String> {
+    pub(crate) fn new(mut certificate_info: CertificateResult, skip_server_verify: bool) -> Result<Self, String> {
         let certificate = {
             certificate_info.certificate.push('\0');
 
