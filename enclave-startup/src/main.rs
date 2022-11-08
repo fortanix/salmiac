@@ -19,27 +19,9 @@ fn main() -> Result<(), String> {
     let bin_args = if args.len() > 5 { &args[5..] } else { &[] };
 
     env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
-
-    // We use `runuser` only for the user different from `root`,
-    // because `root` is a default user inside an enclave.
-    let mut client_command = if user != "root" {
-        let mut result = Command::new("runuser");
-
-        result.arg("-u");
-        result.arg(user);
-
-        if group != "root" {
-            result.arg("-g");
-            result.arg(group);
-        }
-
-        result.arg(bin);
-
-        result
-    } else {
-        Command::new(bin)
-    };
-
+    
+    let mut client_command = Command::new("runuser");
+    client_command.args(&["-u", user, "-g", group, bin]);
     client_command.args(bin_args);
 
     // on success this function will not return, not returning has the same
