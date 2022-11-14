@@ -46,6 +46,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .setting(AppSettings::AllowExternalSubcommands)
         .setting(AppSettings::AllowLeadingHyphen)
         .setting(AppSettings::DisableVersion)
+        .setting(AppSettings::DisableHelpFlags)
         .arg(
             Arg::with_name("vsock-port")
                 .long("vsock-port")

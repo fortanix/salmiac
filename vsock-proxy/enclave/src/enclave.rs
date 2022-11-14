@@ -102,6 +102,8 @@ async fn startup(
         let existing_arguments = &mut enclave_manifest.user_config.user_program_config.arguments;
 
         existing_arguments.append(&mut extra_user_program_args);
+
+        debug!("Running user program with the args - {:?}", existing_arguments);
     }
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
