@@ -188,14 +188,10 @@ fn create_user_program_config(
     input_image: &ImageWithDetails<'_>,
 ) -> Result<UserProgramConfig> {
     if !converter_options.entry_point.is_empty() {
-        let (user, group) = input_image.user_and_group();
-
         Ok(UserProgramConfig {
             entry_point: converter_options.entry_point.join(" "),
             arguments: converter_options.entry_point_args.clone(),
             working_dir: input_image.working_dir(),
-            user,
-            group,
         })
     } else {
         input_image.create_user_program_config()
