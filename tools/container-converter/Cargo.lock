@@ -301,7 +301,7 @@ dependencies = [
  "serde",
  "serde_json 1.0.81",
  "shiplift",
- "tar",
+ "tar 0.4.38 (git+https://github.com/alexcrichton/tar-rs)",
  "tempfile",
  "tokio",
  "toml 0.5.9",
@@ -1441,7 +1441,7 @@ dependencies = [
  "pin-project 1.0.10",
  "serde",
  "serde_json 1.0.81",
- "tar",
+ "tar 0.4.38 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "url 2.2.2",
 ]
@@ -1530,6 +1530,16 @@ name = "tar"
 version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b55807c0344e1e6c04d7c965f5289c39a8d94ae23ed5c0b57aabac549f871c6"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.38"
+source = "git+https://github.com/alexcrichton/tar-rs#f4f439ca0cd3a984d2a66fb8e42f6e2307876afd"
 dependencies = [
  "filetime",
  "libc",
