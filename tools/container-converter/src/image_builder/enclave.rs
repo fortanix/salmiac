@@ -3,6 +3,7 @@ use log::info;
 use serde::Deserialize;
 use tar::Archive;
 use tempfile::TempDir;
+use rand::distributions::{Alphanumeric, DistString};
 
 use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource};
@@ -386,7 +387,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let new_tag = self
             .client_image_reference
             .tag()
-            .map(|e| e.to_string() + "-enclave")
+            .map(|e| e.to_string() + "-" + &Alphanumeric.sample_string(&mut rand::thread_rng(), 16))
             .unwrap_or("enclave".to_string());
 
         self.client_image_reference.name().to_string() + ":" + &new_tag
