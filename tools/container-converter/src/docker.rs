@@ -180,7 +180,7 @@ impl DockerUtil for DockerDaemon {
             }
             // assume that if we have auth credentials then our pull request is well formed
             // and if anything happens it is indeed an unrecoverable failure
-            Err(err) if self.credentials.is_some() => {
+            Err(err) => if self.credentials.is_some() {
                 return Err(format!("Failed pulling image {} from remote repository. {:?}", image.to_string(), err))
             }
             Err(err) => {

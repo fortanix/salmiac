@@ -22,7 +22,8 @@ const DM_CRYPT_DEVICE: &str = "cryptdevice";
 pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
     run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
     run_mount(&["--rbind", "/sys", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_mount(&["--rbind", "/dev", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await
+    run_mount(&["--rbind", "/dev", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_mount(&["--rbind", "/tmp", &format!("{}/tmp/", ENCLAVE_FS_OVERLAY_ROOT)]).await
 }
 
 pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
