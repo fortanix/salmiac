@@ -21,7 +21,13 @@ fn main() -> Result<(), String> {
     env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
     
     let mut client_command = Command::new("runuser");
-    client_command.args(&["-u", user, "-g", group, bin]);
+    client_command.args(&["-u", user, "-g", group]);
+
+    // '--' is a separator between runuser and client's bin arguments.
+    // With separator in place client's bin arguments are not able to overwrite runuser
+    // arguments with the same name.
+    client_command.arg("--");
+    client_command.arg(bin);
     client_command.args(bin_args);
 
     // on success this function will not return, not returning has the same
