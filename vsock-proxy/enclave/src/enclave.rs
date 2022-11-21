@@ -278,6 +278,8 @@ async fn start_user_program(
             ENCLAVE_FS_OVERLAY_ROOT,
             STARTUP_BINARY,
             &user_program.working_dir,
+            &user_program.user,
+            &user_program.group,
             &user_program.entry_point,
         ]);
 
