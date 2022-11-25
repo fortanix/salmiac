@@ -81,7 +81,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     result
 }
 
-fn enable_loopback_network_device() -> Result<(), String> {
+fn enable_loopback_network_interface() -> Result<(), String> {
     use interfaces::Interface;
 
     let mut loopback_interface = match Interface::get_by_name("lo") {
@@ -413,7 +413,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     debug!("Enclave DNS file has been populated.");
 
-    enable_loopback_network_device()?;
+    enable_loopback_network_interface()?;
     debug!("Loopback network interface is up.");
 
     Ok(result)
