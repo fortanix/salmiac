@@ -81,6 +81,26 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     result
 }
 
+fn enable_loopback_network_device() -> Result<(), String> {
+    use interfaces::Interface;
+
+    let mut loopback_interface = match Interface::get_by_name("lo") {
+        Ok(Some(result)) => {
+            result
+        }
+        Ok(None) => {
+            log::warn!("Loopback interface is not present inside an enclave!");
+            return Ok(())
+        }
+        Err(err) => {
+            return Err(format!("Failed accessing loopback network interface. {:?}", err))
+        }
+    };
+
+    loopback_interface.set_up(true)
+        .map_err(|err| format!("Failed to bring up loopback network interface. {:?}", err))
+}
+
 async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
     extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExitEnclave => ())
 }
@@ -392,6 +412,9 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
         .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
 
     debug!("Enclave DNS file has been populated.");
+
+    enable_loopback_network_device()?;
+    debug!("Loopback network interface is up.");
 
     Ok(result)
 }
