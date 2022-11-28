@@ -1,6 +1,6 @@
 use async_process::Command;
 use futures::stream::FuturesUnordered;
-use log::{debug, info};
+use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
@@ -89,7 +89,7 @@ fn enable_loopback_network_interface() -> Result<(), String> {
             result
         }
         Ok(None) => {
-            log::warn!("Loopback interface is not present inside an enclave!");
+            warn!("Loopback interface is not present inside an enclave!");
             return Ok(())
         }
         Err(err) => {
@@ -98,7 +98,11 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     };
 
     loopback_interface.set_up(true)
-        .map_err(|err| format!("Failed to bring up loopback network interface. {:?}", err))
+        .map_err(|err| format!("Failed to bring up loopback network interface. {:?}", err))?;
+
+    debug!("Loopback network interface is up.");
+
+    Ok(())
 }
 
 async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
@@ -414,7 +418,6 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
     debug!("Enclave DNS file has been populated.");
 
     enable_loopback_network_interface()?;
-    debug!("Loopback network interface is up.");
 
     Ok(result)
 }
