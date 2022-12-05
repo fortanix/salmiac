@@ -4,10 +4,11 @@ use mbedtls::rng::Rdrand;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
 use crate::enclave::write_to_file;
-use shared::extract_enum_value;
+use shared::{extract_enum_value, get_relative_path};
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 
+use log::{debug};
 use std::path::{Path, PathBuf};
 
 const RSA_SIZE: u32 = 3072;
@@ -30,8 +31,11 @@ pub(crate) struct CertificateWithPath {
 
 impl CertificateWithPath {
     pub(crate) fn new(certificate_result: CertificateResult, cert_config: &CertificateConfig, fs_root: &Path) -> Self {
-        let key_path = fs_root.join(cert_config.key_path_or_default());
-        let certificate_path = fs_root.join(cert_config.cert_path_or_default());
+        // PathBuf.join replaces the path with the second path if its absolute. So always convert
+        // the key and cert path to a relative path which is added to the enclave user program's
+        // filesystem root
+        let key_path = fs_root.join(get_relative_path(cert_config.key_path_or_default()));
+        let certificate_path = fs_root.join(get_relative_path(cert_config.cert_path_or_default()));
 
         CertificateWithPath {
             certificate_result,
@@ -48,6 +52,7 @@ pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Res
         .write_private_pem_string()
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
+    debug!("Writing key to file {:?} and cert to file {:?}", cert_with_path.key_path, cert_with_path.certificate_path);
     write_to_file(&cert_with_path.key_path, &key_as_pem, "key")?;
     write_to_file(
         &cert_with_path.certificate_path,

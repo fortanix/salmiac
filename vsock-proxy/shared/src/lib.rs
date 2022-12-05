@@ -9,6 +9,7 @@ use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::ParseIntError;
+use std::path::Path;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
@@ -65,6 +66,15 @@ fn parse_num<T: NumArg, S: Borrow<str>>(s: S) -> Result<T, ParseIntError> {
     } else {
         T::from_str_radix(s, 10)
     }
+}
+
+// Check if a path is an absolute path. If yes, remove the forward slash
+// and return a relative path. If no, return the input path as is.
+pub fn get_relative_path (s: &std::path::Path) -> &std::path::Path {
+    if s.is_absolute() {
+        return s.strip_prefix("/").unwrap();
+    }
+    s
 }
 
 macro_rules! impl_numarg(
