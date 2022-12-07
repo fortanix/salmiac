@@ -205,26 +205,14 @@ impl<'a> ParentImageBuilder<'a> {
     fn start_enclave_command(&self) -> String {
         let install_path = Path::new(INSTALLATION_DIR);
         let parent_bin = install_path.join("parent");
-
-        // Construct two sets of commands for the parent start up script:
-        // dbg_cmd runs the enclave in debug mode and prints enclave logs
-        // to console. cmd simply runs the enclave with no additional
-        // logging
-        let (dbg_cmd, cmd) = self.get_nitro_run_commands(&install_path);
         // We start the parent side of the vsock proxy before running the enclave because we want it running
-        // first. The nitro-cli run-enclave command exits after starting the enclave, so we foreground proxy
-        // parent process so our container will stay running as long as the parent process stays running.
+        // first. The nitro-cli run-enclave command exits after starting the enclave, so the parent process
+        // of our container will stay running as long as the parent process stays running.
         format!(
             "\n\
              # Parent startup code \n\
-             {} --vsock-port 5006 \"$@\" & \n\
-             dbg_cmd=\"{}\" \n\
-             cmd=\"{}\" \n\
-             if [ -n \"$ENCLAVEOS_DEBUG\" ] ; then eval \"$dbg_cmd\" ; else eval \"$cmd\" ; fi; \n\
-             fg \n",
-            parent_bin.display(),
-            dbg_cmd,
-            cmd
+             {} --vsock-port 5006 \"$@\" ",
+            parent_bin.display()
         )
     }
 
@@ -254,24 +242,5 @@ impl<'a> ParentImageBuilder<'a> {
                 .map(|e| e.to_mb())
                 .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE)
         )
-    }
-
-    fn get_nitro_run_commands(&self, install_path: &Path) -> (String, String) {
-        let nitro_file_path = install_path.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
-        let sanitized_nitro_file = format!("'{}'", nitro_file_path.display());
-
-        let nitro_run_cmd = format!(
-            "nitro-cli run-enclave --eif-path {} --cpu-count \
-                                           $CPU_COUNT --memory $MEM_SIZE",
-            sanitized_nitro_file
-        );
-
-        // --enclave-name here is the name of the .eif file which is fixed to "enclave"
-        let dbg_cmd = format!(
-            "{} --debug-mode \n\
-            nitro-cli console --enclave-name enclave ",
-            nitro_run_cmd
-        );
-        return (dbg_cmd, nitro_run_cmd);
     }
 }

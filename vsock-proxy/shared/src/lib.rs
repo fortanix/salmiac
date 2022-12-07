@@ -3,12 +3,13 @@ pub mod netlink;
 pub mod socket;
 pub mod tap;
 
+use log::debug;
 use clap::ArgMatches;
-
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::ParseIntError;
+use async_process::Command;
 use std::path::Path;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
@@ -157,4 +158,37 @@ macro_rules! with_background_tasks {
             },
         }
     }};
+}
+
+pub async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), String> {
+    let mut command = Command::new(subprocess_path);
+
+    command.args(args);
+
+    debug!("Running subprocess {} {:?}.", subprocess_path, args);
+    let process = command
+        .spawn()
+        .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
+
+    let out = process.output().await.map_err(|err| {
+        format!(
+            "Error while waiting for subprocess {} to finish: {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
+
+    if !out.status.success() {
+        let result = format!(
+            "subprocess {} exited with code {:?}. Stdout: {}. Stderr: {}",
+            subprocess_path, out.status,
+            String::from_utf8(out.stdout.clone())
+                .unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is >> {:?}", out.stdout)),
+            String::from_utf8(out.stderr.clone())
+                .unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is >> {:?}", out.stderr))
+        );
+
+        Err(result)
+    } else {
+        Ok(())
+    }
 }

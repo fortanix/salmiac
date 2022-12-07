@@ -1,9 +1,7 @@
-use async_process::Command;
-use log::debug;
-
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
+use shared::run_subprocess;
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -207,7 +205,8 @@ pub(crate) async fn unmount_overlay_fs() -> Result<(), String> {
 pub(crate) async fn unmount_file_system_nodes() -> Result<(), String> {
     run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
     run_unmount(&["-R", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_unmount(&["-R", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await
+    run_unmount(&["-R", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+    run_unmount(&["-R", &format!("{}/tmp/", ENCLAVE_FS_OVERLAY_ROOT)]).await
 }
 
 pub(crate) async fn close_dm_crypt_device() -> Result<(), String> {
@@ -224,31 +223,4 @@ async fn run_unmount(args: &[&str]) -> Result<(), String> {
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/mount", args).await
-}
-
-async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), String> {
-    let mut command = Command::new(subprocess_path);
-
-    command.args(args);
-
-    debug!("Running subprocess {} {:?}.", subprocess_path, args);
-    let process = command
-        .spawn()
-        .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
-
-    let out = process.output().await.map_err(|err| {
-        format!(
-            "Error while waiting for subprocess {} to finish: {:?}. Args {:?}",
-            subprocess_path, err, args
-        )
-    })?;
-
-    if !out.status.success() {
-        Err(format!(
-            "Subprocess {} failed with exit code {:?}. Args {:?}",
-            subprocess_path, out.status, args
-        ))
-    } else {
-        Ok(())
-    }
 }

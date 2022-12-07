@@ -5,6 +5,7 @@ use log::{debug, info, warn};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
+use shared::run_subprocess;
 
 use crate::network::{
     choose_network_addresses_for_fs_taps, list_network_devices, setup_file_system_tap_devices, setup_network_devices,
@@ -45,12 +46,26 @@ const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     },
 ];
 
-pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
-    info!("Awaiting confirmation from enclave.");
+const DEFAULT_CPU_COUNT: u8 = 2;
 
+const DEFAULT_MEMORY_SIZE: u64 = 2048;
+
+pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
+
+    info!("Spawning enclave process.");
+    let enclave_process = tokio::spawn(start_nitro_enclave());
+
+    info!("Awaiting confirmation from enclave.");
     let mut enclave_port = create_vsock_stream(vsock_port).await?;
 
-    info!("Connected to enclave.");
+    info!("Connected to enclave. Fetching console logs.");
+    let console_process = tokio::spawn(enables_console_logs());
+
+    // Add enclave processes to a separate list of futures. They will be cleaned up
+    // once the parent sends the ExitEnclave message to the enclave port.
+    let enclave_tasks = FuturesUnordered::new();
+    enclave_tasks.push({ let _ = enclave_tasks; console_process});
+
     send_env_variables(&mut enclave_port).await?;
     send_enclave_extra_console_args(&mut enclave_port, enclave_extra_args).await?;
 
@@ -71,10 +86,14 @@ pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<Use
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     })?;
-
+    
     cleanup(background_tasks)?;
 
     send_enclave_exit(&mut enclave_port).await?;
+
+    // Workaround for SALM-298. Kill the nitro-cli console process
+    // if it is still waiting for data after enclave exits.
+    cleanup(enclave_tasks)?;
 
     Ok(exit_code)
 }
@@ -203,6 +222,25 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
 
         Err(result)
     }
+}
+async fn enables_console_logs() -> Result<(), String> {
+    run_subprocess("nitro-cli",
+                       &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"]).await
+}
+
+async fn start_nitro_enclave() -> Result<(), String> {
+
+    let cpu_count = env::var("CPU_COUNT").unwrap_or(DEFAULT_CPU_COUNT.to_string());
+    let memsize = env::var("MEM_SIZE").unwrap_or(DEFAULT_MEMORY_SIZE.to_string());
+
+    let command = "nitro-cli";
+    let mut args = vec!["run-enclave", "--eif-path", "/opt/fortanix/enclave-os/enclave.eif",
+                                  "--cpu-count", &cpu_count, "--memory", &memsize];
+    if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
+        args.push("--debug-mode");
+    }
+
+    run_subprocess(command, &args).await
 }
 
 fn start_background_tasks(
