@@ -1,6 +1,6 @@
 use async_process::Command;
 use futures::stream::FuturesUnordered;
-use log::{debug, info};
+use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
@@ -79,6 +79,30 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     await_enclave_exit(&mut parent_port).await?;
 
     result
+}
+
+fn enable_loopback_network_interface() -> Result<(), String> {
+    use interfaces::Interface;
+
+    let mut loopback_interface = match Interface::get_by_name("lo") {
+        Ok(Some(result)) => {
+            result
+        }
+        Ok(None) => {
+            warn!("Loopback interface is not present inside an enclave!");
+            return Ok(())
+        }
+        Err(err) => {
+            return Err(format!("Failed accessing loopback network interface. {:?}", err))
+        }
+    };
+
+    loopback_interface.set_up(true)
+        .map_err(|err| format!("Failed to bring up loopback network interface. {:?}", err))?;
+
+    debug!("Loopback network interface is up.");
+
+    Ok(())
 }
 
 async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
@@ -392,6 +416,8 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
         .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
 
     debug!("Enclave DNS file has been populated.");
+
+    enable_loopback_network_interface()?;
 
     Ok(result)
 }

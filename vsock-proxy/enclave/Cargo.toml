@@ -27,6 +27,7 @@ serde_cbor = "0.11.2"
 api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
 sdkms = { version = "0.2.1", default-features = false }
 ipnetwork = { version = "0.18.0", features = ["serde"] }
+interfaces = "0.0.8"
 
 [build-dependencies]
 pkix = "0.1.2"
