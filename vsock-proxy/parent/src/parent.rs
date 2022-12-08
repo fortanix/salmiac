@@ -18,7 +18,7 @@ use shared::models::{
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
-use shared::VSOCK_PARENT_CID;
+use shared::{VSOCK_PARENT_CID, VSOCK_PARENT_PORT};
 use shared::{extract_enum_value, with_background_tasks};
 
 use std::env;
@@ -50,13 +50,13 @@ const DEFAULT_CPU_COUNT: u8 = 2;
 
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
-pub async fn run(vsock_port: u32, enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
+pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
 
     info!("Spawning enclave process.");
     let enclave_process = tokio::spawn(start_nitro_enclave());
 
     info!("Awaiting confirmation from enclave.");
-    let mut enclave_port = create_vsock_stream(vsock_port).await?;
+    let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;
 
     info!("Connected to enclave. Fetching console logs.");
     let console_process = tokio::spawn(enables_console_logs());

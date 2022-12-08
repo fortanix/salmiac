@@ -36,6 +36,7 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
 
 // Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
 pub const VSOCK_PARENT_CID: u32 = 3;
+pub const VSOCK_PARENT_PORT: u32 = 5006;
 
 pub fn parse_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())

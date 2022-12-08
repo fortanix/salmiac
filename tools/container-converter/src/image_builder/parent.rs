@@ -211,7 +211,7 @@ impl<'a> ParentImageBuilder<'a> {
         format!(
             "\n\
              # Parent startup code \n\
-             {} --vsock-port 5006 \"$@\" ",
+             {} \"$@\" ",
             parent_bin.display()
         )
     }
