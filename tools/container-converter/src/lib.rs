@@ -282,7 +282,7 @@ async fn get_base_image(image: String, username: Option<String>, password: Optio
     })?;
 
     let _result = repository
-        .get_latest_image_details(&image_reference)
+        .get_local_image_details(&image_reference)
         .await
         .map_err(|message| ConverterError {
             message: format!("Failed retrieving requisite {} image. {:?}", image, message),
