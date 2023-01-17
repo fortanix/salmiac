@@ -66,6 +66,8 @@ const PARENT_IMAGE: &str = "parent-base";
 
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
+const ENCLAVE_IMAGE_DEBUG: &str = "enclave-base-debug";
+
 pub async fn run(args: NitroEnclavesConversionRequest, use_file_system: bool) -> Result<NitroEnclavesConversionResponse> {
     let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
     let local_repository = Docker::new();
@@ -95,17 +97,9 @@ async fn run0(
     }
 
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
+    info!("Parent base image is {}", parent_image);
     info!("Retrieving requisite images!");
-    get_parent_base_image(parent_image.clone()).await?;
-
-    let enclave_base_image = if use_file_system {
-        let enclave_base_image = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
-        get_enclave_base_image(enclave_base_image.clone()).await?;
-
-        Some(enclave_base_image)
-    } else {
-        None
-    };
+    get_parent_base_image(&parent_image).await?;
 
     let client_image = docker_reference(&conversion_request.request.input_image.name)?;
 
@@ -135,15 +129,37 @@ async fn run0(
 
     info!("Building enclave image!");
     let nitro_image_result = {
-        let user_program_config =
-            create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
+        let enclave_base_image_str = if conversion_request.is_debug() {
+            env::var("ENCLAVE_IMAGE_DEBUG").unwrap_or(ENCLAVE_IMAGE_DEBUG.to_string())
+        } else {
+            env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string())
+        };
+        info!("Enclave base image is {}", enclave_base_image_str);
+
+        let (user_program_config, enclave_base_image) = if conversion_request.is_debug() {
+            let base_image = get_enclave_base_image(&enclave_base_image_str).await?;
+
+            (base_image.create_user_program_config()?, Some(base_image.reference))
+        } else {
+            let base_image = if use_file_system {
+                let base_image = get_enclave_base_image(&enclave_base_image_str).await?;
+
+                Some(base_image.reference)
+            } else {
+                None
+            };
+
+            let user_program_config = create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
+
+            (user_program_config, base_image)
+        };
 
         debug!("User program config is: {:?}", user_program_config);
 
         let enclave_builder = EnclaveImageBuilder {
             client_image_reference: &input_image.image.reference,
             dir: &temp_dir,
-            enclave_base_image,
+            enclave_base_image
         };
 
         let enclave_settings = EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
@@ -255,41 +271,46 @@ fn create_response(image: &ImageWithDetails, pcr_list: PCRList) -> Result<NitroE
     Ok(result)
 }
 
-async fn get_enclave_base_image(image: String) -> Result<()> {
+async fn get_enclave_base_image(image: &str) -> Result<ImageWithDetails> {
     let username = env_var_or_none("ENCLAVE_IMAGE_USERNAME");
     let password = env_var_or_none("ENCLAVE_IMAGE_PASSWORD");
 
-    get_base_image(image, username, password).await
+    get_base_image(&image, username, password).await
 }
 
-async fn get_parent_base_image(image: String) -> Result<()> {
+async fn get_parent_base_image(image: &str) -> Result<()> {
     let username = env_var_or_none("PARENT_IMAGE_USERNAME");
     let password = env_var_or_none("PARENT_IMAGE_PASSWORD");
 
-    get_base_image(image, username, password).await
+    let _ = get_base_image(&image, username, password).await?;
+
+    Ok(())
 }
 
-async fn get_base_image(image: String, username: Option<String>, password: Option<String>) -> Result<()> {
+async fn get_base_image(image: &str, username: Option<String>, password: Option<String>) -> Result<ImageWithDetails> {
     let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,
     };
 
     let repository = DockerDaemon::new(&auth_config);
-    let image_reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
+    let reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
         message: format!("Requisite image {} address has bad format. {:?}", image, err),
         kind: ConverterErrorKind::BadRequest,
     })?;
 
-    let _result = repository
-        .get_local_image_details(&image_reference)
+    let details = repository
+        .get_local_image_details(&reference)
         .await
         .map_err(|message| ConverterError {
             message: format!("Failed retrieving requisite {} image. {:?}", image, message),
             kind: ConverterErrorKind::ImageGet,
         })?;
 
-    Ok(())
+    Ok(ImageWithDetails {
+        reference,
+        details
+    })
 }
 
 fn env_var_or_none(var_name: &str) -> Option<String> {

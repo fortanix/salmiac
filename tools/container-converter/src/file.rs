@@ -79,6 +79,19 @@ pub(crate) struct DockerFile<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Bo
     pub(crate) entrypoint: Option<&'a str>,
 }
 
+impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> DockerFile<'a, T, V> {
+    /// A convenience constructor that populates only `FROM` field from `DockerReference`
+    pub fn from(from: &'a str) -> Self {
+        DockerFile {
+            from,
+            add: None,
+            env: &[],
+            cmd: None,
+            entrypoint: None,
+        }
+    }
+}
+
 impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for DockerFile<'a, T, V> {
     fn to_string(&self) -> String {
         let mut result = format!("FROM {} \n", self.from);

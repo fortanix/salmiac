@@ -53,7 +53,8 @@ const DEFAULT_MEMORY_SIZE: u64 = 2048;
 pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
 
     info!("Spawning enclave process.");
-    let enclave_process = tokio::spawn(start_nitro_enclave());
+    // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
+    let _enclave_process = tokio::spawn(start_nitro_enclave());
 
     info!("Awaiting confirmation from enclave.");
     let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;

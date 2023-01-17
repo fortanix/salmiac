@@ -10,7 +10,6 @@ use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::ParseIntError;
 use async_process::Command;
-use std::path::Path;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
