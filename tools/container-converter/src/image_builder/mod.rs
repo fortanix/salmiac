@@ -11,7 +11,8 @@ fn rust_log_env_var(project_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::docker::{DockerUtil};
+    use crate::docker::DockerUtil;
+    use crate::image::ImageWithDetails;
     use crate::image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
     use api_model::ConverterOptions;
     use async_trait::async_trait;
@@ -22,12 +23,11 @@ mod tests {
     use shiplift::image::ContainerConfig;
     use shiplift::image::ImageDetails;
     use std::fs;
+    use std::fs::File;
     use std::io::Read;
     use std::path::Path;
     use tar::{Builder, Header};
     use tempfile::TempDir;
-    use std::fs::File;
-    use crate::image::ImageWithDetails;
 
     struct TestDockerDaemon {}
 

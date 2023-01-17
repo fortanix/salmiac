@@ -149,7 +149,8 @@ async fn run0(
                 None
             };
 
-            let user_program_config = create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
+            let user_program_config =
+                create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
 
             (user_program_config, base_image)
         };
@@ -159,7 +160,7 @@ async fn run0(
         let enclave_builder = EnclaveImageBuilder {
             client_image_reference: &input_image.image.reference,
             dir: &temp_dir,
-            enclave_base_image
+            enclave_base_image,
         };
 
         let enclave_settings = EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
@@ -189,7 +190,12 @@ async fn run0(
         .await
         .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
 
-    if conversion_request.request.converter_options.push_converted_image.unwrap_or(true) {
+    if conversion_request
+        .request
+        .converter_options
+        .push_converted_image
+        .unwrap_or(true)
+    {
         info!("Attempting to push output image");
         push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
     } else {
@@ -307,10 +313,7 @@ async fn get_base_image(image: &str, username: Option<String>, password: Option<
             kind: ConverterErrorKind::ImageGet,
         })?;
 
-    Ok(ImageWithDetails {
-        reference,
-        details
-    })
+    Ok(ImageWithDetails { reference, details })
 }
 
 fn env_var_or_none(var_name: &str) -> Option<String> {

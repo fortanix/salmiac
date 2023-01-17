@@ -92,19 +92,16 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     use interfaces::Interface;
 
     let mut loopback_interface = match Interface::get_by_name("lo") {
-        Ok(Some(result)) => {
-            result
-        }
+        Ok(Some(result)) => result,
         Ok(None) => {
             warn!("Loopback interface is not present inside an enclave!");
-            return Ok(())
+            return Ok(());
         }
-        Err(err) => {
-            return Err(format!("Failed accessing loopback network interface. {:?}", err))
-        }
+        Err(err) => return Err(format!("Failed accessing loopback network interface. {:?}", err)),
     };
 
-    loopback_interface.set_up(true)
+    loopback_interface
+        .set_up(true)
         .map_err(|err| format!("Failed to bring up loopback network interface. {:?}", err))?;
 
     debug!("Loopback network interface is up.");

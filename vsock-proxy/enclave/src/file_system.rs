@@ -1,7 +1,7 @@
+use shared::run_subprocess;
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
-use shared::run_subprocess;
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
