@@ -26,6 +26,7 @@ use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 
 use std::convert::From;
+use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -277,6 +278,22 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
 }
 
 fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
+
+    // These are environment variables that are set in the EIF file which
+    // contain the variables from the original input image. Set these variables
+    // first.
+    // After implementing the file system, we run the user program using a
+    // subprocess command. The subprocess command sets up the
+    // environment for the user program based on the variables we pass to it,
+    // so we need to explicitly set the original variables again here.
+    for (key, val) in env::vars() {
+        debug!("Setting env from enclave runtime environment {:?}={:?}", key, val);
+        command.env(key, val);
+    }
+
+    // env_vars contains the list of environment variables from the parent
+    // container. Since they are set at runtime, we give them higher precedence
+    // over the variables set in the EIF file (i.e. at conversion time).
     for (key, val) in env_vars {
         // Only filter out hostname and path for now.
         // TODO:: Filter out env variables based on what is

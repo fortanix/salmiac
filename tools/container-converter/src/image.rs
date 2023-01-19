@@ -1,14 +1,13 @@
-use docker_image_reference::Reference as DockerReference;
-use shiplift::image::{ImageDetails};
-
-use crate::{ConverterError, ConverterErrorKind};
-use crate::Result;
-
-use api_model::shared::{User, UserProgramConfig, WorkingDir};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+
+use api_model::shared::{User, UserProgramConfig, WorkingDir};
+use docker_image_reference::Reference as DockerReference;
+use shiplift::image::ImageDetails;
+
+use crate::{ConverterError, ConverterErrorKind, Result};
 
 pub struct ImageWithDetails<'a> {
     pub reference: DockerReference<'a>,
@@ -103,7 +102,7 @@ impl<'a> ImageWithDetails<'a> {
 
             (User::from(user), User::from(group))
         } else {
-            (User::from(user_unparsed), User::from("root"))
+            (User::from(user_unparsed), User::from(""))
         }
     }
 }
@@ -191,11 +190,12 @@ pub(crate) fn output_docker_reference(image: &str) -> Result<DockerReference> {
 
 #[cfg(test)]
 mod tests {
-    use crate::image::ImageWithDetails;
-    use crate::DockerReference;
     use api_model::shared::User;
     use chrono::{DateTime, Utc};
     use shiplift::image::{ContainerConfig, ImageDetails};
+
+    use crate::image::ImageWithDetails;
+    use crate::DockerReference;
 
     #[test]
     fn extract_user_and_group_correct_pass() {
