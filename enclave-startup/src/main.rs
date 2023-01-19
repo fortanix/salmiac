@@ -1,10 +1,12 @@
 use std::env;
+use std::fmt::format;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 use env_logger;
 use log::{info, warn};
-use users::{get_group_by_name, get_user_by_name, User};
+use nix::unistd::{chown, Gid, Uid};
+use users::{get_group_by_name, get_user_by_name, gid_t, uid_t, User};
 
 /// A program that switches working directory, user and group before running the application.
 /// Working directory and user/group come from a client images with following clauses:
@@ -24,19 +26,47 @@ fn main() -> Result<(), String> {
 
     env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
 
+    // Fetch UID/GID for the client command
+    let res = fetch_uid_gid(user, group)?;
+    let uid = res.uid();
+    let gid = res.primary_group_id();
+
+    // Update ownership of std streams of the current process to User res
+    update_std_stream_owner(uid, gid)?;
+
+    // Exec the client program with the relevant user/group
     let mut client_command = Command::new(bin);
     client_command.args(bin_args);
-
-    // Set the UID/GID while running the client command
-    let res = fetch_uid_gid(user, group)?;
-    client_command.uid(res.uid());
-    client_command.gid(res.primary_group_id());
+    client_command.uid(uid);
+    client_command.gid(gid);
 
     // on success this function will not return, not returning has the same
     // implications as calling `process::exit`
     let err = client_command.exec();
 
     Err(format!("Failed to run subprocess {}. {:?}", bin, err))
+}
+
+fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {
+    let std_stream_paths = ["/proc/self/fd/0", "/proc/self/fd/1", "/proc/self/fd/2"];
+    let mut status = true;
+    for path in std_stream_paths {
+        // TODO: Use chown from "std" crate once their stable feature is out. This
+        // will avoid having an additional dependency "nix" into enclave startup code
+        match chown(path, Some(Uid::from(uid)), Some(Gid::from(gid))) {
+            Ok(_) => {
+                info!("Successfully updated ownership of {:?}", path);
+            }
+            Err(e) => {
+                warn!("Unable to change ownership of {:?} : {:?}", path, e.to_string());
+                status = status && false;
+            }
+        }
+    }
+    if !status {
+        return Err(format!("Unable to update ownership of one or more std streams"));
+    }
+    Ok(())
 }
 
 fn fetch_uid_gid(user: &String, group: &String) -> Result<User, String> {
