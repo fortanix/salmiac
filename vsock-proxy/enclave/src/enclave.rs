@@ -332,8 +332,7 @@ async fn start_user_program(
 
         client_command
     } else {
-        // for some reason /run/sshd goes missing inside an enclave even though it is present in the image
-        // and is present inside a chroot environment
+        // We have to recreate /run/sshd because it is setup as a `tmpfs` by a nitro kernel.
         if is_debug_shell {
             fs::create_dir_all("/run/sshd").map_err(|err| format!("Failed creating dir /run/sshd. {:?}", err))?;
         }

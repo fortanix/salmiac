@@ -58,7 +58,7 @@ async fn main() {
                             total_bytes as f64 / (1024.0 * 1024.0)
                         );
                         if let Err(msg) = DockerDaemon::image_download_hazard_check(total_bytes) {
-                            println!("\nAborting {} image download: hazard check failed: {}", img, msg);
+                            println!("\nAborting {} image download: input image too large: {}", img, msg);
                             std::process::exit(exitcode::CANTCREAT);
                         }
                     }
