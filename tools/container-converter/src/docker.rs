@@ -9,17 +9,16 @@ use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, Regis
 use crate::image::ImageWithDetails;
 use api_model::AuthConfig;
 
+use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::path::Path;
-use std::collections::HashSet;
-use std::io::Write;
 use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 
 /// Convenience functions to work with docker daemon
 #[async_trait]
 pub trait DockerUtil: Send + Sync {
-
     async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
 
     async fn get_local_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
@@ -104,7 +103,7 @@ impl DockerDaemon {
         }
 
         debug!("image_size >= {} B", image_size);
-        const MAX_COMPRESSED_IMAGE_BYTES: u64 = 3 * 1024 * 1024 * 1024;  // 3 GB
+        const MAX_COMPRESSED_IMAGE_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 
         // Heuristic: subject to change.
         let hazard = image_size > MAX_COMPRESSED_IMAGE_BYTES;
@@ -112,8 +111,10 @@ impl DockerDaemon {
         if hazard {
             let image_size_mb = bytes_to_mebibytes(image_size);
             let max_mb = bytes_to_mebibytes(MAX_COMPRESSED_IMAGE_BYTES);
-            return Err(format!("compressed image size >= {:.3} MiB > {:.3} MiB maximum",
-                               image_size_mb, max_mb));
+            return Err(format!(
+                "compressed image size >= {:.3} MiB > {:.3} MiB maximum",
+                image_size_mb, max_mb
+            ));
         }
 
         Ok(())
@@ -145,16 +146,20 @@ impl DockerDaemon {
                             // This is a new layer.
                             total_bytes += layer_bytes;
                             layers.insert(layer_id.clone());
-                            info!("\n{} image layer {} compressed bytes: {} ({:.3} MB total so far)",
-                                  address, &layer_id, layer_bytes, total_bytes as f64 / (1024.0 * 1024.0));
+                            info!(
+                                "\n{} image layer {} compressed bytes: {} ({:.3} MB total so far)",
+                                address,
+                                &layer_id,
+                                layer_bytes,
+                                total_bytes as f64 / (1024.0 * 1024.0)
+                            );
                             if let Err(msg) = Self::image_download_hazard_check(total_bytes) {
-                                let message = format!("Aborting {} image download: system stability hazard: {}",
-                                                      address, msg);
+                                let message = format!("Aborting {} image download: system stability hazard: {}", address, msg);
                                 error!("{}", message);
 
                                 return Err(shiplift::Error::Fault {
                                     code: http::StatusCode::INTERNAL_SERVER_ERROR,
-                                    message
+                                    message,
                                 });
                             }
                         }
@@ -173,15 +178,16 @@ impl DockerUtil for DockerDaemon {
         // Do a pull first to make sure that we always pick the latest image version from remote repository
         match self.pull_image(image).await {
             Err(shiplift::Error::Fault { code, .. }) if code == http::StatusCode::NOT_FOUND => {
-                debug!(
-                    "Image {} not found in remote repository, checking local.",
-                    image.to_string()
-                );
+                debug!("Image {} not found in remote repository, checking local.", image.to_string());
             }
             Err(err) => {
-                return Err(format!("Failed pulling image {} from remote repository. {:?}", image.to_string(), err))
+                return Err(format!(
+                    "Failed pulling image {} from remote repository. {:?}",
+                    image.to_string(),
+                    err
+                ))
             }
-            Ok(_) => { }
+            Ok(_) => {}
         }
 
         self.get_local_image_details(&image).await

@@ -28,13 +28,9 @@ use std::{
 async fn main() {
     env_logger::init();
     let docker = Docker::new();
-    let img = env::args()
-        .nth(1)
-        .expect("You need to specify an image name");
+    let img = env::args().nth(1).expect("You need to specify an image name");
 
-    let mut stream = docker
-        .images()
-        .pull(&PullOptions::builder().image(&img).build());
+    let mut stream = docker.images().pull(&PullOptions::builder().image(&img).build());
 
     // A download loop, as in pull_image() in image.rs or the shiplift
     // imagepull_layers.rs example:
@@ -53,11 +49,16 @@ async fn main() {
                         layer_count += 1;
                         total_bytes += layer_bytes;
                         layers.insert(layer_id.clone());
-                        println!("\n{} image layer {} ({}) compressed bytes: {} ({:.3} MB total so far)",
-                            img, layer_count, &layer_id, layer_bytes, total_bytes as f64 / (1024.0 * 1024.0));
+                        println!(
+                            "\n{} image layer {} ({}) compressed bytes: {} ({:.3} MB total so far)",
+                            img,
+                            layer_count,
+                            &layer_id,
+                            layer_bytes,
+                            total_bytes as f64 / (1024.0 * 1024.0)
+                        );
                         if let Err(msg) = DockerDaemon::image_download_hazard_check(total_bytes) {
-                            println!("\nAborting {} image download: hazard check failed: {}",
-                                        img, msg);
+                            println!("\nAborting {} image download: input image too large: {}", img, msg);
                             std::process::exit(exitcode::CANTCREAT);
                         }
                     }

@@ -3,14 +3,13 @@ pub mod netlink;
 pub mod socket;
 pub mod tap;
 
-use log::debug;
+use async_process::Command;
 use clap::ArgMatches;
+use log::debug;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::ParseIntError;
-use async_process::Command;
-use std::path::Path;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
@@ -72,7 +71,7 @@ fn parse_num<T: NumArg, S: Borrow<str>>(s: S) -> Result<T, ParseIntError> {
 
 // Check if a path is an absolute path. If yes, remove the forward slash
 // and return a relative path. If no, return the input path as is.
-pub fn get_relative_path (s: &std::path::Path) -> &std::path::Path {
+pub fn get_relative_path(s: &std::path::Path) -> &std::path::Path {
     if s.is_absolute() {
         return s.strip_prefix("/").unwrap();
     }
@@ -181,7 +180,8 @@ pub async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), 
     if !out.status.success() {
         let result = format!(
             "subprocess {} exited with code {:?}. Stdout: {}. Stderr: {}",
-            subprocess_path, out.status,
+            subprocess_path,
+            out.status,
             String::from_utf8(out.stdout.clone())
                 .unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is >> {:?}", out.stdout)),
             String::from_utf8(out.stderr.clone())

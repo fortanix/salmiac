@@ -2,10 +2,10 @@ use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
+use shared::run_subprocess;
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
-use shared::run_subprocess;
 
 use crate::network::{
     choose_network_addresses_for_fs_taps, list_network_devices, setup_file_system_tap_devices, setup_network_devices,
@@ -18,8 +18,8 @@ use shared::models::{
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
-use shared::{VSOCK_PARENT_CID, VSOCK_PARENT_PORT};
 use shared::{extract_enum_value, with_background_tasks};
+use shared::{VSOCK_PARENT_CID, VSOCK_PARENT_PORT};
 
 use std::env;
 use std::fs;
@@ -51,9 +51,9 @@ const DEFAULT_CPU_COUNT: u8 = 2;
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
 pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
-
     info!("Spawning enclave process.");
-    let enclave_process = tokio::spawn(start_nitro_enclave());
+    // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
+    let _enclave_process = tokio::spawn(start_nitro_enclave());
 
     info!("Awaiting confirmation from enclave.");
     let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;
@@ -64,7 +64,10 @@ pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatu
     // Add enclave processes to a separate list of futures. They will be cleaned up
     // once the parent sends the ExitEnclave message to the enclave port.
     let enclave_tasks = FuturesUnordered::new();
-    enclave_tasks.push({ let _ = enclave_tasks; console_process});
+    enclave_tasks.push({
+        let _ = enclave_tasks;
+        console_process
+    });
 
     send_env_variables(&mut enclave_port).await?;
     send_enclave_extra_console_args(&mut enclave_port, enclave_extra_args).await?;
@@ -86,7 +89,7 @@ pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatu
             .await
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     })?;
-    
+
     cleanup(background_tasks)?;
 
     send_enclave_exit(&mut enclave_port).await?;
@@ -224,18 +227,27 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
     }
 }
 async fn enables_console_logs() -> Result<(), String> {
-    run_subprocess("nitro-cli",
-                       &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"]).await
+    run_subprocess(
+        "nitro-cli",
+        &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"],
+    )
+    .await
 }
 
 async fn start_nitro_enclave() -> Result<(), String> {
-
     let cpu_count = env::var("CPU_COUNT").unwrap_or(DEFAULT_CPU_COUNT.to_string());
     let memsize = env::var("MEM_SIZE").unwrap_or(DEFAULT_MEMORY_SIZE.to_string());
 
     let command = "nitro-cli";
-    let mut args = vec!["run-enclave", "--eif-path", "/opt/fortanix/enclave-os/enclave.eif",
-                                  "--cpu-count", &cpu_count, "--memory", &memsize];
+    let mut args = vec![
+        "run-enclave",
+        "--eif-path",
+        "/opt/fortanix/enclave-os/enclave.eif",
+        "--cpu-count",
+        &cpu_count,
+        "--memory",
+        &memsize,
+    ];
     if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
         args.push("--debug-mode");
     }
@@ -419,10 +431,7 @@ fn get_app_config_id() -> Option<String> {
     match env::var("ENCLAVEOS_APPCONFIG_ID").or(env::var("APPCONFIG_ID")) {
         Ok(result) => Some(result),
         Err(err) => {
-            warn!(
-                "Env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID is not set. {:?}",
-                err
-            );
+            warn!("Env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID is not set. {:?}", err);
             None
         }
     }

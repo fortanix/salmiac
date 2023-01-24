@@ -1,9 +1,9 @@
 use docker_image_reference::Reference as DockerReference;
 use log::info;
+use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use tar::Archive;
 use tempfile::TempDir;
-use rand::distributions::{Alphanumeric, DistString};
 
 use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource};
@@ -17,7 +17,7 @@ use api_model::ConverterOptions;
 
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
 use std::fs;
-use std::io::{Write, Seek};
+use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
@@ -111,7 +111,7 @@ pub(crate) struct EnclaveImageBuilder<'a> {
 
     pub(crate) dir: &'a TempDir,
 
-    pub(crate) enclave_base_image: Option<String>,
+    pub(crate) enclave_base_image: Option<DockerReference<'a>>,
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
@@ -154,8 +154,16 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: UserConfig,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<EnclaveBuilderResult> {
-        let build_context_dir = self.create_build_context_dir()?;
         let is_debug = enclave_settings.is_debug;
+
+        match &self.enclave_base_image {
+            Some(enclave_base) if is_debug => {
+                self.create_debug_client_image(enclave_base, docker_util).await?;
+            }
+            _ => {}
+        }
+
+        let build_context_dir = self.create_build_context_dir()?;
 
         self.create_requisites(enclave_settings, &build_context_dir)
             .map_err(|message| ConverterError {
@@ -216,7 +224,52 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    pub(crate) async fn export_image_file_system(&self, docker_util: &dyn DockerUtil, archive_path: &Path, out_dir: &Path) -> Result<()> {
+    async fn create_debug_client_image(
+        &self,
+        debug_enclave_base: &DockerReference<'_>,
+        docker_util: &dyn DockerUtil,
+    ) -> Result<()> {
+        info!("Creating debug enclave image");
+
+        let temp_dir = TempDir::new_in(self.dir.path()).map_err(|err| ConverterError {
+            message: format!("Failed creating temp dir in {}. {:?}", self.dir.path().display(), err),
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
+        let build_context_dir = temp_dir.path();
+
+        self.create_debug_image_requisites(debug_enclave_base, &build_context_dir)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+
+        // To not change the behavior of `self.create_image` we overwrite client image inside a docker with
+        // our debug extension by reusing the same reference in build function below.
+        // This implicit behavior will be removed in: https://fortanix.atlassian.net/browse/SALM-273
+        let image_reference = self.client_image_reference.to_string();
+        let result = DockerReference::from_str(&image_reference).map_err(|message| ConverterError {
+            message: format!("Failed to create enclave image reference. {:?}", message),
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
+        let _ = docker_util
+            .create_image(result, &build_context_dir)
+            .await
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::EnclaveImageCreation,
+            })?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn export_image_file_system(
+        &self,
+        docker_util: &dyn DockerUtil,
+        archive_path: &Path,
+        out_dir: &Path,
+    ) -> Result<()> {
         let mut archive_file = fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -244,11 +297,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let mut tar = Archive::new(archive_file);
 
         tar.unpack(out_dir).map_err(|err| ConverterError {
-            message: format!(
-                "Failed unpacking client fs archive {}. {:?}",
-                out_dir.display(),
-                err
-            ),
+            message: format!("Failed unpacking client fs archive {}. {:?}", out_dir.display(), err),
             kind: ConverterErrorKind::ImageFileSystemExport,
         })
     }
@@ -330,7 +379,8 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        self.export_image_file_system(docker_util, &self.dir.path().join("fs.tar"), &block_file_input_dir).await?;
+        self.export_image_file_system(docker_util, &self.dir.path().join("fs.tar"), &block_file_input_dir)
+            .await?;
 
         let result = {
             let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
@@ -393,6 +443,34 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image_reference.name().to_string() + ":" + &new_tag
     }
 
+    fn create_debug_image_requisites(
+        &self,
+        debug_enclave_base: &DockerReference,
+        dir: &Path,
+    ) -> std::result::Result<(), String> {
+        let mut docker_file = file::create_docker_file(dir)?;
+
+        // To inject debug utilities into the client image we create a composition of a `debug_enclave_base` and `self.client_image_reference`
+        // by writing two `FROM` clauses into the Dockerfile and nothing else.
+        // The resulting image's `ENTRYPOINT` will be the one from `debug_enclave_base` because it is written last
+        let parent = self.client_image_reference.to_string();
+        let child = debug_enclave_base.to_string();
+
+        docker_file
+            .write_all(DockerFile::<'_, &str, &str>::from(&parent).to_string().as_bytes())
+            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
+
+        docker_file
+            .write_all(DockerFile::<'_, &str, &str>::from(&child).to_string().as_bytes())
+            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
+
+        if cfg!(debug_assertions) {
+            file::log_docker_file(dir)?;
+        }
+
+        Ok(())
+    }
+
     fn create_requisites(&self, enclave_settings: EnclaveSettings, dir: &Path) -> std::result::Result<(), String> {
         let mut docker_file = file::create_docker_file(dir)?;
 
@@ -444,17 +522,18 @@ impl<'a> EnclaveImageBuilder<'a> {
             )
         };
 
-        let client_image = &self.client_image_reference.to_string();
-        let from = match &self.enclave_base_image {
+        let client_image = &self.client_image_reference;
+        let from = (match &self.enclave_base_image {
             Some(e) => e,
             _ => client_image,
-        };
+        })
+        .to_string();
 
         let mut env = enclave_settings.env_vars;
         env.push(rust_log_env_var("enclave"));
 
         let docker_file = DockerFile {
-            from,
+            from: &from,
             add: Some(add),
             env: &env,
             cmd: Some(&run_enclave_cmd),

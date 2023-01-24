@@ -35,6 +35,12 @@ const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
+const HOSTNAME_ENV_VAR: &str = "HOSTNAME";
+
+const PATH_ENV_VAR: &str = "PATH";
+
+const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
+
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
@@ -86,19 +92,16 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     use interfaces::Interface;
 
     let mut loopback_interface = match Interface::get_by_name("lo") {
-        Ok(Some(result)) => {
-            result
-        }
+        Ok(Some(result)) => result,
         Ok(None) => {
             warn!("Loopback interface is not present inside an enclave!");
-            return Ok(())
+            return Ok(());
         }
-        Err(err) => {
-            return Err(format!("Failed accessing loopback network interface. {:?}", err))
-        }
+        Err(err) => return Err(format!("Failed accessing loopback network interface. {:?}", err)),
     };
 
-    loopback_interface.set_up(true)
+    loopback_interface
+        .set_up(true)
         .map_err(|err| format!("Failed to bring up loopback network interface. {:?}", err))?;
 
     debug!("Loopback network interface is up.");
@@ -298,7 +301,7 @@ fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
         // Only filter out hostname and path for now.
         // TODO:: Filter out env variables based on what is
         // specified in the converter request
-        if key != "HOSTNAME" && key != "PATH" {
+        if key != HOSTNAME_ENV_VAR && key != PATH_ENV_VAR {
             debug!("Adding env {:?}={:?}", key, val);
             command.env(key, val);
         }
@@ -311,8 +314,9 @@ async fn start_user_program(
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
     let user_program = enclave_manifest.user_config.user_program_config;
+    let is_debug_shell = env_vars.contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
 
-    let mut client_command = if use_file_system {
+    let mut client_command = if use_file_system && !is_debug_shell {
         let mut client_command = Command::new("chroot");
 
         client_command.args([
@@ -328,6 +332,11 @@ async fn start_user_program(
 
         client_command
     } else {
+        // We have to recreate /run/sshd because it is setup as a `tmpfs` by a nitro kernel.
+        if is_debug_shell {
+            fs::create_dir_all("/run/sshd").map_err(|err| format!("Failed creating dir /run/sshd. {:?}", err))?;
+        }
+
         let mut client_command = Command::new(user_program.entry_point.clone());
 
         client_command.args(user_program.arguments.clone());

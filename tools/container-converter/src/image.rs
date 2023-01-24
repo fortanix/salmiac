@@ -1,13 +1,14 @@
+use docker_image_reference::Reference as DockerReference;
+use shiplift::image::ImageDetails;
+
+use api_model::shared::{User, UserProgramConfig, WorkingDir};
+use crate::Result;
+use crate::{ConverterError, ConverterErrorKind};
+
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-
-use api_model::shared::{User, UserProgramConfig, WorkingDir};
-use docker_image_reference::Reference as DockerReference;
-use shiplift::image::ImageDetails;
-
-use crate::{ConverterError, ConverterErrorKind, Result};
 
 pub struct ImageWithDetails<'a> {
     pub reference: DockerReference<'a>,
