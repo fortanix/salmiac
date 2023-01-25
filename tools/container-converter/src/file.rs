@@ -1,10 +1,10 @@
-use log::debug;
-
 use std::borrow::Borrow;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+use log::debug;
 
 /// A type that describes an arbitrary file needed to build an image
 #[derive(Clone)]
