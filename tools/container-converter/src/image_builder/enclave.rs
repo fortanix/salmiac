@@ -295,6 +295,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         })?;
 
         let mut tar = Archive::new(archive_file);
+        tar.set_preserve_permissions(true);
+        tar.set_preserve_ownerships(true);
 
         tar.unpack(out_dir).map_err(|err| ConverterError {
             message: format!("Failed unpacking client fs archive {}. {:?}", out_dir.display(), err),
