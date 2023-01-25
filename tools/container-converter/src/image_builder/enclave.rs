@@ -1,3 +1,11 @@
+use std::fs;
+use std::io::{Seek, Write};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::mpsc::Sender;
+
+use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
+use api_model::ConverterOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
 use rand::distributions::{Alphanumeric, DistString};
@@ -7,20 +15,9 @@ use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource};
-use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
-use crate::run_subprocess;
-use crate::Result;
-use crate::{file, ConverterError, ConverterErrorKind};
-
-use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
-use api_model::ConverterOptions;
-
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
-use std::fs;
-use std::io::{Seek, Write};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::sync::mpsc::Sender;
+use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
+use crate::{file, run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {

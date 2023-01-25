@@ -1,19 +1,18 @@
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use api_model::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile};
-use crate::Result;
-use crate::{file, ConverterError, ConverterErrorKind};
-use api_model::NitroEnclavesConversionRequestOptions;
-
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image: String,

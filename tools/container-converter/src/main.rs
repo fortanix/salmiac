@@ -1,9 +1,9 @@
+use std::fs;
+
 use api_model::NitroEnclavesConversionRequest;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
 use log::error;
-
-use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {

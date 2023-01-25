@@ -1,29 +1,28 @@
-use async_process::{Command, Stdio};
-use docker_image_reference::Reference as DockerReference;
-use log::{debug, error, info, warn};
-use shiplift::{Docker, Image};
-use tempfile::TempDir;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
+use std::ffi::OsStr;
+use std::str::FromStr;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::{env, fmt};
 
-use crate::docker::{DockerDaemon, DockerUtil};
-use crate::image_builder::enclave::PCRList;
 use api_model::shared::{UserConfig, UserProgramConfig};
 use api_model::{
     AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
     NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
 };
+use async_process::{Command, Stdio};
+use docker_image_reference::Reference as DockerReference;
 use image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
 use image_builder::parent::ParentImageBuilder;
+use log::{debug, error, info, warn};
 use model_types::HexString;
+use shiplift::{Docker, Image};
+use tempfile::TempDir;
 
+use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::error::Error;
-use std::ffi::OsStr;
-use std::fmt;
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
+use crate::image_builder::enclave::PCRList;
 
 pub mod docker;
 pub mod file;
@@ -415,8 +414,9 @@ pub(crate) async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> 
 
 #[cfg(test)]
 mod tests {
-    use crate::{preserve_images_list, ImageKind};
     use std::env;
+
+    use crate::{preserve_images_list, ImageKind};
 
     #[test]
     fn preserve_image_list_correct_pass() -> () {

@@ -13,16 +13,15 @@
 // [2022-10-23T03:36:57Z ERROR pull_hazard] Aborting ubuntu image download: \
 // system stability hazard: 29 MiB image
 //
+use std::collections::HashSet;
+use std::env;
+use std::io::{self, Write};
+
 use container_converter::image::DockerDaemon;
 use exitcode;
 use futures::StreamExt;
 use log::debug;
 use shiplift::{Docker, PullOptions};
-use std::{
-    collections::HashSet,
-    env,
-    io::{self, Write},
-};
 
 #[tokio::main]
 async fn main() {

@@ -1,3 +1,10 @@
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::{env, fs};
+
+use api_model::AuthConfig;
 use async_trait::async_trait;
 use docker_image_reference::{Reference as DockerReference, Reference};
 use futures::StreamExt;
@@ -7,14 +14,6 @@ use shiplift::image::{ImageDetails, PushOptions};
 use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
 
 use crate::image::ImageWithDetails;
-use api_model::AuthConfig;
-
-use std::collections::HashSet;
-use std::env;
-use std::fs;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
 
 /// Convenience functions to work with docker daemon
 #[async_trait]
