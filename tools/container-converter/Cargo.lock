@@ -273,6 +273,7 @@ dependencies = [
 name = "clustering-api-model"
 version = "0.1.0"
 dependencies = [
+ "model-macros",
  "model_types",
  "serde",
  "serde_json 1.0.81",
