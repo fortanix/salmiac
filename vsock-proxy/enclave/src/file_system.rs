@@ -1,7 +1,13 @@
-use shared::run_subprocess;
 use std::fs;
+use std::io::{Read, Write};
 use std::net::IpAddr;
+use std::ops::Deref;
 use std::path::Path;
+
+use log::info;
+use sdkms::api_model::{Sobject, SobjectDescriptor};
+use sdkms::SdkmsClient;
+use shared::run_subprocess;
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -16,6 +22,21 @@ const DEVICE_MAPPER: &str = "/dev/mapper/";
 const DM_VERITY_VOLUME: &str = "rodir";
 
 const DM_CRYPT_DEVICE: &str = "cryptdevice";
+const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
+const TOKEN_IN_FILE: &str = "/etc/token-in.json";
+const TOKEN_OUT_FILE: &str = "/etc/token-out.json";
+const TEST_KEY_FILE: [u8; 256] = [1; 256];
+const TMP_TOKEN_IN: &str = r#"{"type":"fortanix-virtual-sealing-key","keyslots":["0"],
+"plugin_url":"https://api.amer.smartkey.io/sys/v1/plugins/00000000-0000-0000-0000-000000000000",
+"app_id":"00000000-0000-0000-0000-000000000000","key_id":"00000000-0000-0000-0000-000000000000",
+"security_version":"?"}"#;
+const TMP_TOKEN_SIZE: usize = TMP_TOKEN_IN.len();
+
+#[derive(PartialEq)]
+enum TokenOp {
+    Export,
+    Import,
+}
 
 pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
     run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
@@ -59,15 +80,108 @@ async fn luks_format_device(key_path: &Path, device_path: &str) -> Result<(), St
     run_subprocess("cryptsetup", &luks_format_args).await
 }
 
-pub(crate) async fn mount_read_write_file_system(crypt_file: &Path) -> Result<(), String> {
-    luks_format_device(crypt_file, NBD_RW_DEVICE).await?;
+/// Check if the device is a valid crypt luks device
+/// Passing --type specifically checks for the version of luks used
+/// -v option provides a verbose output rather than returning 0 or 1
+/// for success or failure
+async fn is_luks_device(device_path: &str) -> Result<(), String> {
+    let args = ["isLuks", "--type", "luks2", "-v", device_path];
+    run_subprocess("cryptsetup", &args).await
+}
+
+async fn update_luks_token(device_path: &str, token_path: &str, op: TokenOp) -> Result<(), String> {
+    let op_str = if op == TokenOp::Import { "import" } else { "export" };
+
+    info!("{:?} token for device {:?} at {:?}", &op_str, &device_path, &token_path);
+    let token_args = ["token", op_str, "--token-id", "0", "--json-file", token_path, device_path];
+    run_subprocess("cryptsetup", &token_args).await
+}
+
+async fn get_key_from_token(token_path: &str, key_path: &Path, env_vars: &[(String, String)]) -> Result<(), String> {
+    let token_file = fs::File::open(token_path).map_err(|err| format!("Unable to open file {:?} : {:?}", token_path, err));
+    let mut token_contents = [0; TMP_TOKEN_SIZE];
+    token_file?
+        .read(&mut token_contents)
+        .map_err(|err| format!("Unable to read from token file {:?} : {:?}", token_path, err))?;
+
+    /// TODO: Use token contents to fetch VSK once we know what goes into the token
+    let token_data =
+        std::str::from_utf8(&token_contents).map_err(|err| format!("Unable to read utf8 string from token file : {:?}", err));
+    info!(
+        "Token contents are >> {:?}",
+        token_data.map_err(|err| format!("Unable to print token contents : {:?}", err))
+    );
+
+    let key_file = fs::File::create(key_path).map_err(|err| format!("Unable to create key file {:?} : {:?}", key_path, err));
+    let vsk_obj = request_vsk(env_vars)?;
+    let vsk_val = vsk_obj.value.expect("Sobject does not contain a sealing key");
+    /// TODO: Use the vsk to encrypt a randomly generated key using AES_GCM which
+    /// would be stored in the luks token object
+    key_file?
+        .write(&vsk_val)
+        .map_err(|err| format!("Unable to write to key file: {:?}", err))?;
+
+    info!("Key file created...");
+
+    Ok(())
+}
+
+async fn get_key_file(device_path: &str, key_path: &Path, env_vars: &[(String, String)]) -> Result<bool, String> {
+    let use_vsk = env_vars
+        .iter()
+        .find_map(|e| {
+            if e.0 == "USE_VSK" && (e.1.trim() == "true" || e.1 == "1" || e.1 == "True") {
+                Some(true)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(false);
+
+    match is_luks_device(device_path).await {
+        Ok(_) => {
+            info!("Luks2 device found. Fetching luks2 token.");
+            update_luks_token(device_path, TOKEN_OUT_FILE, TokenOp::Export).await?;
+
+            info!("Fetching key file by using token object.");
+            get_key_from_token(TOKEN_OUT_FILE, key_path, env_vars).await?;
+            Ok(false)
+        }
+        Err(_) => {
+            info!("Device is not a valid luks2 device. ");
+            if !use_vsk {
+                info!("Skipping usage of vsk, generating a random key file");
+                generate_keyfile(key_path).await?;
+            } else {
+                info!("Fetching vsk");
+                // TODO: Remove next 2 lines of code. For now, this creates a dummy token input file
+                // TBD: JSON format of the token file to be created
+                let mut key_file =
+                    fs::File::create(TOKEN_IN_FILE).map_err(|err| format!("Unable to open token in file : {:?}", err))?;
+                key_file
+                    .write(TMP_TOKEN_IN.as_bytes())
+                    .map_err(|err| format!("Unable to open write in token in file : {:?}", err))?;
+                get_key_from_token(TOKEN_IN_FILE, key_path, env_vars).await?;
+            }
+            info!("Formatting RW device with new keyfile.");
+            luks_format_device(key_path, NBD_RW_DEVICE).await?;
+
+            if use_vsk {
+                info!("Adding token object to the RW device");
+                update_luks_token(device_path, TOKEN_IN_FILE, TokenOp::Import).await?;
+            }
+            Ok(true)
+        }
+    }
+}
+
+pub(crate) async fn mount_read_write_file_system(env_vars: &[(String, String)]) -> Result<(), String> {
+    let create_ext4 = get_key_file(NBD_RW_DEVICE, Path::new(CRYPT_KEYFILE), env_vars).await?;
 
     let crypt_setup_args: [&str; 7] = [
         "open",
         "--key-file",
-        crypt_file
-            .to_str()
-            .ok_or(format!("Failed converting path {} to string", crypt_file.display()))?,
+        CRYPT_KEYFILE,
         "--type",
         "luks2",
         NBD_RW_DEVICE,
@@ -78,9 +192,17 @@ pub(crate) async fn mount_read_write_file_system(crypt_file: &Path) -> Result<()
 
     let dm_crypt_mapped_device = DEVICE_MAPPER.to_string() + DM_CRYPT_DEVICE;
 
-    run_subprocess("mkfs.ext4", &[&dm_crypt_mapped_device]).await?;
+    if create_ext4 {
+        info!("First use of RW device, creating an ext4 fs");
+        run_subprocess("mkfs.ext4", &[&dm_crypt_mapped_device]).await?;
+    }
 
-    run_mount(&[&dm_crypt_mapped_device, ENCLAVE_FS_RW_ROOT]).await
+    run_mount(&[&dm_crypt_mapped_device, ENCLAVE_FS_RW_ROOT]).await?;
+
+    if create_ext4 {
+        create_overlay_rw_dirs()?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
@@ -103,6 +225,7 @@ pub(crate) fn create_overlay_dirs() -> Result<(), String> {
 }
 
 pub(crate) fn create_overlay_rw_dirs() -> Result<(), String> {
+    info!("Creating work and upper layers....");
     fs::create_dir(ENCLAVE_FS_WORK).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
     fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
 
@@ -177,9 +300,9 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     fs::create_dir_all(nbd_run_resolv_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
     fs::create_dir_all(nbd_etc_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
 
-    // We copy resolv.conf from the enclave kernel into the block file mount point
-    // so that DNS will work correctly after we do a `chroot`.
-    // Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
+    /// We copy resolv.conf from the enclave kernel into the block file mount point
+    /// so that DNS will work correctly after we do a `chroot`.
+    /// Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
     fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file).map_err(|err| {
         format!(
             "Failed copying resolv file from {} to {}. {:?}",
@@ -223,4 +346,37 @@ async fn run_unmount(args: &[&str]) -> Result<(), String> {
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/mount", args).await
+}
+fn find_env_or_err(key: &str, env_vars: &[(String, String)]) -> Result<String, String> {
+    env_vars
+        .iter()
+        .find_map(|e| if e.0 == key { Some(e.1.clone()) } else { None })
+        .ok_or(format!("{:?} is missing!", key))
+}
+
+pub(crate) fn request_vsk(env_vars: &[(String, String)]) -> Result<Sobject, String> {
+    let key_name = find_env_or_err("FS_KEY_NAME", env_vars)?;
+    let api_key = find_env_or_err("FS_API_KEY", env_vars)?;
+    let vsk_endpoint = find_env_or_err("FS_VSK_ENDPOINT", env_vars)?;
+
+    info!(
+        "Creating sdkms client with endpoint {:?} and api key {:?}",
+        vsk_endpoint, api_key
+    );
+    let client = SdkmsClient::builder()
+        .with_api_endpoint(&vsk_endpoint)
+        .with_api_key(&api_key)
+        .build()
+        .map_err(|err| {
+            format!(
+                "Failed building SDKMS API client with endpoint {:?} : {:?}",
+                vsk_endpoint, err
+            )
+        })?;
+
+    info!("sdkms client creation done, requesting key with name {:?}", key_name);
+    let request = SobjectDescriptor::Name(key_name.clone());
+    client
+        .export_sobject(&request)
+        .map_err(|err| format!("Failed requesting VSK {}. {:?}", key_name, err))
 }

@@ -2,16 +2,18 @@ mod network;
 mod packet_capture;
 mod parent;
 
+use std::process;
+
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info};
 use shared::models::UserProgramExitStatus;
-use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
     env_logger::init();
 
     let matches = console_arguments();
+
     let enclave_extra_args = matches
         .values_of("unknown")
         .unwrap_or_default()
@@ -19,6 +21,23 @@ async fn main() -> Result<(), String> {
         .map(|e| e.to_string())
         .collect();
     info!("enclave_extra_args is {:?}", enclave_extra_args);
+
+    if std::env::vars().any(|e| e.0 == "USE_VSK" && (e.1.trim() == "true" || e.1 == "1" || e.1 == "True")) {
+        info!("USE_VSK is set");
+        assert!(
+            std::env::vars().any(|e| e.0 == "FS_API_KEY"),
+            "FS_API_KEY env var must be present when USE_VSK is set!"
+        );
+        assert!(
+            std::env::vars().any(|e| e.0 == "FS_KEY_NAME"),
+            "FS_KEY_NAME env var must be present when USE_VSK is set!"
+        );
+        assert!(
+            std::env::vars().any(|e| e.0 == "FS_VSK_ENDPOINT"),
+            "FS_VSK_ENDPOINT env var must be present when USE_VSK is set!"
+        );
+    }
+
     match parent::run(enclave_extra_args).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             info!("User program exits with code: {}", code);

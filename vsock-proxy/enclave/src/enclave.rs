@@ -9,9 +9,10 @@ use tun::Device;
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
+
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
-    create_overlay_rw_dirs, generate_keyfile, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
     mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
     DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT,
 };
@@ -31,7 +32,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
@@ -61,7 +61,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         )
         .await?;
 
-        let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port).await?;
+        let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port, &setup_result.env_vars).await?;
 
         for certificate in &mut certificate_info {
             write_certificate(certificate)?;
@@ -171,7 +171,7 @@ fn setup_app_configuration(
     }
 }
 
-async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut AsyncVsockStream) -> Result<bool, String> {
+async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut AsyncVsockStream, env_vars: &[(String, String)]) -> Result<bool, String> {
     match &enclave_manifest.file_system_config {
         Some(config) => {
             parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
@@ -179,7 +179,7 @@ async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut
             info!("Awaiting NBD config");
             let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
-            setup_file_system0(&nbd_config, &config).await?;
+            setup_file_system0(&nbd_config, &config, env_vars).await?;
 
             Ok(true)
         }
@@ -236,9 +236,10 @@ async fn start_and_await_user_program_return(
         .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
 }
 
-async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &FileSystemConfig) -> Result<(), String> {
+async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &FileSystemConfig, env_vars: &[(String, String)]) -> Result<(), String> {
     for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;
+
         info!("Export {} is connected to NBD", export.name);
     }
     info!("All block files are connected and ready.");
@@ -254,18 +255,8 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
 
-    let crypt_file_path = Path::new(CRYPT_KEYFILE);
-    generate_keyfile(crypt_file_path).await?;
-    info!("Generated key file at {}", crypt_file_path.display());
-
-    mount_read_write_file_system(crypt_file_path).await?;
+    mount_read_write_file_system(env_vars).await?;
     info!("Finished read/write file system mount.");
-
-    // we can create read/write folders of the overlay file system (known as upper
-    // dir and working dir) only after calling dm-crypt because dm-crypt formats
-    // the volume before mounting.
-    create_overlay_rw_dirs()?;
-    info!("Created directories needed for overlay read/write part.");
 
     mount_overlay_fs().await?;
     info!("Mounted enclave root with overlay-fs.");
