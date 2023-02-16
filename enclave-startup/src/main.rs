@@ -1,12 +1,14 @@
-use std::env;
-use std::fmt::format;
-use std::os::unix::process::CommandExt;
-use std::process::Command;
-
 use env_logger;
 use log::{info, warn};
 use nix::unistd::{chown, Gid, Uid};
 use users::{get_group_by_name, get_user_by_name, gid_t, uid_t, User};
+
+use std::env;
+use std::os::unix::process::CommandExt;
+use std::process::Command;
+use std::io::{Read, BufReader, BufRead, Error};
+
+const HOSTNAME_FILE: &'static str = "/etc/hostname";
 
 /// A program that switches working directory, user and group before running the application.
 /// Working directory and user/group come from a client images with following clauses:
@@ -34,6 +36,8 @@ fn main() -> Result<(), String> {
     // Update ownership of std streams of the current process to User res
     update_std_stream_owner(uid, gid)?;
 
+    set_host_name()?;
+
     // Exec the client program with the relevant user/group
     let mut client_command = Command::new(bin);
     client_command.args(bin_args);
@@ -45,6 +49,32 @@ fn main() -> Result<(), String> {
     let err = client_command.exec();
 
     Err(format!("Failed to run subprocess {}. {:?}", bin, err))
+}
+
+/// Updates host name with the value from '/etc/hostname' file.
+fn set_host_name() -> Result<(), String> {
+    let host_name_file = std::fs::File::open(HOSTNAME_FILE)
+        .map_err(|err| format!("Failed to open host name file {}. {:?}", HOSTNAME_FILE, err))?;
+
+    let reader = BufReader::new(host_name_file);
+
+    let hostname = match reader.lines().next() {
+        Some(Ok(hostname)) => {
+            hostname
+        }
+        Some(Err(err)) => {
+            return Err(format!("Failed reading host name file {}. {:?}", HOSTNAME_FILE, err))
+        }
+        None => {
+            return Err(format!("Host name file {} is empty.", HOSTNAME_FILE))
+        }
+    };
+
+    nix::unistd::sethostname(&hostname).map_err(|err| format!("Failed setting host name to {}. {:?}", hostname, err))?;
+
+    info!("Set host name to {}", hostname);
+
+    Ok(())
 }
 
 fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {

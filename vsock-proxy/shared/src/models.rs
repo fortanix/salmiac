@@ -109,6 +109,10 @@ pub struct FSNetworkDeviceSettings {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GlobalNetworkSettings {
     pub dns_file: Vec<u8>,
+
+    pub hosts_file: Vec<u8>,
+
+    pub host_name_file: Vec<u8>
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

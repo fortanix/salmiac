@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 env_logger = "0.7"
 log = "0.4"
-nix = "0.26.1"
+nix = { version = "0.26.1", features = ["hostname"] }
 users = "0.11.0"

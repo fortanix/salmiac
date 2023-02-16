@@ -329,7 +329,15 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
         .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?
         .into_bytes();
 
-    let network_settings = GlobalNetworkSettings { dns_file };
+    let hosts_file = fs::read_to_string("/etc/hosts")
+        .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?
+        .into_bytes();
+
+    let host_name_file = fs::read_to_string("/etc/hostname")
+        .map_err(|err| format!("Failed reading parent's /etc/resolv.conf. {:?}", err))?
+        .into_bytes();
+
+    let network_settings = GlobalNetworkSettings { dns_file, hosts_file, host_name_file };
 
     enclave_port
         .write_lv(&SetupMessages::GlobalNetworkSettings(network_settings))
