@@ -29,7 +29,6 @@ use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 use std::convert::From;
 use std::env;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 
@@ -425,30 +424,12 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     fs::create_dir("/run/resolvconf").map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
-    let mut dns_file = fs::File::create("/run/resolvconf/resolv.conf")
-        .map_err(|err| format!("Failed to create enclave /run/resolvconf/resolv.conf. {:?}", err))?;
+    for file in global_settings {
+        write_to_file(Path::new(&file.path), &file.data, &file.path)?;
 
-    dns_file
-        .write_all(&global_settings.dns_file)
-        .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
-
-    let mut hosts_file = fs::File::create("/etc/hosts")
-        .map_err(|err| format!("Failed to create enclave /run/resolvconf/resolv.conf. {:?}", err))?;
-
-    hosts_file
-        .write_all(&global_settings.hosts_file)
-        .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
-
-
-    let mut host_name_file = fs::File::create("/etc/hostname")
-        .map_err(|err| format!("Failed to create enclave /run/resolvconf/resolv.conf. {:?}", err))?;
-
-    host_name_file
-        .write_all(&global_settings.host_name_file)
-        .map_err(|err| format!("Failed writing to /run/resolvconf/resolv.conf. {:?}", err))?;
-
-
-    debug!("Enclave DNS file has been populated.");
+        debug!("Successfully created {} inside an enclave.", &file.path);
+    }
+    debug!("Enclave global network settings files have been created.");
 
     enable_loopback_network_interface()?;
 

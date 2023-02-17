@@ -11,7 +11,7 @@ pub enum SetupMessages {
     NoMoreCertificates,
     NetworkDeviceSettings(Vec<NetworkDeviceSettings>),
     FSNetworkDeviceSettings(FSNetworkDeviceSettings),
-    GlobalNetworkSettings(GlobalNetworkSettings),
+    GlobalNetworkSettings(Vec<FileWithPath>),
     CSR(String),
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
@@ -107,12 +107,10 @@ pub struct FSNetworkDeviceSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct GlobalNetworkSettings {
-    pub dns_file: Vec<u8>,
+pub struct FileWithPath {
+    pub path: String,
 
-    pub hosts_file: Vec<u8>,
-
-    pub host_name_file: Vec<u8>
+    pub data: Vec<u8>
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

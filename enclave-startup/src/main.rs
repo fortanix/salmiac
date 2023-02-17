@@ -6,16 +6,20 @@ use users::{get_group_by_name, get_user_by_name, gid_t, uid_t, User};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use std::io::{Read, BufReader, BufRead, Error};
+use std::io::{BufReader, BufRead};
 
 const HOSTNAME_FILE: &'static str = "/etc/hostname";
 
-/// A program that switches working directory, user and group before running the application.
-/// Working directory and user/group come from a client images with following clauses:
-/// (https://docs.docker.com/engine/reference/builder/#workdir),
-/// (https://docs.docker.com/engine/reference/builder/#user).
-/// Because neither WORKDIR or USER are currently supported by a Nitro converter
-/// we have to perform switch manually to prevent any sort of access and file not found errors from happening.
+/// A program that sets environment for a client application in the chroot environment (https://man7.org/linux/man-pages/man2/chroot.2.html).
+/// It performs the following:
+/// - Switches working directory, user and group before running the application.
+///     Working directory and user/group come from a client images with following clauses:
+///     (https://docs.docker.com/engine/reference/builder/#workdir),
+///     (https://docs.docker.com/engine/reference/builder/#user).
+///     Because neither WORKDIR or USER are currently supported by a Nitro converter
+///     we have to perform switch manually to prevent any sort of access and file not found errors from happening;
+/// - Updates ownership of std streams for the client application;
+/// - Sets host name (https://man7.org/linux/man-pages/man7/hostname.7.html).
 fn main() -> Result<(), String> {
     env_logger::init();
     let args: Vec<String> = env::args().collect();
@@ -58,6 +62,7 @@ fn set_host_name() -> Result<(), String> {
 
     let reader = BufReader::new(host_name_file);
 
+    // pick the first line in a file
     let hostname = match reader.lines().next() {
         Some(Ok(hostname)) => {
             hostname
@@ -80,6 +85,7 @@ fn set_host_name() -> Result<(), String> {
 fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {
     let std_stream_paths = ["/proc/self/fd/0", "/proc/self/fd/1", "/proc/self/fd/2"];
     let mut status = true;
+
     for path in std_stream_paths {
         // TODO: Use chown from "std" crate once their stable feature is out. This
         // will avoid having an additional dependency "nix" into enclave startup code
@@ -89,13 +95,15 @@ fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {
             }
             Err(e) => {
                 warn!("Unable to change ownership of {:?} : {:?}", path, e.to_string());
-                status = status && false;
+                status = false;
             }
         }
     }
+
     if !status {
         return Err(format!("Unable to update ownership of one or more std streams"));
     }
+
     Ok(())
 }
 
