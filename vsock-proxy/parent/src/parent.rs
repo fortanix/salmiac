@@ -12,7 +12,7 @@ use crate::network::{
     PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
 };
 use crate::packet_capture::start_pcap_loops;
-use shared::models::{ApplicationConfiguration, CCMBackendUrl, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus, FileWithPath};
+use shared::models::{ApplicationConfiguration, CCMBackendUrl, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus, FileWithPath, GlobalNetworkSettings};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
 use shared::{extract_enum_value, with_background_tasks};
@@ -326,21 +326,25 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
     const HOSTS_FILE: &'static str = "/etc/hosts";
     const HOSTNAME_FILE: &'static str = "/etc/hostname";
 
-    fn read_file(path: &str) -> Result<Vec<u8>, String> {
+    fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
-            .map(|e| e.into_bytes())
+            .map(|e| FileWithPath { path: path.to_string(), data: e.into_bytes() })
             .map_err(|err| format!("Failed reading parent's {} file. {:?}", path, err))
     }
+
+    let raw_hostname = nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
+
+    let hostname = raw_hostname.into_string().map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
+
 
     let dns_file = read_file(DNS_RESOLV_FILE)?;
     let hosts_file = read_file(HOSTS_FILE)?;
     let host_name_file = read_file(HOSTNAME_FILE)?;
 
-    let network_settings = vec![
-        FileWithPath { path: DNS_RESOLV_FILE.to_string(), data: dns_file },
-        FileWithPath { path: HOSTS_FILE.to_string(), data: hosts_file },
-        FileWithPath { path: HOSTNAME_FILE.to_string(), data: host_name_file }
-    ];
+    let network_settings = GlobalNetworkSettings {
+        hostname,
+        global_settings_list: vec![dns_file, hosts_file, host_name_file]
+    };
 
     enclave_port
         .write_lv(&SetupMessages::GlobalNetworkSettings(network_settings))

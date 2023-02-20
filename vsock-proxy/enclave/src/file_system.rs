@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::net::IpAddr;
-use std::ops::Deref;
 use std::path::Path;
 
 use log::info;
@@ -25,7 +24,6 @@ const DM_CRYPT_DEVICE: &str = "cryptdevice";
 const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 const TOKEN_IN_FILE: &str = "/etc/token-in.json";
 const TOKEN_OUT_FILE: &str = "/etc/token-out.json";
-const TEST_KEY_FILE: [u8; 256] = [1; 256];
 const TMP_TOKEN_IN: &str = r#"{"type":"fortanix-virtual-sealing-key","keyslots":["0"],
 "plugin_url":"https://api.amer.smartkey.io/sys/v1/plugins/00000000-0000-0000-0000-000000000000",
 "app_id":"00000000-0000-0000-0000-000000000000","key_id":"00000000-0000-0000-0000-000000000000",
@@ -107,7 +105,7 @@ async fn get_key_from_token(token_path: &str, key_path: &Path, env_vars: &[(Stri
         .read(&mut token_contents)
         .map_err(|err| format!("Unable to read from token file {:?} : {:?}", token_path, err))?;
 
-    /// TODO: Use token contents to fetch VSK once we know what goes into the token
+    // TODO: Use token contents to fetch VSK once we know what goes into the token
     let token_data =
         std::str::from_utf8(&token_contents).map_err(|err| format!("Unable to read utf8 string from token file : {:?}", err));
     info!(
@@ -118,8 +116,8 @@ async fn get_key_from_token(token_path: &str, key_path: &Path, env_vars: &[(Stri
     let key_file = fs::File::create(key_path).map_err(|err| format!("Unable to create key file {:?} : {:?}", key_path, err));
     let vsk_obj = request_vsk(env_vars)?;
     let vsk_val = vsk_obj.value.expect("Sobject does not contain a sealing key");
-    /// TODO: Use the vsk to encrypt a randomly generated key using AES_GCM which
-    /// would be stored in the luks token object
+    // TODO: Use the vsk to encrypt a randomly generated key using AES_GCM which
+    // would be stored in the luks token object
     key_file?
         .write(&vsk_val)
         .map_err(|err| format!("Unable to write to key file: {:?}", err))?;
@@ -303,9 +301,9 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
     fs::create_dir_all(nbd_run_resolv_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
     fs::create_dir_all(nbd_etc_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
 
-    /// We copy resolv.conf from the enclave kernel into the block file mount point
-    /// so that DNS will work correctly after we do a `chroot`.
-    /// Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
+    // We copy resolv.conf from the enclave kernel into the block file mount point
+    // so that DNS will work correctly after we do a `chroot`.
+    // Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
     fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file).map_err(|err| {
         format!(
             "Failed copying resolv file from {} to {}. {:?}",

@@ -6,9 +6,6 @@ use users::{get_group_by_name, get_user_by_name, gid_t, uid_t, User};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use std::io::{BufReader, BufRead};
-
-const HOSTNAME_FILE: &'static str = "/etc/hostname";
 
 /// A program that sets environment for a client application in the chroot environment (https://man7.org/linux/man-pages/man2/chroot.2.html).
 /// It performs the following:
@@ -27,8 +24,9 @@ fn main() -> Result<(), String> {
     let workdir = &args[1];
     let user = &args[2];
     let group = &args[3];
-    let bin = &args[4];
-    let bin_args = if args.len() > 5 { &args[5..] } else { &[] };
+    let hostname = &args[4];
+    let bin = &args[5];
+    let bin_args = if args.len() > 6 { &args[6..] } else { &[] };
 
     env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
 
@@ -40,7 +38,10 @@ fn main() -> Result<(), String> {
     // Update ownership of std streams of the current process to User res
     update_std_stream_owner(uid, gid)?;
 
-    set_host_name()?;
+    if !hostname.is_empty() {
+        nix::unistd::sethostname(&hostname).map_err(|err| format!("Failed setting host name to {}. {:?}", hostname, err))?;
+        info!("Set host name to {}", hostname);
+    }
 
     // Exec the client program with the relevant user/group
     let mut client_command = Command::new(bin);
@@ -53,33 +54,6 @@ fn main() -> Result<(), String> {
     let err = client_command.exec();
 
     Err(format!("Failed to run subprocess {}. {:?}", bin, err))
-}
-
-/// Updates host name with the value from '/etc/hostname' file.
-fn set_host_name() -> Result<(), String> {
-    let host_name_file = std::fs::File::open(HOSTNAME_FILE)
-        .map_err(|err| format!("Failed to open host name file {}. {:?}", HOSTNAME_FILE, err))?;
-
-    let reader = BufReader::new(host_name_file);
-
-    // pick the first line in a file
-    let hostname = match reader.lines().next() {
-        Some(Ok(hostname)) => {
-            hostname
-        }
-        Some(Err(err)) => {
-            return Err(format!("Failed reading host name file {}. {:?}", HOSTNAME_FILE, err))
-        }
-        None => {
-            return Err(format!("Host name file {} is empty.", HOSTNAME_FILE))
-        }
-    };
-
-    nix::unistd::sethostname(&hostname).map_err(|err| format!("Failed setting host name to {}. {:?}", hostname, err))?;
-
-    info!("Set host name to {}", hostname);
-
-    Ok(())
 }
 
 fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {

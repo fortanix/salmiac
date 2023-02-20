@@ -43,13 +43,13 @@ const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
-    let (setup_result, tap_devices) = startup(&mut parent_port, settings_path).await?;
-
+    let (setup_result, networking_setup_result) = startup(&mut parent_port, settings_path).await?;
+    let hostname = networking_setup_result.hostname.clone();
     // Background tasks are futures that run for the whole duration of the enclave.
     // They represent background processes that run forever like forwarding network
     // packets between tap devices. They never exit during normal enclave
     // execution and it is considered an error if they do.
-    let mut background_tasks = start_background_tasks(tap_devices);
+    let mut background_tasks = start_background_tasks(networking_setup_result.tap_devices);
 
     let result = with_background_tasks!(background_tasks, {
         let mut certificate_info = setup_enclave_certification(
@@ -71,7 +71,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.fs_root)?;
 
         let exit_status =
-            start_and_await_user_program_return(setup_result.enclave_manifest, setup_result.env_vars, use_file_system).await?;
+            start_and_await_user_program_return(setup_result, hostname, use_file_system).await?;
 
         if use_file_system {
             cleanup().await?;
@@ -115,7 +115,7 @@ async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), St
 async fn startup(
     parent_port: &mut AsyncVsockStream,
     settings_path: &Path,
-) -> Result<(EnclaveSetupResult, Vec<TapDeviceInfo>), String> {
+) -> Result<(EnclaveSetupResult, EnclaveNetworkingSetupResult), String> {
     let mut enclave_manifest = read_enclave_manifest(settings_path)?;
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
@@ -135,7 +135,7 @@ async fn startup(
 
     let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
 
-    let tap_devices = setup_tap_devices(parent_port).await?;
+    let networking_setup_result = setup_tap_devices(parent_port).await?;
 
     let fs_root = if enclave_manifest.file_system_config.is_some() {
         Path::new(ENCLAVE_FS_OVERLAY_ROOT)
@@ -143,15 +143,12 @@ async fn startup(
         Path::new("/")
     };
 
-    Ok((
-        EnclaveSetupResult {
-            app_config,
-            enclave_manifest,
-            fs_root: fs_root.to_path_buf(),
-            env_vars,
-        },
-        tap_devices,
-    ))
+    Ok((EnclaveSetupResult {
+        app_config,
+        enclave_manifest,
+        fs_root: fs_root.to_path_buf(),
+        env_vars
+    }, networking_setup_result))
 }
 
 fn setup_app_configuration(
@@ -224,11 +221,11 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 }
 
 async fn start_and_await_user_program_return(
-    enclave_manifest: EnclaveManifest,
-    env_vars: Vec<(String, String)>,
+    enclave_setup_result: EnclaveSetupResult,
+    hostname: String,
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = tokio::spawn(start_user_program(enclave_manifest, env_vars, use_file_system));
+    let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname, use_file_system));
 
     user_program
         .await
@@ -299,12 +296,12 @@ fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
 }
 
 async fn start_user_program(
-    enclave_manifest: EnclaveManifest,
-    env_vars: Vec<(String, String)>,
+    enclave_setup_result: EnclaveSetupResult,
+    hostname: String,
     use_file_system: bool,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = enclave_manifest.user_config.user_program_config;
-    let is_debug_shell = env_vars.contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
+    let user_program = enclave_setup_result.enclave_manifest.user_config.user_program_config;
+    let is_debug_shell = enclave_setup_result.env_vars.contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
 
     let mut client_command = if use_file_system && !is_debug_shell {
         let mut client_command = Command::new("chroot");
@@ -315,6 +312,7 @@ async fn start_user_program(
             &user_program.working_dir,
             &user_program.user,
             &user_program.group,
+            &hostname,
             &user_program.entry_point,
         ]);
 
@@ -334,7 +332,7 @@ async fn start_user_program(
         client_command
     };
 
-    set_env_vars(&mut client_command, env_vars);
+    set_env_vars(&mut client_command, enclave_setup_result.env_vars);
 
     let client_program = client_command
         .spawn()
@@ -354,15 +352,15 @@ async fn start_user_program(
     Ok(result)
 }
 
-async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<Vec<TapDeviceInfo>, String> {
-    let mut tap_devices = setup_enclave_networking(vsock).await?;
+async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<EnclaveNetworkingSetupResult, String> {
+    let mut result = setup_enclave_networking(vsock).await?;
     info!("Finished networking setup.");
 
     let file_system_tap = setup_file_system_tap_device(vsock).await?;
-    tap_devices.push(file_system_tap);
+    result.tap_devices.push(file_system_tap);
     info!("Finished file system tap device setup.");
 
-    Ok(tap_devices)
+    Ok(result)
 }
 
 async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<TapDeviceInfo, String> {
@@ -399,12 +397,18 @@ struct TapDeviceInfo {
     mtu: u32,
 }
 
-async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<Vec<TapDeviceInfo>, String> {
+struct EnclaveNetworkingSetupResult {
+    hostname: String,
+
+    tap_devices: Vec<TapDeviceInfo>
+}
+
+async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<EnclaveNetworkingSetupResult, String> {
     let netlink = Netlink::new();
 
     let device_settings_list = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NetworkDeviceSettings(s) => s)?;
 
-    let mut result: Vec<TapDeviceInfo> = Vec::new();
+    let mut tap_devices: Vec<TapDeviceInfo> = Vec::new();
 
     for device_settings in &device_settings_list {
         let tap = setup_network_device(device_settings, &netlink).await?;
@@ -413,7 +417,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
         info!("Device {} is connected and ready.", device_settings.vsock_port_number);
 
-        result.push(TapDeviceInfo {
+        tap_devices.push(TapDeviceInfo {
             vsock,
             tap,
             mtu: device_settings.mtu,
@@ -424,7 +428,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     fs::create_dir("/run/resolvconf").map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
-    for file in global_settings {
+    for file in global_settings.global_settings_list {
         write_to_file(Path::new(&file.path), &file.data, &file.path)?;
 
         debug!("Successfully created {} inside an enclave.", &file.path);
@@ -433,7 +437,10 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     enable_loopback_network_interface()?;
 
-    Ok(result)
+    Ok(EnclaveNetworkingSetupResult {
+        hostname: global_settings.hostname,
+        tap_devices
+    })
 }
 
 async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: &Netlink) -> Result<AsyncDevice, String> {
