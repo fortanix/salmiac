@@ -107,7 +107,7 @@ pub(crate) struct EnclaveImageBuilder<'a> {
 
     pub(crate) dir: &'a TempDir,
 
-    pub(crate) enclave_base_image: Option<DockerReference<'a>>,
+    pub(crate) enclave_base_image: &'a DockerReference<'a>,
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
@@ -153,11 +153,8 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<EnclaveBuilderResult> {
         let is_debug = enclave_settings.is_debug;
 
-        match &self.enclave_base_image {
-            Some(enclave_base) if is_debug => {
-                self.create_debug_client_image(enclave_base, docker_util).await?;
-            }
-            _ => {}
+        if is_debug {
+            self.create_debug_client_image(&self.enclave_base_image, docker_util).await?;
         }
 
         let build_context_dir = self.create_build_context_dir()?;
@@ -168,17 +165,14 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        let fs_root_hash = match &self.enclave_base_image {
-            Some(_) => {
-                let root_hash = self.create_block_file(docker_util).await?;
-                info!("Client FS Block file has been created.");
+        let fs_root_hash = {
+            let root_hash = self.create_block_file(docker_util).await?;
+            info!("Client FS Block file has been created.");
 
-                self.create_rw_block_file().await?;
-                info!("RW Block file has been created.");
+            self.create_rw_block_file().await?;
+            info!("RW Block file has been created.");
 
-                Some(root_hash)
-            }
-            _ => None,
+            root_hash
         };
 
         let enclave_manifest = EnclaveManifest {
@@ -523,15 +517,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             )
         };
 
-        let client_image = &self.client_image_reference;
-        let from = (match &self.enclave_base_image {
-            Some(e) => e,
-            _ => client_image,
-        })
-        .to_string();
+        let mut env = enclave_settings.env_vars;
+        env.push(rust_log_env_var("enclave"));
 
         let docker_file = DockerFile {
-            from: &from,
+            from: &self.enclave_base_image.to_string(),
             add: Some(add),
             env: &enclave_settings.env_vars,
             cmd: Some(&run_enclave_cmd),
