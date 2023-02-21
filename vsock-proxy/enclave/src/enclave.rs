@@ -14,7 +14,7 @@ use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
     mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
     mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
-    DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT,
+    DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, FileSystemNode
 };
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
@@ -39,6 +39,15 @@ const HOSTNAME_ENV_VAR: &str = "HOSTNAME";
 const PATH_ENV_VAR: &str = "PATH";
 
 const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
+
+const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
+    FileSystemNode::Proc,
+    FileSystemNode::TreeNode("/sys"),
+    FileSystemNode::TreeNode("/dev"),
+    FileSystemNode::TreeNode("/tmp"),
+    FileSystemNode::File("/etc/hostname"),
+    FileSystemNode::File("/etc/hosts"),
+];
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
@@ -187,7 +196,7 @@ async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut
 }
 
 async fn cleanup() -> Result<(), String> {
-    unmount_file_system_nodes().await?;
+    unmount_file_system_nodes(FILE_SYSTEM_NODES).await?;
     info!("Unmounted file system nodes.");
 
     unmount_overlay_fs().await?;
@@ -257,7 +266,7 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
     mount_overlay_fs().await?;
     info!("Mounted enclave root with overlay-fs.");
 
-    mount_file_system_nodes().await?;
+    mount_file_system_nodes(FILE_SYSTEM_NODES).await?;
 
     copy_dns_file_to_mount()?;
     copy_startup_binary_to_mount(STARTUP_BINARY)?;

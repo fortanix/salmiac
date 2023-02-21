@@ -36,14 +36,28 @@ enum TokenOp {
     Import,
 }
 
-pub(crate) async fn mount_file_system_nodes() -> Result<(), String> {
-    run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_mount(&["--rbind", "/sys", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_mount(&["--rbind", "/dev", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_mount(&["--rbind", "/tmp", &format!("{}/tmp/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+pub (crate) enum FileSystemNode {
+    Proc,
+    TreeNode(&'static str),
+    File(&'static str)
+}
 
-    run_mount(&["--bind", "/etc/hostname", &format!("{}/etc/hostname", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_mount(&["--bind", "/etc/hosts", &format!("{}/etc/hosts", ENCLAVE_FS_OVERLAY_ROOT)]).await
+pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<(), String> {
+    for node in nodes {
+        match node {
+            FileSystemNode::Proc => {
+                run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+            }
+            FileSystemNode::TreeNode(node_path) => {
+                run_mount(&["--rbind", node_path, &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path=node_path)]).await?;
+            }
+            FileSystemNode::File(file_path) => {
+                run_mount(&["--bind", file_path, &format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path=file_path)]).await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
@@ -326,11 +340,22 @@ pub(crate) async fn unmount_overlay_fs() -> Result<(), String> {
     run_unmount(&["-v", ENCLAVE_FS_OVERLAY_ROOT]).await
 }
 
-pub(crate) async fn unmount_file_system_nodes() -> Result<(), String> {
-    run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_unmount(&["-R", &format!("{}/sys/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_unmount(&["-R", &format!("{}/dev/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
-    run_unmount(&["-R", &format!("{}/tmp/", ENCLAVE_FS_OVERLAY_ROOT)]).await
+pub(crate) async fn unmount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<(), String> {
+    for node in nodes {
+        match node {
+            FileSystemNode::Proc => {
+                run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+            }
+            FileSystemNode::TreeNode(node_path) => {
+                run_unmount(&["-R", &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path=node_path)]).await?;
+            }
+            FileSystemNode::File(file_path) => {
+                run_unmount(&[&format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path=file_path)]).await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn close_dm_crypt_device() -> Result<(), String> {
