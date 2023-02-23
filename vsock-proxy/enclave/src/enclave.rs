@@ -29,7 +29,7 @@ use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
 use std::convert::From;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
@@ -79,9 +79,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         setup_app_configuration(&setup_result.app_config, first_certificate)?;
 
         let exit_status =
-            start_and_await_user_program_return(setup_result, hostname, use_file_system).await?;
-
-        if use_file_system {
+            start_and_await_user_program_return(setup_result, hostname).await?;
 
         cleanup().await?;
 
@@ -147,15 +145,13 @@ async fn startup(
 
     let networking_setup_result = setup_tap_devices(parent_port).await?;
 
-    let tap_devices = setup_tap_devices(parent_port).await?;
-
     Ok((
         EnclaveSetupResult {
             app_config,
             enclave_manifest,
             env_vars,
         },
-        tap_devices,
+        networking_setup_result,
     ))
 }
 
@@ -233,10 +229,9 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 
 async fn start_and_await_user_program_return(
     enclave_setup_result: EnclaveSetupResult,
-    hostname: String,
-    use_file_system: bool,
+    hostname: String
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname, use_file_system));
+    let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname));
 
     user_program
         .await
@@ -311,8 +306,7 @@ fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
 
 async fn start_user_program(
     enclave_setup_result: EnclaveSetupResult,
-    hostname: String,
-    use_file_system: bool,
+    hostname: String
 ) -> Result<UserProgramExitStatus, String> {
     let user_program = enclave_setup_result.enclave_manifest.user_config.user_program_config;
     let is_debug_shell = enclave_setup_result.env_vars.contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
