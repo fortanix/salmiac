@@ -153,10 +153,6 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<EnclaveBuilderResult> {
         let is_debug = enclave_settings.is_debug;
 
-        if is_debug {
-            self.create_debug_client_image(&self.enclave_base_image, docker_util).await?;
-        }
-
         let build_context_dir = self.create_build_context_dir()?;
 
         self.create_requisites(enclave_settings, &build_context_dir)
@@ -186,17 +182,32 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         info!("Enclave build prerequisites have been created!");
 
-        let enclave_image_str = self.enclave_image();
+        let result_image_raw = if is_debug {
+            self.enclave_debug_image()
+        } else {
+            self.enclave_image()
+        };
 
-        let enclave_image_reference = DockerReference::from_str(&enclave_image_str).map_err(|message| ConverterError {
-            message: format!("Failed to create enclave image reference. {:?}", message),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        let result_reference = if is_debug {
+            let reference = DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
+                message: format!("Failed to create enclave image reference. {:?}", message),
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+
+            self.create_debug_client_image(&self.enclave_base_image, reference, docker_util)
+                .await
+                .map(|e| e.reference)?
+        } else {
+            DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
+                message: format!("Failed to create enclave image reference. {:?}", message),
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?
+        };
 
         // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
         // After nitro-cli finishes we can safely reclaim it.
         let result = docker_util
-            .create_image(enclave_image_reference, &build_context_dir)
+            .create_image(result_reference, &build_context_dir)
             .await
             .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))
             .map_err(|message| ConverterError {
@@ -217,11 +228,12 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_debug_client_image(
+    async fn create_debug_client_image<'b>(
         &self,
         debug_enclave_base: &DockerReference<'_>,
+        result_reference: DockerReference<'b>,
         docker_util: &dyn DockerUtil,
-    ) -> Result<()> {
+    ) -> Result<ImageWithDetails<'b>> {
         info!("Creating debug enclave image");
 
         let temp_dir = TempDir::new_in(self.dir.path()).map_err(|err| ConverterError {
@@ -237,24 +249,13 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        // To not change the behavior of `self.create_image` we overwrite client image inside a docker with
-        // our debug extension by reusing the same reference in build function below.
-        // This implicit behavior will be removed in: https://fortanix.atlassian.net/browse/SALM-273
-        let image_reference = self.client_image_reference.to_string();
-        let result = DockerReference::from_str(&image_reference).map_err(|message| ConverterError {
-            message: format!("Failed to create enclave image reference. {:?}", message),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
-
-        let _ = docker_util
-            .create_image(result, &build_context_dir)
+        docker_util
+            .create_image(result_reference, &build_context_dir)
             .await
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::EnclaveImageCreation,
-            })?;
-
-        Ok(())
+            })
     }
 
     pub(crate) async fn export_image_file_system(
@@ -429,10 +430,18 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     fn enclave_image(&self) -> String {
+        self.retag_client_image(&Alphanumeric.sample_string(&mut rand::thread_rng(), 16))
+    }
+
+    fn enclave_debug_image(&self) -> String {
+        self.retag_client_image("debug")
+    }
+
+    fn retag_client_image(&self, tag: &str) -> String {
         let new_tag = self
             .client_image_reference
             .tag()
-            .map(|e| e.to_string() + "-" + &Alphanumeric.sample_string(&mut rand::thread_rng(), 16))
+            .map(|e| e.to_string() + "-" + tag)
             .unwrap_or("enclave".to_string());
 
         self.client_image_reference.name().to_string() + ":" + &new_tag
