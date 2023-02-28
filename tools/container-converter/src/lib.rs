@@ -13,7 +13,7 @@ use api_model::{
 };
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
-use image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
+use image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
 use image_builder::parent::ParentImageBuilder;
 use log::{debug, error, info, warn};
 use model_types::HexString;
@@ -163,16 +163,15 @@ async fn run0(
         };
 
         let enclave_settings = EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
-
+        let image_env_vars = get_image_env(&input_image, &conversion_request.request.converter_options);
         let user_config = UserConfig {
             user_program_config,
             certificate_config: conversion_request.request.converter_options.certificates,
         };
 
         let sender = images_to_clean_snd.clone();
-
         enclave_builder
-            .create_image(&input_repository, enclave_settings, user_config, sender)
+            .create_image(&input_repository, enclave_settings, user_config, image_env_vars, sender)
             .await?
     };
 

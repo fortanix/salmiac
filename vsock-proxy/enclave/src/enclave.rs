@@ -31,7 +31,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-
 const STARTUP_BINARY: &str = "/enclave-startup";
 
 const HOSTNAME_ENV_VAR: &str = "HOSTNAME";
@@ -69,7 +68,8 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         )
         .await?;
 
-        let use_file_system = setup_file_system(&setup_result.enclave_manifest, &mut parent_port, &setup_result.env_vars).await?;
+        let use_file_system =
+            setup_file_system(&setup_result.enclave_manifest, &mut parent_port, &setup_result.env_vars).await?;
 
         for certificate in &mut certificate_info {
             write_certificate(certificate)?;
@@ -129,7 +129,9 @@ async fn startup(
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
-    let env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
+    let mut env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
+    let mut manifest_env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
+    env_vars.append(&mut manifest_env_vars);
 
     let mut extra_user_program_args =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
@@ -160,6 +162,21 @@ async fn startup(
     }, networking_setup_result))
 }
 
+fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, String> {
+    let mut res = vec![];
+    for env in env_strs {
+        let pair = env.split_once("=");
+        match pair {
+            None => {
+                info!("Env string doesn't contain equal sign separating key value pair - {:?}", env);
+            }
+            Some(e) => {
+                res.push((e.0.to_string(), e.1.to_string()));
+            }
+        }
+    }
+    Ok(res)
+}
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
@@ -176,7 +193,11 @@ fn setup_app_configuration(
     }
 }
 
-async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut AsyncVsockStream, env_vars: &[(String, String)]) -> Result<bool, String> {
+async fn setup_file_system(
+    enclave_manifest: &EnclaveManifest,
+    parent_port: &mut AsyncVsockStream,
+    env_vars: &[(String, String)],
+) -> Result<bool, String> {
     match &enclave_manifest.file_system_config {
         Some(config) => {
             parent_port.write_lv(&SetupMessages::UseFileSystem(true)).await?;
@@ -241,7 +262,11 @@ async fn start_and_await_user_program_return(
         .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
 }
 
-async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &FileSystemConfig, env_vars: &[(String, String)]) -> Result<(), String> {
+async fn setup_file_system0(
+    nbd_config: &NBDConfiguration,
+    file_system_config: &FileSystemConfig,
+    env_vars: &[(String, String)],
+) -> Result<(), String> {
     for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;
 
@@ -277,7 +302,6 @@ async fn setup_file_system0(nbd_config: &NBDConfiguration, file_system_config: &
 }
 
 fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
-
     // These are environment variables that are set in the EIF file which
     // contain the variables from the original input image. Set these variables
     // first.

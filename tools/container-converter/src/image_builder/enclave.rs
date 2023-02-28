@@ -67,6 +67,19 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
     })
 }
 
+pub(crate) fn get_image_env(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Vec<String> {
+    let mut result = input_image.details.config.env.as_ref().map(|e| e.clone()).unwrap_or(vec![]);
+
+    /// Docker `ENV` assigns environment variables by the order of definition, thus making
+    /// latest definition of the same variable override previous definition.
+    /// We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
+    /// by adding all `conversion_request` variables to the end of `env_vars` vector.
+    for request_env in &converter_options.env_vars {
+        result.push(request_env.clone());
+    }
+    result
+}
+
 pub(crate) struct EnclaveSettings {
     user_name: String,
 
@@ -77,23 +90,9 @@ pub(crate) struct EnclaveSettings {
 
 impl EnclaveSettings {
     pub(crate) fn new(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Self {
-        let env_vars = {
-            let mut result = input_image.details.config.env.as_ref().map(|e| e.clone()).unwrap_or(vec![]);
-
-            // Docker `ENV` assigns environment variables by the order of definition, thus making
-            // latest definition of the same variable override previous definition.
-            // We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
-            // by adding all `conversion_request` variables to the end of `env_vars` vector.
-            for request_env in &converter_options.env_vars {
-                result.push(request_env.clone());
-            }
-
-            result
-        };
-
         EnclaveSettings {
             user_name: input_image.details.config.user.clone(),
-            env_vars,
+            env_vars: vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
         }
     }
@@ -149,6 +148,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
+        env_vars: Vec<String>,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<EnclaveBuilderResult> {
         let is_debug = enclave_settings.is_debug;
@@ -185,6 +185,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             user_config,
             file_system_config: fs_root_hash,
             is_debug,
+            env_vars,
         };
 
         self.create_manifest_file(enclave_manifest, &build_context_dir)?;
@@ -192,6 +193,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         info!("Enclave build prerequisites have been created!");
 
         let enclave_image_str = self.enclave_image();
+
         let enclave_image_reference = DockerReference::from_str(&enclave_image_str).map_err(|message| ConverterError {
             message: format!("Failed to create enclave image reference. {:?}", message),
             kind: ConverterErrorKind::RequisitesCreation,
@@ -528,13 +530,10 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
         .to_string();
 
-        let mut env = enclave_settings.env_vars;
-        env.push(rust_log_env_var("enclave"));
-
         let docker_file = DockerFile {
             from: &from,
             add: Some(add),
-            env: &env,
+            env: &enclave_settings.env_vars,
             cmd: Some(&run_enclave_cmd),
             entrypoint: None,
         };
