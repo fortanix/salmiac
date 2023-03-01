@@ -400,8 +400,11 @@ pub(crate) fn request_vsk(env_vars: &[(String, String)]) -> Result<Sobject, Stri
             )
         })?;
 
-    info!("sdkms client creation done, requesting key with name {:?}", key_name);
+    let version = client.version().map_err(|e| format!("Unable to connect to sdkms client {:?}", e))?;
+    info!("Connected to sdkms version {} API version {}", version.version, version.api_version);
+
     let request = SobjectDescriptor::Name(key_name.clone());
+    info!("Requesting key with name {:?}", key_name);
     client
         .export_sobject(&request)
         .map_err(|err| format!("Failed requesting VSK {}. {:?}", key_name, err))
