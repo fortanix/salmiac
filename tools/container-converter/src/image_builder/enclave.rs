@@ -489,7 +489,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
+    fn populate_docker_file(&self, file: &mut fs::File, mut enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let add = DockerCopyArgs {
@@ -525,9 +525,8 @@ impl<'a> EnclaveImageBuilder<'a> {
                 enclave_settings_file.display()
             )
         };
-
-        let mut env = enclave_settings.env_vars;
-        env.push(rust_log_env_var("enclave"));
+        
+        enclave_settings.env_vars.push(rust_log_env_var("enclave"));
 
         let docker_file = DockerFile {
             from: &self.enclave_base_image.to_string(),
