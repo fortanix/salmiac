@@ -16,7 +16,6 @@ pub enum SetupMessages {
     Certificate(String),
     UserProgramExit(UserProgramExitStatus),
     ApplicationConfig(ApplicationConfiguration),
-    UseFileSystem(bool),
     NBDConfiguration(NBDConfiguration),
     EnvVariables(Vec<(String, String)>),
     ExtraUserProgramArguments(Vec<String>),
