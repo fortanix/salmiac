@@ -5,22 +5,16 @@ mod parent;
 use std::process;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use log::{error, info};
+use log::{error, info, warn};
 use shared::models::UserProgramExitStatus;
+use model_types::ByteUnit;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
     env_logger::init();
 
     let matches = console_arguments();
-
-    let enclave_extra_args = matches
-        .values_of("unknown")
-        .unwrap_or_default()
-        .into_iter()
-        .map(|e| e.to_string())
-        .collect();
-    info!("enclave_extra_args is {:?}", enclave_extra_args);
+    let parent_args = ParentConsoleArguments::new(&matches);
 
     if std::env::vars().any(|e| e.0 == "USE_VSK" && (e.1.trim() == "true" || e.1 == "1" || e.1 == "True")) {
         info!("USE_VSK is set");
@@ -38,7 +32,7 @@ async fn main() -> Result<(), String> {
         );
     }
 
-    match parent::run(enclave_extra_args).await {
+    match parent::run(parent_args).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             info!("User program exits with code: {}", code);
             process::exit(code)
@@ -54,6 +48,44 @@ async fn main() -> Result<(), String> {
     }
 }
 
+struct ParentConsoleArguments {
+    pub rw_block_file_size: ByteUnit,
+
+    pub enclave_extra_args: Vec<String>
+}
+
+impl ParentConsoleArguments {
+    const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
+
+    fn new(matches: &ArgMatches) -> Self {
+        let rw_block_file_size = match matches.value_of("rw-mem-size").map(|e| ByteUnit::from_str(e)) {
+            Some(Ok(result)) => { result }
+            Some(Err(err)) => {
+                warn!("Cannot parse rw-mem-size.{:?}. Setting read/write block size to a default value of {}", err, ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE));
+                ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+            }
+            None => {
+                warn!("rw-mem-size is not present. Setting read/write block size to a default value of {}", ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE));
+                ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+            }
+        };
+
+        let enclave_extra_args = matches
+            .values_of("unknown")
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect();
+        info!("enclave_extra_args is {:?}", enclave_extra_args);
+
+        Self {
+            rw_block_file_size,
+            enclave_extra_args
+        }
+    }
+}
+
+
 fn console_arguments<'a>() -> ArgMatches<'a> {
     let result = App::new("Vsock proxy")
         .about("Vsock proxy")
@@ -61,6 +93,13 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .setting(AppSettings::AllowLeadingHyphen)
         .setting(AppSettings::DisableVersion)
         .setting(AppSettings::DisableHelpFlags)
+        .arg(
+            Arg::with_name("rw-mem-size")
+                .long("rw-mem-size")
+                .help("Size of the read/write block file")
+                .takes_value(true)
+                .required(false),
+        )
         // Together with settings `AppSettings::AllowExternalSubcommands` and `AppSettings::AllowLeadingHyphen`
         // this `arg()` will capture all not defined arguments
         .arg(Arg::with_name("unknown").multiple(true).allow_hyphen_values(true));

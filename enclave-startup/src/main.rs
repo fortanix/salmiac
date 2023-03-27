@@ -51,6 +51,7 @@ fn main() -> Result<(), String> {
 
     // on success this function will not return, not returning has the same
     // implications as calling `process::exit`
+    info!("Launching client application.");
     let err = client_command.exec();
 
     Err(format!("Failed to run subprocess {}. {:?}", bin, err))

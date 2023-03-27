@@ -12,6 +12,7 @@ use crate::network::{
     PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
 };
 use crate::packet_capture::start_pcap_loops;
+use crate::ParentConsoleArguments;
 use shared::models::{ApplicationConfiguration, CCMBackendUrl, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus, FileWithPath, GlobalNetworkSettings};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
@@ -27,6 +28,8 @@ use std::str::FromStr;
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
 const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
+
+const RW_BLOCK_FILE_OUT: &'static str = "/opt/fortanix/enclave-os/Blockfile-rw.ext4";
 
 const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     NBDExportConfig {
@@ -47,7 +50,7 @@ const DEFAULT_CPU_COUNT: u8 = 2;
 
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
-pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
+pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
     info!("Spawning enclave process.");
     // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
     let _enclave_process = tokio::spawn(start_nitro_enclave());
@@ -67,9 +70,9 @@ pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatu
     });
 
     send_env_variables(&mut enclave_port).await?;
-    send_enclave_extra_console_args(&mut enclave_port, enclave_extra_args).await?;
+    send_enclave_extra_console_args(&mut enclave_port, args.enclave_extra_args).await?;
 
-    let setup_result = setup_parent(&mut enclave_port).await?;
+    let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
 
     let mut background_tasks = start_background_tasks(setup_result)?;
@@ -284,7 +287,7 @@ struct ParentSetupResult {
     file_system_tap: PairedTapDevice,
 }
 
-async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult, String> {
+async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
@@ -302,6 +305,9 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
 
     let file_system_tap = {
         let (parent_address, enclave_address) = choose_network_addresses_for_fs_taps(network_addresses_in_use)?;
+
+        create_rw_block_file(rw_block_file_size)?;
+        info!("RW Block file of size {} bytes has been created.", rw_block_file_size);
 
         setup_file_system_tap_devices(vsock, parent_address, enclave_address).await?
     };
@@ -453,4 +459,20 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
             None
         }
     }
+}
+
+fn create_rw_block_file(size: u64) -> Result<(), String> {
+    let block_file = fs::File::create(RW_BLOCK_FILE_OUT)
+        .map_err(|err| format!("Failed creating RW block file {}. {:?}", RW_BLOCK_FILE_OUT, err))?;
+
+    block_file
+        .set_len(size)
+        .map_err(|err| format!(
+            "Failed truncating RW block file {} to size {}. {:?}",
+            RW_BLOCK_FILE_OUT,
+            size,
+            err
+        ))?;
+
+    Ok(())
 }

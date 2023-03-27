@@ -70,10 +70,10 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
 pub(crate) fn get_image_env(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Vec<String> {
     let mut result = input_image.details.config.env.as_ref().map(|e| e.clone()).unwrap_or(vec![]);
 
-    /// Docker `ENV` assigns environment variables by the order of definition, thus making
-    /// latest definition of the same variable override previous definition.
-    /// We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
-    /// by adding all `conversion_request` variables to the end of `env_vars` vector.
+    // Docker `ENV` assigns environment variables by the order of definition, thus making
+    // latest definition of the same variable override previous definition.
+    // We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
+    // by adding all `conversion_request` variables to the end of `env_vars` vector.
     for request_env in &converter_options.env_vars {
         result.push(request_env.clone());
     }
@@ -123,11 +123,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
 
-    pub const RW_BLOCK_FILE_OUT: &'static str = "Blockfile-rw.ext4";
-
-    // 256 MB converted to bytes
-    pub const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
-
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         Resource {
             name: "enclave",
@@ -165,10 +160,9 @@ impl<'a> EnclaveImageBuilder<'a> {
             let root_hash = self.create_block_file(docker_util).await?;
             info!("Client FS Block file has been created.");
 
-            self.create_rw_block_file().await?;
-            info!("RW Block file has been created.");
-
-            root_hash
+             Some(root_hash)
+            }
+            _ => None,
         };
 
         let enclave_manifest = EnclaveManifest {
@@ -325,29 +319,6 @@ impl<'a> EnclaveImageBuilder<'a> {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })
-    }
-
-    async fn create_rw_block_file(&self) -> Result<()> {
-        let block_file_out_path = self.dir.path().join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
-
-        let block_file = fs::File::create(&block_file_out_path).map_err(|err| ConverterError {
-            message: format!("Failed creating RW block file {}. {:?}", block_file_out_path.display(), err),
-            kind: ConverterErrorKind::BlockFileCreation,
-        })?;
-
-        block_file
-            .set_len(EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE)
-            .map_err(|err| ConverterError {
-                message: format!(
-                    "Failed truncating RW block file {} to size {}. {:?}",
-                    block_file_out_path.display(),
-                    EnclaveImageBuilder::RW_BLOCK_FILE_DEFAULT_SIZE,
-                    err
-                ),
-                kind: ConverterErrorKind::BlockFileCreation,
-            })?;
-
-        Ok(())
     }
 
     async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
