@@ -148,7 +148,6 @@ async fn startup(
         EnclaveSetupResult {
             app_config,
             enclave_manifest,
-            fs_root: fs_root.to_path_buf(),
             env_vars,
         },
         networking_setup_result,

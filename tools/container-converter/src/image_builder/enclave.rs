@@ -160,9 +160,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             let root_hash = self.create_block_file(docker_util).await?;
             info!("Client FS Block file has been created.");
 
-             Some(root_hash)
-            }
-            _ => None,
+            root_hash
         };
 
         let enclave_manifest = EnclaveManifest {
