@@ -13,7 +13,10 @@ use crate::network::{
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
-use shared::models::{ApplicationConfiguration, CCMBackendUrl, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus, FileWithPath, GlobalNetworkSettings};
+use shared::models::{
+    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
+    UserProgramExitStatus,
+};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
 use shared::{extract_enum_value, with_background_tasks};
@@ -327,14 +330,18 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
 
     fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
-            .map(|e| FileWithPath { path: path.to_string(), data: e.into_bytes() })
+            .map(|e| FileWithPath {
+                path: path.to_string(),
+                data: e.into_bytes(),
+            })
             .map_err(|err| format!("Failed reading parent's {} file. {:?}", path, err))
     }
 
     let raw_hostname = nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
 
-    let hostname = raw_hostname.into_string().map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
-
+    let hostname = raw_hostname
+        .into_string()
+        .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
     let dns_file = read_file(DNS_RESOLV_FILE)?;
     let hosts_file = read_file(HOSTS_FILE)?;
@@ -342,7 +349,7 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file, hosts_file, host_name_file]
+        global_settings_list: vec![dns_file, hosts_file, host_name_file],
     };
 
     enclave_port
@@ -465,14 +472,12 @@ fn create_rw_block_file(size: u64) -> Result<(), String> {
     let block_file = fs::File::create(RW_BLOCK_FILE_OUT)
         .map_err(|err| format!("Failed creating RW block file {}. {:?}", RW_BLOCK_FILE_OUT, err))?;
 
-    block_file
-        .set_len(size)
-        .map_err(|err| format!(
+    block_file.set_len(size).map_err(|err| {
+        format!(
             "Failed truncating RW block file {} to size {}. {:?}",
-            RW_BLOCK_FILE_OUT,
-            size,
-            err
-        ))?;
+            RW_BLOCK_FILE_OUT, size, err
+        )
+    })?;
 
     Ok(())
 }

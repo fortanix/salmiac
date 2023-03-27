@@ -6,8 +6,8 @@ use std::process;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info, warn};
-use shared::models::UserProgramExitStatus;
 use model_types::ByteUnit;
+use shared::models::UserProgramExitStatus;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
@@ -51,7 +51,7 @@ async fn main() -> Result<(), String> {
 struct ParentConsoleArguments {
     pub rw_block_file_size: ByteUnit,
 
-    pub enclave_extra_args: Vec<String>
+    pub enclave_extra_args: Vec<String>,
 }
 
 impl ParentConsoleArguments {
@@ -59,13 +59,20 @@ impl ParentConsoleArguments {
 
     fn new(matches: &ArgMatches) -> Self {
         let rw_block_file_size = match matches.value_of("rw-mem-size").map(|e| ByteUnit::from_str(e)) {
-            Some(Ok(result)) => { result }
+            Some(Ok(result)) => result,
             Some(Err(err)) => {
-                warn!("Cannot parse rw-mem-size.{:?}. Setting read/write block size to a default value of {}", err, ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE));
+                warn!(
+                    "Cannot parse rw-mem-size.{:?}. Setting read/write block size to a default value of {}",
+                    err,
+                    ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+                );
                 ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
             }
             None => {
-                warn!("rw-mem-size is not present. Setting read/write block size to a default value of {}", ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE));
+                warn!(
+                    "rw-mem-size is not present. Setting read/write block size to a default value of {}",
+                    ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+                );
                 ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
             }
         };
@@ -80,11 +87,10 @@ impl ParentConsoleArguments {
 
         Self {
             rw_block_file_size,
-            enclave_extra_args
+            enclave_extra_args,
         }
     }
 }
-
 
 fn console_arguments<'a>() -> ArgMatches<'a> {
     let result = App::new("Vsock proxy")
