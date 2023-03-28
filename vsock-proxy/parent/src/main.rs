@@ -55,25 +55,30 @@ struct ParentConsoleArguments {
 }
 
 impl ParentConsoleArguments {
+    // 256MB converted to bytes
     const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
 
+    fn default_rw_block_file_size() -> ByteUnit {
+        ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+    }
+
     fn new(matches: &ArgMatches) -> Self {
-        let rw_block_file_size = match matches.value_of("rw-mem-size").map(|e| ByteUnit::from_str(e)) {
+        let rw_block_file_size = match matches.value_of("rw-storage-size").map(|e| ByteUnit::from_str(e)) {
             Some(Ok(result)) => result,
             Some(Err(err)) => {
                 warn!(
-                    "Cannot parse rw-mem-size.{:?}. Setting read/write block size to a default value of {}",
+                    "Cannot parse rw-storage-size.{:?}. Setting read/write block size to a default value of {}",
                     err,
-                    ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
                 );
-                ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+                ParentConsoleArguments::default_rw_block_file_size()
             }
             None => {
                 warn!(
-                    "rw-mem-size is not present. Setting read/write block size to a default value of {}",
-                    ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+                    "rw-storage-size is not present. Setting read/write block size to a default value of {}",
+                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
                 );
-                ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+                ParentConsoleArguments::default_rw_block_file_size()
             }
         };
 
@@ -100,8 +105,8 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .setting(AppSettings::DisableVersion)
         .setting(AppSettings::DisableHelpFlags)
         .arg(
-            Arg::with_name("rw-mem-size")
-                .long("rw-mem-size")
+            Arg::with_name("rw-storage-size")
+                .long("rw-storage-size")
                 .help("Size of the read/write block file")
                 .takes_value(true)
                 .required(false),
