@@ -72,13 +72,11 @@ pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatu
     let setup_result = setup_parent(&mut enclave_port).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
 
-    let use_file_system = extract_enum_value!(enclave_port.read_lv().await?, SetupMessages::UseFileSystem(e) => e)?;
-    let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
+    let mut background_tasks = start_background_tasks(setup_result)?;
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-        if use_file_system {
-            send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
-        }
+
+        send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -252,10 +250,7 @@ async fn start_nitro_enclave() -> Result<(), String> {
     run_subprocess(command, &args).await
 }
 
-fn start_background_tasks(
-    parent_setup_result: ParentSetupResult,
-    use_file_system: bool,
-) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
@@ -271,15 +266,13 @@ fn start_background_tasks(
     result.push(fs_tap_loops.tap_to_vsock);
     result.push(fs_tap_loops.vsock_to_tap);
 
-    if use_file_system {
-        write_nbd_config(fs_device.tap_l3_address.ip(), NBD_EXPORTS)?;
+    write_nbd_config(fs_device.tap_l3_address.ip(), NBD_EXPORTS)?;
 
-        for export_config in NBD_EXPORTS {
-            let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
-            info!("Started nbd server serving block file {}", export_config.block_file_path);
+    for export_config in NBD_EXPORTS {
+        let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
+        info!("Started nbd server serving block file {}", export_config.block_file_path);
 
-            result.push(nbd_process);
-        }
+        result.push(nbd_process);
     }
 
     Ok(result)
