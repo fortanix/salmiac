@@ -1,10 +1,88 @@
-use std::borrow::Borrow;
-use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use log::{debug, info};
 
-use log::debug;
+use std::fs;
+use std::io::{BufRead, BufReader, Write, Seek};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::fs::File;
+
+pub(crate) struct BuildContext {
+    pub(crate) path: PathBuf
+}
+
+impl BuildContext {
+    pub(crate) fn new(path: PathBuf) -> Result<Self, String> {
+        fs::create_dir(&path).map_err(|err| format!("Failed creating dir {}. {:?}", path.display(), err))?;
+
+        Ok(Self {
+            path
+        })
+    }
+
+    pub(crate) fn create_resource(&self, resource: Resource) -> Result<(), String> {
+        self.create_resources(&[resource])
+    }
+
+    pub(crate) fn create_resources(&self, resources: &[Resource]) -> Result<(), String> {
+        for resource in resources {
+            let mut file = fs::File::create(self.path.join(&resource.name))
+                .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+
+            file.write_all(&resource.data)
+                .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+
+            if resource.is_executable {
+                file.set_execute()
+                    .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn create_docker_file(&self, docker_file_contents: &DockerFile) -> Result<(), String> {
+        let docker_file_path = self.path.join("Dockerfile");
+
+        let mut docker_file_handler = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&docker_file_path)
+            .map_err(|err| format!("Failed to create docker file at {}. {:?}", self.path.display(), err))?;
+
+        let contents = docker_file_contents.to_string();
+        docker_file_handler.write_all(contents.as_bytes())
+            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
+
+        debug!("File contents of {}:\n {}", docker_file_path.display(), contents);
+
+        Ok(())
+    }
+
+    pub(crate) fn package_into_archive(self, archive_path: &Path) -> Result<File, String> {
+        let mut archive_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(archive_path)
+            .map_err(|err| format!("Failed creating an archive file at {} for Docker build context at {}. {:?}", self.path.display(), archive_path.display(), err))?;
+
+        let dir_as_str = self.path.to_str().ok_or(format!("Failed to cast path {} to string", self.path.display()))?;
+
+        info!("Packaging build context {} into archive at {}.", self.path.display(), archive_path.display());
+        shiplift::tarball::dir(&mut archive_file, &dir_as_str, true)
+            .map_err(|err| format!("Failed packaging Docker build context at {} into an archive at {}. {:?}", self.path.display(), archive_path.display(), err))?;
+
+        archive_file.rewind()
+            .map_err(|err| format!("Failed rewinding archive at {}. {:?}", archive_path.display(), err))?;
+
+        info!("Cleaning build context {}.", self.path.display());
+        fs::remove_dir_all(&self.path)
+            .map_err(|err| format!("Failed cleaning Docker build context at {}. {:?}", self.path.display(), err))?;
+
+        Ok(archive_file)
+    }
+}
 
 /// A type that describes an arbitrary file needed to build an image
 #[derive(Clone)]
@@ -14,36 +92,6 @@ pub(crate) struct Resource<'a> {
     pub(crate) data: &'a [u8],
 
     pub(crate) is_executable: bool,
-}
-
-pub(crate) fn create_resources(resources: &[Resource], dir: &Path) -> Result<(), String> {
-    for resource in resources {
-        let mut file = fs::File::create(dir.join(&resource.name))
-            .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
-
-        file.write_all(&resource.data)
-            .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
-
-        if resource.is_executable {
-            file.set_execute()
-                .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
-        }
-    }
-
-    Ok(())
-}
-
-pub(crate) fn create_docker_file(dir: &Path) -> Result<fs::File, String> {
-    fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(dir.join("Dockerfile"))
-        .map_err(|err| format!("Failed to create docker file at {}. {:?}", dir.display(), err))
-}
-
-pub(crate) fn log_docker_file(dir: &Path) -> Result<(), String> {
-    log_file(&*dir.join("Dockerfile"))
 }
 
 pub(crate) fn log_file(path: &Path) -> Result<(), String> {
@@ -67,32 +115,32 @@ pub(crate) fn log_file(path: &Path) -> Result<(), String> {
 }
 
 /// A type that describes docker file contents by section
-pub(crate) struct DockerFile<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> {
-    pub(crate) from: &'a str,
+pub(crate) struct DockerFile {
+    pub(crate) from: String,
 
-    pub(crate) add: Option<DockerCopyArgs<'a, V>>,
+    pub(crate) add: Option<DockerCopyArgs>,
 
-    pub(crate) env: &'a [T],
+    pub(crate) env: Vec<String>,
 
-    pub(crate) cmd: Option<&'a str>,
+    pub(crate) cmd: Option<String>,
 
-    pub(crate) entrypoint: Option<&'a str>,
+    pub(crate) entrypoint: Option<String>,
 }
 
-impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> DockerFile<'a, T, V> {
+impl DockerFile {
     /// A convenience constructor that populates only `FROM` field from `DockerReference`
-    pub fn from(from: &'a str) -> Self {
+    pub fn from(from: String) -> Self {
         DockerFile {
             from,
             add: None,
-            env: &[],
+            env: vec![],
             cmd: None,
             entrypoint: None,
         }
     }
 }
 
-impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for DockerFile<'a, T, V> {
+impl ToString for DockerFile {
     fn to_string(&self) -> String {
         let mut result = format!("FROM {} \n", self.from);
 
@@ -116,13 +164,13 @@ impl<'a, T: AsRef<str> + Borrow<str>, V: AsRef<str> + Borrow<str>> ToString for 
     }
 }
 
-pub(crate) struct DockerCopyArgs<'a, T: AsRef<str> + Borrow<str>> {
-    pub(crate) items: &'a [T],
+pub(crate) struct DockerCopyArgs {
+    pub(crate) items: Vec<String>,
 
     pub(crate) destination: String,
 }
 
-impl<'a, T: AsRef<str> + Borrow<str>> ToString for DockerCopyArgs<'a, T> {
+impl ToString for DockerCopyArgs {
     fn to_string(&self) -> String {
         format!("{} {}", self.items.join(" "), self.destination)
     }

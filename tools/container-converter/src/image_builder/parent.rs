@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 use api_model::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
@@ -8,7 +8,7 @@ use log::info;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile};
+use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile, BuildContext};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
@@ -55,19 +55,29 @@ impl<'a> ParentImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
-        let build_context_dir = self.create_build_context_dir()?;
+        let build_context = BuildContext::new(self.dir.path().join("parent-build-context"))
+            .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
 
-        let block_file_exists = self.move_enclave_files_into_build_context(&build_context_dir)?;
+        let block_file_exists = self.move_enclave_files_into_build_context(&build_context.path)?;
 
-        self.create_requisites(&build_context_dir, block_file_exists)
+        self.create_requisites(&build_context, block_file_exists)
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
         info!("Parent prerequisites have been created!");
 
+        let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("parent-build-context.tar"))
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+
         let result = docker_util
-            .create_image(image_reference, &build_context_dir)
+            .create_image_from_archive(image_reference, build_context_archive_file)
             .await
             .map_err(|message| ConverterError {
                 message,
@@ -75,17 +85,6 @@ impl<'a> ParentImageBuilder<'a> {
             })?;
 
         info!("Parent image has been created!");
-
-        Ok(result)
-    }
-
-    fn create_build_context_dir(&self) -> Result<PathBuf> {
-        let result = self.dir.path().join("parent-build-context");
-
-        fs::create_dir(&result).map_err(|err| ConverterError {
-            message: format!("Failed creating dir {}. {:?}", result.display(), err),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
 
         Ok(result)
     }
@@ -124,24 +123,21 @@ impl<'a> ParentImageBuilder<'a> {
         }
     }
 
-    fn create_requisites(&self, dir: &Path, block_file_exists: bool) -> std::result::Result<(), String> {
-        let mut docker_file = file::create_docker_file(dir)?;
-
-        let mut copy_items = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.to_vec();
+    fn create_requisites(&self, build_context: &BuildContext, block_file_exists: bool) -> std::result::Result<(), String> {
+        let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
 
         if block_file_exists {
-            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT);
-            copy_items.push(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
+            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT.to_string());
+            copy_items.push(EnclaveImageBuilder::RW_BLOCK_FILE_OUT.to_string());
         }
 
-        self.populate_docker_file(&mut docker_file, &copy_items)?;
+        let docker_file = self.docker_file_contents(copy_items);
 
-        if cfg!(debug_assertions) {
-            file::log_docker_file(dir)?;
-        }
+        build_context.create_docker_file(&docker_file)?;
 
-        file::create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES, dir)?;
-        let startup_script_path = dir.join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
+        build_context.create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
+
+        let startup_script_path = build_context.path.join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
 
         self.append_start_enclave_command(&startup_script_path)?;
 
@@ -152,9 +148,9 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(())
     }
 
-    fn populate_docker_file(&self, file: &mut fs::File, copy_items: &[&str]) -> std::result::Result<(), String> {
+    fn docker_file_contents(&self, items: Vec<String>) -> DockerFile {
         let add = DockerCopyArgs {
-            items: &copy_items,
+            items,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -166,22 +162,21 @@ impl<'a> ParentImageBuilder<'a> {
         let eos_debug_env = self.eos_debug_env_var();
 
         let env_vars = [
-            log_env.as_str(),
-            cpu_count_env.as_str(),
-            mem_size_env.as_str(),
-            eos_debug_env.as_str(),
+            log_env,
+            cpu_count_env,
+            mem_size_env,
+            eos_debug_env,
         ];
 
-        let docker_file = DockerFile {
-            from: &self.parent_image,
-            add: Some(add),
-            env: &env_vars,
-            cmd: None,
-            entrypoint: Some(&run_parent_cmd),
-        };
+        let from = self.parent_image.clone();
 
-        file.write_all(docker_file.to_string().as_bytes())
-            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))
+        DockerFile {
+            from,
+            add: Some(add),
+            env: env_vars.to_vec(),
+            cmd: None,
+            entrypoint: Some(run_parent_cmd),
+        }
     }
 
     fn append_start_enclave_command(&self, startup_script_path: &Path) -> std::result::Result<(), String> {

@@ -1684,7 +1684,7 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 [[package]]
 name = "shiplift"
 version = "0.7.0"
-source = "git+https://github.com/fortanix/shiplift.git?branch=master#16bc73448d05ef343fd4c9c700327912ace6241a"
+source = "git+https://github.com/fortanix/shiplift.git#9672953920f57a468934e67a560c64270a96aea2"
 dependencies = [
  "base64",
  "byteorder",
