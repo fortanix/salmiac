@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Write, Read};
-use std::path::Path;
 use std::{env, fs};
 
 use api_model::AuthConfig;
@@ -11,7 +10,7 @@ use futures::StreamExt;
 use log::{debug, error, info, warn};
 use shiplift::container::ContainerCreateInfo;
 use shiplift::image::{ImageDetails, PushOptions, BuildParams};
-use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
+use shiplift::{ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
 
 use crate::image::ImageWithDetails;
 
@@ -25,8 +24,6 @@ pub trait DockerUtil: Send + Sync {
     async fn load_image(&self, tar_path: &str) -> Result<(), String>;
 
     async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String>;
-
-    async fn build_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String>;
 
     async fn build_image_from_archive(&self, archive: fs::File, image: &DockerReference<'_>) -> Result<(), String>;
 
@@ -47,17 +44,6 @@ pub trait DockerUtil: Send + Sync {
         info!("Deleted container {}", container_info.id);
 
         Ok(())
-    }
-
-    async fn create_image<'a>(&self, image: DockerReference<'a>, dir: &Path) -> Result<ImageWithDetails<'a>, String> {
-        self.build_image(dir, &image).await?;
-
-        let details = self.get_local_image_details(&image).await?;
-
-        Ok(ImageWithDetails {
-            reference: image,
-            details,
-        })
     }
 
     async fn create_image_from_archive<'a>(&self, image: DockerReference<'a>, archive_file: File) -> Result<ImageWithDetails<'a>, String> {
@@ -271,35 +257,6 @@ impl DockerUtil for DockerDaemon {
                     image.details.id, repository, err
                 )
             })
-    }
-
-    async fn build_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String> {
-        let path_as_string = docker_dir
-            .as_os_str()
-            .to_str()
-            .ok_or(format!("Failed to convert path {} to UTF8 string.", docker_dir.display()))?;
-
-        let mut build_opts_builder = BuildOptions::builder(path_as_string);
-        let build_options = build_opts_builder.set_skip_gzip(true).tag(image.to_string()).build();
-
-        env::set_var("DOCKER_BUILDKIT", "1");
-
-        info!("Started building image {}", image.to_string());
-
-        let mut stream = self.docker.images().build(&build_options);
-        while let Some(build_result) = stream.next().await {
-            match build_result {
-                Ok(output) => {
-                    info!("{:?}", output);
-                }
-                Err(e) => {
-                    error!("{:?}", e);
-                    return Err(format!("Docker build failed with: {}", e));
-                }
-            }
-        }
-
-        Ok(())
     }
 
     async fn build_image_from_archive(&self, archive: File, image: &Reference<'_>) -> Result<(), String> {

@@ -3,20 +3,25 @@ use log::{debug, info};
 use std::fs;
 use std::io::{BufRead, BufReader, Write, Seek};
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::fs::File;
+use tempfile::TempDir;
 
 pub(crate) struct BuildContext {
-    pub(crate) path: PathBuf
+    temp_dir: TempDir,
 }
 
 impl BuildContext {
-    pub(crate) fn new(path: PathBuf) -> Result<Self, String> {
-        fs::create_dir(&path).map_err(|err| format!("Failed creating dir {}. {:?}", path.display(), err))?;
+    pub(crate) fn new(dir: &Path) -> Result<Self, String> {
+        let temp_dir = TempDir::new_in(dir).map_err(|err| format!("Cannot create build context in {}. {:?}", dir.display(), err))?;
 
         Ok(Self {
-            path
+            temp_dir
         })
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        self.temp_dir.path()
     }
 
     pub(crate) fn create_resource(&self, resource: Resource) -> Result<(), String> {
@@ -25,7 +30,7 @@ impl BuildContext {
 
     pub(crate) fn create_resources(&self, resources: &[Resource]) -> Result<(), String> {
         for resource in resources {
-            let mut file = fs::File::create(self.path.join(&resource.name))
+            let mut file = fs::File::create(self.path().join(&resource.name))
                 .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
 
             file.write_all(&resource.data)
@@ -41,14 +46,14 @@ impl BuildContext {
     }
 
     pub(crate) fn create_docker_file(&self, docker_file_contents: &DockerFile) -> Result<(), String> {
-        let docker_file_path = self.path.join("Dockerfile");
+        let docker_file_path = self.path().join("Dockerfile");
 
         let mut docker_file_handler = fs::OpenOptions::new()
             .create(true)
             .truncate(true)
             .write(true)
             .open(&docker_file_path)
-            .map_err(|err| format!("Failed to create docker file at {}. {:?}", self.path.display(), err))?;
+            .map_err(|err| format!("Failed to create docker file at {}. {:?}", self.path().display(), err))?;
 
         let contents = docker_file_contents.to_string();
         docker_file_handler.write_all(contents.as_bytes())
@@ -65,20 +70,16 @@ impl BuildContext {
             .write(true)
             .read(true)
             .open(archive_path)
-            .map_err(|err| format!("Failed creating an archive file at {} for Docker build context at {}. {:?}", self.path.display(), archive_path.display(), err))?;
+            .map_err(|err| format!("Failed creating an archive file at {} for Docker build context at {}. {:?}", self.path().display(), archive_path.display(), err))?;
 
-        let dir_as_str = self.path.to_str().ok_or(format!("Failed to cast path {} to string", self.path.display()))?;
+        let dir_as_str = self.path().to_str().ok_or(format!("Failed to cast path {} to string", self.path().display()))?;
 
-        info!("Packaging build context {} into archive at {}.", self.path.display(), archive_path.display());
+        info!("Packaging build context {} into archive at {}.", self.path().display(), archive_path.display());
         shiplift::tarball::dir(&mut archive_file, &dir_as_str, true)
-            .map_err(|err| format!("Failed packaging Docker build context at {} into an archive at {}. {:?}", self.path.display(), archive_path.display(), err))?;
+            .map_err(|err| format!("Failed packaging Docker build context at {} into an archive at {}. {:?}", self.path().display(), archive_path.display(), err))?;
 
         archive_file.rewind()
             .map_err(|err| format!("Failed rewinding archive at {}. {:?}", archive_path.display(), err))?;
-
-        info!("Cleaning build context {}.", self.path.display());
-        fs::remove_dir_all(&self.path)
-            .map_err(|err| format!("Failed cleaning Docker build context at {}. {:?}", self.path.display(), err))?;
 
         Ok(archive_file)
     }

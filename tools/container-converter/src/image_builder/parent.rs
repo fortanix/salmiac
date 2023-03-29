@@ -55,13 +55,13 @@ impl<'a> ParentImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
-        let build_context = BuildContext::new(self.dir.path().join("parent-build-context"))
+        let build_context = BuildContext::new(&self.dir.path())
             .map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
-        let block_file_exists = self.move_enclave_files_into_build_context(&build_context.path)?;
+        let block_file_exists = self.move_enclave_files_into_build_context(&build_context.path())?;
 
         self.create_requisites(&build_context, block_file_exists)
             .map_err(|message| ConverterError {
@@ -130,7 +130,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         build_context.create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
 
-        let startup_script_path = build_context.path.join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
+        let startup_script_path = build_context.path().join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
 
         self.append_start_enclave_command(&startup_script_path)?;
 

@@ -148,7 +148,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<EnclaveBuilderResult> {
         let is_debug = enclave_settings.is_debug;
 
-        let build_context = BuildContext::new(self.dir.path().join("enclave-build-context"))
+        let build_context = BuildContext::new(&self.dir.path())
             .map_err(|message| {
                 ConverterError {
                     message,
@@ -202,14 +202,14 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?
         };
 
-        // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
-        // After nitro-cli finishes we can safely reclaim it.
         let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("enclave-build-context.tar"))
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
+        // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
+        // After nitro-cli finishes we can safely reclaim it.
         let result = docker_util
             .create_image_from_archive(result_reference, build_context_archive_file)
             .await
@@ -240,7 +240,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<ImageWithDetails<'b>> {
         info!("Creating debug enclave image");
 
-        let build_context = BuildContext::new(self.dir.path().join("enclave-debug-context"))
+        let build_context = BuildContext::new(&self.dir.path())
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -251,8 +251,14 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
+        let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("enclave-debug-build-context.tar"))
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+
         docker_util
-            .create_image(result_reference, &build_context_dir)
+            .create_image_from_archive(result_reference, build_context_archive_file)
             .await
             .map_err(|message| ConverterError {
                 message,
@@ -353,7 +359,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 block_file_mount_dir.as_os_str(),
                 block_file_out.as_os_str(),
             ];
-            let block_file_script_path = build_context.path.join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
+            let block_file_script_path = build_context.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
 
             run_subprocess(block_file_script_path.as_os_str(), &args)
                 .await

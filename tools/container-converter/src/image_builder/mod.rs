@@ -49,10 +49,6 @@ mod tests {
             todo!()
         }
 
-        async fn build_image(&self, _docker_dir: &Path, _image: &Reference<'_>) -> Result<(), String> {
-            todo!()
-        }
-
         async fn create_container(&self, image: &Reference<'_>) -> Result<ContainerCreateInfo, String> {
             Ok(ContainerCreateInfo {
                 id: image.to_string(),
