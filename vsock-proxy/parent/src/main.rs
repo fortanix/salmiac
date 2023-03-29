@@ -108,13 +108,6 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .setting(AppSettings::AllowLeadingHyphen)
         .setting(AppSettings::DisableVersion)
         .setting(AppSettings::DisableHelpFlags)
-        .arg(
-            Arg::with_name("rw-storage-size")
-                .long("rw-storage-size")
-                .help("Size of the read/write block file")
-                .takes_value(true)
-                .required(false),
-        )
         // Together with settings `AppSettings::AllowExternalSubcommands` and `AppSettings::AllowLeadingHyphen`
         // this `arg()` will capture all not defined arguments
         .arg(Arg::with_name("unknown").multiple(true).allow_hyphen_values(true));
