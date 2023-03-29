@@ -163,7 +163,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
 
         let fs_root_hash = {
-            let root_hash = self.create_block_file(docker_util).await?;
+            let root_hash = self.create_block_file(docker_util, &build_context).await?;
             info!("Client FS Block file has been created.");
 
             root_hash
@@ -211,7 +211,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })?;
 
         let result = docker_util
-            .create_image_from_archive(enclave_image_reference, build_context_archive_file)
+            .create_image_from_archive(result_reference, build_context_archive_file)
             .await
             .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))
             .map_err(|message| ConverterError {
@@ -425,7 +425,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
-    fn docker_file_contents(&self, enclave_settings: EnclaveSettings) -> DockerFile {
+    fn docker_file_contents(&self, mut enclave_settings: EnclaveSettings) -> DockerFile {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
         let items = EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
@@ -466,8 +466,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         
         enclave_settings.env_vars.push(rust_log_env_var("enclave"));
 
-        let docker_file = DockerFile {
-            from: &self.enclave_base_image.to_string(),
+        DockerFile {
+            from: self.enclave_base_image.to_string(),
             add: Some(add),
             env: enclave_settings.env_vars,
             cmd: Some(run_enclave_cmd),
