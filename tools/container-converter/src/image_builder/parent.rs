@@ -111,12 +111,6 @@ impl<'a> ParentImageBuilder<'a> {
         if block_file.exists() {
             move_file(&block_file, &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT))?;
 
-            let rw_block_file = self.dir.path().join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT);
-            move_file(
-                &rw_block_file,
-                &build_context_dir.join(EnclaveImageBuilder::RW_BLOCK_FILE_OUT),
-            )?;
-
             Ok(true)
         } else {
             Ok(false)
@@ -127,8 +121,7 @@ impl<'a> ParentImageBuilder<'a> {
         let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
 
         if block_file_exists {
-            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT.to_string());
-            copy_items.push(EnclaveImageBuilder::RW_BLOCK_FILE_OUT.to_string());
+            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT);
         }
 
         let docker_file = self.docker_file_contents(copy_items);

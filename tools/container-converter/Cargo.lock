@@ -1102,6 +1102,7 @@ dependencies = [
  "serde-value",
  "serde_json 1.0.2",
  "strum",
+ "thiserror",
  "time",
  "url 1.7.2",
  "uuid",

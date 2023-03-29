@@ -12,7 +12,11 @@ use crate::network::{
     PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
 };
 use crate::packet_capture::start_pcap_loops;
-use shared::models::{ApplicationConfiguration, CCMBackendUrl, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus, FileWithPath, GlobalNetworkSettings};
+use crate::ParentConsoleArguments;
+use shared::models::{
+    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
+    UserProgramExitStatus,
+};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
 use shared::{extract_enum_value, with_background_tasks};
@@ -27,6 +31,8 @@ use std::str::FromStr;
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
 const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
+
+const RW_BLOCK_FILE_OUT: &'static str = "/opt/fortanix/enclave-os/Blockfile-rw.ext4";
 
 const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     NBDExportConfig {
@@ -47,7 +53,7 @@ const DEFAULT_CPU_COUNT: u8 = 2;
 
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
-pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
+pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
     info!("Spawning enclave process.");
     // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
     let _enclave_process = tokio::spawn(start_nitro_enclave());
@@ -67,18 +73,16 @@ pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatu
     });
 
     send_env_variables(&mut enclave_port).await?;
-    send_enclave_extra_console_args(&mut enclave_port, enclave_extra_args).await?;
+    send_enclave_extra_console_args(&mut enclave_port, args.enclave_extra_args).await?;
 
-    let setup_result = setup_parent(&mut enclave_port).await?;
+    let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
 
-    let use_file_system = extract_enum_value!(enclave_port.read_lv().await?, SetupMessages::UseFileSystem(e) => e)?;
-    let mut background_tasks = start_background_tasks(setup_result, use_file_system)?;
+    let mut background_tasks = start_background_tasks(setup_result)?;
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-        if use_file_system {
-            send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
-        }
+
+        send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -252,10 +256,7 @@ async fn start_nitro_enclave() -> Result<(), String> {
     run_subprocess(command, &args).await
 }
 
-fn start_background_tasks(
-    parent_setup_result: ParentSetupResult,
-    use_file_system: bool,
-) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
@@ -271,15 +272,13 @@ fn start_background_tasks(
     result.push(fs_tap_loops.tap_to_vsock);
     result.push(fs_tap_loops.vsock_to_tap);
 
-    if use_file_system {
-        write_nbd_config(fs_device.tap_l3_address.ip(), NBD_EXPORTS)?;
+    write_nbd_config(fs_device.tap_l3_address.ip(), NBD_EXPORTS)?;
 
-        for export_config in NBD_EXPORTS {
-            let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
-            info!("Started nbd server serving block file {}", export_config.block_file_path);
+    for export_config in NBD_EXPORTS {
+        let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
+        info!("Started nbd server serving block file {}", export_config.block_file_path);
 
-            result.push(nbd_process);
-        }
+        result.push(nbd_process);
     }
 
     Ok(result)
@@ -291,7 +290,7 @@ struct ParentSetupResult {
     file_system_tap: PairedTapDevice,
 }
 
-async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult, String> {
+async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
@@ -309,6 +308,9 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
 
     let file_system_tap = {
         let (parent_address, enclave_address) = choose_network_addresses_for_fs_taps(network_addresses_in_use)?;
+
+        create_rw_block_file(rw_block_file_size)?;
+        info!("RW Block file of size {} bytes has been created.", rw_block_file_size);
 
         setup_file_system_tap_devices(vsock, parent_address, enclave_address).await?
     };
@@ -328,14 +330,18 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
 
     fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
-            .map(|e| FileWithPath { path: path.to_string(), data: e.into_bytes() })
+            .map(|e| FileWithPath {
+                path: path.to_string(),
+                data: e.into_bytes(),
+            })
             .map_err(|err| format!("Failed reading parent's {} file. {:?}", path, err))
     }
 
     let raw_hostname = nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
 
-    let hostname = raw_hostname.into_string().map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
-
+    let hostname = raw_hostname
+        .into_string()
+        .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
     let dns_file = read_file(DNS_RESOLV_FILE)?;
     let hosts_file = read_file(HOSTS_FILE)?;
@@ -343,7 +349,7 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file, hosts_file, host_name_file]
+        global_settings_list: vec![dns_file, hosts_file, host_name_file],
     };
 
     enclave_port
@@ -460,4 +466,18 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
             None
         }
     }
+}
+
+fn create_rw_block_file(size: u64) -> Result<(), String> {
+    let block_file = fs::File::create(RW_BLOCK_FILE_OUT)
+        .map_err(|err| format!("Failed creating RW block file {}. {:?}", RW_BLOCK_FILE_OUT, err))?;
+
+    block_file.set_len(size).map_err(|err| {
+        format!(
+            "Failed truncating RW block file {} to size {}. {:?}",
+            RW_BLOCK_FILE_OUT, size, err
+        )
+    })?;
+
+    Ok(())
 }
