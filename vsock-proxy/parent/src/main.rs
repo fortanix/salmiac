@@ -63,11 +63,15 @@ impl ParentConsoleArguments {
     }
 
     fn new(matches: &ArgMatches) -> Self {
-        let rw_block_file_size = match matches.value_of("rw-storage-size").map(|e| ByteUnit::from_str(e)) {
+        let rw_storage_size = std::env::vars()
+            .find(|e| e.0 == "RW_STORAGE_SIZE")
+            .map(|e| ByteUnit::from_str(&e.1));
+
+        let rw_block_file_size = match rw_storage_size {
             Some(Ok(result)) => result,
             Some(Err(err)) => {
                 warn!(
-                    "Cannot parse rw-storage-size.{:?}. Setting read/write block size to a default value of {}",
+                    "Cannot parse RW_STORAGE_SIZE.{:?}. Setting read/write block file size to a default value of {}",
                     err,
                     ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
                 );
@@ -75,7 +79,7 @@ impl ParentConsoleArguments {
             }
             None => {
                 warn!(
-                    "rw-storage-size is not present. Setting read/write block size to a default value of {}",
+                    "RW_STORAGE_SIZE is not present. Setting read/write block file size to a default value of {}",
                     ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
                 );
                 ParentConsoleArguments::default_rw_block_file_size()
