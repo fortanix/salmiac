@@ -121,7 +121,7 @@ impl<'a> ParentImageBuilder<'a> {
         let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
 
         if block_file_exists {
-            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT);
+            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT.to_string());
         }
 
         let docker_file = self.docker_file_contents(copy_items);

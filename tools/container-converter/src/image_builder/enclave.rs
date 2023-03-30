@@ -324,8 +324,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
-        let block_file_script = [Resource {
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil, build_context: &BuildContext) -> Result<FileSystemConfig> {
+        let block_file_script = Resource {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
             data: include_bytes!("../resources/fs/configure"),
             is_executable: true,
