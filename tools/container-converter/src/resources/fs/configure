@@ -37,6 +37,13 @@ size_mb_up=$(awk -v n=$size_mb -v d=1 'BEGIN{print int(((n * 2)+d/2)/d) * d}')
 
 file_offset=$(( size_mb_up*1024*1024 ))
 
+# Check if the system has enough space to create and populate the blockfile
+blockfile_parent=$(dirname $BLOCKFILE)
+available_disk_space=$( df -B 1M $blockfile_parent | awk 'NR==2 {print $4}' )
+if [ $available_disk_space -lt $size_mb_up ]
+ then echo "Available disk space:" $available_disk_space  "Required disk space:" $size_mb_up; exit 1
+ else echo "Enough space available"
+fi
 
 # This creates a 1GB block file for the filesystem.
 dd if=/dev/zero of=$BLOCKFILE bs=1M count=${size_mb_up}
