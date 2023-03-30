@@ -7,6 +7,8 @@ use std::path::{Path};
 use std::fs::File;
 use tempfile::TempDir;
 
+/// Describes a directory containing all dependencies needed to build a Docker image
+/// The directory deletes itself after going out of scope!
 pub(crate) struct BuildContext {
     temp_dir: TempDir,
 }
