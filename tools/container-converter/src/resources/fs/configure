@@ -46,7 +46,7 @@ if [ $available_disk_space -lt $size_mb_up ]
 fi
 
 # This creates a 1GB block file for the filesystem.
-dd if=/dev/zero of=$BLOCKFILE bs=1M count=${size_mb_up}
+fallocate -l ${size_mb_up}MB $BLOCKFILE
 
 # Create an ext4 filesystem on the block file created above.
 # TODO: Are there any filesystem parameters we want for this filesystem?

@@ -1,6 +1,6 @@
 use std::fs;
-use std::io::{Seek, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Seek};
+use std::path::{Path};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 
@@ -14,10 +14,10 @@ use tar::Archive;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{DockerCopyArgs, DockerFile, Resource};
+use crate::file::{DockerCopyArgs, DockerFile, Resource, BuildContext};
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
-use crate::{file, run_subprocess, ConverterError, ConverterErrorKind, Result};
+use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {
@@ -148,16 +148,22 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<EnclaveBuilderResult> {
         let is_debug = enclave_settings.is_debug;
 
-        let build_context_dir = self.create_build_context_dir()?;
+        let build_context = BuildContext::new(&self.dir.path())
+            .map_err(|message| {
+                ConverterError {
+                    message,
+                    kind: ConverterErrorKind::RequisitesCreation,
+                }
+            })?;
 
-        self.create_requisites(enclave_settings, &build_context_dir)
+        self.create_requisites(enclave_settings, &build_context)
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
         let fs_root_hash = {
-            let root_hash = self.create_block_file(docker_util).await?;
+            let root_hash = self.create_block_file(docker_util, &build_context).await?;
             info!("Client FS Block file has been created.");
 
             root_hash
@@ -170,7 +176,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             env_vars,
         };
 
-        self.create_manifest_file(enclave_manifest, &build_context_dir)?;
+        self.create_manifest_file(enclave_manifest, &build_context)?;
 
         info!("Enclave build prerequisites have been created!");
 
@@ -196,10 +202,16 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?
         };
 
+        let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("enclave-build-context.tar"))
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
         // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
         // After nitro-cli finishes we can safely reclaim it.
         let result = docker_util
-            .create_image(result_reference, &build_context_dir)
+            .create_image_from_archive(result_reference, build_context_archive_file)
             .await
             .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))
             .map_err(|message| ConverterError {
@@ -228,21 +240,25 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<ImageWithDetails<'b>> {
         info!("Creating debug enclave image");
 
-        let temp_dir = TempDir::new_in(self.dir.path()).map_err(|err| ConverterError {
-            message: format!("Failed creating temp dir in {}. {:?}", self.dir.path().display(), err),
+        let build_context = BuildContext::new(&self.dir.path())
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
+        build_context.create_docker_file(&DockerFile::from(debug_enclave_base.to_string())).map_err(|message| ConverterError {
+            message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
-        let build_context_dir = temp_dir.path();
-
-        self.create_debug_image_requisites(debug_enclave_base, &build_context_dir)
+        let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("enclave-debug-build-context.tar"))
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
         docker_util
-            .create_image(result_reference, &build_context_dir)
+            .create_image_from_archive(result_reference, build_context_archive_file)
             .await
             .map_err(|message| ConverterError {
                 message,
@@ -290,43 +306,32 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    fn create_build_context_dir(&self) -> Result<PathBuf> {
-        let result = self.dir.path().join("enclave-build-context");
-
-        fs::create_dir(&result).map_err(|err| ConverterError {
-            message: format!("Failed creating dir {}. {:?}", result.display(), err),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
-
-        Ok(result)
-    }
-
-    fn create_manifest_file(&self, enclave_manifest: EnclaveManifest, dir: &Path) -> Result<()> {
+    fn create_manifest_file(&self, enclave_manifest: EnclaveManifest, build_context: &BuildContext) -> Result<()> {
         let data = serde_json::to_vec(&enclave_manifest).map_err(|err| ConverterError {
             message: format!("Failed serializing enclave settings file. {:?}", err),
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
-        let resource = [Resource {
+        let resource = Resource {
             name: "enclave-settings.json",
             data: &data,
             is_executable: false,
-        }];
+        };
 
-        file::create_resources(&resource, dir).map_err(|message| ConverterError {
+        build_context.create_resource(resource).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
-        let block_file_script = [Resource {
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil, build_context: &BuildContext) -> Result<FileSystemConfig> {
+        let block_file_script = Resource {
             name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
             data: include_bytes!("../resources/fs/configure"),
             is_executable: true,
-        }];
+        };
 
-        file::create_resources(&block_file_script, self.dir.path()).map_err(|message| ConverterError {
+        build_context.create_resource(block_file_script).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
@@ -354,7 +359,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 block_file_mount_dir.as_os_str(),
                 block_file_out.as_os_str(),
             ];
-            let block_file_script_path = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
+            let block_file_script_path = build_context.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
 
             run_subprocess(block_file_script_path.as_os_str(), &args)
                 .await
@@ -416,53 +421,23 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image_reference.name().to_string() + ":" + &new_tag
     }
 
-    fn create_debug_image_requisites(
-        &self,
-        debug_enclave_base: &DockerReference,
-        dir: &Path,
-    ) -> std::result::Result<(), String> {
-        let mut docker_file = file::create_docker_file(dir)?;
+    fn create_requisites(&self, enclave_settings: EnclaveSettings, build_context: &BuildContext) -> std::result::Result<(), String> {
+        let docker_file = self.docker_file_contents(enclave_settings);
 
-        // To inject debug utilities into the client image we create a composition of a `debug_enclave_base` and `self.client_image_reference`
-        // by writing two `FROM` clauses into the Dockerfile and nothing else.
-        // The resulting image's `ENTRYPOINT` will be the one from `debug_enclave_base` because it is written last
-        let parent = self.client_image_reference.to_string();
-        let child = debug_enclave_base.to_string();
+        build_context.create_docker_file(&docker_file)?;
 
-        docker_file
-            .write_all(DockerFile::<'_, &str, &str>::from(&parent).to_string().as_bytes())
-            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
-
-        docker_file
-            .write_all(DockerFile::<'_, &str, &str>::from(&child).to_string().as_bytes())
-            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
-
-        if cfg!(debug_assertions) {
-            file::log_docker_file(dir)?;
-        }
+        build_context.create_resources(EnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
 
         Ok(())
     }
 
-    fn create_requisites(&self, enclave_settings: EnclaveSettings, dir: &Path) -> std::result::Result<(), String> {
-        let mut docker_file = file::create_docker_file(dir)?;
-
-        self.populate_docker_file(&mut docker_file, enclave_settings)?;
-
-        if cfg!(debug_assertions) {
-            file::log_docker_file(dir)?;
-        }
-
-        file::create_resources(EnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES, dir)?;
-
-        Ok(())
-    }
-
-    fn populate_docker_file(&self, file: &mut fs::File, mut enclave_settings: EnclaveSettings) -> std::result::Result<(), String> {
+    fn docker_file_contents(&self, mut enclave_settings: EnclaveSettings) -> DockerFile {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
+        let items = EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
+
         let add = DockerCopyArgs {
-            items: EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES,
+            items,
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
@@ -497,15 +472,12 @@ impl<'a> EnclaveImageBuilder<'a> {
         
         enclave_settings.env_vars.push(rust_log_env_var("enclave"));
 
-        let docker_file = DockerFile {
-            from: &self.enclave_base_image.to_string(),
+        DockerFile {
+            from: self.enclave_base_image.to_string(),
             add: Some(add),
-            env: &enclave_settings.env_vars,
-            cmd: Some(&run_enclave_cmd),
+            env: enclave_settings.env_vars,
+            cmd: Some(run_enclave_cmd),
             entrypoint: None,
-        };
-
-        file.write_all(docker_file.to_string().as_bytes())
-            .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))
+        }
     }
 }
