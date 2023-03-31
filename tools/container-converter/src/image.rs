@@ -69,9 +69,9 @@ impl<'a> ImageWithDetails<'a> {
         let id = &self.details.id;
 
         if id.starts_with("sha256:") {
-            &id[7..19]
+            &id[7..]
         } else {
-            &id[..12]
+            &id[..]
         }
     }
 
