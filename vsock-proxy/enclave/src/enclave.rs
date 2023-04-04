@@ -24,6 +24,7 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
+use shared::{HOSTS_FILE, HOSTNAME_FILE, NS_SWITCH_FILE};
 
 use std::convert::From;
 use std::env;
@@ -43,8 +44,9 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::TreeNode("/sys"),
     FileSystemNode::TreeNode("/dev"),
     FileSystemNode::TreeNode("/tmp"),
-    FileSystemNode::File("/etc/hostname"),
-    FileSystemNode::File("/etc/hosts"),
+    FileSystemNode::File(HOSTNAME_FILE),
+    FileSystemNode::File(HOSTS_FILE),
+    FileSystemNode::File(NS_SWITCH_FILE)
 ];
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {

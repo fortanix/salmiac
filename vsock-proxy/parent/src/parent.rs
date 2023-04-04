@@ -2,7 +2,7 @@ use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
-use shared::run_subprocess;
+use shared::{run_subprocess, DNS_RESOLV_FILE, HOSTS_FILE, HOSTNAME_FILE, NS_SWITCH_FILE};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockListener as AsyncVsockListener;
 use tokio_vsock::VsockStream as AsyncVsockStream;
@@ -20,7 +20,7 @@ use shared::models::{
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::start_tap_loops;
 use shared::{extract_enum_value, with_background_tasks};
-use shared::{VSOCK_PARENT_CID, VSOCK_PARENT_PORT};
+use shared::{VSOCK_PARENT_CID};
 
 use std::env;
 use std::fs;
@@ -33,6 +33,8 @@ const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
 
 const RW_BLOCK_FILE_OUT: &'static str = "/opt/fortanix/enclave-os/Blockfile-rw.ext4";
+
+const VSOCK_PARENT_PORT: u32 = 5006;
 
 const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     NBDExportConfig {
@@ -324,10 +326,6 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
 }
 
 async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
-    const DNS_RESOLV_FILE: &'static str = "/etc/resolv.conf";
-    const HOSTS_FILE: &'static str = "/etc/hosts";
-    const HOSTNAME_FILE: &'static str = "/etc/hostname";
-
     fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
             .map(|e| FileWithPath {
@@ -346,10 +344,11 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
     let dns_file = read_file(DNS_RESOLV_FILE)?;
     let hosts_file = read_file(HOSTS_FILE)?;
     let host_name_file = read_file(HOSTNAME_FILE)?;
+    let ns_switch_file = read_file(NS_SWITCH_FILE)?;
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file, hosts_file, host_name_file],
+        global_settings_list: vec![dns_file, hosts_file, host_name_file, ns_switch_file],
     };
 
     enclave_port
