@@ -13,7 +13,27 @@ use std::num::ParseIntError;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
-pub const MAX_ETHERNET_HEADER_SIZE: u32 = 22;
+const MAX_ETHERNET_HEADER_SIZE: u32 = 22;
+
+// Domain Name Service resolver file, contains configuration required to perform a DNS translation (Domain name into an IP address).
+// https://man7.org/linux/man-pages/man5/resolv.conf.5.html
+pub const DNS_RESOLV_FILE: &'static str = "/etc/resolv.conf";
+
+// Hosts file, contains a simple static association between an IP address and a host name.
+// This file doesn't describe any DNS servers compared to "/etc/resolv.conf" and is usually used
+// to resolve internal (to the network) resources.
+// https://man7.org/linux/man-pages/man5/hosts.5.html
+pub const HOSTS_FILE: &'static str = "/etc/hosts";
+
+// Local host name file, configures the name of the local system.
+// The file should contain a single newline-terminated hostname string.
+// https://man7.org/linux/man-pages/man5/hostname.5.html
+pub const HOSTNAME_FILE: &'static str = "/etc/hostname";
+
+// The Name Service Switch file, contains configuration to determine the sources from which to obtain
+// name-service information in a range of categories and in what order.
+// https://man7.org/linux/man-pages/man5/nsswitch.conf.5.html
+pub const NS_SWITCH_FILE: &'static str = "/etc/nsswitch.conf";
 
 /// Converts array slice into a `Ipv4Addr`
 /// # Returns
@@ -35,7 +55,6 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
 
 // Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
 pub const VSOCK_PARENT_CID: u32 = 3;
-pub const VSOCK_PARENT_PORT: u32 = 5006;
 
 pub fn parse_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())

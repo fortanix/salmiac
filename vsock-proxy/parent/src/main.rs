@@ -5,7 +5,8 @@ mod parent;
 use std::process;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use log::{error, info};
+use log::{error, info, warn};
+use model_types::ByteUnit;
 use shared::models::UserProgramExitStatus;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -13,14 +14,7 @@ async fn main() -> Result<(), String> {
     env_logger::init();
 
     let matches = console_arguments();
-
-    let enclave_extra_args = matches
-        .values_of("unknown")
-        .unwrap_or_default()
-        .into_iter()
-        .map(|e| e.to_string())
-        .collect();
-    info!("enclave_extra_args is {:?}", enclave_extra_args);
+    let parent_args = ParentConsoleArguments::new(&matches);
 
     if std::env::vars().any(|e| e.0 == "USE_VSK" && (e.1.trim() == "true" || e.1 == "1" || e.1 == "True")) {
         info!("USE_VSK is set");
@@ -38,7 +32,7 @@ async fn main() -> Result<(), String> {
         );
     }
 
-    match parent::run(enclave_extra_args).await {
+    match parent::run(parent_args).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             info!("User program exits with code: {}", code);
             process::exit(code)
@@ -50,6 +44,59 @@ async fn main() -> Result<(), String> {
         Err(e) => {
             error!("Parent exits with failure: {}", e);
             process::exit(-1);
+        }
+    }
+}
+
+struct ParentConsoleArguments {
+    pub rw_block_file_size: ByteUnit,
+
+    pub enclave_extra_args: Vec<String>,
+}
+
+impl ParentConsoleArguments {
+    // 256MB converted to bytes
+    const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
+
+    fn default_rw_block_file_size() -> ByteUnit {
+        ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
+    }
+
+    fn new(matches: &ArgMatches) -> Self {
+        let rw_storage_size = std::env::vars()
+            .find(|e| e.0 == "RW_STORAGE_SIZE")
+            .map(|e| ByteUnit::from_str(&e.1));
+
+        let rw_block_file_size = match rw_storage_size {
+            Some(Ok(result)) => result,
+            Some(Err(err)) => {
+                warn!(
+                    "Cannot parse RW_STORAGE_SIZE.{:?}. Setting read/write block file size to a default value of {}",
+                    err,
+                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
+                );
+                ParentConsoleArguments::default_rw_block_file_size()
+            }
+            None => {
+                warn!(
+                    "RW_STORAGE_SIZE is not present. Setting read/write block file size to a default value of {}",
+                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
+                );
+                ParentConsoleArguments::default_rw_block_file_size()
+            }
+        };
+
+        let enclave_extra_args = matches
+            .values_of("unknown")
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect();
+        info!("enclave_extra_args is {:?}", enclave_extra_args);
+
+        Self {
+            rw_block_file_size,
+            enclave_extra_args,
         }
     }
 }
