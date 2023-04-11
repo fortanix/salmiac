@@ -101,7 +101,7 @@ impl DockerDaemon {
         }
 
         debug!("image_size >= {} B", image_size);
-        const MAX_COMPRESSED_IMAGE_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
+        const MAX_COMPRESSED_IMAGE_BYTES: u64 = 50 * 1024 * 1024 * 1024; // 50 GB
 
         // Heuristic: subject to change.
         let hazard = image_size > MAX_COMPRESSED_IMAGE_BYTES;
