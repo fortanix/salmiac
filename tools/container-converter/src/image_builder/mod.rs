@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::{ConverterError, ConverterErrorKind};
+use std::path::Path;
 
 pub mod enclave;
 pub mod parent;
@@ -14,12 +14,10 @@ fn rust_log_env_var(project_name: &str) -> String {
 
 /// Interprets <code>&[Path]</code> as a <code>&[str]</code>
 fn path_as_str(arg: &Path) -> Result<&str, ConverterError> {
-    arg.as_os_str()
-        .to_str()
-        .ok_or(ConverterError {
-            message: format!("Cannot convert path {} to string." , arg.display()).to_string(),
-            kind: ConverterErrorKind::InternalError
-        })
+    arg.as_os_str().to_str().ok_or(ConverterError {
+        message: format!("Cannot convert path {} to string.", arg.display()).to_string(),
+        kind: ConverterErrorKind::InternalError,
+    })
 }
 
 #[cfg(test)]

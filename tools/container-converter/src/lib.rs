@@ -86,7 +86,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
 
 async fn run0(
     conversion_request: NitroEnclavesConversionRequest,
-    images_to_clean_snd: Sender<ImageToClean>
+    images_to_clean_snd: Sender<ImageToClean>,
 ) -> Result<NitroEnclavesConversionResponse> {
     if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
         return Err(ConverterError {
@@ -163,7 +163,7 @@ async fn run0(
             .create_image(&input_repository, enclave_settings, user_config, image_env_vars, sender)
             .await?
     };
-    
+
     let parent_builder = ParentImageBuilder {
         parent_image,
         dir: &temp_dir,
@@ -362,7 +362,10 @@ async fn clean_docker_images(
     Ok(())
 }
 
-pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug>(subprocess_path: S, args: &[S]) -> std::result::Result<String, String> {
+pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug>(
+    subprocess_path: S,
+    args: &[S],
+) -> std::result::Result<String, String> {
     let mut command = Command::new(&subprocess_path);
 
     command.stdout(Stdio::piped());

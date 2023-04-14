@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path};
+use std::path::Path;
 
 use api_model::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
@@ -8,7 +8,7 @@ use log::info;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile, BuildContext};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
@@ -55,8 +55,7 @@ impl<'a> ParentImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
-        let build_context = BuildContext::new(&self.dir.path())
-            .map_err(|message| ConverterError {
+        let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
@@ -70,7 +69,8 @@ impl<'a> ParentImageBuilder<'a> {
             })?;
         info!("Parent prerequisites have been created!");
 
-        let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("parent-build-context.tar"))
+        let build_context_archive_file = build_context
+            .package_into_archive(&self.dir.path().join("parent-build-context.tar"))
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -118,7 +118,10 @@ impl<'a> ParentImageBuilder<'a> {
     }
 
     fn create_requisites(&self, build_context: &BuildContext, block_file_exists: bool) -> std::result::Result<(), String> {
-        let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
+        let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
 
         if block_file_exists {
             copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT.to_string());
@@ -154,12 +157,7 @@ impl<'a> ParentImageBuilder<'a> {
         let mem_size_env = self.mem_size_env_var();
         let eos_debug_env = self.eos_debug_env_var();
 
-        let env_vars = [
-            log_env,
-            cpu_count_env,
-            mem_size_env,
-            eos_debug_env,
-        ];
+        let env_vars = [log_env, cpu_count_env, mem_size_env, eos_debug_env];
 
         let from = self.parent_image.clone();
 
