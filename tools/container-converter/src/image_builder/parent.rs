@@ -48,6 +48,7 @@ impl<'a> ParentImageBuilder<'a> {
         ParentImageBuilder::STARTUP_SCRIPT_NAME,
         ParentImageBuilder::BINARY_NAME,
         EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+        EnclaveImageBuilder::BLOCK_FILE_OUT
     ];
 
     pub(crate) async fn create_image(
@@ -60,9 +61,9 @@ impl<'a> ParentImageBuilder<'a> {
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
-        let block_file_exists = self.move_enclave_files_into_build_context(&build_context.path())?;
+        self.move_enclave_files_into_build_context(&build_context.path())?;
 
-        self.create_requisites(&build_context, block_file_exists)
+        self.create_requisites(&build_context)
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -89,7 +90,7 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<bool> {
+    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<()> {
         fn move_file(from: &Path, to: &Path) -> Result<()> {
             fs::rename(from, to).map_err(|message| ConverterError {
                 message: format!(
@@ -107,25 +108,17 @@ impl<'a> ParentImageBuilder<'a> {
             &build_context_dir.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
         )?;
 
-        let block_file = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
-        if block_file.exists() {
-            move_file(&block_file, &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT))?;
-
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        move_file(
+            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT)
+        )
     }
 
-    fn create_requisites(&self, build_context: &BuildContext, block_file_exists: bool) -> std::result::Result<(), String> {
-        let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES
+    fn create_requisites(&self, build_context: &BuildContext) -> std::result::Result<(), String> {
+        let copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES
             .iter()
             .map(|e| e.to_string())
             .collect();
-
-        if block_file_exists {
-            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT.to_string());
-        }
 
         let docker_file = self.docker_file_contents(copy_items);
 
