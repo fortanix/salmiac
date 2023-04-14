@@ -23,6 +23,7 @@ use tempfile::TempDir;
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
 use crate::image_builder::enclave::PCRList;
+use std::fmt::Debug;
 
 pub mod docker;
 pub mod file;
@@ -162,7 +163,7 @@ async fn run0(
             .create_image(&input_repository, enclave_settings, user_config, image_env_vars, sender)
             .await?
     };
-
+    
     let parent_builder = ParentImageBuilder {
         parent_image,
         dir: &temp_dir,
@@ -361,8 +362,8 @@ async fn clean_docker_images(
     Ok(())
 }
 
-pub(crate) async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
-    let mut command = Command::new(subprocess_path);
+pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug>(subprocess_path: S, args: &[S]) -> std::result::Result<String, String> {
+    let mut command = Command::new(&subprocess_path);
 
     command.stdout(Stdio::piped());
     command.args(args);

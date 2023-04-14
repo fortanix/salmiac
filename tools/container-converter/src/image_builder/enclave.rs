@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::{Seek};
 use std::path::{Path};
-use std::str::FromStr;
 use std::sync::mpsc::Sender;
 
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
@@ -10,14 +9,17 @@ use docker_image_reference::Reference as DockerReference;
 use log::info;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
-use tar::Archive;
+use tar::{Archive};
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
 use crate::file::{DockerCopyArgs, DockerFile, Resource, BuildContext};
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
-use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
+use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, path_as_str};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
+use std::ffi::OsStr;
+use std::fmt::Debug;
+use std::fs::File;
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {
@@ -42,16 +44,17 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
     let output = output_file.to_str().ok_or(ConverterError {
         message: format!("Failed to cast path {:?} to string", output_file),
         kind: ConverterErrorKind::NitroFileCreation,
+
     })?;
 
     let image_as_str = image.to_string();
 
     let nitro_cli_args = [
-        "build-enclave".as_ref(),
-        "--docker-uri".as_ref(),
-        image_as_str.as_ref(),
-        "--output-file".as_ref(),
-        output.as_ref(),
+        "build-enclave",
+        "--docker-uri",
+        &image_as_str,
+        "--output-file",
+        output,
     ];
 
     let process_output = run_subprocess("nitro-cli".as_ref(), &nitro_cli_args)
@@ -98,10 +101,6 @@ impl EnclaveSettings {
     }
 }
 
-pub(crate) struct EnclaveBuilderResult {
-    pub(crate) pcr_list: PCRList,
-}
-
 pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) client_image_reference: &'a DockerReference<'a>,
 
@@ -115,13 +114,11 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     const DEFAULT_ENCLAVE_SETTINGS_FILE: &'static str = "enclave-settings.json";
 
-    const BLOCK_FILE_SCRIPT_NAME: &'static str = "create-block-file.sh";
-
-    const BLOCK_FILE_INPUT_DIR: &'static str = "enclave-fs";
-
     const BLOCK_FILE_MOUNT_DIR: &'static str = "block-file-mount";
 
     pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
+
+    const BLOCK_FILE_SIZE_MULTIPLIER: f32 = 2.5;
 
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         Resource {
@@ -145,7 +142,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: UserConfig,
         env_vars: Vec<String>,
         images_to_clean_snd: Sender<ImageToClean>,
-    ) -> Result<EnclaveBuilderResult> {
+    ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;
 
         let build_context = BuildContext::new(&self.dir.path())
@@ -162,16 +159,12 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        let fs_root_hash = {
-            let root_hash = self.create_block_file(docker_util, &build_context).await?;
-            info!("Client FS Block file has been created.");
-
-            root_hash
-        };
+        let file_system_config = self.create_block_file(docker_util).await?;
+        info!("Client FS Block file has been created.");
 
         let enclave_manifest = EnclaveManifest {
             user_config,
-            file_system_config: fs_root_hash,
+            file_system_config,
             is_debug,
             env_vars,
         };
@@ -227,9 +220,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         info!("Nitro image has been created!");
 
-        Ok(EnclaveBuilderResult {
-            pcr_list: nitro_measurements.pcr_list,
-        })
+        Ok(nitro_measurements)
     }
 
     async fn create_debug_client_image<'b>(
@@ -270,8 +261,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         docker_util: &dyn DockerUtil,
         archive_path: &Path,
-        out_dir: &Path,
-    ) -> Result<()> {
+    ) -> Result<Archive<File>> {
         let mut archive_file = fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -296,14 +286,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::ImageFileSystemExport,
         })?;
 
-        let mut tar = Archive::new(archive_file);
-        tar.set_preserve_permissions(true);
-        tar.set_preserve_ownerships(true);
-
-        tar.unpack(out_dir).map_err(|err| ConverterError {
-            message: format!("Failed unpacking client fs archive {}. {:?}", out_dir.display(), err),
-            kind: ConverterErrorKind::ImageFileSystemExport,
-        })
+        Ok(Archive::new(archive_file))
     }
 
     fn create_manifest_file(&self, enclave_manifest: EnclaveManifest, build_context: &BuildContext) -> Result<()> {
@@ -324,83 +307,16 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil, build_context: &BuildContext) -> Result<FileSystemConfig> {
-        let block_file_script = Resource {
-            name: EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME,
-            data: include_bytes!("../resources/fs/configure"),
-            is_executable: true,
-        };
-
-        build_context.create_resource(block_file_script).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
-
-        let block_file_input_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_INPUT_DIR);
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
         let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
-
-        fs::create_dir(&block_file_input_dir).map_err(|err| ConverterError {
-            message: format!("Failed creating dir {}. {:?}", block_file_input_dir.display(), err),
-            kind: ConverterErrorKind::BlockFileCreation,
-        })?;
+        let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
 
         fs::create_dir(&block_file_mount_dir).map_err(|err| ConverterError {
             message: format!("Failed creating dir {}. {:?}", block_file_mount_dir.display(), err),
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        self.export_image_file_system(docker_util, &self.dir.path().join("fs.tar"), &block_file_input_dir)
-            .await?;
-
-        let result = {
-            let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
-            let args = [
-                block_file_input_dir.as_os_str(),
-                block_file_mount_dir.as_os_str(),
-                block_file_out.as_os_str(),
-            ];
-            let block_file_script_path = build_context.path().join(EnclaveImageBuilder::BLOCK_FILE_SCRIPT_NAME);
-
-            run_subprocess(block_file_script_path.as_os_str(), &args)
-                .await
-                .map_err(|message| ConverterError {
-                    message,
-                    kind: ConverterErrorKind::BlockFileCreation,
-                })?
-        };
-
-        EnclaveImageBuilder::create_file_system_config(&result)
-    }
-
-    fn create_file_system_config(stdout: &str) -> Result<FileSystemConfig> {
-        fn field_value(stdout: &str, field_start: usize) -> Option<&str> {
-            stdout[field_start..]
-                .find("\n")
-                .map(|field_end| stdout[field_start..field_start + field_end].trim())
-        }
-
-        fn extract_value<'a>(stdout: &'a str, field_header: &str) -> Result<&'a str> {
-            stdout
-                .find(field_header)
-                .and_then(|pos| field_value(stdout, pos + field_header.len()))
-                .ok_or(ConverterError {
-                    message: format!("Failed to find {} in stdout. Stdout: {}", field_header, stdout),
-                    kind: ConverterErrorKind::BlockFileCreation,
-                })
-        }
-
-        let root_hash = extract_value(stdout, "Root hash:")?;
-        let raw_hash_offset = extract_value(stdout, "Hash offset:")?;
-
-        let hash_offset = u64::from_str(raw_hash_offset).map_err(|err| ConverterError {
-            message: format!("Failed to convert hash offset {} to int. {:?}", raw_hash_offset, err),
-            kind: ConverterErrorKind::BlockFileCreation,
-        })?;
-
-        Ok(FileSystemConfig {
-            root_hash: root_hash.to_string(),
-            hash_offset,
-        })
+        self.create_block_file0(&block_file_mount_dir, &block_file_out, docker_util).await
     }
 
     fn enclave_image(&self) -> String {
@@ -479,5 +395,191 @@ impl<'a> EnclaveImageBuilder<'a> {
             cmd: Some(run_enclave_cmd),
             entrypoint: None,
         }
+    }
+
+    async fn create_block_file0(&self, mount_dir: &Path, block_file_out_path: &Path, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
+        async fn run_subprocess0<S: AsRef<OsStr> + Debug>(subprocess_path: S, args: &[S]) -> Result<String> {
+            run_subprocess(subprocess_path, args)
+                .await
+                .map_err(|message| {
+                    ConverterError {
+                        message,
+                        kind: ConverterErrorKind::BlockFileCreation,
+                    }
+                })
+        }
+
+        async fn get_available_disc_space(block_file_dir: &str) -> Result<u32> {
+            let df_output = run_subprocess0("df", &["-B", "1M", block_file_dir]).await?;
+
+            // Sample `df` output:
+            // Filesystem     1K-blocks      Used Available Use% Mounted on
+            // udev             7955272         0   7955272   0% /dev
+            let mut lines = df_output.lines();
+
+            // skip table header
+            lines.next();
+
+            let row: Vec<&str> = lines.next()
+                .map(|e| e.split(" ").filter(|e| !e.is_empty()).collect())
+                .ok_or(ConverterError {
+                    message: format!("DF output is incorrect, disc usage row is not present. {}", df_output).to_string(),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })?;
+
+            row[3].parse::<u32>().map_err(|err| ConverterError {
+                message: format!("Cannot parse df output {}. {:?}", df_output, err).to_string(),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })
+        }
+
+        async fn unmount_block_file(block_file_mount: &str, block_file_out_path: &Path) -> Result<()> {
+            run_subprocess0("sudo", &["umount", "-d", block_file_mount]).await?;
+
+            // In case, the loop device is unmounted, check and use the absolute path
+            // of the mount directory to unmount it.
+            let lsblk_output = run_subprocess0("lsblk", &[]).await?;
+
+            // Sample `lsblk` output:
+            // NAME        MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+            // loop0         7:0    0     4K  1 loop /snap/bare/5
+            // loop1         7:1    0  55,6M  1 loop /snap/core18/2714
+            // loop2         7:2    0  55,6M  1 loop /snap/core18/2721
+            let has_real_path = {
+                let mut lines = lsblk_output.lines();
+
+                // skip table header
+                lines.next();
+
+                lines.any(|line| {
+                    let row: Vec<&str> = line.split(" ").collect();
+
+                    // `lsblk` output format shouldn't change any time soon,
+                    // but just in case we check columns count to prevent index out of bounds panic.
+                    row.len() > 5 && Path::new(row[6]) == block_file_out_path
+                })
+            };
+
+            if has_real_path {
+                run_subprocess0("sudo", &["umount", block_file_mount]).await?;
+            }
+
+            Ok(())
+        }
+
+        let mount_as_str = path_as_str(mount_dir)?;
+        let block_file_out_as_str = path_as_str(block_file_out_path)?;
+
+        let client_fs_tar = self.export_image_file_system(docker_util, &self.dir.path().join("fs.tar"))
+            .await?;
+
+        let (rewinded_client_fs_tar, size_mb) = client_fs_tar.size().map_err(|message| {
+            ConverterError {
+                message,
+                kind: ConverterErrorKind::BlockFileCreation
+            }
+        })?;
+
+        info!("Client file system size is {}MB", size_mb);
+
+        let size_mb_up = (size_mb as f32 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u32;
+
+        let available_disc_space = {
+            let blockfile_dir = path_as_str(self.dir.path())?;
+
+            get_available_disc_space(blockfile_dir).await?
+        };
+
+        if available_disc_space < size_mb_up {
+            return Err(ConverterError {
+                message: format!("Available disk space: {} Required disk space: {}", available_disc_space, size_mb_up).to_string(),
+                kind: ConverterErrorKind::BlockFileCreation
+            })
+        }
+
+        // Allocate an empty `size_mb_up` file
+        info!("Creating block file of size {}MB", size_mb_up);
+        run_subprocess0("fallocate", &["-l", &format!("{}MB", size_mb_up), &block_file_out_as_str]).await?;
+
+        // Create an ext4 file system inside file above
+        run_subprocess0("mkfs.ext4", &[&block_file_out_as_str]).await?;
+
+        // Mount the filesystem on the block file read-write (without dm-verity).
+        run_subprocess0("sudo", &["mount", "-o", "loop", block_file_out_as_str, &mount_as_str]).await?;
+
+        // Populate the block file with the contents of the client image
+        info!("Extracting client file system into the block file...");
+        rewinded_client_fs_tar.unpack_preserve_permissions(mount_dir).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        // Make the current user the owner of the root of the filesystem on the block
+        // device. This is just so we can write files to it with our own user id and not as root.
+        let current_user = run_subprocess0("whoami", &[]).await?;
+
+        // `current_user` will contain a new line character which is not understood by `chown`.
+        // To remove it we use `trim_end` in the argument list.
+        run_subprocess0("sudo", &["chown", current_user.trim_end(), &mount_as_str]).await?;
+
+        info!("Unmounting the block file...");
+        // Unmount the block file after we are done populating it
+        unmount_block_file(mount_as_str, block_file_out_path).await?;
+
+        // Note that we're using the same file to contain the filesystem and the
+        // filesystem hashes. That's why `block_file_out_as_str` is on the command line here twice.
+        // The first time it's the filesystem block file. The second time it's the
+        // device to use for the hashes. With --hash-offset, we're placing the hashes
+        // in the same file, after the filesystem data.
+        let hash_offset = (size_mb_up * 1024 * 1024) as u64;
+        let result = run_subprocess0("veritysetup", &["--hash-offset", &hash_offset.to_string(), "format", &block_file_out_as_str, &block_file_out_as_str]).await?;
+
+        FileSystemConfig::new(&result, hash_offset).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::BlockFileCreation
+        })
+    }
+}
+
+trait ArchiveExtensions {
+    /// Returns total size of unpacked entities inside an archive without unpacking the archive itself.
+    fn size(self) -> std::result::Result<(Self, u64), String> where Self: Sized;
+
+    /// Unpacks the contents of the archive while preserving file permissions.
+    /// Without it any unknown file ownerships will default to a user id of the user who runs the program.
+    /// This will lead to a permission issues when said files are accessed in a `chroot` environment.
+    fn unpack_preserve_permissions(self, destination: &Path) -> std::result::Result<(), String>;
+}
+
+impl ArchiveExtensions for Archive<File> {
+    fn size(mut self) -> std::result::Result<(Self, u64), String> {
+        let entries = self.entries_with_seek().map_err(|err| {
+            format!("Cannot read exported file system archive. {:?}", err)
+        })?;
+
+        let result = entries.fold(0 as u64, |acc, e| {
+            let entry_size = e.map(|ee| ee.size()).unwrap_or(0);
+
+            acc + entry_size
+        }) / 1024 / 1024;
+
+        // Iterating over `entries` also moves file pointer inside `Archive<File>`.
+        // To preserve the archive state from a caller perspective we have to rewind the file pointer and recreate the `Archive<File>` object.
+        let mut archive_file = self.into_inner();
+
+        archive_file.rewind().map_err(|err| {
+            format!("Failed rewinding fs archive file. {:?}", err)
+        })?;
+
+        Ok((Archive::new(archive_file), result))
+    }
+
+    fn unpack_preserve_permissions(mut self, destination: &Path) -> std::result::Result<(), String> {
+        self.set_preserve_permissions(true);
+        self.set_preserve_ownerships(true);
+
+        self.unpack(destination).map_err(|err| {
+            format!("Failed unpacking client fs archive {}. {:?}", destination.display(), err)
+        })
     }
 }

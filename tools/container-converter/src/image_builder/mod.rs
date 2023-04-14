@@ -1,3 +1,6 @@
+use std::path::Path;
+use crate::{ConverterError, ConverterErrorKind};
+
 pub mod enclave;
 pub mod parent;
 
@@ -7,6 +10,16 @@ fn rust_log_env_var(project_name: &str) -> String {
     let log_level = if cfg!(debug_assertions) { "debug" } else { "info" };
 
     format!("RUST_LOG={}={}", project_name, log_level)
+}
+
+/// Interprets <code>&[Path]</code> as a <code>&[str]</code>
+fn path_as_str(arg: &Path) -> Result<&str, ConverterError> {
+    arg.as_os_str()
+        .to_str()
+        .ok_or(ConverterError {
+            message: format!("Cannot convert path {} to string." , arg.display()).to_string(),
+            kind: ConverterErrorKind::InternalError
+        })
 }
 
 #[cfg(test)]
