@@ -362,9 +362,9 @@ async fn clean_docker_images(
     Ok(())
 }
 
-pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug>(
+pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + Debug>(
     subprocess_path: S,
-    args: &[S],
+    args: &[A],
 ) -> std::result::Result<String, String> {
     let mut command = Command::new(&subprocess_path);
 

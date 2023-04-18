@@ -48,7 +48,7 @@ impl<'a> ParentImageBuilder<'a> {
         ParentImageBuilder::STARTUP_SCRIPT_NAME,
         ParentImageBuilder::BINARY_NAME,
         EnclaveImageBuilder::ENCLAVE_FILE_NAME,
-        EnclaveImageBuilder::BLOCK_FILE_OUT
+        EnclaveImageBuilder::BLOCK_FILE_OUT,
     ];
 
     pub(crate) async fn create_image(
@@ -63,11 +63,10 @@ impl<'a> ParentImageBuilder<'a> {
 
         self.move_enclave_files_into_build_context(&build_context.path())?;
 
-        self.create_requisites(&build_context)
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::RequisitesCreation,
-            })?;
+        self.create_requisites(&build_context).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
         info!("Parent prerequisites have been created!");
 
         let build_context_archive_file = build_context
@@ -110,7 +109,7 @@ impl<'a> ParentImageBuilder<'a> {
 
         move_file(
             &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT)
+            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
         )
     }
 

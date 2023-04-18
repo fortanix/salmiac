@@ -6,6 +6,8 @@ pub mod parent;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 
+const KILO_BYTE: u32 = 1024;
+
 fn rust_log_env_var(project_name: &str) -> String {
     let log_level = if cfg!(debug_assertions) { "debug" } else { "info" };
 

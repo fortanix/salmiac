@@ -1,25 +1,28 @@
-use std::fs;
-use std::io::Seek;
-use std::path::Path;
-use std::sync::mpsc::Sender;
-
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
 use api_model::ConverterOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
+use nix::unistd::chown;
+use nix::unistd::Uid;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
+use sys_mount::{Mount, Unmount, UnmountFlags};
 use tar::Archive;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
 use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
-use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR};
+use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, KILO_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
+
 use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::fs;
 use std::fs::File;
+use std::io::Seek;
+use std::path::Path;
+use std::sync::mpsc::Sender;
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {
@@ -50,7 +53,7 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
 
     let nitro_cli_args = ["build-enclave", "--docker-uri", &image_as_str, "--output-file", output];
 
-    let process_output = run_subprocess("nitro-cli".as_ref(), &nitro_cli_args)
+    let process_output = run_subprocess("nitro-cli", &nitro_cli_args)
         .await
         .map_err(|message| ConverterError {
             message,
@@ -111,7 +114,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
 
-    const BLOCK_FILE_SIZE_MULTIPLIER: f32 = 2.5;
+    const BLOCK_FILE_SIZE_MULTIPLIER: f32 = 2.0;
 
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         Resource {
@@ -404,15 +407,20 @@ impl<'a> EnclaveImageBuilder<'a> {
         block_file_out_path: &Path,
         docker_util: &dyn DockerUtil,
     ) -> Result<FileSystemConfig> {
-        async fn run_subprocess0<S: AsRef<OsStr> + Debug>(subprocess_path: S, args: &[S]) -> Result<String> {
+        async fn run_subprocess0<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + Debug>(
+            subprocess_path: S,
+            args: &[A],
+        ) -> Result<String> {
             run_subprocess(subprocess_path, args).await.map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::BlockFileCreation,
             })
         }
 
-        async fn get_available_disc_space(block_file_dir: &str) -> Result<u32> {
-            let df_output = run_subprocess0("df", &["-B", "1M", block_file_dir]).await?;
+        async fn get_available_disc_space(block_file_dir: &Path) -> Result<u32> {
+            let blockfile_dir_as_str = path_as_str(block_file_dir)?;
+
+            let df_output = run_subprocess0("df", &["-B", "1M", blockfile_dir_as_str]).await?;
 
             // Sample `df` output:
             // Filesystem     1K-blocks      Used Available Use% Mounted on
@@ -437,42 +445,77 @@ impl<'a> EnclaveImageBuilder<'a> {
             })
         }
 
-        async fn unmount_block_file(block_file_mount: &str, block_file_out_path: &Path) -> Result<()> {
-            run_subprocess0("sudo", &["umount", "-d", block_file_mount]).await?;
+        fn create_block_file(block_file_out_path: &Path, size_mb: u32) -> Result<()> {
+            info!("Creating block file of size {}MB", size_mb);
+            let block_file = fs::File::create(block_file_out_path).map_err(|err| ConverterError {
+                message: format!("Failed creating block file {}. {:?}", block_file_out_path.display(), err).to_string(),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
 
-            // In case, the loop device is unmounted, check and use the absolute path
-            // of the mount directory to unmount it.
-            let lsblk_output = run_subprocess0("lsblk", &[]).await?;
-
-            // Sample `lsblk` output:
-            // NAME        MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
-            // loop0         7:0    0     4K  1 loop /snap/bare/5
-            // loop1         7:1    0  55,6M  1 loop /snap/core18/2714
-            // loop2         7:2    0  55,6M  1 loop /snap/core18/2721
-            let has_real_path = {
-                let mut lines = lsblk_output.lines();
-
-                // skip table header
-                lines.next();
-
-                lines.any(|line| {
-                    let row: Vec<&str> = line.split(" ").collect();
-
-                    // `lsblk` output format shouldn't change any time soon,
-                    // but just in case we check columns count to prevent index out of bounds panic.
-                    row.len() > 5 && Path::new(row[6]) == block_file_out_path
+            block_file
+                .set_len((size_mb * KILO_BYTE * KILO_BYTE) as u64)
+                .map_err(|err| ConverterError {
+                    message: format!(
+                        "Failed truncating block file {} to size {}. {:?}",
+                        block_file_out_path.display(),
+                        size_mb,
+                        err
+                    )
+                    .to_string(),
+                    kind: ConverterErrorKind::BlockFileCreation,
                 })
-            };
-
-            if has_real_path {
-                run_subprocess0("sudo", &["umount", block_file_mount]).await?;
-            }
-
-            Ok(())
         }
 
-        let mount_as_str = path_as_str(mount_dir)?;
-        let block_file_out_as_str = path_as_str(block_file_out_path)?;
+        async fn populate_block_file(
+            client_fs_archive: Archive<File>,
+            block_file_path: &Path,
+            mount_path: &Path,
+        ) -> Result<()> {
+            // Create an ext4 file system inside file above
+            run_subprocess0("mkfs.ext4", &[&block_file_path]).await?;
+
+            // Mount the filesystem on the block file read-write (without dm-verity).
+            // Block file will be automatically ummounted after this variable goes out of scope because we use `into_unmount_drop`.
+            let _mount = Mount::builder()
+                .fstype("ext4")
+                .mount(block_file_path, mount_path)
+                .map(|e| e.into_unmount_drop(UnmountFlags::DETACH))
+                .map_err(|err| ConverterError {
+                    message: format!(
+                        "Failed mounting block file {} into {}. {:?}.",
+                        block_file_path.display(),
+                        mount_path.display(),
+                        err
+                    ),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })?;
+
+            // Populate the block file with the contents of the client image
+            info!("Extracting client file system into the block file...");
+            client_fs_archive
+                .unpack_preserve_permissions(mount_path)
+                .map_err(|message| ConverterError {
+                    message,
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })?;
+
+            // Make the current user the owner of the root of the filesystem on the block
+            // device. This is just so we can write files to it with our own user id and not as root.
+            let current_user = Uid::effective();
+
+            // `current_user` will contain a new line character which is not understood by `chown`.
+            // To remove it we use `trim_end` in the argument list.
+            chown(mount_path, Some(current_user), None).map_err(|err| ConverterError {
+                message: format!(
+                    "Failed changing owner of the path {} to {}. {:?}",
+                    mount_path.display(),
+                    current_user,
+                    err
+                )
+                .to_string(),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })
+        }
 
         let client_fs_tar = self
             .export_image_file_system(docker_util, &self.dir.path().join("fs.tar"))
@@ -487,11 +530,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         let size_mb_up = (size_mb as f32 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u32;
 
-        let available_disc_space = {
-            let blockfile_dir = path_as_str(self.dir.path())?;
-
-            get_available_disc_space(blockfile_dir).await?
-        };
+        let available_disc_space = get_available_disc_space(self.dir.path()).await?;
 
         if available_disc_space < size_mb_up {
             return Err(ConverterError {
@@ -504,43 +543,17 @@ impl<'a> EnclaveImageBuilder<'a> {
             });
         }
 
-        // Allocate an empty `size_mb_up` file
-        info!("Creating block file of size {}MB", size_mb_up);
-        run_subprocess0("fallocate", &["-l", &format!("{}MB", size_mb_up), &block_file_out_as_str]).await?;
+        create_block_file(block_file_out_path, size_mb_up)?;
 
-        // Create an ext4 file system inside file above
-        run_subprocess0("mkfs.ext4", &[&block_file_out_as_str]).await?;
-
-        // Mount the filesystem on the block file read-write (without dm-verity).
-        run_subprocess0("sudo", &["mount", "-o", "loop", block_file_out_as_str, &mount_as_str]).await?;
-
-        // Populate the block file with the contents of the client image
-        info!("Extracting client file system into the block file...");
-        rewinded_client_fs_tar
-            .unpack_preserve_permissions(mount_dir)
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::BlockFileCreation,
-            })?;
-
-        // Make the current user the owner of the root of the filesystem on the block
-        // device. This is just so we can write files to it with our own user id and not as root.
-        let current_user = run_subprocess0("whoami", &[]).await?;
-
-        // `current_user` will contain a new line character which is not understood by `chown`.
-        // To remove it we use `trim_end` in the argument list.
-        run_subprocess0("sudo", &["chown", current_user.trim_end(), &mount_as_str]).await?;
-
-        info!("Unmounting the block file...");
-        // Unmount the block file after we are done populating it
-        unmount_block_file(mount_as_str, block_file_out_path).await?;
+        populate_block_file(rewinded_client_fs_tar, block_file_out_path, mount_dir).await?;
 
         // Note that we're using the same file to contain the filesystem and the
         // filesystem hashes. That's why `block_file_out_as_str` is on the command line here twice.
         // The first time it's the filesystem block file. The second time it's the
         // device to use for the hashes. With --hash-offset, we're placing the hashes
         // in the same file, after the filesystem data.
-        let hash_offset = (size_mb_up * 1024 * 1024) as u64;
+        let hash_offset = (size_mb_up * KILO_BYTE * KILO_BYTE) as u64;
+        let block_file_out_as_str = path_as_str(block_file_out_path)?;
         let result = run_subprocess0(
             "veritysetup",
             &[
@@ -582,8 +595,8 @@ impl ArchiveExtensions for Archive<File> {
             let entry_size = e.map(|ee| ee.size()).unwrap_or(0);
 
             acc + entry_size
-        }) / 1024
-            / 1024;
+        }) / KILO_BYTE as u64
+            / KILO_BYTE as u64;
 
         // Iterating over `entries` also moves file pointer inside `Archive<File>`.
         // To preserve the archive state from a caller perspective we have to rewind the file pointer and recreate the `Archive<File>` object.
