@@ -1,11 +1,26 @@
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::net::IpAddr;
+use std::path::Path;
+use std::str::FromStr;
+use std::{env, fs};
+
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
-use shared::{run_subprocess, DNS_RESOLV_FILE, HOSTS_FILE, HOSTNAME_FILE, NS_SWITCH_FILE};
+use shared::models::{
+    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
+    UserProgramExitStatus,
+};
+use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use shared::tap::start_tap_loops;
+use shared::{
+    extract_enum_value, run_subprocess, with_background_tasks, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
+    VSOCK_PARENT_CID,
+};
 use tokio::task::JoinHandle;
-use tokio_vsock::VsockListener as AsyncVsockListener;
-use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
 use crate::network::{
     choose_network_addresses_for_fs_taps, list_network_devices, setup_file_system_tap_devices, setup_network_devices,
@@ -13,20 +28,6 @@ use crate::network::{
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
-use shared::models::{
-    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
-    UserProgramExitStatus,
-};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::tap::start_tap_loops;
-use shared::{extract_enum_value, with_background_tasks};
-use shared::{VSOCK_PARENT_CID};
-
-use std::env;
-use std::fs;
-use std::io::Write;
-use std::net::IpAddr;
-use std::str::FromStr;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -83,7 +84,6 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     let mut background_tasks = start_background_tasks(setup_result)?;
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-
         send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
@@ -258,7 +258,9 @@ async fn start_nitro_enclave() -> Result<(), String> {
     run_subprocess(command, &args).await
 }
 
-fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+fn start_background_tasks(
+    parent_setup_result: ParentSetupResult,
+) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
@@ -468,9 +470,22 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
 }
 
 fn create_rw_block_file(size: u64) -> Result<(), String> {
-    let block_file = fs::File::create(RW_BLOCK_FILE_OUT)
+    if Path::new(RW_BLOCK_FILE_OUT).exists() {
+        info!("{:?} already exists, skipping creating a new blockfile", RW_BLOCK_FILE_OUT);
+        return Ok(());
+    }
+
+    // Create a new file only if it does not exist, otherwise open an existing file
+    // and return the file pointer. We need this to ensure that when a docker container
+    // restarts, it reuses the existing blockfile which contains state from the previous
+    // run rather than create a new blockfile which overwrites the previous rw layer.
+    let block_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(RW_BLOCK_FILE_OUT)
         .map_err(|err| format!("Failed creating RW block file {}. {:?}", RW_BLOCK_FILE_OUT, err))?;
 
+    info!("Setting RW blockfile size to {:?}", size);
     block_file.set_len(size).map_err(|err| {
         format!(
             "Failed truncating RW block file {} to size {}. {:?}",
