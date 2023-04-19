@@ -6,7 +6,7 @@ pub mod parent;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 
-const KILO_BYTE: u32 = 1024;
+const MEGA_BYTE: u64 = 1024 * 1024;
 
 fn rust_log_env_var(project_name: &str) -> String {
     let log_level = if cfg!(debug_assertions) { "debug" } else { "info" };
@@ -59,6 +59,10 @@ mod tests {
         }
 
         async fn push_image(&self, _image: &ImageWithDetails) -> Result<(), String> {
+            todo!()
+        }
+
+        async fn build_image_from_archive(&self, archive: File, image: &Reference<'_>) -> Result<(), String> {
             todo!()
         }
 

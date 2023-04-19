@@ -4,6 +4,7 @@ use docker_image_reference::Reference as DockerReference;
 use log::info;
 use nix::unistd::chown;
 use nix::unistd::Uid;
+use nix::sys::statfs::statfs;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use sys_mount::{Mount, Unmount, UnmountFlags};
@@ -13,7 +14,7 @@ use tempfile::TempDir;
 use crate::docker::DockerUtil;
 use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
-use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, KILO_BYTE};
+use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 use std::ffi::OsStr;
@@ -114,7 +115,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
 
-    const BLOCK_FILE_SIZE_MULTIPLIER: f32 = 2.0;
+    const BLOCK_FILE_SIZE_MULTIPLIER: f64 = 2.0;
 
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         Resource {
@@ -417,35 +418,16 @@ impl<'a> EnclaveImageBuilder<'a> {
             })
         }
 
-        async fn get_available_disc_space(block_file_dir: &Path) -> Result<u32> {
-            let blockfile_dir_as_str = path_as_str(block_file_dir)?;
-
-            let df_output = run_subprocess0("df", &["-B", "1M", blockfile_dir_as_str]).await?;
-
-            // Sample `df` output:
-            // Filesystem     1K-blocks      Used Available Use% Mounted on
-            // udev             7955272         0   7955272   0% /dev
-            let mut lines = df_output.lines();
-
-            // skip table header
-            lines.next();
-
-            let row: Vec<&str> =
-                lines
-                    .next()
-                    .map(|e| e.split(" ").filter(|e| !e.is_empty()).collect())
-                    .ok_or(ConverterError {
-                        message: format!("DF output is incorrect, disc usage row is not present. {}", df_output).to_string(),
-                        kind: ConverterErrorKind::BlockFileCreation,
-                    })?;
-
-            row[3].parse::<u32>().map_err(|err| ConverterError {
-                message: format!("Cannot parse df output {}. {:?}", df_output, err).to_string(),
-                kind: ConverterErrorKind::BlockFileCreation,
-            })
+        async fn get_available_disc_space(block_file_dir: &Path) -> Result<u64> {
+            statfs(block_file_dir)
+                .map(|e| e.block_size() as u64 * e.blocks_available())
+                .map_err(|err| ConverterError {
+                    message: format!("Failure retrieving available disc space using `statfs` for path {}. {:?}", block_file_dir.display(), err).to_string(),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })
         }
 
-        fn create_block_file(block_file_out_path: &Path, size_mb: u32) -> Result<()> {
+        fn create_block_file(block_file_out_path: &Path, size_mb: u64) -> Result<()> {
             info!("Creating block file of size {}MB", size_mb);
             let block_file = fs::File::create(block_file_out_path).map_err(|err| ConverterError {
                 message: format!("Failed creating block file {}. {:?}", block_file_out_path.display(), err).to_string(),
@@ -453,7 +435,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
 
             block_file
-                .set_len((size_mb * KILO_BYTE * KILO_BYTE) as u64)
+                .set_len(size_mb * MEGA_BYTE)
                 .map_err(|err| ConverterError {
                     message: format!(
                         "Failed truncating block file {} to size {}. {:?}",
@@ -503,8 +485,6 @@ impl<'a> EnclaveImageBuilder<'a> {
             // device. This is just so we can write files to it with our own user id and not as root.
             let current_user = Uid::effective();
 
-            // `current_user` will contain a new line character which is not understood by `chown`.
-            // To remove it we use `trim_end` in the argument list.
             chown(mount_path, Some(current_user), None).map_err(|err| ConverterError {
                 message: format!(
                     "Failed changing owner of the path {} to {}. {:?}",
@@ -528,7 +508,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         info!("Client file system size is {}MB", size_mb);
 
-        let size_mb_up = (size_mb as f32 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u32;
+        let size_mb_up = (size_mb as f64 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u64;
 
         let available_disc_space = get_available_disc_space(self.dir.path()).await?;
 
@@ -552,7 +532,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         // The first time it's the filesystem block file. The second time it's the
         // device to use for the hashes. With --hash-offset, we're placing the hashes
         // in the same file, after the filesystem data.
-        let hash_offset = (size_mb_up * KILO_BYTE * KILO_BYTE) as u64;
+        let hash_offset = size_mb_up * MEGA_BYTE;
         let block_file_out_as_str = path_as_str(block_file_out_path)?;
         let result = run_subprocess0(
             "veritysetup",
@@ -595,8 +575,7 @@ impl ArchiveExtensions for Archive<File> {
             let entry_size = e.map(|ee| ee.size()).unwrap_or(0);
 
             acc + entry_size
-        }) / KILO_BYTE as u64
-            / KILO_BYTE as u64;
+        }) / MEGA_BYTE;
 
         // Iterating over `entries` also moves file pointer inside `Archive<File>`.
         // To preserve the archive state from a caller perspective we have to rewind the file pointer and recreate the `Archive<File>` object.
