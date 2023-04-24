@@ -27,7 +27,6 @@ mod tests {
     use std::fs;
     use std::fs::File;
     use std::io::Read;
-    use std::path::Path;
 
     use api_model::ConverterOptions;
     use async_trait::async_trait;
@@ -40,7 +39,7 @@ mod tests {
 
     use crate::docker::DockerUtil;
     use crate::image::ImageWithDetails;
-    use crate::image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
+    use crate::image_builder::enclave::{EnclaveImageBuilder, get_image_env};
 
     struct TestDockerDaemon {}
 
@@ -62,7 +61,7 @@ mod tests {
             todo!()
         }
 
-        async fn build_image_from_archive(&self, archive: File, image: &Reference<'_>) -> Result<(), String> {
+        async fn build_image_from_archive(&self, _archive: File, _image: &Reference<'_>) -> Result<(), String> {
             todo!()
         }
 
@@ -82,7 +81,6 @@ mod tests {
             let data: &[u8] = TEST_DATA.as_bytes();
 
             header.set_size(data.len() as u64);
-            header.set_mode(0o777);
             header.set_cksum();
 
             let mut archive = Builder::new(file);
@@ -103,16 +101,19 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed creating temp dir");
 
         let client_image_reference = DockerReference::from_str("test").expect("Failed creating docker reference");
+        let enclave_base_image = &DockerReference::from_str("test").expect("Failed creating docker reference");
         let enclave_builder = EnclaveImageBuilder {
             client_image_reference: &client_image_reference,
             dir: &temp_dir,
-            enclave_base_image: None,
+            enclave_base_image,
         };
 
-        enclave_builder
-            .export_image_file_system(&TestDockerDaemon {}, &temp_dir.path().join("fs.tar"), &temp_dir.path())
+        let mut archive = enclave_builder
+            .export_image_file_system(&TestDockerDaemon {}, &temp_dir.path().join("fs.tar"))
             .await
             .expect("Failed exporting image file system");
+
+        archive.unpack(temp_dir.path()).expect("Failed unpacking archive.");
 
         let mut result_file = fs::OpenOptions::new()
             .read(true)
@@ -185,9 +186,9 @@ mod tests {
             input_image.details.config.env = input_image_env_vars;
             converter_options.env_vars = converter_request_env_vars;
 
-            let result = EnclaveSettings::new(&input_image, &converter_options);
+            let result = get_image_env(&input_image, &converter_options);
 
-            assert_eq!(result.env_vars, reference);
+            assert_eq!(result, reference);
         };
 
         test(

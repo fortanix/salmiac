@@ -99,7 +99,7 @@ impl DockerDaemon {
         }
     }
 
-    fn image_download_hazard_check(image_size: u64) -> Result<(), String> {
+    pub fn image_download_hazard_check(image_size: u64) -> Result<(), String> {
         fn bytes_to_mebibytes(bytes: u64) -> f64 {
             bytes as f64 / (1024.0 * 1024.0)
         }
