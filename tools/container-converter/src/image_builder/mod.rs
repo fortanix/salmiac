@@ -1,7 +1,12 @@
+use crate::{ConverterError, ConverterErrorKind};
+use std::path::Path;
+
 pub mod enclave;
 pub mod parent;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
+
+const MEGA_BYTE: u64 = 1024 * 1024;
 
 fn rust_log_env_var(project_name: &str) -> String {
     let log_level = if cfg!(debug_assertions) { "debug" } else { "info" };
@@ -9,12 +14,19 @@ fn rust_log_env_var(project_name: &str) -> String {
     format!("RUST_LOG={}={}", project_name, log_level)
 }
 
+/// Interprets <code>&[Path]</code> as a <code>&[str]</code>
+fn path_as_str(arg: &Path) -> Result<&str, ConverterError> {
+    arg.as_os_str().to_str().ok_or(ConverterError {
+        message: format!("Cannot convert path {} to string.", arg.display()).to_string(),
+        kind: ConverterErrorKind::InternalError,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::fs::File;
     use std::io::Read;
-    use std::path::Path;
 
     use api_model::ConverterOptions;
     use async_trait::async_trait;
@@ -27,7 +39,7 @@ mod tests {
 
     use crate::docker::DockerUtil;
     use crate::image::ImageWithDetails;
-    use crate::image_builder::enclave::{EnclaveImageBuilder, EnclaveSettings};
+    use crate::image_builder::enclave::{EnclaveImageBuilder, get_image_env};
 
     struct TestDockerDaemon {}
 
@@ -49,6 +61,10 @@ mod tests {
             todo!()
         }
 
+        async fn build_image_from_archive(&self, _archive: File, _image: &Reference<'_>) -> Result<(), String> {
+            todo!()
+        }
+
         async fn create_container(&self, image: &Reference<'_>) -> Result<ContainerCreateInfo, String> {
             Ok(ContainerCreateInfo {
                 id: image.to_string(),
@@ -65,7 +81,6 @@ mod tests {
             let data: &[u8] = TEST_DATA.as_bytes();
 
             header.set_size(data.len() as u64);
-            header.set_mode(0o777);
             header.set_cksum();
 
             let mut archive = Builder::new(file);
@@ -86,16 +101,19 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed creating temp dir");
 
         let client_image_reference = DockerReference::from_str("test").expect("Failed creating docker reference");
+        let enclave_base_image = &DockerReference::from_str("test").expect("Failed creating docker reference");
         let enclave_builder = EnclaveImageBuilder {
             client_image_reference: &client_image_reference,
             dir: &temp_dir,
-            enclave_base_image: None,
+            enclave_base_image,
         };
 
-        enclave_builder
-            .export_image_file_system(&TestDockerDaemon {}, &temp_dir.path().join("fs.tar"), &temp_dir.path())
+        let mut archive = enclave_builder
+            .export_image_file_system(&TestDockerDaemon {}, &temp_dir.path().join("fs.tar"))
             .await
             .expect("Failed exporting image file system");
+
+        archive.unpack(temp_dir.path()).expect("Failed unpacking archive.");
 
         let mut result_file = fs::OpenOptions::new()
             .read(true)
@@ -168,9 +186,9 @@ mod tests {
             input_image.details.config.env = input_image_env_vars;
             converter_options.env_vars = converter_request_env_vars;
 
-            let result = EnclaveSettings::new(&input_image, &converter_options);
+            let result = get_image_env(&input_image, &converter_options);
 
-            assert_eq!(result.env_vars, reference);
+            assert_eq!(result, reference);
         };
 
         test(

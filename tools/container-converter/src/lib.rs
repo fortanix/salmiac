@@ -23,6 +23,7 @@ use tempfile::TempDir;
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
 use crate::image_builder::enclave::PCRList;
+use std::fmt::Debug;
 
 pub mod docker;
 pub mod file;
@@ -85,7 +86,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
 
 async fn run0(
     conversion_request: NitroEnclavesConversionRequest,
-    images_to_clean_snd: Sender<ImageToClean>
+    images_to_clean_snd: Sender<ImageToClean>,
 ) -> Result<NitroEnclavesConversionResponse> {
     if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
         return Err(ConverterError {
@@ -361,8 +362,11 @@ async fn clean_docker_images(
     Ok(())
 }
 
-pub(crate) async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
-    let mut command = Command::new(subprocess_path);
+pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + Debug>(
+    subprocess_path: S,
+    args: &[A],
+) -> std::result::Result<String, String> {
+    let mut command = Command::new(&subprocess_path);
 
     command.stdout(Stdio::piped());
     command.args(args);

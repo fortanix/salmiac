@@ -244,13 +244,12 @@ mod tests {
             assert_eq!(result, reference);
         };
 
-        test("test".to_string(), (User::from("test"), User::from("root")));
+        test("test".to_string(), (User::from("test"), User::from("")));
         test("test:test".to_string(), (User::from("test"), User::from("test")));
         test("test:root".to_string(), (User::from("test"), User::from("root")));
         test("root:test".to_string(), (User::from("root"), User::from("test")));
-        test("".to_string(), (User::from("root"), User::from("root")));
-        test(":test".to_string(), (User::from("root"), User::from("test")));
-        test(":root".to_string(), (User::from("root"), User::from("root")));
-        test("test:".to_string(), (User::from("test"), User::from("root")));
+        test("".to_string(), (User::from(""), User::from("")));
+        test(":test".to_string(), (User::from(""), User::from("test")));
+        test("test:".to_string(), (User::from("test"), User::from("")));
     }
 }

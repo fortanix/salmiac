@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path};
+use std::path::Path;
 
 use api_model::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
@@ -8,7 +8,7 @@ use log::info;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{DockerCopyArgs, DockerFile, Resource, UnixFile, BuildContext};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
@@ -48,6 +48,7 @@ impl<'a> ParentImageBuilder<'a> {
         ParentImageBuilder::STARTUP_SCRIPT_NAME,
         ParentImageBuilder::BINARY_NAME,
         EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+        EnclaveImageBuilder::BLOCK_FILE_OUT,
     ];
 
     pub(crate) async fn create_image(
@@ -55,22 +56,21 @@ impl<'a> ParentImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
-        let build_context = BuildContext::new(&self.dir.path())
-            .map_err(|message| ConverterError {
+        let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::RequisitesCreation,
         })?;
 
-        let block_file_exists = self.move_enclave_files_into_build_context(&build_context.path())?;
+        self.move_enclave_files_into_build_context(&build_context.path())?;
 
-        self.create_requisites(&build_context, block_file_exists)
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::RequisitesCreation,
-            })?;
+        self.create_requisites(&build_context).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
         info!("Parent prerequisites have been created!");
 
-        let build_context_archive_file = build_context.package_into_archive(&self.dir.path().join("parent-build-context.tar"))
+        let build_context_archive_file = build_context
+            .package_into_archive(&self.dir.path().join("parent-build-context.tar"))
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -89,7 +89,7 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<bool> {
+    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<()> {
         fn move_file(from: &Path, to: &Path) -> Result<()> {
             fs::rename(from, to).map_err(|message| ConverterError {
                 message: format!(
@@ -107,22 +107,17 @@ impl<'a> ParentImageBuilder<'a> {
             &build_context_dir.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
         )?;
 
-        let block_file = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
-        if block_file.exists() {
-            move_file(&block_file, &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT))?;
-
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        move_file(
+            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+        )
     }
 
-    fn create_requisites(&self, build_context: &BuildContext, block_file_exists: bool) -> std::result::Result<(), String> {
-        let mut copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES.iter().map(|e| e.to_string()).collect();
-
-        if block_file_exists {
-            copy_items.push(EnclaveImageBuilder::BLOCK_FILE_OUT.to_string());
-        }
+    fn create_requisites(&self, build_context: &BuildContext) -> std::result::Result<(), String> {
+        let copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
 
         let docker_file = self.docker_file_contents(copy_items);
 
@@ -154,12 +149,7 @@ impl<'a> ParentImageBuilder<'a> {
         let mem_size_env = self.mem_size_env_var();
         let eos_debug_env = self.eos_debug_env_var();
 
-        let env_vars = [
-            log_env,
-            cpu_count_env,
-            mem_size_env,
-            eos_debug_env,
-        ];
+        let env_vars = [log_env, cpu_count_env, mem_size_env, eos_debug_env];
 
         let from = self.parent_image.clone();
 

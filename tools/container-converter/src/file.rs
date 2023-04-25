@@ -1,10 +1,10 @@
 use log::{debug, info};
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write, Seek};
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path};
 use std::fs::File;
+use std::io::{BufRead, BufReader, Seek, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use tempfile::TempDir;
 
 /// Describes a directory containing all dependencies needed to build a Docker image
@@ -15,11 +15,10 @@ pub(crate) struct BuildContext {
 
 impl BuildContext {
     pub(crate) fn new(dir: &Path) -> Result<Self, String> {
-        let temp_dir = TempDir::new_in(dir).map_err(|err| format!("Cannot create build context in {}. {:?}", dir.display(), err))?;
+        let temp_dir =
+            TempDir::new_in(dir).map_err(|err| format!("Cannot create build context in {}. {:?}", dir.display(), err))?;
 
-        Ok(Self {
-            temp_dir
-        })
+        Ok(Self { temp_dir })
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -58,7 +57,8 @@ impl BuildContext {
             .map_err(|err| format!("Failed to create docker file at {}. {:?}", self.path().display(), err))?;
 
         let contents = docker_file_contents.to_string();
-        docker_file_handler.write_all(contents.as_bytes())
+        docker_file_handler
+            .write_all(contents.as_bytes())
             .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
 
         debug!("File contents of {}:\n {}", docker_file_path.display(), contents);
@@ -72,15 +72,36 @@ impl BuildContext {
             .write(true)
             .read(true)
             .open(archive_path)
-            .map_err(|err| format!("Failed creating an archive file at {} for Docker build context at {}. {:?}", self.path().display(), archive_path.display(), err))?;
+            .map_err(|err| {
+                format!(
+                    "Failed creating an archive file at {} for Docker build context at {}. {:?}",
+                    self.path().display(),
+                    archive_path.display(),
+                    err
+                )
+            })?;
 
-        let dir_as_str = self.path().to_str().ok_or(format!("Failed to cast path {} to string", self.path().display()))?;
+        let dir_as_str = self
+            .path()
+            .to_str()
+            .ok_or(format!("Failed to cast path {} to string", self.path().display()))?;
 
-        info!("Packaging build context {} into archive at {}.", self.path().display(), archive_path.display());
-        shiplift::tarball::dir(&mut archive_file, &dir_as_str, true)
-            .map_err(|err| format!("Failed packaging Docker build context at {} into an archive at {}. {:?}", self.path().display(), archive_path.display(), err))?;
+        info!(
+            "Packaging build context {} into archive at {}.",
+            self.path().display(),
+            archive_path.display()
+        );
+        shiplift::tarball::dir(&mut archive_file, &dir_as_str, true).map_err(|err| {
+            format!(
+                "Failed packaging Docker build context at {} into an archive at {}. {:?}",
+                self.path().display(),
+                archive_path.display(),
+                err
+            )
+        })?;
 
-        archive_file.rewind()
+        archive_file
+            .rewind()
             .map_err(|err| format!("Failed rewinding archive at {}. {:?}", archive_path.display(), err))?;
 
         Ok(archive_file)

@@ -231,10 +231,9 @@ pub(crate) async fn mount_read_write_file_system(env_vars: &[(String, String)]) 
 }
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
-    let lower_dir = ENCLAVE_FS_LOWER.to_string() + "/enclave-fs";
     let overlay_dir_config = format!(
         "lowerdir={},upperdir={},workdir={}",
-        lower_dir, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
+        ENCLAVE_FS_LOWER, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
     );
 
     run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT]).await
