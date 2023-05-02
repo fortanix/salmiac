@@ -482,6 +482,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
+name = "convert_case"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb4a24b1aaf0fd0ce8b45161144d6f42cd91677fd5940fd431183eb023b3a2b8"
+
+[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1390,7 +1396,7 @@ dependencies = [
 name = "model-macro-types"
 version = "0.1.0"
 dependencies = [
- "convert_case",
+ "convert_case 0.4.0",
  "error-spanned",
  "macro-helpers",
  "proc-macro2 1.0.28",
@@ -3113,6 +3119,8 @@ checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
 name = "webservice-api-model"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "convert_case 0.5.0",
  "serde",
  "uuid 1.1.1",
 ]
