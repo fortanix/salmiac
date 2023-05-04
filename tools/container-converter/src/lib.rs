@@ -1,11 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::ffi::OsStr;
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
-use std::{env, fmt};
-
 use api_model::shared::{UserConfig, UserProgramConfig};
 use api_model::{
     AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
@@ -17,13 +9,22 @@ use image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings
 use image_builder::parent::ParentImageBuilder;
 use log::{debug, error, info, warn};
 use model_types::HexString;
-use shiplift::{Docker, Image};
+use shiplift::{Docker, Image, Images};
+use shiplift::image::{DeleteOptions, PruneOptions};
 use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
 use crate::image_builder::enclave::PCRList;
+
 use std::fmt::Debug;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
+use std::ffi::OsStr;
+use std::str::FromStr;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::{env, fmt};
 
 pub mod docker;
 pub mod file;
@@ -335,27 +336,40 @@ async fn clean_docker_images(
     images_receiver: mpsc::Receiver<ImageToClean>,
     preserve: HashSet<ImageKind>,
 ) -> Result<()> {
-    let mut received_images: Vec<String> = Vec::new();
+    let mut received_images: Vec<ImageToClean> = Vec::new();
 
     // this loop will exit after all receivers have exited from
     // the image convert function irregardless if the function
     // exited normally or panicked.
     while let Ok(image) = images_receiver.recv() {
         if !preserve.contains(&image.kind) {
-            received_images.push(image.name)
+            received_images.push(image)
         }
     }
 
     for image in received_images {
-        let image_interface = Image::new(&docker, image.clone());
+        let image_interface = Image::new(&docker, image.name.clone());
+        let delete_options = DeleteOptions::default().force();
 
-        match image_interface.delete().await {
+        match image_interface.delete(&delete_options).await {
             Ok(_) => {
-                info!("Successfully cleaned intermediate image {}", image);
+                info!("Successfully cleaned {:?} image {}", image.kind, image.name);
             }
             Err(e) => {
-                warn!("Error cleaning intermediate image {}. {:?}", image, e);
+                warn!("Error cleaning {:?} image {}. {:?}", image.kind, image.name, e);
             }
+        }
+    }
+
+    let images_interface = Images::new(&docker);
+    let prune_options = PruneOptions::default().set_dangling(true);
+
+    match images_interface.prune(&prune_options).await {
+        Ok(result) => {
+            info!("Successfully performed image pruning. Output:  {} ", result);
+        }
+        Err(e) => {
+            warn!("Failed performing image pruning. {:?}", e);
         }
     }
 
