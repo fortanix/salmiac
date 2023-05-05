@@ -9,8 +9,8 @@ use image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings
 use image_builder::parent::ParentImageBuilder;
 use log::{debug, error, info, warn};
 use model_types::HexString;
-use shiplift::{Docker, Image, Images};
-use shiplift::image::{DeleteOptions, PruneOptions};
+use shiplift::{Docker, Image};
+use shiplift::image::{DeleteOptions};
 use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
@@ -349,27 +349,15 @@ async fn clean_docker_images(
 
     for image in received_images {
         let image_interface = Image::new(&docker, image.name.clone());
-        let delete_options = DeleteOptions::default().force();
+        let mut delete_options = DeleteOptions::builder().force();
 
-        match image_interface.delete(&delete_options).await {
+        match image_interface.delete_with_options(&delete_options.build()).await {
             Ok(_) => {
                 info!("Successfully cleaned {:?} image {}", image.kind, image.name);
             }
             Err(e) => {
                 warn!("Error cleaning {:?} image {}. {:?}", image.kind, image.name, e);
             }
-        }
-    }
-
-    let images_interface = Images::new(&docker);
-    let prune_options = PruneOptions::default().set_dangling(true);
-
-    match images_interface.prune(&prune_options).await {
-        Ok(result) => {
-            info!("Successfully performed image pruning. Output:  {} ", result);
-        }
-        Err(e) => {
-            warn!("Failed performing image pruning. {:?}", e);
         }
     }
 
