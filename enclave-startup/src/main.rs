@@ -1,19 +1,22 @@
-use std::env;
-use std::fmt::format;
-use std::os::unix::process::CommandExt;
-use std::process::Command;
-
 use env_logger;
 use log::{info, warn};
 use nix::unistd::{chown, Gid, Uid};
 use users::{get_group_by_name, get_user_by_name, gid_t, uid_t, User};
 
-/// A program that switches working directory, user and group before running the application.
-/// Working directory and user/group come from a client images with following clauses:
-/// (https://docs.docker.com/engine/reference/builder/#workdir),
-/// (https://docs.docker.com/engine/reference/builder/#user).
-/// Because neither WORKDIR or USER are currently supported by a Nitro converter
-/// we have to perform switch manually to prevent any sort of access and file not found errors from happening.
+use std::env;
+use std::os::unix::process::CommandExt;
+use std::process::Command;
+
+/// A program that sets environment for a client application in the chroot environment (https://man7.org/linux/man-pages/man2/chroot.2.html).
+/// It performs the following:
+/// - Switches working directory, user and group before running the application.
+///     Working directory and user/group come from a client images with following clauses:
+///     (https://docs.docker.com/engine/reference/builder/#workdir),
+///     (https://docs.docker.com/engine/reference/builder/#user).
+///     Because neither WORKDIR or USER are currently supported by a Nitro converter
+///     we have to perform switch manually to prevent any sort of access and file not found errors from happening;
+/// - Updates ownership of std streams for the client application;
+/// - Sets host name (https://man7.org/linux/man-pages/man7/hostname.7.html).
 fn main() -> Result<(), String> {
     env_logger::init();
     let args: Vec<String> = env::args().collect();
@@ -21,8 +24,9 @@ fn main() -> Result<(), String> {
     let workdir = &args[1];
     let user = &args[2];
     let group = &args[3];
-    let bin = &args[4];
-    let bin_args = if args.len() > 5 { &args[5..] } else { &[] };
+    let hostname = &args[4];
+    let bin = &args[5];
+    let bin_args = if args.len() > 6 { &args[6..] } else { &[] };
 
     env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
 
@@ -34,6 +38,11 @@ fn main() -> Result<(), String> {
     // Update ownership of std streams of the current process to User res
     update_std_stream_owner(uid, gid)?;
 
+    if !hostname.is_empty() {
+        nix::unistd::sethostname(&hostname).map_err(|err| format!("Failed setting host name to {}. {:?}", hostname, err))?;
+        info!("Set host name to {}", hostname);
+    }
+
     // Exec the client program with the relevant user/group
     let mut client_command = Command::new(bin);
     client_command.args(bin_args);
@@ -42,6 +51,7 @@ fn main() -> Result<(), String> {
 
     // on success this function will not return, not returning has the same
     // implications as calling `process::exit`
+    info!("Launching client application: bin - {:?} args - {:?}", bin, bin_args);
     let err = client_command.exec();
 
     Err(format!("Failed to run subprocess {}. {:?}", bin, err))
@@ -50,6 +60,7 @@ fn main() -> Result<(), String> {
 fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {
     let std_stream_paths = ["/proc/self/fd/0", "/proc/self/fd/1", "/proc/self/fd/2"];
     let mut status = true;
+
     for path in std_stream_paths {
         // TODO: Use chown from "std" crate once their stable feature is out. This
         // will avoid having an additional dependency "nix" into enclave startup code
@@ -59,13 +70,15 @@ fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {
             }
             Err(e) => {
                 warn!("Unable to change ownership of {:?} : {:?}", path, e.to_string());
-                status = status && false;
+                status = false;
             }
         }
     }
+
     if !status {
         return Err(format!("Unable to update ownership of one or more std streams"));
     }
+
     Ok(())
 }
 

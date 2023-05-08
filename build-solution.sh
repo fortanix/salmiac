@@ -1,13 +1,21 @@
 #!/bin/bash
 
+set -exo pipefail
+
 cargo_build_flag=""
 vsock_proxy_bin_folder=""
+enclave_startup_bin_folder=""
+# Enclave startup is statically linked to musl instead of glibc
+# to avoid problems runtime linking errors with libnss SALM-345
+enclave_startup_toolchain="x86_64-unknown-linux-musl"
 
 if [ "$1" = "--release" ]; then
   cargo_build_flag="--release"
   vsock_proxy_bin_folder="release"
+  enclave_startup_bin_folder="$enclave_startup_toolchain/release"
 else
   vsock_proxy_bin_folder="debug"
+  enclave_startup_bin_folder="$enclave_startup_toolchain/debug"
 fi;
 
 features_list=""
@@ -27,9 +35,10 @@ cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/re
 popd
 
 pushd enclave-startup
-cargo build $cargo_build_flag $features_list
-file "target/${vsock_proxy_bin_folder}/enclave-startup"
-cp "target/${vsock_proxy_bin_folder}/enclave-startup" ../tools/container-converter/src/resources/enclave
+rustup target add $enclave_startup_toolchain
+cargo build $cargo_build_flag $features_list --target $enclave_startup_toolchain
+file "target/$enclave_startup_bin_folder/enclave-startup"
+cp "target/$enclave_startup_bin_folder/enclave-startup" ../tools/container-converter/src/resources/enclave
 
 popd
 

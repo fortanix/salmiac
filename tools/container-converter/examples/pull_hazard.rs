@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::env;
 use std::io::{self, Write};
 
-use container_converter::image::DockerDaemon;
+use container_converter::docker::DockerDaemon;
 use exitcode;
 use futures::StreamExt;
 use log::debug;

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::Write;
-use std::path::Path;
+use std::io::{Read, Write};
 use std::{env, fs};
 
 use api_model::AuthConfig;
@@ -10,8 +9,8 @@ use docker_image_reference::{Reference as DockerReference, Reference};
 use futures::StreamExt;
 use log::{debug, error, info, warn};
 use shiplift::container::ContainerCreateInfo;
-use shiplift::image::{ImageDetails, PushOptions};
-use shiplift::{BuildOptions, ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
+use shiplift::image::{BuildParams, ImageDetails, PushOptions};
+use shiplift::{ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
 
 use crate::image::ImageWithDetails;
 
@@ -26,7 +25,7 @@ pub trait DockerUtil: Send + Sync {
 
     async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String>;
 
-    async fn build_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String>;
+    async fn build_image_from_archive(&self, archive: fs::File, image: &DockerReference<'_>) -> Result<(), String>;
 
     async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String>;
 
@@ -47,8 +46,12 @@ pub trait DockerUtil: Send + Sync {
         Ok(())
     }
 
-    async fn create_image<'a>(&self, image: DockerReference<'a>, dir: &Path) -> Result<ImageWithDetails<'a>, String> {
-        self.build_image(dir, &image).await?;
+    async fn create_image_from_archive<'a>(
+        &self,
+        image: DockerReference<'a>,
+        archive_file: File,
+    ) -> Result<ImageWithDetails<'a>, String> {
+        self.build_image_from_archive(archive_file, &image).await?;
 
         let details = self.get_local_image_details(&image).await?;
 
@@ -96,7 +99,7 @@ impl DockerDaemon {
         }
     }
 
-    fn image_download_hazard_check(image_size: u64) -> Result<(), String> {
+    pub fn image_download_hazard_check(image_size: u64) -> Result<(), String> {
         fn bytes_to_mebibytes(bytes: u64) -> f64 {
             bytes as f64 / (1024.0 * 1024.0)
         }
@@ -260,20 +263,17 @@ impl DockerUtil for DockerDaemon {
             })
     }
 
-    async fn build_image(&self, docker_dir: &Path, image: &DockerReference<'_>) -> Result<(), String> {
-        let path_as_string = docker_dir
-            .as_os_str()
-            .to_str()
-            .ok_or(format!("Failed to convert path {} to UTF8 string.", docker_dir.display()))?;
+    async fn build_image_from_archive(&self, archive: File, image: &Reference<'_>) -> Result<(), String> {
+        let build_context = FrameFileRead::new(archive);
 
-        let mut build_opts_builder = BuildOptions::builder(path_as_string);
-        let build_options = build_opts_builder.set_skip_gzip(true).tag(image.to_string()).build();
+        let mut build_params = BuildParams::default();
+        build_params.tag(image.to_string());
 
         env::set_var("DOCKER_BUILDKIT", "1");
 
-        info!("Started building image");
+        info!("Started building image {}", image.to_string());
 
-        let mut stream = self.docker.images().build(&build_options);
+        let mut stream = self.docker.images().build_from_raw_parts(&build_params, build_context);
         while let Some(build_result) = stream.next().await {
             match build_result {
                 Ok(output) => {
@@ -309,6 +309,7 @@ impl DockerUtil for DockerDaemon {
     }
 
     async fn export_container_file_system(&self, container_name: &str, file: &mut File) -> Result<(), String> {
+        info!("Started file system export of a container {}...", container_name);
         let mut stream = Box::pin(self.docker.containers().get(container_name).export());
 
         while let Some(export_result) = stream.next().await {
@@ -325,5 +326,29 @@ impl DockerUtil for DockerDaemon {
         }
 
         Ok(())
+    }
+}
+
+struct FrameFileRead {
+    file: std::fs::File,
+}
+
+impl FrameFileRead {
+    pub fn new(file: std::fs::File) -> Self {
+        FrameFileRead { file }
+    }
+}
+
+impl Iterator for FrameFileRead {
+    type Item = std::result::Result<Vec<u8>, shiplift::errors::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = [0 as u8; 1 * 1024 * 1024];
+
+        match self.file.read(&mut buf) {
+            Ok(amount) if amount > 0 => Some(Ok(buf[..amount].to_vec())),
+            Err(err) => Some(Err(shiplift::errors::Error::IO(err))),
+            Ok(_) => None,
+        }
     }
 }
