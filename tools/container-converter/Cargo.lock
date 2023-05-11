@@ -1817,9 +1817,9 @@ dependencies = [
 
 [[package]]
 name = "sgx_pkix"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0033a931f7ef0335533538e7f36711dd3e7cafeec2a1da7bf43d8c0f8f23531"
+checksum = "9f3537667753c3f13ea771ea4cbc4c0684f312c468b5ab7bf0696d5b7e9fdd33"
 dependencies = [
  "byteorder",
  "lazy_static",
@@ -1837,7 +1837,7 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 [[package]]
 name = "shiplift"
 version = "0.7.0"
-source = "git+https://github.com/fortanix/shiplift.git#9672953920f57a468934e67a560c64270a96aea2"
+source = "git+https://github.com/fortanix/shiplift.git#b2168069a42b727cd2a5ae6426166205cae043c7"
 dependencies = [
  "base64",
  "byteorder",
