@@ -1,11 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::ffi::OsStr;
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
-use std::{env, fmt};
-
 use api_model::shared::{UserConfig, UserProgramConfig};
 use api_model::{
     AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
@@ -18,11 +10,21 @@ use image_builder::parent::ParentImageBuilder;
 use log::{debug, error, info, warn};
 use model_types::HexString;
 use shiplift::{Docker, Image};
+use shiplift::image::{DeleteOptions};
 use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
 use crate::image_builder::enclave::PCRList;
+
+use std::fmt::Debug;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
+use std::ffi::OsStr;
+use std::str::FromStr;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::{env, fmt};
 
 pub mod docker;
 pub mod file;
@@ -85,7 +87,7 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
 
 async fn run0(
     conversion_request: NitroEnclavesConversionRequest,
-    images_to_clean_snd: Sender<ImageToClean>
+    images_to_clean_snd: Sender<ImageToClean>,
 ) -> Result<NitroEnclavesConversionResponse> {
     if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
         return Err(ConverterError {
@@ -334,26 +336,27 @@ async fn clean_docker_images(
     images_receiver: mpsc::Receiver<ImageToClean>,
     preserve: HashSet<ImageKind>,
 ) -> Result<()> {
-    let mut received_images: Vec<String> = Vec::new();
+    let mut received_images: Vec<ImageToClean> = Vec::new();
 
     // this loop will exit after all receivers have exited from
     // the image convert function irregardless if the function
     // exited normally or panicked.
     while let Ok(image) = images_receiver.recv() {
         if !preserve.contains(&image.kind) {
-            received_images.push(image.name)
+            received_images.push(image)
         }
     }
 
     for image in received_images {
-        let image_interface = Image::new(&docker, image.clone());
+        let image_interface = Image::new(&docker, image.name.clone());
+        let mut delete_options = DeleteOptions::builder().force();
 
-        match image_interface.delete().await {
+        match image_interface.delete_with_options(&delete_options.build()).await {
             Ok(_) => {
-                info!("Successfully cleaned intermediate image {}", image);
+                info!("Successfully cleaned {:?} image {}", image.kind, image.name);
             }
             Err(e) => {
-                warn!("Error cleaning intermediate image {}. {:?}", image, e);
+                warn!("Error cleaning {:?} image {}. {:?}", image.kind, image.name, e);
             }
         }
     }
@@ -361,8 +364,11 @@ async fn clean_docker_images(
     Ok(())
 }
 
-pub(crate) async fn run_subprocess(subprocess_path: &OsStr, args: &[&OsStr]) -> std::result::Result<String, String> {
-    let mut command = Command::new(subprocess_path);
+pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + Debug>(
+    subprocess_path: S,
+    args: &[A],
+) -> std::result::Result<String, String> {
+    let mut command = Command::new(&subprocess_path);
 
     command.stdout(Stdio::piped());
     command.args(args);

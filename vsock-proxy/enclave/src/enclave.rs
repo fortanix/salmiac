@@ -12,9 +12,8 @@ use crate::certificate::{request_certificate, write_certificate, CertificateResu
 
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
-    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
-    DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, FileSystemNode
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client,
+    setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::shared::{EnclaveManifest, FileSystemConfig};
 use api_model::CertificateConfig;
@@ -25,6 +24,7 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
+use shared::{HOSTS_FILE, HOSTNAME_FILE, NS_SWITCH_FILE};
 
 use std::convert::From;
 use std::env;
@@ -44,8 +44,9 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::TreeNode("/sys"),
     FileSystemNode::TreeNode("/dev"),
     FileSystemNode::TreeNode("/tmp"),
-    FileSystemNode::File("/etc/hostname"),
-    FileSystemNode::File("/etc/hosts"),
+    FileSystemNode::File(HOSTNAME_FILE),
+    FileSystemNode::File(HOSTS_FILE),
+    FileSystemNode::File(NS_SWITCH_FILE)
 ];
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
@@ -309,7 +310,9 @@ async fn start_user_program(
     hostname: String
 ) -> Result<UserProgramExitStatus, String> {
     let user_program = enclave_setup_result.enclave_manifest.user_config.user_program_config;
-    let is_debug_shell = enclave_setup_result.env_vars.contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
+    let is_debug_shell = enclave_setup_result
+        .env_vars
+        .contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
 
     let mut client_command = if !is_debug_shell {
         let mut client_command = Command::new("chroot");
@@ -406,7 +409,7 @@ struct TapDeviceInfo {
 struct EnclaveNetworkingSetupResult {
     hostname: String,
 
-    tap_devices: Vec<TapDeviceInfo>
+    tap_devices: Vec<TapDeviceInfo>,
 }
 
 async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<EnclaveNetworkingSetupResult, String> {
@@ -445,7 +448,7 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     Ok(EnclaveNetworkingSetupResult {
         hostname: global_settings.hostname,
-        tap_devices
+        tap_devices,
     })
 }
 

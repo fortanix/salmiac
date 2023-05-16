@@ -1,32 +1,41 @@
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::net::IpAddr;
+use std::path::Path;
+use std::str::FromStr;
+use std::{env, fs};
+
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
-use shared::run_subprocess;
+use shared::models::{
+    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
+    UserProgramExitStatus,
+};
+use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use shared::tap::start_tap_loops;
+use shared::{
+    extract_enum_value, run_subprocess, with_background_tasks, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
+    VSOCK_PARENT_CID,
+};
 use tokio::task::JoinHandle;
-use tokio_vsock::VsockListener as AsyncVsockListener;
-use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
 use crate::network::{
     choose_network_addresses_for_fs_taps, list_network_devices, setup_file_system_tap_devices, setup_network_devices,
     PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
 };
 use crate::packet_capture::start_pcap_loops;
-use shared::models::{ApplicationConfiguration, CCMBackendUrl, NBDConfiguration, NBDExport, SetupMessages, UserProgramExitStatus, FileWithPath, GlobalNetworkSettings};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::tap::start_tap_loops;
-use shared::{extract_enum_value, with_background_tasks};
-use shared::{VSOCK_PARENT_CID, VSOCK_PARENT_PORT};
-
-use std::env;
-use std::fs;
-use std::io::Write;
-use std::net::IpAddr;
-use std::str::FromStr;
+use crate::ParentConsoleArguments;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
 const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
+
+const RW_BLOCK_FILE_OUT: &'static str = "/opt/fortanix/enclave-os/Blockfile-rw.ext4";
+
+const VSOCK_PARENT_PORT: u32 = 5006;
 
 const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     NBDExportConfig {
@@ -47,7 +56,7 @@ const DEFAULT_CPU_COUNT: u8 = 2;
 
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
-pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatus, String> {
+pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
     info!("Spawning enclave process.");
     // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
     let _enclave_process = tokio::spawn(start_nitro_enclave());
@@ -67,15 +76,14 @@ pub async fn run(enclave_extra_args: Vec<String>) -> Result<UserProgramExitStatu
     });
 
     send_env_variables(&mut enclave_port).await?;
-    send_enclave_extra_console_args(&mut enclave_port, enclave_extra_args).await?;
+    send_enclave_extra_console_args(&mut enclave_port, args.enclave_extra_args).await?;
 
-    let setup_result = setup_parent(&mut enclave_port).await?;
+    let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
     let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
 
     let mut background_tasks = start_background_tasks(setup_result)?;
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-
         send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
@@ -250,7 +258,9 @@ async fn start_nitro_enclave() -> Result<(), String> {
     run_subprocess(command, &args).await
 }
 
-fn start_background_tasks(parent_setup_result: ParentSetupResult) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+fn start_background_tasks(
+    parent_setup_result: ParentSetupResult,
+) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
@@ -284,7 +294,7 @@ struct ParentSetupResult {
     file_system_tap: PairedTapDevice,
 }
 
-async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult, String> {
+async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
@@ -303,6 +313,9 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
     let file_system_tap = {
         let (parent_address, enclave_address) = choose_network_addresses_for_fs_taps(network_addresses_in_use)?;
 
+        create_rw_block_file(rw_block_file_size)?;
+        info!("RW Block file of size {} bytes has been created.", rw_block_file_size);
+
         setup_file_system_tap_devices(vsock, parent_address, enclave_address).await?
     };
 
@@ -315,28 +328,29 @@ async fn setup_parent(vsock: &mut AsyncVsockStream) -> Result<ParentSetupResult,
 }
 
 async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
-    const DNS_RESOLV_FILE: &'static str = "/etc/resolv.conf";
-    const HOSTS_FILE: &'static str = "/etc/hosts";
-    const HOSTNAME_FILE: &'static str = "/etc/hostname";
-
     fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
-            .map(|e| FileWithPath { path: path.to_string(), data: e.into_bytes() })
+            .map(|e| FileWithPath {
+                path: path.to_string(),
+                data: e.into_bytes(),
+            })
             .map_err(|err| format!("Failed reading parent's {} file. {:?}", path, err))
     }
 
     let raw_hostname = nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
 
-    let hostname = raw_hostname.into_string().map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
-
+    let hostname = raw_hostname
+        .into_string()
+        .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
     let dns_file = read_file(DNS_RESOLV_FILE)?;
     let hosts_file = read_file(HOSTS_FILE)?;
     let host_name_file = read_file(HOSTNAME_FILE)?;
+    let ns_switch_file = read_file(NS_SWITCH_FILE)?;
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file, hosts_file, host_name_file]
+        global_settings_list: vec![dns_file, hosts_file, host_name_file, ns_switch_file],
     };
 
     enclave_port
@@ -453,4 +467,31 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
             None
         }
     }
+}
+
+fn create_rw_block_file(size: u64) -> Result<(), String> {
+    if Path::new(RW_BLOCK_FILE_OUT).exists() {
+        info!("{:?} already exists, skipping creating a new blockfile", RW_BLOCK_FILE_OUT);
+        return Ok(());
+    }
+
+    // Create a new file only if it does not exist, otherwise open an existing file
+    // and return the file pointer. We need this to ensure that when a docker container
+    // restarts, it reuses the existing blockfile which contains state from the previous
+    // run rather than create a new blockfile which overwrites the previous rw layer.
+    let block_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(RW_BLOCK_FILE_OUT)
+        .map_err(|err| format!("Failed creating RW block file {}. {:?}", RW_BLOCK_FILE_OUT, err))?;
+
+    info!("Setting RW blockfile size to {:?}", size);
+    block_file.set_len(size).map_err(|err| {
+        format!(
+            "Failed truncating RW block file {} to size {}. {:?}",
+            RW_BLOCK_FILE_OUT, size, err
+        )
+    })?;
+
+    Ok(())
 }

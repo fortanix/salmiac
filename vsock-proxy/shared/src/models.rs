@@ -109,14 +109,14 @@ pub struct FSNetworkDeviceSettings {
 pub struct GlobalNetworkSettings {
     pub hostname: String,
 
-    pub global_settings_list: Vec<FileWithPath>
+    pub global_settings_list: Vec<FileWithPath>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileWithPath {
     pub path: String,
 
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

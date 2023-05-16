@@ -69,9 +69,9 @@ impl<'a> ImageWithDetails<'a> {
         let id = &self.details.id;
 
         if id.starts_with("sha256:") {
-            &id[7..19]
+            &id[7..]
         } else {
-            &id[..12]
+            &id[..]
         }
     }
 
@@ -244,13 +244,12 @@ mod tests {
             assert_eq!(result, reference);
         };
 
-        test("test".to_string(), (User::from("test"), User::from("root")));
+        test("test".to_string(), (User::from("test"), User::from("")));
         test("test:test".to_string(), (User::from("test"), User::from("test")));
         test("test:root".to_string(), (User::from("test"), User::from("root")));
         test("root:test".to_string(), (User::from("root"), User::from("test")));
-        test("".to_string(), (User::from("root"), User::from("root")));
-        test(":test".to_string(), (User::from("root"), User::from("test")));
-        test(":root".to_string(), (User::from("root"), User::from("root")));
-        test("test:".to_string(), (User::from("test"), User::from("root")));
+        test("".to_string(), (User::from(""), User::from("")));
+        test(":test".to_string(), (User::from(""), User::from("test")));
+        test("test:".to_string(), (User::from("test"), User::from("")));
     }
 }

@@ -36,10 +36,10 @@ enum TokenOp {
     Import,
 }
 
-pub (crate) enum FileSystemNode {
+pub(crate) enum FileSystemNode {
     Proc,
     TreeNode(&'static str),
-    File(&'static str)
+    File(&'static str),
 }
 
 pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<(), String> {
@@ -49,10 +49,20 @@ pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<
                 run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
             }
             FileSystemNode::TreeNode(node_path) => {
-                run_mount(&["--rbind", node_path, &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path=node_path)]).await?;
+                run_mount(&[
+                    "--rbind",
+                    node_path,
+                    &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path),
+                ])
+                .await?;
             }
             FileSystemNode::File(file_path) => {
-                run_mount(&["--bind", file_path, &format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path=file_path)]).await?;
+                run_mount(&[
+                    "--bind",
+                    file_path,
+                    &format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path = file_path),
+                ])
+                .await?;
             }
         }
     }
@@ -221,10 +231,9 @@ pub(crate) async fn mount_read_write_file_system(env_vars: &[(String, String)]) 
 }
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
-    let lower_dir = ENCLAVE_FS_LOWER.to_string() + "/enclave-fs";
     let overlay_dir_config = format!(
         "lowerdir={},upperdir={},workdir={}",
-        lower_dir, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
+        ENCLAVE_FS_LOWER, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
     );
 
     run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT]).await
@@ -347,10 +356,14 @@ pub(crate) async fn unmount_file_system_nodes(nodes: &[FileSystemNode]) -> Resul
                 run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
             }
             FileSystemNode::TreeNode(node_path) => {
-                run_unmount(&["-R", &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path=node_path)]).await?;
+                run_unmount(&[
+                    "-R",
+                    &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path),
+                ])
+                .await?;
             }
             FileSystemNode::File(file_path) => {
-                run_unmount(&[&format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path=file_path)]).await?;
+                run_unmount(&[&format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path = file_path)]).await?;
             }
         }
     }
@@ -400,8 +413,13 @@ pub(crate) fn request_vsk(env_vars: &[(String, String)]) -> Result<Sobject, Stri
             )
         })?;
 
-    let version = client.version().map_err(|e| format!("Unable to connect to sdkms client {:?}", e))?;
-    info!("Connected to sdkms version {} API version {}", version.version, version.api_version);
+    let version = client
+        .version()
+        .map_err(|e| format!("Unable to connect to sdkms client {:?}", e))?;
+    info!(
+        "Connected to sdkms version {} API version {}",
+        version.version, version.api_version
+    );
 
     let request = SobjectDescriptor::Name(key_name.clone());
     info!("Requesting key with name {:?}", key_name);
