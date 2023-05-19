@@ -670,6 +670,7 @@ dependencies = [
  "nitro-enclaves-converter-api-model",
  "nix 0.15.0",
  "pkix 0.1.2",
+ "rand 0.8.5",
  "rtnetlink",
  "sdkms",
  "serde",

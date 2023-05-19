@@ -22,14 +22,6 @@ async fn main() -> Result<(), String> {
             std::env::vars().any(|e| e.0 == "FS_API_KEY"),
             "FS_API_KEY env var must be present when USE_VSK is set!"
         );
-        assert!(
-            std::env::vars().any(|e| e.0 == "FS_KEY_NAME"),
-            "FS_KEY_NAME env var must be present when USE_VSK is set!"
-        );
-        assert!(
-            std::env::vars().any(|e| e.0 == "FS_VSK_ENDPOINT"),
-            "FS_VSK_ENDPOINT env var must be present when USE_VSK is set!"
-        );
     }
 
     match parent::run(parent_args).await {
