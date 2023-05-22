@@ -134,6 +134,7 @@ mod tests {
 
     use std::{env, println as info};
 
+    use lazy_static::lazy_static;
     use sdkms::api_model::{Blob, ListSobjectsParams};
 
     use crate::dsm_key_config::{
@@ -143,14 +144,20 @@ mod tests {
     const PLAINTEXT: &str = "hello world. This is a test string.";
     const DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
 
+    lazy_static! {
+        static ref DSM_API_KEY: String =
+            env::var("FORTANIX_API_KEY")
+            .expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
+
+        static ref DSM_ENV_VARS: Vec<(String, String)> = vec![
+            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
+            ("FS_API_KEY".to_string(), DSM_API_KEY.to_string()),
+        ];
+    }
+
     #[test]
     fn test_connection_to_dsm() {
-        let api_key = env::var("FORTANIX_API_KEY").unwrap();
-        let env_vars = [
-            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
-            ("FS_API_KEY".to_string(), api_key),
-        ];
-        let dsm_client = dsm_create_client(&env_vars, None);
+        let dsm_client = dsm_create_client(&DSM_ENV_VARS, None);
         let version = dsm_client
             .expect("Client creation failed")
             .version()
@@ -164,16 +171,11 @@ mod tests {
 
     #[test]
     fn test_enc_dec_blob() {
-        let api_key = env::var("FORTANIX_API_KEY").unwrap();
-        let env_vars = [
-            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
-            ("FS_API_KEY".to_string(), api_key),
-        ];
-        let enc_resp = dsm_enc_with_overlayfs_key(&vec![], &env_vars, Blob::from(PLAINTEXT)).unwrap();
+        let enc_resp = dsm_enc_with_overlayfs_key(&vec![], &DSM_ENV_VARS, Blob::from(PLAINTEXT)).unwrap();
 
         let dec_resp = dsm_dec_with_overlayfs_key(
             &vec![],
-            &env_vars,
+            &DSM_ENV_VARS,
             enc_resp.cipher,
             enc_resp.iv.unwrap(),
             enc_resp.tag.unwrap(),
@@ -184,12 +186,7 @@ mod tests {
 
     #[test]
     fn test_get_limited_keys() {
-        let api_key = env::var("FORTANIX_API_KEY").unwrap();
-        let env_vars = [
-            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
-            ("FS_API_KEY".to_string(), api_key),
-        ];
-        let dsm_client = dsm_create_client(&env_vars, None).expect("Client creation failed");
+        let dsm_client = dsm_create_client(&DSM_ENV_VARS, None).expect("Client creation failed");
 
         let query_params = ListSobjectsParams {
             group_id: None,
