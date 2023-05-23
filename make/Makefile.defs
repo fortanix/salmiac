@@ -1,0 +1,41 @@
+#
+# String definitions for makefiles.
+#
+
+APPCONFIG_ENV_KEY := APPCONFIG_ID
+APPCONF_JSON_FILE := appconfig.json
+COMPANY := fortanix
+COMPANY_UI_NAME := Fortanix
+CONTAINER_CONVERTER := enclave-os-container-converter
+CONVERTER_DOCKER_LABEL := com.fortanix.enclave-os.version
+CONVERTER_INSTALL_ROOT := /opt/fortanix/converter
+CONVERTER_PRODUCT := converter
+CONVERTER_ZIRCON_OPENJ9_LABEL := com.fortanix.zircon.guest.openj9-jit
+CPUNUM_ENV_VAR := ENCLAVEOS_CPUNUM
+FATAL_ERROR_1 := %s has encountered an internal error and cannot continue.
+FATAL_ERROR_2 := Your application may require functionality that is not yet implemented in %s.
+FATAL_ERROR_3 := Please contact %s support <%s> for assistance
+FORTANIX_MANAGER_UI_NAME := Fortanix Manager
+HOST_LIB_DIR := /lib64
+HOST_META_PACKAGE_DESCRIPTION := Meta package depending on all packages required to run EnclaveOS images
+HOST_PACKAGE_DESCRIPTION := EnclaveOS System Settings
+INSTALL_APPCONF_DIR := /opt/fortanix/enclave-os/app-config
+INSTALL_APPCONF_JSON_FILE := /opt/fortanix/enclave-os/app-config/rw/appconfig.json
+INSTALL_APPCONF_RO_DIR := /opt/fortanix/enclave-os/app-config/ro
+INSTALL_APPCONF_RW_DIR := /opt/fortanix/enclave-os/app-config/rw
+INSTALL_BIN_DIR := /opt/fortanix/enclave-os/bin
+INSTALL_ROOT_CA := /opt/fortanix/enclave-os/certs/ca-certificates.crt
+INSTALL_ROOT_CA_DIR := /opt/fortanix/enclave-os/certs
+JAVA_OPTIONS_OPENJ9_JIT := -Xdump:none -Xjit:disableSmartPlacementOfCodeCaches -Dcom.ibm.tools.attach.enable=no -XX:codecachetotal=10m
+JAVA_OPTIONS_OPENJ9_NOJIT := -Xdump:none -Xnojit -Xnoaot
+JAVA_OPTIONS_OPENJDK := -XX:CompressedClassSpaceSize=16m -XX:ReservedCodeCacheSize=16m -XX:-UseCompiler -XX:+UseSerialGC -XX:-UsePerfData
+PRODUCT := enclave-os
+PRODUCT_UI_NAME := EnclaveOS
+PRODUCT_VERSION :=
+ROOT_CA_FILE := ca-certificates.crt
+RUNTIME_APPCONF_DIR := app-config
+RUNTIME_APPCONF_RO_DIR := app-config/ro
+RUNTIME_APPCONF_RW_DIR := app-config/rw
+RUNTIME_ROOT_CA_DIR := certs
+SUPPORT_EMAIL := support@fortanix.com
+TROUBLE_SHOOTING_GUIDE := <Work In Progress>
