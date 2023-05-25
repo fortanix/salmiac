@@ -1,35 +1,31 @@
+use std::convert::From;
+use std::path::Path;
+use std::{env, fs};
+
+use api_model::shared::{EnclaveManifest, FileSystemConfig};
+use api_model::CertificateConfig;
 use async_process::Command;
 use futures::stream::FuturesUnordered;
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
-use tokio::task::JoinHandle;
-use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
-use tun::AsyncDevice;
-use tun::Device;
-
-use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
-
-use crate::file_system::{
-    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client,
-    setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
-};
-use api_model::shared::{EnclaveManifest, FileSystemConfig};
-use api_model::CertificateConfig;
 use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
-use shared::{extract_enum_value, with_background_tasks, VSOCK_PARENT_CID};
-use shared::{HOSTS_FILE, HOSTNAME_FILE, NS_SWITCH_FILE};
+use shared::{extract_enum_value, with_background_tasks, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID};
+use tokio::task::JoinHandle;
+use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
+use tun::{AsyncDevice, Device};
 
-use std::convert::From;
-use std::env;
-use std::fs;
-use std::path::{Path};
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
+use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
+use crate::file_system::{
+    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client,
+    setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+};
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
@@ -46,7 +42,7 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::TreeNode("/tmp"),
     FileSystemNode::File(HOSTNAME_FILE),
     FileSystemNode::File(HOSTS_FILE),
-    FileSystemNode::File(NS_SWITCH_FILE)
+    FileSystemNode::File(NS_SWITCH_FILE),
 ];
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
@@ -69,7 +65,13 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         )
         .await?;
 
-        setup_file_system(&setup_result.enclave_manifest, &mut parent_port, &setup_result.env_vars).await?;
+        setup_file_system(
+            &setup_result.enclave_manifest,
+            &mut parent_port,
+            &setup_result.env_vars,
+            &certificate_info,
+        )
+        .await?;
 
         for certificate in &mut certificate_info {
             write_certificate(certificate)?;
@@ -79,8 +81,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         setup_app_configuration(&setup_result.app_config, first_certificate)?;
 
-        let exit_status =
-            start_and_await_user_program_return(setup_result, hostname).await?;
+        let exit_status = start_and_await_user_program_return(setup_result, hostname).await?;
 
         cleanup().await?;
 
@@ -172,24 +173,37 @@ fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, St
     Ok(res)
 }
 
-fn setup_app_configuration(app_config: &ApplicationConfiguration, certificate_info: Option<CertificateResult>) -> Result<(), String> {
+fn setup_app_configuration(
+    app_config: &ApplicationConfiguration,
+    certificate_info: Option<CertificateResult>,
+) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
 
         info!("Setting up application configuration.");
 
-        setup_application_configuration(&credentials, &app_config.ccm_backend_url, api, Path::new(ENCLAVE_FS_OVERLAY_ROOT))
+        setup_application_configuration(
+            &credentials,
+            &app_config.ccm_backend_url,
+            api,
+            Path::new(ENCLAVE_FS_OVERLAY_ROOT),
+        )
     } else {
         Ok(())
     }
 }
 
-async fn setup_file_system(enclave_manifest: &EnclaveManifest, parent_port: &mut AsyncVsockStream, env_vars: &[(String, String)]) -> Result<(), String> {
+async fn setup_file_system(
+    enclave_manifest: &EnclaveManifest,
+    parent_port: &mut AsyncVsockStream,
+    env_vars: &[(String, String)],
+    cert_list: &Vec<CertificateWithPath>,
+) -> Result<(), String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
-    setup_file_system0(&nbd_config, &enclave_manifest.file_system_config, env_vars).await?;
+    setup_file_system0(&nbd_config, &enclave_manifest.file_system_config, env_vars, cert_list).await?;
 
     Ok(())
 }
@@ -230,7 +244,7 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 
 async fn start_and_await_user_program_return(
     enclave_setup_result: EnclaveSetupResult,
-    hostname: String
+    hostname: String,
 ) -> Result<UserProgramExitStatus, String> {
     let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname));
 
@@ -243,6 +257,7 @@ async fn setup_file_system0(
     nbd_config: &NBDConfiguration,
     file_system_config: &FileSystemConfig,
     env_vars: &[(String, String)],
+    cert_list: &Vec<CertificateWithPath>,
 ) -> Result<(), String> {
     for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;
@@ -262,7 +277,7 @@ async fn setup_file_system0(
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
 
-    mount_read_write_file_system(env_vars).await?;
+    mount_read_write_file_system(env_vars, cert_list).await?;
     info!("Finished read/write file system mount.");
 
     mount_overlay_fs().await?;
@@ -307,7 +322,7 @@ fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
 
 async fn start_user_program(
     enclave_setup_result: EnclaveSetupResult,
-    hostname: String
+    hostname: String,
 ) -> Result<UserProgramExitStatus, String> {
     let user_program = enclave_setup_result.enclave_manifest.user_config.user_program_config;
     let is_debug_shell = enclave_setup_result
