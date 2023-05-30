@@ -34,3 +34,6 @@ rand = "0.8.5"
 pkix = "0.1.2"
 serde_cbor = "0.11.2"
 mbedtls = { version = "0.8.1", features = [ "rdrand", "std" ], default-features = false }
+
+[dev-dependencies]
+lazy_static = "1.0"
