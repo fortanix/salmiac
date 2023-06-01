@@ -1,3 +1,4 @@
+/build/
 /vsock-proxy/target/
 /vsock-proxy/.idea
 /tools/container-converter/target/
@@ -5,4 +6,3 @@
 /container-converter-service/target/
 /container-converter-service/.idea
 .idea
-/build/

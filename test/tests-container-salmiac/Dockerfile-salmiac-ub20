@@ -1,0 +1,80 @@
+FROM 513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-parent-base:1.0.4 as nitro-cli
+
+ARG PLATFORM
+ARG FLAVOR
+ARG DOCKER_REGISTRY
+
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+       cryptsetup-bin \
+       curl \
+       git \
+       libffi-dev \
+       libmbedtls12 \
+       libmysqlclient-dev \
+       libnuma-dev \
+       musl \
+       openssl \
+       python3 \
+       python3-dev \
+       python3-pandas \
+       python3-pip \
+       python3-venv \
+       sudo \
+       tzdata \
+       wget \
+    && pip3 install \
+       arpy \
+       boto3 \
+       cryptography \
+       docker==4.0.2 \
+       flask \
+       junit_xml \
+       kubernetes \
+       ldap3 \
+       locust==1.4.1 \
+       mysqlclient \
+       pexpect \
+       pyOpenSSL \
+       sdkms \
+       pyOpenSSL \
+       urllib3==1.26.15 \
+       requests==2.28.2 \
+    && useradd zircon-tests \
+    && ln -fs /usr/share/zoneinfo/US/Pacific-New /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata
+
+# Newer versions of Docker support a --chown flag to the COPY directive
+# that let you change file ownership without creating an extra container
+# layer, but we're still using an older version of Docker without this support.
+COPY tests /home/zircon-tests/tests/
+COPY docker-credential-ecr-login /usr/local/bin/
+COPY docker-config.json /home/zircon-tests/.docker/config.json
+COPY container-converter /home/zircon-tests/tests/tools/converter/bin/container-converter
+COPY amzn-linux-nbd/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
+COPY amzn-linux-nbd/bzImage /usr/share/nitro_enclaves/blobs/bzImage
+
+
+RUN chown -R zircon-tests:zircon-tests /home/zircon-tests
+
+# Nitro-cli needs write access to this folder
+RUN chown -R zircon-tests:zircon-tests /var/log/nitro_enclaves
+
+# This ensures that zircon-tests is not asked for a password
+# when it runs commands using sudo. Needed to allow converting
+# nitro apps with filesystem features (which needs sudo privileges
+# for operations such as a file mount)
+RUN usermod -aG sudo zircon-tests && \
+    echo "zircon-tests ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    visudo -c
+
+WORKDIR /home/zircon-tests/tests
+
+ENV PYTHONPATH="${PYTHONPATH}:/home/zircon-tests/tests/tools/app-test-infra/python:/home/zircon-tests/tests/codegen/python" \
+    PLATFORM=$PLATFORM \
+    FLAVOR=$FLAVOR \
+    DOCKER_REGISTRY=$DOCKER_REGISTRY \
+    IS_NITRO=true
+
+ENTRYPOINT [ "/home/zircon-tests/tests/tools/app-test-infra/bin/tests-container-entry.sh" , "--app-test-salmiac", "--frequency", "daily"]

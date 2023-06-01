@@ -12,8 +12,6 @@ CODEGEN_DIR := $(BUILD_DIR)/codegen
 PY_CODEGEN_DIR := $(BUILD_DIR)/codegen/python
 PY_STRING_TABLE := $(PY_CODEGEN_DIR)/generated_string_table.py
 PY_STRING_TABLE_WRAPPER :=  zircon/tools/app-test-infra/python/string_table.py
-SHELL_CODEGEN_DIR := $(BUILD_DIR)/codegen/sh
-SHELL_STRING_TABLE := $(SHELL_CODEGEN_DIR)/generated_string_table.sh
 
 STRING_TABLE_SOURCE := $(REPO_ROOT)/zircon/strings/string-table
 STRING_TABLE_SCRIPT := $(REPO_ROOT)/zircon/tools/bin/gen-string-tables.py
@@ -22,7 +20,7 @@ EXTRA_STRINGS := --string PRODUCT_VERSION=$(VERSION) --string KERNEL_MODULE_VERS
 
 # export FREQUENCY we get over make command line for tets to use.
 export CI_FREQ=$(FREQUENCY)
-$(info Building with FLAVOR=$(FLAVOR) PLATFORM=$(PLATFORM) FREQUENCY=$(FREQUENCY) BUILD_ROOT=$(BUILD_ROOT))
+$(info Building with FLAVOR=$(FLAVOR) FREQUENCY=$(FREQUENCY) BUILD_ROOT=$(BUILD_ROOT))
 $(shell mkdir -p $(BUILD_DIR) && $(LN_S) $(BUILD_SUBDIR) $(BUILD_ROOT)/latest)
 
 include $(REPO_ROOT)/make/Makefile.defs
@@ -88,6 +86,10 @@ define files-in-dir
 $(shell $(FIND) $(1) -maxdepth 1 -regex '[^#]*' -type f)
 endef
 
+TESTS-CONTAINER-TAGFILE := $(BUILD_DIR)/tests-container-tag
+
+DOCKER-ENV-FILE := $(BUILD_DIR)/docker-env
+
 #
 # Definition for the tests container build.
 #
@@ -97,20 +99,6 @@ TESTS-CONTAINER := $(BUILD_DIR)/$(TESTS-CONTAINER-BASE).tar.gz
 TESTS-CONTAINER-TAGFILE := $(BUILD_DIR)/tests-container-tag
 
 DOCKER-ENV-FILE := $(BUILD_DIR)/docker-env
-
-#
-# Location of the stage directory for the tests container
-#
-TESTS-REGRESSION-TEST-SUBDIR := tests/regression-tests
-
-TESTS-STAGE-DIR := $(BUILD_DIR)/tests-container-stage
-
-TEST-CONTAINER-MOUNT := /opt/fortanix/ci/tests-container
-
-#
-# In-container test path.
-#
-TESTS-CONTAINER-HOME := /home/zircon-tests
 
 #
 # Variables for Python test runner.
@@ -180,3 +168,22 @@ TESTS-VERSION := $(strip $(if $(filter zircon-release,$(JOB_NAME)),$(TESTS-RELEA
 TESTS-TAG := $(TESTS-CONTAINER-BASE):$(TESTS-VERSION)
 
 TESTS_CONTAINER_DOCKERFILE := Dockerfile-salmiac-ub20
+
+#
+# Location of the stage directory for the tests container
+#
+TESTS-REGRESSION-TEST-SUBDIR := tests/regression-tests
+TEST-CONTAINER-MOUNT := /opt/fortanix/ci/tests-container
+TESTS-STAGE-DIR := $(BUILD_DIR)/tests-container-stage
+TESTS-STAGE-UNIT-TEST-DIR := $(TESTS-STAGE-DIR)/tests/unit-tests
+TESTS-STAGE-REGRESSION-TEST-DIR := $(TESTS-STAGE-DIR)/$(TESTS-REGRESSION-TEST-SUBDIR)
+TESTS-STAGE-DEBIAN-DIR := $(TESTS-STAGE-DIR)/tests/debian
+TESTS-STAGE-CONVERTER-DIR := $(TESTS-STAGE-DIR)/tests/tools/converter
+TESTS-STAGE-BIN-DIR := $(TESTS-STAGE-DIR)/tests/bin
+TESTS-STAGE-CODEGEN-DIR := $(TESTS-STAGE-DIR)/tests/codegen
+TESTS-CONTAINER-APP-TESTS-FILE := $(TESTS-STAGE-DIR)/tests/app-tests-info.csv
+TESTS-CONTAINER-ALL-TESTS-FILE := $(TESTS-CONTAINER-APP-TESTS-FILE)
+#
+# In-container test path.
+#
+TESTS-CONTAINER-HOME := /home/zircon-tests

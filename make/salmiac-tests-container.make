@@ -54,13 +54,11 @@ run-tests-container:  $(if $(TESTS_CONTAINER_NO_REBUILD),,$(TESTS-CONTAINER))
 
 
 $(SUBDIR)/PYTHON-LIB-FILES := $(call files-in-dir,$(REPO_ROOT)/zircon/tools/app-test-infra/python)
-$(SUBDIR)/PYTHON-LIB-FILES += $(call files-in-dir,$(REPO_ROOT)/zircon/tools/python)
 
-$(SUBDIR)/STAGED-PYTHON-LIB-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(SUBDIR)/PYTHON-LIB-FILES))
+$(SUBDIR)/STAGED-PYTHON-LIB-FILES := $(subst $(REPO_ROOT)/zircon,$(TESTS-STAGE-DIR)/tests,$($(SUBDIR)/PYTHON-LIB-FILES))
 
-$(SUBDIR)/BIN-FILES := $(call files-in-dir,$(REPO_ROOT)/zircon/tools/bin)
-$(SUBDIR)/BIN-FILES += $(call files-in-dir,$(REPO_ROOT)/zircon/tools/app-test-infra/bin)
-$(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(SUBDIR)/BIN-FILES))
+$(SUBDIR)/BIN-FILES := $(call files-in-dir,$(REPO_ROOT)/zircon/tools/app-test-infra/bin)
+$(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT)/zircon,$(TESTS-STAGE-DIR)/tests,$($(SUBDIR)/BIN-FILES))
 
 #
 # This target defines everything that needs to be included in the tests
@@ -70,7 +68,6 @@ $(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(
 # amzn-linux-nbd contains the updated nitro enclave kernel image
 TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub20 \
-	$(TESTS-STAGE-DIR)/get-pip.py \
 	$(TESTS-STAGE-DIR)/docker-config.json \
 	$(TESTS-STAGE-DIR)/container-converter \
 	$(TESTS-STAGE-DIR)/amzn-linux-nbd.tar \
@@ -86,7 +83,6 @@ TESTS-STAGE-CONTENTS := \
 # from the source or build directories.
 #
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub20,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub20))
-$(eval $(call make-cp-rule,$(REPO_ROOT)/zircon/tools/app-test-infra/bin/get-pip.py,$(TESTS-STAGE-DIR)/get-pip.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/zircon/tools/app-test-inrfa/bin/tests-container-entry.sh,$(TESTS-STAGE-DIR)/tests-container-entry.sh))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/zircon/tools/app-test-infra/bin/tests-container-run.py,$(TESTS-STAGE-DIR)/tests-container-run.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/docker-config.json,$(TESTS-STAGE-DIR)/docker-config.json))
@@ -96,7 +92,7 @@ $(eval $(call untar-pkg,$(TESTS-STAGE-DIR)/amzn-linux-nbd.tar,$(TESTS-STAGE-DIR)
 
 # This generates the rules for copying the contents of zircon/tools/app-test-infra/python
 # tests-container-stage/tests/python.
-$(foreach lib,$($(SUBDIR)/PYTHON-LIB-FILES) $($(SUBDIR)/BIN-FILES),$(eval $(call make-cp-rule,$(lib),$(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$(lib)))))
+$(foreach lib,$($(SUBDIR)/PYTHON-LIB-FILES) $($(SUBDIR)/BIN-FILES),$(eval $(call make-cp-rule,$(lib),$(subst $(REPO_ROOT)/zircon,$(TESTS-STAGE-DIR)/tests,$(lib)))))
 
 # This rule removes the image and staging directory after building,
 # to force Make to run the docker build command each time. The Make rules

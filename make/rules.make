@@ -1,26 +1,10 @@
+.PHONY: force-rebuild
+
+# Rule for creating a build directory. This rule will work as long as the
+# prerequisite ends in a slash.
 
 %/:
 	$(MKDIR) -p $@
-
-define make-app
-$(BUILD_DIR)/$(1): $(BUILD_DIR)/$(1)/$(2)
-
-$(call make-checking-build-command,$(BUILD_DIR)/$(1)/$(2),$$(patsubst %,$(BUILD_DIR)/%,$(3)) $(patsubst %,$(BUILD_DIR)/%,$(4)) $(6) | $(BUILD_DIR)/$(1)/,$(build-command))
-
-$(call make-cp-rule,$(BUILD_DIR)/$(1)/$(2),$(TESTS-STAGE-REGRESSION-TEST-DIR)/$(1)/$(2))
-
-endef
-
-define add-special-test
-$(SUBDIR)/run-test-targets += $(SUBDIR)/run-$(1)
-$(SUBDIR)/run-tests: $(call test-enabled-by-frequency,$(SUBDIR)/$(1),$(SUBDIR)/run-$(1))
-
-ifeq ($(1),app-test)
-# Convenience target for running all of the app tests.
-zircon/tools/app-test-infra/apps/run-tests: $(call test-enabled-by-frequency,$(SUBDIR)/app-test,$(SUBDIR)/run-app-test)
-endif
-
-endef
 
 # Usage: $(eval $(call make-cp-rule,src,dst))
 #
@@ -37,8 +21,63 @@ $(2): $(1) | $$(dir $(2))
 
 endef
 
+# Usage: $(eval $(call pull-s3,<aws-s3-uri>,<dst-directory>))
+# Note that ":" in the s3 link must be escaped with a backslash
+# to avoid make errors.
+define pull-s3
+$(2): | $$(dir $(2))
+	$$(RM) -f $(2)
+	aws s3 cp $(1) $(2)
+
+endef
+
+# Usage: $(eval $(call untar-pkg,<tar-package-path>,<dst-directory>))
+# <dst-directory> is cleaned and package contents are placed in this
+# directory rather than creating a directory with the name of the tar
+# package
+define untar-pkg
+$(2): $(1) | $(2)
+	$$(RM) -rf $(2)
+	$$(TAR) -xvf $(1) -C $(call dirname,$(2))
+endef
+
+# Get the frequency for a test. The default frequency is ci if not specifically
+# overridden.
+define test-frequency
+$(if $($(1)-FREQUENCY),$($(1)-FREQUENCY),ci)
+endef
+
+# If this test is enabled by frequency, return the rule to run the test.
+# Otherwise, return the empty string.
+# The arguments are:
+# $1: test name, like $(SUBDIR)/test-name
+# $2: run test target, like $(SUBDIR)/run-test-test-name
+define test-enabled-by-frequency
+$(if $(filter $(FREQUENCY),$(call test-frequency,$(1))),$(2),)
+endef
+
+define make-checking-build-command
+$(1): | $(dir $(1))
+$(1): force-rebuild
+$(1): $(2)
+	$$(eval resolved-build-command := $$(subst ','\'',$$(subst $$$$,$$$$$$$$,$(3))))
+	@$(ECHO) '$$(resolved-build-command)' > $$@.cmd.new
+	@$(CMP) -s $$@.cmd.new $$@.cmd || ($(MV) -f $$@.cmd.new $$@.cmd && $(RM) -f $$@)
+	@if [ ! -f $$@ ] || [ -n "$$(filter-out force-rebuild,$$?)" ]; then \
+    echo '$$(subst ','\'',$(3))' ; $(3) ; fi
+endef
+
+define make-app
+$(BUILD_DIR)/$(1): $(BUILD_DIR)/$(1)/$(2)
+
+$(call make-checking-build-command,$(BUILD_DIR)/$(1)/$(2),$$(patsubst %,$(BUILD_DIR)/%,$(3)) $(patsubst %,$(BUILD_DIR)/%,$(4)) $(6) | $(BUILD_DIR)/$(1)/,$(build-command))
+
+$(call make-cp-rule,$(BUILD_DIR)/$(1)/$(2),$(TESTS-STAGE-REGRESSION-TEST-DIR)/$(1)/$(2))
+
+endef
+
+
 define make-app-test-rule
-$(eval $(call add-special-test,app-test))
 
 .PHONY: $(SUBDIR)/run-nitro-app-test
 $(SUBDIR)/run-nitro-app-test: SUBDIR := $(SUBDIR)
@@ -79,9 +118,6 @@ $(1)/list-tests:
 	$$(call pretty-print,$$(sort $$($(1)/run-test-targets)))
 	@true
 
-.PHONY: $(SUBDIR)/manifests
-$(SUBDIR)/manifests: ;
-manifests: $(SUBDIR)/manifests
 
 .PHONY: $(SUBDIR)/tests
 $(SUBDIR)/tests: ;
@@ -99,11 +135,7 @@ $(call make-subdir-default-rules,$(SUBDIR))
 
 $(eval apps := $($(SUBDIR)/apps))
 $(foreach app,$(apps),\
-  $(call make-app,$(SUBDIR),$(app),\
-  $($(SUBDIR)/$(app)-objs),\
-  $($(SUBDIR)/$(app)/LIBS),\
-  $($(SUBDIR)/$(app)/SYSTEM-SOLIBS),\
-  $($(SUBDIR)/$(app)/PRECOMPILED-STATIC-LIBS)))
+  $(call make-app,$(SUBDIR),$(app)))
 
 $(eval copy-files := $(strip $($(SUBDIR)/copy-files) $($(SUBDIR)/app-test)))
 $(eval $(SUBDIR)/copied-files = $(foreach file,$(copy-files),$(BUILD_DIR)/$(SUBDIR)/$(file)))
