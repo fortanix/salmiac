@@ -13,10 +13,6 @@ SHELL := /bin/bash
 PYTHONUNBUFFERED=1
 export PYTHONUNBUFFERED
 
-#
-# Default BUILD_ROOT. This is the user-overridable top-level build directory.
-# It will typically be zircon/build, but we allow changing it.
-#
 # There is also the BUILD_DIR variable. This contains base directory for
 # the current build target, which will be a subdirectory of the BUILD_ROOT.
 # For example, the debug build for sgx will go under BUILD_ROOT/nitro-debug.

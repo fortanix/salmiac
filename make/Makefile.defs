@@ -1,5 +1,6 @@
 #
 # String definitions for makefiles.
+# TODO: Not all of these are needed. We should remove the unnecessary ones later.
 #
 
 APPCONFIG_ENV_KEY := APPCONFIG_ID
