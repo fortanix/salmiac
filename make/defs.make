@@ -8,14 +8,9 @@
 DOCKER_REGISTRY := 513076507034.dkr.ecr.us-west-1.amazonaws.com
 
 # Definitions related to string management
-CODEGEN_DIR := $(BUILD_DIR)/codegen
-PY_CODEGEN_DIR := $(BUILD_DIR)/codegen/python
-PY_STRING_TABLE := $(PY_CODEGEN_DIR)/generated_string_table.py
-PY_STRING_TABLE_WRAPPER :=  zircon/tools/app-test-infra/python/string_table.py
+PY_STRING_TABLE := $(REPO_ROOT)/strings/generated_string_table.py
+PY_STRING_TABLE_WRAPPER :=  tools/app-test-infra/python/string_table.py
 
-STRING_TABLE_SOURCE := $(REPO_ROOT)/zircon/strings/string-table
-STRING_TABLE_SCRIPT := $(REPO_ROOT)/zircon/tools/bin/gen-string-tables.py
-REPLACE_STRINGS_SCRIPT := $(REPO_ROOT)/zircon/tools/bin/replace-strings.py
 EXTRA_STRINGS := --string PRODUCT_VERSION=$(VERSION) --string KERNEL_MODULE_VERSION=$(KERNEL_MODULE_VERSION)
 
 # export FREQUENCY we get over make command line for tets to use.
@@ -104,7 +99,7 @@ DOCKER-ENV-FILE := $(BUILD_DIR)/docker-env
 # Variables for Python test runner.
 #
 PYTHONENV = \
-	"PYTHONPATH=$(REPO_ROOT)/zircon/tools/python:$(REPO_ROOT)/zircon/tools/app-test-infra/python" \
+	"PYTHONPATH=$(REPO_ROOT)/tools/python:$(REPO_ROOT)/tools/app-test-infra/python:$(PY_STRING_TABLE)" \
 	"TEST_BASE_DIR=$(BUILD_DIR)" \
 	"FLAVOR=$(FLAVOR)" \
 	"PLATFORM=$(PLATFORM)" \
@@ -130,7 +125,7 @@ CONVERTER_TAR_GZ = converter-$(VERSION).tar.gz
 CONVERTER_DOCKER_IMAGE = converter-docker-image-$(VERSION).tar.gz
 
 TEST_BUNDLE := test-bundle.tar.gz
-TEST_BUNDLE_DIRS := zircon/tools/bin zircon/tools/app-test-infra/bin zircon/tools/app-test-infra/python zircon/tools/app-test-infra/apps zircon/test/appcert
+TEST_BUNDLE_DIRS := tools/app-test-infra/bin tools/app-test-infra/python tools/app-test-infra/apps
 TEST_BUNDLE_FILES := $(shell $(FIND) $(TEST_BUNDLE_DIRS) -type f)
 
 
