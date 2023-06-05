@@ -54,7 +54,8 @@ COPY docker-config.json /home/zircon-tests/.docker/config.json
 COPY container-converter /home/zircon-tests/tests/tools/converter/bin/container-converter
 COPY amzn-linux-nbd/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
 COPY amzn-linux-nbd/bzImage /usr/share/nitro_enclaves/blobs/bzImage
-
+RUN mkdir /home/zircon-tests/tests/codegen && mkdir /home/zircon-tests/tests/codegen/python
+COPY generated_string_table.py /home/zircon-tests/tests/codegen/python
 
 RUN chown -R zircon-tests:zircon-tests /home/zircon-tests
 

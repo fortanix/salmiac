@@ -79,10 +79,10 @@ endef
 
 define make-app-test-rule
 
-.PHONY: $(SUBDIR)/run-nitro-app-test
-$(SUBDIR)/run-nitro-app-test: SUBDIR := $(SUBDIR)
-$(SUBDIR)/run-nitro-app-test: $($(SUBDIR)/copied-files)
-$(SUBDIR)/run-nitro-app-test: | $(BUILD_DIR)/$(SUBDIR)/
+.PHONY: $(SUBDIR)/run-app-test
+$(SUBDIR)/run-app-test: SUBDIR := $(SUBDIR)
+$(SUBDIR)/run-app-test: $($(SUBDIR)/copied-files)
+$(SUBDIR)/run-app-test: | $(BUILD_DIR)/$(SUBDIR)/
 	@echo
 	@echo ==== Testing $(patsubst %.py,%,$(1)) ====
 	@echo

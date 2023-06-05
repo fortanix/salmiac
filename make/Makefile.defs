@@ -1,6 +1,7 @@
 #
 # String definitions for makefiles.
-# TODO: Not all of these are needed. We should remove the unnecessary ones later.
+# TODO: Not all of these are needed. We should remove the unnecessary ones later. Also check
+# salmiac/strings/generated_string_table.py
 #
 
 APPCONFIG_ENV_KEY := APPCONFIG_ID
