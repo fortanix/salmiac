@@ -16,14 +16,6 @@ async fn main() -> Result<(), String> {
     let matches = console_arguments();
     let parent_args = ParentConsoleArguments::new(&matches);
 
-    if std::env::vars().any(|e| e.0 == "USE_VSK" && (e.1.trim() == "true" || e.1 == "1" || e.1 == "True")) {
-        info!("USE_VSK is set");
-        assert!(
-            std::env::vars().any(|e| e.0 == "FS_API_KEY"),
-            "FS_API_KEY env var must be present when USE_VSK is set!"
-        );
-    }
-
     match parent::run(parent_args).await {
         Ok(UserProgramExitStatus::ExitCode(code)) => {
             info!("User program exits with code: {}", code);

@@ -86,6 +86,8 @@ pub(crate) struct EnclaveSettings {
     pub(crate) env_vars: Vec<String>,
 
     is_debug: bool,
+
+    enable_overlay_filesystem_persistence: bool
 }
 
 impl EnclaveSettings {
@@ -94,6 +96,7 @@ impl EnclaveSettings {
             user_name: input_image.details.config.user.clone(),
             env_vars: vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
+            enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false)
         }
     }
 }
@@ -141,6 +144,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;
+        let enable_overlay_filesystem_persistence = enclave_settings.enable_overlay_filesystem_persistence;
 
         let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
             message,
@@ -161,6 +165,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             file_system_config,
             is_debug,
             env_vars,
+            enable_overlay_filesystem_persistence
         };
 
         self.create_manifest_file(enclave_manifest, &build_context)?;

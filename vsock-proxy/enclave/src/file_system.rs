@@ -150,10 +150,7 @@ async fn update_luks_token(device_path: &str, token_path: &str, op: TokenOp) -> 
 /// Opens the output token file. Parses it into a luks2 token object.
 /// After parsing the token to obtain parameters needed to access DSM,
 /// fetch the overlay fs key used to wrap the RW volume passkey.
-async fn get_key_from_out_token(
-    env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
-) -> Result<(), String> {
+async fn get_key_from_out_token(env_vars: &[(String, String)], cert_list: &Vec<CertificateWithPath>) -> Result<(), String> {
     // Open and parse the dmcrypt volume token file
     let mut token_file = fs::File::open(TOKEN_OUT_FILE).map_err(|err| format!("Unable to open token out file : {:?}", err))?;
     let mut token_contents = [0; MAX_TOKEN_SIZE];
@@ -197,19 +194,13 @@ async fn get_key_from_out_token(
 /// of the app or not. When it is the first run of the app, the caller
 /// of this function creates a ext4 filesystem on it after opening
 /// the device
-async fn get_key_file(env_vars: &[(String, String)], cert_list: Option<&mut CertificateWithPath>) -> Result<bool, String> {
+async fn get_key_file(
+    env_vars: &[(String, String)],
+    cert_list: &Vec<CertificateWithPath>,
+    conv_use_dsm_key: bool,
+) -> Result<bool, String> {
     let device_path = NBD_RW_DEVICE;
     let key_path = Path::new(CRYPT_KEYFILE);
-    let use_dsm_key = env_vars
-        .iter()
-        .find_map(|e| {
-            if e.0 == "USE_VSK" && (e.1.trim() == "true" || e.1 == "1" || e.1 == "True") {
-                Some(true)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(false);
 
     match is_luks_device(device_path).await {
         Ok(_) => {
@@ -227,7 +218,8 @@ async fn get_key_file(env_vars: &[(String, String)], cert_list: Option<&mut Cert
             info!("Formatting RW device with new keyfile.");
             luks_format_device(key_path, NBD_RW_DEVICE).await?;
 
-            if use_dsm_key {
+            // Use DSM for overlayfs persistance blockfile encryption.
+            if conv_use_dsm_key {
                 info!("Accessing DSM to store passkey in luks2 token");
                 let enc_resp = dsm_enc_with_overlayfs_key(cert_list, env_vars, passkey)?;
                 create_luks2_token_input(TOKEN_IN_FILE, env_vars, enc_resp)?;
@@ -277,9 +269,10 @@ fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc
 
 pub(crate) async fn mount_read_write_file_system(
     env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: &Vec<CertificateWithPath>,
+    enable_overlayfs_persistence: bool,
 ) -> Result<(), String> {
-    let create_ext4 = get_key_file(env_vars, cert_list).await?;
+    let create_ext4 = get_key_file(env_vars, cert_list, enable_overlayfs_persistence).await?;
 
     let crypt_setup_args: [&str; 7] = [
         "open",

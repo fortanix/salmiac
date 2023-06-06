@@ -2,7 +2,7 @@ use std::convert::From;
 use std::path::Path;
 use std::{env, fs};
 
-use api_model::shared::{EnclaveManifest, FileSystemConfig};
+use api_model::shared::EnclaveManifest;
 use api_model::CertificateConfig;
 use async_process::Command;
 use futures::stream::FuturesUnordered;
@@ -204,7 +204,7 @@ async fn setup_file_system(
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
-    setup_file_system0(&nbd_config, &enclave_manifest.file_system_config, env_vars, cert_list).await?;
+    setup_file_system0(&nbd_config, &enclave_manifest, env_vars, cert_list).await?;
 
     Ok(())
 }
@@ -256,7 +256,7 @@ async fn start_and_await_user_program_return(
 
 async fn setup_file_system0(
     nbd_config: &NBDConfiguration,
-    file_system_config: &FileSystemConfig,
+    enclave_manifest: &EnclaveManifest,
     env_vars: &[(String, String)],
     cert_list: Option<&mut CertificateWithPath>,
 ) -> Result<(), String> {
@@ -267,7 +267,10 @@ async fn setup_file_system0(
     }
     info!("All block files are connected and ready.");
 
-    let verity_config = DMVerityConfig::new(file_system_config.hash_offset, file_system_config.root_hash.to_string());
+    let verity_config = DMVerityConfig::new(
+        enclave_manifest.file_system_config.hash_offset,
+        enclave_manifest.file_system_config.root_hash.to_string(),
+    );
 
     setup_dm_verity(&verity_config).await?;
     info!("Finished setup dm-verity.");
@@ -278,7 +281,7 @@ async fn setup_file_system0(
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
 
-    mount_read_write_file_system(env_vars, cert_list).await?;
+    mount_read_write_file_system(env_vars, cert_list, enclave_manifest.enable_overlay_filesystem_persistence).await?;
     info!("Finished read/write file system mount.");
 
     mount_overlay_fs().await?;
