@@ -1,3 +1,8 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
 };
@@ -5,16 +10,11 @@ use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
+use sdkms::api_model::Blob;
+use shared::models::CCMBackendUrl;
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
-use shared::models::CCMBackendUrl;
-
-use sdkms::api_model::Blob;
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 
 const APPLICATION_CONFIG_DIR: &str = "/opt/fortanix/enclave-os/app-config/rw";
 
@@ -405,21 +405,21 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::Path;
+
     use em_app::utils::models::{
         ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset,
         ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
     };
     use sdkms::api_model::Blob;
+    use shared::models::CCMBackendUrl;
 
     use crate::app_configuration::{
         normalize_path, setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials,
         RuntimeConfiguration, SdkmsDataset,
     };
-
-    use shared::models::CCMBackendUrl;
-    use std::collections::BTreeMap;
-    use std::fs;
-    use std::path::Path;
 
     const VALID_RUNTIME_CONF: &'static str = "\
     {

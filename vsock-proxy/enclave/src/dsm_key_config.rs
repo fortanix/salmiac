@@ -1,5 +1,6 @@
 use std::borrow::Borrow;
 use std::string::ToString;
+
 use log::info;
 use sdkms::api_model::{
     Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DecryptResponse, EncryptRequest, EncryptResponse,
@@ -45,9 +46,10 @@ fn dsm_get_keys(client: &SdkmsClient, query_params: Option<&ListSobjectsParams>)
 }
 
 fn dsm_filter_key_by_prefix(key_list: Vec<Sobject>, prefix: &str) -> Vec<Sobject> {
-    key_list.into_iter().filter(|s| {
-        s.name.as_ref().map(|n| n.starts_with(prefix)).unwrap_or_default()
-    }).collect()
+    key_list
+        .into_iter()
+        .filter(|s| s.name.as_ref().map(|n| n.starts_with(prefix)).unwrap_or_default())
+        .collect()
 }
 
 fn dsm_get_key_by_prefix(client: &SdkmsClient, prefix: &str) -> Result<Sobject, String> {
@@ -56,27 +58,31 @@ fn dsm_get_key_by_prefix(client: &SdkmsClient, prefix: &str) -> Result<Sobject, 
     let mut prefixed_key;
     let mut result_key = vec![];
     while res_key_list_len > 0 {
-            let query_params = ListSobjectsParams {
-                    group_id: None,
-                    creator: None,
-                    name: None,
-                    limit: Some(SOBJECT_LIST_LIMIT),
-                    offset: Some(offset),
-                    sort: Default::default(),
-                };
-            let key_list = dsm_get_keys(client, Some(&query_params))?;
-            res_key_list_len = key_list.len();
-            offset = offset + res_key_list_len;
+        let query_params = ListSobjectsParams {
+            group_id: None,
+            creator: None,
+            name: None,
+            limit: Some(SOBJECT_LIST_LIMIT),
+            offset: Some(offset),
+            sort: Default::default(),
+        };
+        let key_list = dsm_get_keys(client, Some(&query_params))?;
+        res_key_list_len = key_list.len();
+        offset = offset + res_key_list_len;
 
-            prefixed_key = dsm_filter_key_by_prefix(key_list, prefix);
-            if prefixed_key.len() > 0 {
-                result_key.append(&mut prefixed_key);
-            }
+        prefixed_key = dsm_filter_key_by_prefix(key_list, prefix);
+        if prefixed_key.len() > 0 {
+            result_key.append(&mut prefixed_key);
         }
+    }
     if result_key.is_empty() {
         Err(format!("Unable to find key with prefix {:?}", prefix))
     } else if result_key.len() > 1 {
-        Err(format!("Unexpected behaviour - found {:?} keys with prefix {:?}", result_key.len(), prefix))
+        Err(format!(
+            "Unexpected behaviour - found {:?} keys with prefix {:?}",
+            result_key.len(),
+            prefix
+        ))
     } else {
         Ok(result_key.get(0).expect("Unable to pop prefixed result key").clone())
     }
@@ -162,26 +168,26 @@ pub(crate) fn dsm_dec_with_overlayfs_key(
 mod tests {
 
     use std::{env, println as info};
+
     use lazy_static::lazy_static;
     use sdkms::api_model::Blob;
-    use crate::dsm_key_config::{dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key};
+
+    use crate::dsm_key_config::{
+        dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key,
+    };
 
     const PLAINTEXT: &str = "hello world. This is a test string.";
     const DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
 
     lazy_static! {
         static ref DSM_API_KEY: String =
-            env::var("FORTANIX_API_KEY")
-            .expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
-        static ref DSM_TEST_API_KEY: String =
-            env::var("OVERLAYFS_UNIT_TEST_API_KEY")
+            env::var("FORTANIX_API_KEY").expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
+        static ref DSM_TEST_API_KEY: String = env::var("OVERLAYFS_UNIT_TEST_API_KEY")
             .expect("The environment variable OVERLAYFS_UNIT_TEST_API_KEY must be set for this unit test");
-
         static ref DSM_ENV_VARS: Vec<(String, String)> = vec![
             ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
             ("FS_API_KEY".to_string(), DSM_API_KEY.to_string()),
         ];
-
         static ref DSM_ERR_ENV_VARS: Vec<(String, String)> = vec![
             ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
             ("FS_API_KEY".to_string(), DSM_TEST_API_KEY.to_string()),
@@ -224,7 +230,10 @@ mod tests {
                 assert!(false);
             }
             Err(err) => {
-                assert_eq!(err, "Unexpected behaviour - found 2 keys with prefix \"fortanix-overlayfs-security-object-build-\"");
+                assert_eq!(
+                    err,
+                    "Unexpected behaviour - found 2 keys with prefix \"fortanix-overlayfs-security-object-build-\""
+                );
             }
         }
     }

@@ -1,15 +1,15 @@
+use std::path::{Path, PathBuf};
+
 use api_model::CertificateConfig;
+use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
-use tokio_vsock::VsockStream as AsyncVsockStream;
-
-use crate::enclave::write_to_file;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
+use tokio_vsock::VsockStream as AsyncVsockStream;
 
-use log::debug;
-use std::path::{Path, PathBuf};
+use crate::enclave::write_to_file;
 
 const RSA_SIZE: u32 = 3072;
 
