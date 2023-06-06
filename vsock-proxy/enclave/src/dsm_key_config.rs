@@ -1,6 +1,5 @@
 use std::borrow::Borrow;
 use std::string::ToString;
-
 use log::info;
 use sdkms::api_model::{
     Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DecryptResponse, EncryptRequest, EncryptResponse,
@@ -12,7 +11,9 @@ use crate::certificate::CertificateWithPath;
 use crate::file_system::find_env_or_err;
 
 const GCM_TAG_LEN_BITS: usize = 128;
+const SOBJECT_LIST_LIMIT: usize = 10;
 pub const DEFAULT_DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
+const OVERLAY_FS_SECURITY_OBJECT_PREFIX: &str = "fortanix-overlayfs-security-object-build-";
 
 struct ClientWithKey {
     overlayfs_key: Sobject,
@@ -41,6 +42,44 @@ fn dsm_get_keys(client: &SdkmsClient, query_params: Option<&ListSobjectsParams>)
     client
         .list_sobjects(query_params)
         .map_err(|_| format!("Unable to list sobjects"))
+}
+
+fn dsm_filter_key_by_prefix(key_list: Vec<Sobject>, prefix: &str) -> Vec<Sobject> {
+    key_list.into_iter().filter(|s| {
+        s.name.as_ref().map(|n| n.starts_with(prefix)).unwrap_or_default()
+    }).collect()
+}
+
+fn dsm_get_key_by_prefix(client: &SdkmsClient, prefix: &str) -> Result<Sobject, String> {
+    let mut res_key_list_len = 1;
+    let mut offset = 0;
+    let mut prefixed_key;
+    let mut result_key = vec![];
+    while res_key_list_len > 0 {
+            let query_params = ListSobjectsParams {
+                    group_id: None,
+                    creator: None,
+                    name: None,
+                    limit: Some(SOBJECT_LIST_LIMIT),
+                    offset: Some(offset),
+                    sort: Default::default(),
+                };
+            let key_list = dsm_get_keys(client, Some(&query_params))?;
+            res_key_list_len = key_list.len();
+            offset = offset + res_key_list_len;
+
+            prefixed_key = dsm_filter_key_by_prefix(key_list, prefix);
+            if prefixed_key.len() > 0 {
+                result_key.append(&mut prefixed_key);
+            }
+        }
+    if result_key.is_empty() {
+        Err(format!("Unable to find key with prefix {:?}", prefix))
+    } else if result_key.len() > 1 {
+        Err(format!("Unexpected behaviour - found {:?} keys with prefix {:?}", result_key.len(), prefix))
+    } else {
+        Ok(result_key.get(0).expect("Unable to pop prefixed result key").clone())
+    }
 }
 
 fn dsm_generate_enc_req(key: &Sobject, plaintext: Blob) -> Result<EncryptRequest, String> {
@@ -87,20 +126,10 @@ fn dsm_decrypt_blob(dec_req: &DecryptRequest, client: &SdkmsClient) -> Result<De
         .map_err(|_| format!("Unable to decrypt using DSM client"))
 }
 
-fn dsm_filter_key_by_metadata(key_list: Vec<Sobject>) -> Option<Sobject> {
-    key_list.into_iter().find(|s| {
-        s.custom_metadata
-            .as_ref()
-            .map(|cm| cm.contains_key("overlay_fs"))
-            .unwrap_or_default()
-    })
-}
-
 fn dsm_get_overlayfs_key(cert_list: &Vec<CertificateWithPath>, env_vars: &[(String, String)]) -> Result<ClientWithKey, String> {
     let auth_cert = cert_list.get(0).map(|fst| fst.borrow());
     let client = dsm_create_client(env_vars, auth_cert)?;
-    let key_list = dsm_get_keys(&client, None)?;
-    let overlay_fs_key = dsm_filter_key_by_metadata(key_list).ok_or_else(|| format!("Unable to find overlay_fs key"))?;
+    let overlay_fs_key = dsm_get_key_by_prefix(&client, OVERLAY_FS_SECURITY_OBJECT_PREFIX)?;
     Ok(ClientWithKey {
         overlayfs_key: overlay_fs_key,
         dsm_client: client,
@@ -133,13 +162,9 @@ pub(crate) fn dsm_dec_with_overlayfs_key(
 mod tests {
 
     use std::{env, println as info};
-
     use lazy_static::lazy_static;
-    use sdkms::api_model::{Blob, ListSobjectsParams};
-
-    use crate::dsm_key_config::{
-        dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_keys
-    };
+    use sdkms::api_model::Blob;
+    use crate::dsm_key_config::{dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key};
 
     const PLAINTEXT: &str = "hello world. This is a test string.";
     const DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
@@ -148,10 +173,18 @@ mod tests {
         static ref DSM_API_KEY: String =
             env::var("FORTANIX_API_KEY")
             .expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
+        static ref DSM_TEST_API_KEY: String =
+            env::var("OVERLAYFS_UNIT_TEST_API_KEY")
+            .expect("The environment variable OVERLAYFS_UNIT_TEST_API_KEY must be set for this unit test");
 
         static ref DSM_ENV_VARS: Vec<(String, String)> = vec![
             ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
             ("FS_API_KEY".to_string(), DSM_API_KEY.to_string()),
+        ];
+
+        static ref DSM_ERR_ENV_VARS: Vec<(String, String)> = vec![
+            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
+            ("FS_API_KEY".to_string(), DSM_TEST_API_KEY.to_string()),
         ];
     }
 
@@ -185,18 +218,14 @@ mod tests {
     }
 
     #[test]
-    fn test_get_limited_keys() {
-        let dsm_client = dsm_create_client(&DSM_ENV_VARS, None).expect("Client creation failed");
-
-        let query_params = ListSobjectsParams {
-            group_id: None,
-            creator: None,
-            name: None,
-            limit: Some(1),
-            offset: Some(0),
-            sort: Default::default(),
-        };
-        let key_list = dsm_get_keys(&dsm_client, Some(&query_params)).unwrap();
-        assert!(key_list.len() == 1);
+    fn test_multiple_overlayfs_keys() {
+        match dsm_get_overlayfs_key(&vec![], &DSM_ERR_ENV_VARS) {
+            Ok(_) => {
+                assert!(false);
+            }
+            Err(err) => {
+                assert_eq!(err, "Unexpected behaviour - found 2 keys with prefix \"fortanix-overlayfs-security-object-build-\"");
+            }
+        }
     }
 }
