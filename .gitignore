@@ -1,3 +1,4 @@
+/build/
 /vsock-proxy/target/
 /vsock-proxy/.idea
 /tools/container-converter/target/

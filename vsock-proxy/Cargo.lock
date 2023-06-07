@@ -665,11 +665,13 @@ dependencies = [
  "futures 0.3.16",
  "interfaces",
  "ipnetwork 0.18.0",
+ "lazy_static 1.4.0",
  "log 0.4.14",
  "mbedtls",
  "nitro-enclaves-converter-api-model",
  "nix 0.15.0",
  "pkix 0.1.2",
+ "rand 0.8.5",
  "rtnetlink",
  "sdkms",
  "serde",
@@ -1269,27 +1271,40 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "mbedtls"
-version = "0.8.1"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6720f243c44d3cc5fd557c96c2538ec184fa0de28651002211b5a196e251b87f"
+checksum = "b4cdd74b4f7c633899ce071acfd307b053ccab39b7ca1ffac6900ed39a050e85"
 dependencies = [
  "bitflags",
  "byteorder",
  "cc",
  "cfg-if 1.0.0",
- "chrono",
+ "mbedtls-platform-support",
  "mbedtls-sys-auto",
  "rs-libc",
+ "rustc_version",
  "serde",
  "serde_derive",
  "yasna 0.2.2",
 ]
 
 [[package]]
-name = "mbedtls-sys-auto"
-version = "2.26.1"
+name = "mbedtls-platform-support"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7da15d923e6a393dd8bfab2111cee366a995723fbaa8a0c3ff6bfe324e39291a"
+checksum = "85be113c8c2dc54cc6a5fba20130c7128f78dcb3ed0bb6797427333fa8cdb54d"
+dependencies = [
+ "cc",
+ "cfg-if 1.0.0",
+ "chrono",
+ "mbedtls-sys-auto",
+]
+
+[[package]]
+name = "mbedtls-sys-auto"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2231108271d9a10052178d940926baf24b57a2eb1703732faae387592dd6ac3"
 dependencies = [
  "bindgen",
  "cc",
@@ -1423,6 +1438,7 @@ dependencies = [
  "model-macro-types",
  "proc-macro2 1.0.28",
  "quote 1.0.9",
+ "std-utils",
  "strum",
  "syn 1.0.75",
  "thiserror",
@@ -2340,6 +2356,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
+name = "rustc_version"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2407,6 +2432,21 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "semver"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
+dependencies = [
+ "semver-parser",
+]
+
+[[package]]
+name = "semver-parser"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
@@ -2632,6 +2672,10 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "std-utils"
+version = "0.1.0"
 
 [[package]]
 name = "strsim"

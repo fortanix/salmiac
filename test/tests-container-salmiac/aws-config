@@ -1,0 +1,4 @@
+[default]
+region=us-west-2
+
+[profile fortanix]
