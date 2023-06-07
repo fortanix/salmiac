@@ -1,15 +1,15 @@
+use std::path::{Path, PathBuf};
+
 use api_model::CertificateConfig;
+use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
-use tokio_vsock::VsockStream as AsyncVsockStream;
-
-use crate::enclave::write_to_file;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
+use tokio_vsock::VsockStream as AsyncVsockStream;
 
-use log::debug;
-use std::path::{Path, PathBuf};
+use crate::enclave::write_to_file;
 
 const RSA_SIZE: u32 = 3072;
 
@@ -46,9 +46,12 @@ impl CertificateWithPath {
 }
 
 pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Result<(), String> {
-    let key_as_pem = cert_with_path
-        .certificate_result
-        .key
+    // Get a mutable reference to the private key, mbedtls requires the key to be
+    // mutable even though it does not make any changes to it. This is done
+    // because the underlying C libraries use a void * reference rather than
+    // a const void * reference to the input
+    let key = &mut cert_with_path.certificate_result.key;
+    let key_as_pem = key
         .write_private_pem_string()
         .map_err(|err| format!("Failed to write key as PEM format. {:?}", err))?;
 
@@ -87,6 +90,5 @@ pub(crate) async fn request_certificate(
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
     let certificate = extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)?;
-
     Ok(CertificateResult { certificate, key })
 }
