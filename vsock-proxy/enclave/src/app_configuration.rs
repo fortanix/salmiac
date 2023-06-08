@@ -700,10 +700,13 @@ mod tests {
             json_data: VALID_APP_CONF,
         });
 
-        let files = ApplicationFiles::new("test_location", "test_port", Path::new("/"));
+        let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-location");
+        let test_folder = TempDir(&test_folder_path);
+
+        let files = ApplicationFiles::new("test_location", "test_port", &test_folder.0.clone());
         let _temp_dir = TempDir(&files.application_dir);
 
-        let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
+        let result = setup_datasets(&config, &credentials, &api, &test_folder.0);
         assert!(result.is_ok(), "{:?}", result);
 
         let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
