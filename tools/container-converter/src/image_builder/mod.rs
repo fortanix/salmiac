@@ -177,6 +177,7 @@ mod tests {
             push_converted_image: None,
             env_vars: vec![],
             java_mode: None,
+            enable_overlay_filesystem_persistence: None
         };
 
         let mut test = |input_image_env_vars: Option<Vec<String>>,
