@@ -29,6 +29,9 @@ sdkms = { version = "0.2.1", default-features = false, features = ["hyper-native
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 interfaces = "0.0.8"
 rand = "0.8.5"
+hyper = "0.10"
+uuid = "0.7.4"
+url = "2.3.1"
 
 [build-dependencies]
 pkix = "0.1.2"

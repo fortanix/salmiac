@@ -1,12 +1,10 @@
-use mbedtls::x509::Certificate;
-use pkix::pem;
-
-use std::env;
 use std::ffi::OsString;
-use std::fs;
 use std::io::{self, Error, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::str;
+use std::{env, fs, str};
+
+use mbedtls::x509::Certificate;
+use pkix::pem;
 
 fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
     // todo: Allow all valid certificate formats according to https://datatracker.ietf.org/doc/html/rfc7468

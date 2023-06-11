@@ -2,7 +2,7 @@ use std::convert::From;
 use std::path::Path;
 use std::{env, fs};
 
-use api_model::shared::{EnclaveManifest, FileSystemConfig};
+use api_model::shared::EnclaveManifest;
 use api_model::CertificateConfig;
 use async_process::Command;
 use futures::stream::FuturesUnordered;
@@ -65,11 +65,13 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         )
         .await?;
 
+        let first_certificate_info = certificate_info.get_mut(0);
+
         setup_file_system(
             &setup_result.enclave_manifest,
             &mut parent_port,
             &setup_result.env_vars,
-            &certificate_info,
+            first_certificate_info,
         )
         .await?;
 
@@ -77,9 +79,8 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             write_certificate(certificate)?;
         }
 
-        let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
-
-        setup_app_configuration(&setup_result.app_config, first_certificate)?;
+        let first_certificate_result = certificate_info.into_iter().next().map(|e| e.certificate_result);
+        setup_app_configuration(&setup_result.app_config, first_certificate_result)?;
 
         let exit_status = start_and_await_user_program_return(setup_result, hostname).await?;
 
@@ -177,9 +178,9 @@ fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
 ) -> Result<(), String> {
-    if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
+    if let (Some(mut certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
-        let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
+        let credentials = EmAppCredentials::new(&mut certificate_info, app_config.skip_server_verify)?;
 
         info!("Setting up application configuration.");
 
@@ -198,12 +199,12 @@ async fn setup_file_system(
     enclave_manifest: &EnclaveManifest,
     parent_port: &mut AsyncVsockStream,
     env_vars: &[(String, String)],
-    cert_list: &Vec<CertificateWithPath>,
+    cert_list: Option<&mut CertificateWithPath>,
 ) -> Result<(), String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
-    setup_file_system0(&nbd_config, &enclave_manifest.file_system_config, env_vars, cert_list).await?;
+    setup_file_system0(&nbd_config, &enclave_manifest, env_vars, cert_list).await?;
 
     Ok(())
 }
@@ -255,9 +256,9 @@ async fn start_and_await_user_program_return(
 
 async fn setup_file_system0(
     nbd_config: &NBDConfiguration,
-    file_system_config: &FileSystemConfig,
+    enclave_manifest: &EnclaveManifest,
     env_vars: &[(String, String)],
-    cert_list: &Vec<CertificateWithPath>,
+    cert_list: Option<&mut CertificateWithPath>,
 ) -> Result<(), String> {
     for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;
@@ -266,7 +267,10 @@ async fn setup_file_system0(
     }
     info!("All block files are connected and ready.");
 
-    let verity_config = DMVerityConfig::new(file_system_config.hash_offset, file_system_config.root_hash.to_string());
+    let verity_config = DMVerityConfig::new(
+        enclave_manifest.file_system_config.hash_offset,
+        enclave_manifest.file_system_config.root_hash.to_string(),
+    );
 
     setup_dm_verity(&verity_config).await?;
     info!("Finished setup dm-verity.");
@@ -277,7 +281,7 @@ async fn setup_file_system0(
     mount_read_only_file_system().await?;
     info!("Finished read only file system mount.");
 
-    mount_read_write_file_system(env_vars, cert_list).await?;
+    mount_read_write_file_system(env_vars, cert_list, enclave_manifest.enable_overlay_filesystem_persistence).await?;
     info!("Finished read/write file system mount.");
 
     mount_overlay_fs().await?;
@@ -554,6 +558,6 @@ fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {
     serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave manifest. {:?}", err))
 }
 
-pub(crate) fn write_to_file<C: AsRef<[u8]>>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
+pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
     fs::write(path, data).map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
 }
