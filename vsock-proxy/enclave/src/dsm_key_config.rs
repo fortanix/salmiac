@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::string::ToString;
 use std::sync::Arc;
 
@@ -83,7 +84,9 @@ fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateWi
     let cert_res = &auth_cert.certificate_result;
 
     let cert = {
-        let app_cert = Certificate::from_pem_multiple(&cert_res.certificate.as_bytes())
+        let cert_pem = CString::new(&*cert_res.certificate)
+            .map_err(|e| format!("Can't create cstring from cert pem {:?}", e.to_string()))?;
+        let app_cert = Certificate::from_pem_multiple(cert_pem.as_bytes_with_nul())
             .map_err(|e| format!("Parsing certificate failed: {:?}", e))?;
 
         Arc::new(app_cert)
@@ -299,7 +302,6 @@ mod tests {
         certpath.push("salmiac-overlayfs-ca-signed-cert.pem");
         let mut cert_contents: Vec<u8> = Vec::new();
         let _cert_size = File::open(certpath).unwrap().read_to_end(&mut cert_contents).unwrap();
-        cert_contents.push(0);
 
         let key = Pk::from_private_key(key_contents.as_slice(), None).unwrap();
         let cert_res = CertificateResult {
