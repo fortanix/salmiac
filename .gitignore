@@ -1,8 +1,3 @@
 /build/
-/vsock-proxy/target/
-/vsock-proxy/.idea
-/tools/container-converter/target/
-/tools/container-converter/.idea
-/container-converter-service/target/
-/container-converter-service/.idea
-.idea
+/artifacts
+/docker/staging
