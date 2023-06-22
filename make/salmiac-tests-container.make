@@ -68,6 +68,8 @@ $(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(
 # amzn-linux-nbd contains the updated nitro enclave kernel image
 TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub20 \
+	$(TESTS-STAGE-DIR)/requirements.txt \
+	$(TESTS-STAGE-DIR)/requirements_frozen.txt \
 	$(TESTS-STAGE-DIR)/generated_string_table.py \
 	$(TESTS-STAGE-DIR)/docker-config.json \
 	$(TESTS-STAGE-DIR)/container-converter \
@@ -84,6 +86,8 @@ TESTS-STAGE-CONTENTS := \
 # from the source or build directories.
 #
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub20,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub20))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements.txt,$(TESTS-STAGE-DIR)/requirements.txt))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements_frozen.txt,$(TESTS-STAGE-DIR)/requirements_frozen.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/strings/generated_string_table.py,$(TESTS-STAGE-DIR)/generated_string_table.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-inrfa/bin/tests-container-entry.sh,$(TESTS-STAGE-DIR)/tests-container-entry.sh))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-infra/bin/tests-container-run.py,$(TESTS-STAGE-DIR)/tests-container-run.py))

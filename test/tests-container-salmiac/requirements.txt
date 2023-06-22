@@ -1,0 +1,16 @@
+arpy
+boto3
+cryptography
+docker==4.0.2
+flask
+junit_xml
+kubernetes
+ldap3
+locust==1.4.1
+mysqlclient
+pexpect
+pyOpenSSL
+sdkms
+pyOpenSSL
+urllib3==1.26.15
+requests==2.28.2

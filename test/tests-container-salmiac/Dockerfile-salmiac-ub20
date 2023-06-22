@@ -28,26 +28,18 @@ RUN apt-get update \
        sudo \
        tzdata \
        wget \
-    && pip3 install \
-       arpy \
-       boto3 \
-       cryptography \
-       docker==4.0.2 \
-       flask \
-       junit_xml \
-       kubernetes \
-       ldap3 \
-       locust==1.4.1 \
-       mysqlclient \
-       pexpect \
-       pyOpenSSL \
-       sdkms \
-       pyOpenSSL \
-       urllib3==1.26.15 \
-       requests==2.28.2 \
     && useradd zircon-tests \
     && ln -fs /usr/share/zoneinfo/US/Pacific-New /etc/localtime \
     && dpkg-reconfigure -f noninteractive tzdata
+
+VOLUME /tmp/build
+
+COPY requirements_frozen.txt /tmp/build/requirements_frozen.txt
+RUN pip3 install -r /tmp/build/requirements_frozen.txt && rm -fdr /tmp/build/*
+
+# To update requirements_frozen.txt: comment out above 2 commands, and uncomment below 2 commands, then `base64 -d > requirements_frozen.txt`
+#COPY requirements.txt /tmp/build/requirements.txt
+#RUN pip3 install -r /tmp/build/requirements.txt && pip3 freeze | base64 -w0 && exit 1
 
 # Newer versions of Docker support a --chown flag to the COPY directive
 # that let you change file ownership without creating an extra container
