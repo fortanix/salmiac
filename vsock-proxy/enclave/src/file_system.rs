@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::Path;
 
-use log::info;
+use log::{error, info};
 use rand::{thread_rng, Rng};
 use sdkms::api_model::{Blob, EncryptResponse};
 use serde::{Deserialize, Serialize};
@@ -207,11 +207,19 @@ async fn get_key_file(
 
     match is_luks_device(device_path).await {
         Ok(_) => {
-            info!("Luks2 device found. Fetching luks2 token.");
-            update_luks_token(device_path, TOKEN_OUT_FILE, TokenOp::Export).await?;
-
-            info!("Fetching key file by using token object.");
-            get_key_from_out_token(env_vars, cert_list).await?;
+            info!("Luks2 device found. Attempting to fetch luks2 token.");
+            match update_luks_token(device_path, TOKEN_OUT_FILE, TokenOp::Export).await {
+                Ok(_) => {
+                    info!("Fetching key file by using token object.");
+                    get_key_from_out_token(env_vars, cert_list).await?;
+                }
+                Err(_) => {
+                    error!("Can't re-run apps which are converted without filesystem persistence enabled. Filesystem persistence is set to {}", conv_use_dsm_key);
+                    return Err(format!(
+                        "Can't re-run apps which are converted without filesystem persistence enabled"
+                    ));
+                }
+            }
             Ok(false)
         }
         Err(_) => {
