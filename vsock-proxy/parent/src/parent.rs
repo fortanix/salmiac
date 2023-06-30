@@ -1,5 +1,5 @@
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
 use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
@@ -7,14 +7,14 @@ use std::{env, fs};
 
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
-use ipnetwork::IpNetwork;
+use ipnetwork::{IpNetwork};
 use log::{debug, info, warn};
 use shared::models::{
     ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
     UserProgramExitStatus,
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::tap::start_tap_loops;
+use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
     extract_enum_value, run_subprocess, with_background_tasks, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
     VSOCK_PARENT_CID,
@@ -23,8 +23,8 @@ use tokio::task::JoinHandle;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
 use crate::network::{
-    choose_network_addresses_for_fs_taps, list_network_devices, setup_file_system_tap_devices, setup_network_devices,
-    PairedPcapDevice, PairedTapDevice, FS_TAP_MTU,
+    choose_addrs_for_private_taps, list_network_devices, set_up_private_tap_devices, setup_network_devices,
+    PairedPcapDevice, PairedTapDevice,
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
@@ -56,6 +56,8 @@ const DEFAULT_CPU_COUNT: u8 = 2;
 
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
+const NAMESERVER_KEYWORD: &'static str = "nameserver";
+
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
     info!("Spawning enclave process.");
     // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
@@ -79,12 +81,12 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     send_enclave_extra_console_args(&mut enclave_port, args.enclave_extra_args).await?;
 
     let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
-    let fs_tap_l3_address = setup_result.file_system_tap.tap_l3_address.ip();
+    let tap_l3_address = setup_result.private_tap.tap_l3_address.ip();
 
     let mut background_tasks = start_background_tasks(setup_result)?;
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-        send_nbd_configuration(&mut enclave_port, fs_tap_l3_address).await?;
+        send_nbd_configuration(&mut enclave_port, tap_l3_address).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -130,7 +132,7 @@ async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, ar
         .await
 }
 
-async fn send_nbd_configuration(enclave_port: &mut AsyncVsockStream, fs_tap_l3_address: IpAddr) -> Result<(), String> {
+async fn send_nbd_configuration(enclave_port: &mut AsyncVsockStream, tap_l3_address: IpAddr) -> Result<(), String> {
     let exports = NBD_EXPORTS
         .iter()
         .map(|e| NBDExport {
@@ -140,7 +142,7 @@ async fn send_nbd_configuration(enclave_port: &mut AsyncVsockStream, fs_tap_l3_a
         .collect();
 
     let configuration = NBDConfiguration {
-        address: fs_tap_l3_address,
+        address: tap_l3_address,
         exports,
     };
 
@@ -229,6 +231,21 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
         Err(result)
     }
 }
+
+/// Start the dnsmasq process. dnsmasq is a DNS server/proxy. We configure dnsmasq to listen
+/// on the fortanix-tap0 device, so that device must be set up first before we start dnsmasq.
+/// dnsmasq will refuse to run if the configured interface is not present when it starts.
+///
+/// TODO: We should monitor the child process and restart it if crashes or exits.
+async fn run_dnsmasq() -> Result<(), String> {
+    run_subprocess(
+        "/usr/sbin/dnsmasq",
+        &["--keep-in-foreground"]
+    )
+        .await
+}
+
+
 async fn enables_console_logs() -> Result<(), String> {
     run_subprocess(
         "nitro-cli",
@@ -270,13 +287,13 @@ fn start_background_tasks(
         result.push(res.vsock_to_pcap);
     }
 
-    let fs_device = parent_setup_result.file_system_tap;
-    let fs_tap_loops = start_tap_loops(fs_device.tap, fs_device.vsock, FS_TAP_MTU);
+    let private_device = parent_setup_result.private_tap;
+    let private_tap_loops = start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
 
-    result.push(fs_tap_loops.tap_to_vsock);
-    result.push(fs_tap_loops.vsock_to_tap);
+    result.push(private_tap_loops.tap_to_vsock);
+    result.push(private_tap_loops.vsock_to_tap);
 
-    write_nbd_config(fs_device.tap_l3_address.ip(), NBD_EXPORTS)?;
+    write_nbd_config(private_device.tap_l3_address.ip(), NBD_EXPORTS)?;
 
     for export_config in NBD_EXPORTS {
         let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
@@ -285,13 +302,29 @@ fn start_background_tasks(
         result.push(nbd_process);
     }
 
+    if parent_setup_result.start_dnsmasq {
+        let dnsmasq_process = tokio::spawn(run_dnsmasq());
+        info!("Started dnsmasq to service enclave DNS queries.");
+        result.push(dnsmasq_process);
+    } else {
+        info!("Dnsmasq service not required.");
+    }
+
     Ok(result)
 }
 
 struct ParentSetupResult {
     network_devices: Vec<PairedPcapDevice>,
 
-    file_system_tap: PairedTapDevice,
+    private_tap: PairedTapDevice,
+
+    start_dnsmasq: bool
+}
+
+struct ResolvConfResult {
+    resolv_conf_file: FileWithPath,
+
+    start_dnsmasq: bool
 }
 
 async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
@@ -308,26 +341,82 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
 
     let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
 
-    send_global_network_settings(vsock).await?;
+    let (parent_address, enclave_address) = choose_addrs_for_private_taps(network_addresses_in_use)?;
 
-    let file_system_tap = {
-        let (parent_address, enclave_address) = choose_network_addresses_for_fs_taps(network_addresses_in_use)?;
+    let start_dnsmasq = send_global_network_settings(parent_address, vsock).await?;
+
+    let private_tap = {
 
         create_rw_block_file(rw_block_file_size)?;
         info!("RW Block file of size {} bytes has been created.", rw_block_file_size);
 
-        setup_file_system_tap_devices(vsock, parent_address, enclave_address).await?
+        set_up_private_tap_devices(vsock, parent_address, PRIVATE_TAP_NAME, enclave_address, PRIVATE_TAP_NAME).await?
     };
 
     communicate_certificates(vsock).await?;
 
     Ok(ParentSetupResult {
         network_devices: paired_network_devices,
-        file_system_tap,
+        private_tap,
+        start_dnsmasq
     })
 }
 
-async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
+/// Customize the resolv.conf before we send it to the enclave. In certain Docker network configurations,
+/// such as Docker custom networks, the parent will be configured with a DNS server listening on the
+/// localhost network at 127.0.0.11 (not a typo). The enclave cannot directly access the parent's loopback
+/// network, as it will be handled by the enclave's own loopback network. So instead of telling the enclave
+/// to use the parent's configured upstream DNS server, we run a DNS server in the parent, and tell the
+/// enclave to use that DNS server to resolve its own requests.
+///
+/// We remove any nameserver configurations from the parent's resolv.conf and add a single nameserver
+/// parameter with the parent's address on the network shared between the parent and the enclave. We leave
+/// the rest of the resolv.conf alone, so the enclave will get any other configuration specified, such as
+/// domain search paths or other DNS options.
+///
+/// Note that this function does NOT modify the parent's resolv.conf. It just returns the modified version
+/// that should be used by the enclave.
+fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResult, String> {
+    let parent_resolv = File::open(DNS_RESOLV_FILE)
+        .map_err(|err| format!("Could not open {}. {:?}", DNS_RESOLV_FILE, err))?;
+
+    let mut enclave_resolv: Vec<u8> = vec!();
+    let mut start_dnsmasq: bool = false;
+    let lines = BufReader::new(parent_resolv).lines();
+
+    for line in lines {
+        let line = line.map_err(|err| format!("unable to read file {}. {:?}", DNS_RESOLV_FILE, err))?;
+        // According to the man page for resolv.conf, the keyword (like nameserver) must start the line, so we don't
+        // have to trim before looking for the "nameserver" keyword. We do need to look for at least one whitespace
+        // character, since the keyword must be followed by whitespace. There don't currently appear to be any
+        // config keywords that begin with "nameserver" that aren't "nameserver", but possibly new keywords could
+        // be added in the future.
+        if !(line.starts_with(NAMESERVER_KEYWORD) &&
+            line.chars().nth(NAMESERVER_KEYWORD.len()).map(|e| e.is_whitespace()).unwrap_or_default()) {
+            enclave_resolv.extend_from_slice(line.as_bytes());
+        } else {
+            let dns_resolver_addr = line.split_at(NAMESERVER_KEYWORD.len()).1.trim();
+            if dns_resolver_addr.starts_with("127.0.0.") {
+                info!("Updating resolv.conf data sent to enclave with parent's tap device address {:?}", nameserver_address.ip());
+                enclave_resolv.extend_from_slice(format!("nameserver {:?}\n", nameserver_address.ip()).as_bytes());
+                start_dnsmasq = true;
+            } else {
+                enclave_resolv.extend_from_slice(line.as_bytes());
+            }
+        }
+        // We have to manually insert a newline after each line, because lines() consumes the newlines.
+        enclave_resolv.extend_from_slice("\n".as_bytes());
+    };
+
+    let result = ResolvConfResult { resolv_conf_file: FileWithPath {
+        path: DNS_RESOLV_FILE.to_string(),
+        data: enclave_resolv,
+    }, start_dnsmasq };
+
+    Ok(result)
+}
+
+async fn send_global_network_settings(nameserver_address: IpNetwork, enclave_port: &mut AsyncVsockStream) -> Result<bool, String> {
     fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
             .map(|e| FileWithPath {
@@ -343,14 +432,14 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
         .into_string()
         .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
-    let dns_file = read_file(DNS_RESOLV_FILE)?;
+    let dns_file = customize_resolv_conf(nameserver_address)?;
     let hosts_file = read_file(HOSTS_FILE)?;
     let host_name_file = read_file(HOSTNAME_FILE)?;
     let ns_switch_file = read_file(NS_SWITCH_FILE)?;
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file, hosts_file, host_name_file, ns_switch_file],
+        global_settings_list: vec![dns_file.resolv_conf_file, hosts_file, host_name_file, ns_switch_file],
     };
 
     enclave_port
@@ -359,7 +448,7 @@ async fn send_global_network_settings(enclave_port: &mut AsyncVsockStream) -> Re
 
     debug!("Sent global network settings to the enclave.");
 
-    Ok(())
+    Ok(dns_file.start_dnsmasq)
 }
 
 async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<(UserProgramExitStatus, AsyncVsockStream), String> {

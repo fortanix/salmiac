@@ -1,4 +1,3 @@
-use crate::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use ipnetwork::IpNetwork;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
@@ -6,19 +5,26 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
 use crate::models::NetworkDeviceSettings;
+use crate::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use crate::MAX_ETHERNET_HEADER_SIZE;
+
+pub const PRIVATE_TAP_MTU: u32 = 9001;
+// The name we give to the private tap device. We use the same name in the parent and in the enclave.
+// This name is limited to 15 bytes.
+pub const PRIVATE_TAP_NAME: &'static str = "fortanix-tap0";
 
 pub fn create_async_tap_device(config: &tun::Configuration) -> Result<AsyncDevice, String> {
     tun::create_as_async(config).map_err(|err| format!("Cannot create async tap device {:?}", err))
 }
 
-pub fn tap_device_config(l3_address: &IpNetwork, mtu: u32) -> tun::Configuration {
+pub fn tap_device_config(l3_address: &IpNetwork, dev_name: &str, mtu: u32) -> tun::Configuration {
     let mut config = tun::Configuration::default();
 
     config
         .address(l3_address.ip())
         .netmask(l3_address.mask())
         .layer(tun::Layer::L2)
+        .name(dev_name)
         .mtu(mtu as i32)
         .up();
 
@@ -27,7 +33,7 @@ pub fn tap_device_config(l3_address: &IpNetwork, mtu: u32) -> tun::Configuration
 
 impl From<&NetworkDeviceSettings> for tun::Configuration {
     fn from(arg: &NetworkDeviceSettings) -> Self {
-        tap_device_config(&arg.self_l3_address, arg.mtu)
+        tap_device_config(&arg.self_l3_address, &arg.name, arg.mtu)
     }
 }
 

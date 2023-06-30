@@ -10,7 +10,7 @@ use std::net::IpAddr;
 pub enum SetupMessages {
     NoMoreCertificates,
     NetworkDeviceSettings(Vec<NetworkDeviceSettings>),
-    FSNetworkDeviceSettings(FSNetworkDeviceSettings),
+    PrivateNetworkDeviceSettings(PrivateNetworkDeviceSettings),
     GlobalNetworkSettings(GlobalNetworkSettings),
     CSR(String),
     Certificate(String),
@@ -87,6 +87,8 @@ pub struct NetworkDeviceSettings {
 
     pub self_l3_address: IpNetwork,
 
+    pub name: String,
+
     pub mtu: u32,
 
     pub gateway: Option<Gateway>,
@@ -97,10 +99,12 @@ pub struct NetworkDeviceSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FSNetworkDeviceSettings {
+pub struct PrivateNetworkDeviceSettings {
     pub vsock_port_number: u32,
 
     pub l3_address: IpNetwork,
+
+    pub name: String,
 
     pub mtu: u32,
 }

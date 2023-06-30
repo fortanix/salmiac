@@ -16,7 +16,17 @@ nitro-cli --version
 # Check if nbd-server is properly installed
 nbd-server -V
 
-# Instruct the kernel to drop any incoming packets as
+# Instruct the kernel to drop any incoming packets not on the loopback network, as
 # those will be handled by the parent program
+# Accept packets on the input chain i.e. packets coming into the
+# host. The -m option allows for packet matching - in this case
+# all open, bound listening sockets on TCP/UDP
 iptables -A INPUT -m socket -j ACCEPT
+
+# Accept incoming traffic on the loopback device interface
+# This allows salmiac to process dns traffic when docker
+# uses its embedded dns resolver
+iptables -A INPUT -i lo -s 0.0.0.0/0 -d 0.0.0.0/0 -j ACCEPT
+
+# Drop all other incoming traffic
 iptables -P INPUT DROP

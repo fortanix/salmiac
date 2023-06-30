@@ -1,3 +1,7 @@
+use std::convert::{From, TryFrom};
+use std::mem;
+use std::net::{IpAddr, Ipv4Addr};
+
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice::{Tcp, Udp, Unknown};
@@ -6,24 +10,16 @@ use log::warn;
 use nix::net::if_::if_nametoindex;
 use pcap::Device;
 use rtnetlink::packet::NUD_PERMANENT;
+use shared::models::{PrivateNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages};
+use shared::netlink::arp::{ARPEntry, NetlinkARP};
+use shared::netlink::route::{Gateway, NetlinkRoute, Route};
+use shared::netlink::{LinkMessageExt, Netlink, NetlinkCommon};
+use shared::socket::AsyncWriteLvStream;
+use shared::tap::{create_async_tap_device, PRIVATE_TAP_MTU, tap_device_config};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
 use crate::parent::{accept, listen_to_parent};
-use shared::models::{FSNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages};
-use shared::netlink::arp::ARPEntry;
-use shared::netlink::arp::NetlinkARP;
-use shared::netlink::route::Route;
-use shared::netlink::route::{Gateway, NetlinkRoute};
-use shared::netlink::Netlink;
-use shared::netlink::{LinkMessageExt, NetlinkCommon};
-use shared::socket::AsyncWriteLvStream;
-use shared::tap::{create_async_tap_device, tap_device_config};
-
-use std::convert::From;
-use std::convert::TryFrom;
-use std::mem;
-use std::net::{IpAddr, Ipv4Addr};
 
 // Byte position of a checksum field in TCP header according to rfc 793 (https://www.ietf.org/rfc/rfc793.txt).
 const TCP_CHECKSUM_FIELD_INDEX: usize = 16;
@@ -34,10 +30,9 @@ const UDP_CHECKSUM_FIELD_INDEX: usize = 6;
 // Byte position of a checksum field in IPv4 header according to rfc 791 (https://www.ietf.org/rfc/rfc791.txt).
 const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
-pub const FS_TAP_MTU: u32 = 9001;
-
 // Prefix size that allows only 2 addresses in a network
 const FS_TAP_NETWORK_PREFIX_SIZE: u8 = 30;
+
 
 pub(crate) struct PairedPcapDevice {
     pub(crate) pcap: Device,
@@ -152,6 +147,7 @@ async fn get_network_settings_for_device(device: &pcap::Device, netlink: &Netlin
         vsock_port_number: device_index,
         self_l2_address: mac_address,
         self_l3_address: ip_network,
+        name: device.name.to_string(),
         mtu,
         gateway,
         routes,
@@ -274,12 +270,14 @@ pub(crate) struct PairedTapDevice {
     pub(crate) vsock: AsyncVsockStream,
 }
 
-pub(crate) async fn setup_file_system_tap_devices(
+pub(crate) async fn set_up_private_tap_devices(
     enclave_port: &mut AsyncVsockStream,
     parent_address: IpNetwork,
+    parent_dev_name: &str,
     enclave_address: IpNetwork,
+    enclave_dev_name: &str,
 ) -> Result<PairedTapDevice, String> {
-    let device = create_async_tap_device(&tap_device_config(&parent_address, FS_TAP_MTU))?;
+    let device = create_async_tap_device(&tap_device_config(&parent_address, parent_dev_name, PRIVATE_TAP_MTU))?;
 
     use tun::Device;
     let tap_index =
@@ -287,14 +285,15 @@ pub(crate) async fn setup_file_system_tap_devices(
 
     let mut listener = listen_to_parent(tap_index)?;
 
-    let fs_tap_settings = FSNetworkDeviceSettings {
+    let private_tap_settings = PrivateNetworkDeviceSettings {
         vsock_port_number: tap_index,
         l3_address: enclave_address,
-        mtu: FS_TAP_MTU,
+        name: enclave_dev_name.to_string(),
+        mtu: PRIVATE_TAP_MTU,
     };
 
     enclave_port
-        .write_lv(&SetupMessages::FSNetworkDeviceSettings(fs_tap_settings))
+        .write_lv(&SetupMessages::PrivateNetworkDeviceSettings(private_tap_settings))
         .await?;
 
     let vsock = accept(&mut listener).await?;
@@ -319,7 +318,9 @@ pub(crate) async fn setup_file_system_tap_devices(
 /// # Returns
 /// A pair of addresses, where first value is parent's address and second one is
 /// enclave's address.
-pub(crate) fn choose_network_addresses_for_fs_taps(in_use: Vec<Ipv4Network>) -> Result<(IpNetwork, IpNetwork), String> {
+///
+/// TODO: We should use IPv6 addresses instead of IPv4 addresses for the private network.
+pub(crate) fn choose_addrs_for_private_taps(in_use: Vec<Ipv4Network>) -> Result<(IpNetwork, IpNetwork), String> {
     let private_networks: [Ipv4Network; 3] = [
         Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),
         Ipv4Network::new(Ipv4Addr::new(172, 16, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),

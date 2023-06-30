@@ -394,10 +394,8 @@ async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<EnclaveNetwor
 }
 
 async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<TapDeviceInfo, String> {
-    let configuration = extract_enum_value!(vsock.read_lv().await?, SetupMessages::FSNetworkDeviceSettings(e) => e)?;
-
-    let tap = create_async_tap_device(&tap_device_config(&configuration.l3_address, configuration.mtu))?;
-
+    let configuration = extract_enum_value!(vsock.read_lv().await?, SetupMessages::PrivateNetworkDeviceSettings(e) => e)?;
+    let tap = create_async_tap_device(&tap_device_config(&configuration.l3_address, &configuration.name, configuration.mtu))?;
     let fs_vsock = connect_to_parent_async(configuration.vsock_port_number).await?;
 
     info!("FS Device {} is connected and ready.", configuration.vsock_port_number);
