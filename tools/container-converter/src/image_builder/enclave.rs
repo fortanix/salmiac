@@ -24,6 +24,7 @@ use std::fs::File;
 use std::io::Seek;
 use std::path::Path;
 use std::sync::mpsc::Sender;
+use std::ops::Add;
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {
@@ -511,8 +512,6 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        info!("Client file system size is {}MB", size_mb);
-
         let size_mb_up = (size_mb as f64 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u64;
 
         let available_disc_space = get_available_disc_space(self.dir.path()).await?;
@@ -570,17 +569,54 @@ trait ArchiveExtensions {
     fn unpack_preserve_permissions(self, destination: &Path) -> std::result::Result<(), String>;
 }
 
+#[derive(Default, Debug)]
+struct ArchiveSize {
+    pub total_file_size: u64,
+
+    pub dir_count: u64,
+
+    pub file_count: u64
+}
+
+impl ArchiveSize {
+    fn size(self) -> u64 {
+        (1024 * self.file_count + self.total_file_size + 4096 * self.dir_count) / MEGA_BYTE
+    }
+}
+
+impl Add for ArchiveSize {
+    type Output = ArchiveSize;
+
+    fn add(self, other: ArchiveSize) -> Self {
+        ArchiveSize {
+            total_file_size: self.total_file_size + other.total_file_size,
+            dir_count: self.dir_count + other.dir_count,
+            file_count: self.file_count + other.file_count
+        }
+    }
+}
+
 impl ArchiveExtensions for Archive<File> {
     fn size(mut self) -> std::result::Result<(Self, u64), String> {
         let entries = self
             .entries_with_seek()
             .map_err(|err| format!("Cannot read exported file system archive. {:?}", err))?;
 
-        let result = entries.fold(0 as u64, |acc, e| {
-            let entry_size = e.map(|ee| ee.size()).unwrap_or(0);
+        let result = entries.fold(ArchiveSize::default(), |accm, e| {
+            let new_accm = e.map(|ee| {
+                let dir_count = if ee.header().entry_type().is_dir() { 1 } else { 0 };
+                // Anything that is not a dir we consider to be a file, meaning that `file_count` is a reciprocal of a `dir_count`
+                let file_count = dir_count ^ 1;
 
-            acc + entry_size
-        }) / MEGA_BYTE;
+                ArchiveSize {
+                    total_file_size: ee.size(),
+                    dir_count,
+                    file_count
+                }
+            }).unwrap_or(ArchiveSize::default());
+
+            accm + new_accm
+        });
 
         // Iterating over `entries` also moves file pointer inside `Archive<File>`.
         // To preserve the archive state from a caller perspective we have to rewind the file pointer and recreate the `Archive<File>` object.
@@ -590,7 +626,7 @@ impl ArchiveExtensions for Archive<File> {
             .rewind()
             .map_err(|err| format!("Failed rewinding fs archive file. {:?}", err))?;
 
-        Ok((Archive::new(archive_file), result))
+        Ok((Archive::new(archive_file), result.size()))
     }
 
     fn unpack_preserve_permissions(mut self, destination: &Path) -> std::result::Result<(), String> {
