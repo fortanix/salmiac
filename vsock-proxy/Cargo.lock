@@ -45,6 +45,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "annotate-snippets"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b9d411ecbaf79885c6df4d75fff75858d5995ff25385657a28af47e82f9c36"
+dependencies = [
+ "unicode-width",
+ "yansi-term",
+]
+
+[[package]]
 name = "ansi_term"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -169,8 +179,8 @@ version = "0.1.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44318e776df68115a881de9a8fd1b9e53368d7a4a5ce4cc48517da3393233a5e"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -202,6 +212,20 @@ name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
+
+[[package]]
+name = "aws-nitro-enclaves-nsm-api"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17e83ef53714474149215e48438d2cf8f96fb76ae5a00f21f16051fab79c0627"
+dependencies = [
+ "libc",
+ "log 0.4.14",
+ "nix 0.20.0",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+]
 
 [[package]]
 name = "b64-ct"
@@ -257,24 +281,25 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "bindgen"
-version = "0.58.1"
+version = "0.65.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f8523b410d7187a43085e7e064416ea32ded16bd0a4e6fc025e21616d01258f"
+checksum = "cfdf7b466f9a4903edc73f95d6d2bcd5baf8ae620638762244d3f60143643cc5"
 dependencies = [
+ "annotate-snippets",
  "bitflags",
  "cexpr",
  "clang-sys",
- "clap",
- "env_logger 0.8.4",
  "lazy_static 1.4.0",
  "lazycell",
  "log 0.4.14",
  "peeking_take_while",
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "prettyplease",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "regex 1.5.4",
  "rustc-hash",
  "shlex",
+ "syn 2.0.18",
  "which",
 ]
 
@@ -361,9 +386,9 @@ checksum = "e70cc2f62c6ce1868963827bd677764c62d07c3d9a3e1fb1177ee1a9ab199eb2"
 
 [[package]]
 name = "cexpr"
-version = "0.4.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4aedb84272dbe89af497cf81375129abda4fc0a9e7c5d317498c15cc30c0d27"
+checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
 dependencies = [
  "nom",
 ]
@@ -524,8 +549,8 @@ dependencies = [
  "cc",
  "codespan-reporting",
  "once_cell",
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "scratch",
  "syn 1.0.75",
 ]
@@ -542,23 +567,22 @@ version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34fa7e395dc1c001083c7eed28c8f0f0b5a225610f3b6284675f444af6fab86b"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
 [[package]]
 name = "dcap-ql"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0ebefb9625fa74940e07aeeddefda9f8081bd7dc9dbe782caff25b6f369f57"
+version = "0.3.6"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
 dependencies = [
  "byteorder",
  "failure",
  "lazy_static 1.4.0",
  "num-derive",
  "num-traits 0.2.14",
- "sgx-isa 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sgx-isa",
 ]
 
 [[package]]
@@ -585,24 +609,23 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 [[package]]
 name = "em-app"
 version = "0.4.0"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
 dependencies = [
+ "aws-nitro-enclaves-nsm-api",
  "b64-ct",
  "em-client",
  "em-node-agent-client",
  "hyper",
  "mbedtls",
- "nsm-driver",
- "nsm-io",
- "pkix 0.1.2",
+ "pkix 0.2.0",
  "rustc-serialize",
  "sdkms",
  "serde",
  "serde_bytes",
  "serde_derive",
  "serde_json 1.0.68",
- "sgx-isa 0.3.3 (git+https://github.com/fortanix/rust-sgx.git)",
- "sgx_pkix 0.1.1",
+ "sgx-isa",
+ "sgx_pkix",
  "url 1.7.2",
  "uuid 0.6.5",
  "uuid 0.7.4",
@@ -661,7 +684,7 @@ dependencies = [
  "base64 0.13.0",
  "clap",
  "em-app",
- "env_logger 0.7.1",
+ "env_logger",
  "futures 0.3.16",
  "hyper",
  "interfaces",
@@ -693,20 +716,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44533bbbb3bb3c1fa17d9f2e4e38bbbaf8396ba82193c4cb1b6445d711445d36"
 dependencies = [
  "atty",
- "humantime 1.3.0",
- "log 0.4.14",
- "regex 1.5.4",
- "termcolor",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
-dependencies = [
- "atty",
- "humantime 2.1.0",
+ "humantime",
  "log 0.4.14",
  "regex 1.5.4",
  "termcolor",
@@ -737,7 +747,7 @@ dependencies = [
 name = "error-spanned"
 version = "0.1.0"
 dependencies = [
- "proc-macro2 1.0.28",
+ "proc-macro2 1.0.59",
  "syn 1.0.75",
 ]
 
@@ -768,8 +778,8 @@ version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa4da3c766cd7a0db8242e326e9e4e081edd567072893ed320008189715366a4"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
  "synstructure",
 ]
@@ -908,8 +918,8 @@ version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdfb8ce053d86b91919aad980c220b1fb8401a9394410e1c289ed7e66b61835d"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -1019,12 +1029,6 @@ checksum = "df004cfca50ef23c36850aaaa59ad52cc70d0e90243c3c7737a4dd32dc7a3c4f"
 dependencies = [
  "quick-error",
 ]
-
-[[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
@@ -1281,7 +1285,7 @@ name = "macro-helpers"
 version = "0.1.0"
 dependencies = [
  "error-spanned",
- "proc-macro2 1.0.28",
+ "proc-macro2 1.0.59",
  "syn 1.0.75",
 ]
 
@@ -1293,9 +1297,9 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "mbedtls"
-version = "0.8.3"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4cdd74b4f7c633899ce071acfd307b053ccab39b7ca1ffac6900ed39a050e85"
+checksum = "04040fd7bb3642b857f94086ae12e6fec85c9c8491a4ea177b8817ea0af65d03"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -1304,7 +1308,6 @@ dependencies = [
  "mbedtls-platform-support",
  "mbedtls-sys-auto",
  "rs-libc",
- "rustc_version",
  "serde",
  "serde_derive",
  "yasna 0.2.2",
@@ -1312,21 +1315,23 @@ dependencies = [
 
 [[package]]
 name = "mbedtls-platform-support"
-version = "0.1.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85be113c8c2dc54cc6a5fba20130c7128f78dcb3ed0bb6797427333fa8cdb54d"
+checksum = "02edea9d1788243bbe57954789879e7ae5e39e879088b9269afbb07d9a60f30e"
 dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "chrono",
  "mbedtls-sys-auto",
+ "once_cell",
+ "zeroize",
 ]
 
 [[package]]
 name = "mbedtls-sys-auto"
-version = "2.28.0"
+version = "3.5.0-alpha.2+0b3de6f"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2231108271d9a10052178d940926baf24b57a2eb1703732faae387592dd6ac3"
+checksum = "bc2fed7a591aa3a5ede441deee912c7b064710961875f9b3af18c3fd619aba30"
 dependencies = [
  "bindgen",
  "cc",
@@ -1334,7 +1339,7 @@ dependencies = [
  "cmake",
  "lazy_static 1.4.0",
  "libc",
- "quote 1.0.9",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -1376,6 +1381,12 @@ name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
+
+[[package]]
+name = "minimal-lexical"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
@@ -1436,8 +1447,8 @@ dependencies = [
  "convert_case 0.4.0",
  "error-spanned",
  "macro-helpers",
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "strum",
  "syn 1.0.75",
  "thiserror",
@@ -1458,8 +1469,8 @@ dependencies = [
  "error-spanned",
  "macro-helpers",
  "model-macro-types",
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "std-utils",
  "strum",
  "syn 1.0.75",
@@ -1633,6 +1644,18 @@ dependencies = [
 
 [[package]]
 name = "nix"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa9b4819da1bc61c0ea48b63b7bc8604064dd43013e7cc325df098d49cd7c18a"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+]
+
+[[package]]
+name = "nix"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
@@ -1660,37 +1683,12 @@ dependencies = [
 
 [[package]]
 name = "nom"
-version = "5.1.2"
+version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb4262d26ed83a1c0a33a38fe2bb15797329c85770da05e6b828ddb782627af"
+checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
- "version_check 0.9.3",
-]
-
-[[package]]
-name = "nsm-driver"
-version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
-dependencies = [
- "libc",
- "log 0.4.14",
- "nix 0.15.0",
- "nsm-io",
- "serde_cbor",
-]
-
-[[package]]
-name = "nsm-io"
-version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
-dependencies = [
- "libc",
- "log 0.4.14",
- "nix 0.15.0",
- "serde",
- "serde_bytes",
- "serde_cbor",
+ "minimal-lexical",
 ]
 
 [[package]]
@@ -1811,9 +1809,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.16.0"
+version = "1.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
+checksum = "9670a07f94779e00908f3e686eab508878ebb390ba6e604d3a284c00e8d0487b"
 
 [[package]]
 name = "openssl"
@@ -1836,8 +1834,8 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b501e44f11665960c7e7fcf062c7d96a14ade4aa98116c004b2e37b5be7d736c"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -1876,7 +1874,7 @@ dependencies = [
  "async-process",
  "clap",
  "em-app",
- "env_logger 0.7.1",
+ "env_logger",
  "etherparse",
  "futures 0.3.16",
  "ipnetwork 0.18.0",
@@ -1961,8 +1959,8 @@ dependencies = [
  "rustc-serialize",
  "serde",
  "serde_json 1.0.51",
- "sgx-isa 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "sgx_pkix 0.1.3",
+ "sgx-isa",
+ "sgx_pkix",
  "yasna 0.3.2",
 ]
 
@@ -2005,8 +2003,8 @@ version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3be26700300be6d9d23264c73211d8190e755b6b5ca7a1b28230025511b52a5e"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -2078,6 +2076,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
+name = "prettyplease"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b69d39aab54d069e7f2fe8cb970493e7834601ca2d8c65fd7bbd183578080d1"
+dependencies = [
+ "proc-macro2 1.0.59",
+ "syn 2.0.18",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2088,11 +2096,11 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.28"
+version = "1.0.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c7ed8b8c7b886ea3ed7dde405212185f423ab44682667c8c6dd14aa1d9f6612"
+checksum = "6aeca18b86b413c660b781aa319e4e2648a3e6f9eadc9b47e9038e6fe9f3451b"
 dependencies = [
- "unicode-xid 0.2.2",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -2112,11 +2120,11 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.9"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d0b9745dc2debf507c8422de05d7226cc1f0644216dfdfead988f9b1ab32a7"
+checksum = "1b9ab9c7eadfd8df19006f1cf1a4aed13540ed5cbc047010ece5826e10825488"
 dependencies = [
- "proc-macro2 1.0.28",
+ "proc-macro2 1.0.59",
 ]
 
 [[package]]
@@ -2336,11 +2344,12 @@ dependencies = [
 
 [[package]]
 name = "rs-libc"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "914c985b921cf571d950d17ca33221ed54fed3c2001a329ee6fd5b15dd433260"
+checksum = "683e8c8e8aac6ffa4b2287bac3c69575d5346accac4f218ae1e084303bb174ca"
 dependencies = [
  "cc",
+ "zeroize",
 ]
 
 [[package]]
@@ -2376,15 +2385,6 @@ name = "rustc-serialize"
 version = "0.3.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
-
-[[package]]
-name = "rustc_version"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
-dependencies = [
- "semver",
-]
 
 [[package]]
 name = "ryu"
@@ -2456,21 +2456,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "semver"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
-dependencies = [
- "semver-parser",
-]
-
-[[package]]
-name = "semver-parser"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
-
-[[package]]
 name = "serde"
 version = "1.0.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2514,8 +2499,8 @@ version = "1.0.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57ae87ad533d9a56427558b516d0adac283614e347abf85b0dc0cbbf0a249f3"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -2564,44 +2549,22 @@ dependencies = [
 
 [[package]]
 name = "sgx-isa"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55adf0940448a33eac98b3c84ab2e567c1fbc086750bcfd72702d6facc39bb77"
-dependencies = [
- "bitflags",
-]
-
-[[package]]
-name = "sgx-isa"
-version = "0.3.3"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+version = "0.4.1"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
 dependencies = [
  "bitflags",
 ]
 
 [[package]]
 name = "sgx_pkix"
-version = "0.1.1"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
-dependencies = [
- "byteorder",
- "lazy_static 1.4.0",
- "pkix 0.1.2",
- "quick-error",
- "sgx-isa 0.3.3 (git+https://github.com/fortanix/rust-sgx.git)",
-]
-
-[[package]]
-name = "sgx_pkix"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0033a931f7ef0335533538e7f36711dd3e7cafeec2a1da7bf43d8c0f8f23531"
+version = "0.2.2"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
 dependencies = [
  "byteorder",
  "lazy_static 1.4.0",
  "pkix 0.2.0",
  "quick-error",
- "sgx-isa 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sgx-isa",
 ]
 
 [[package]]
@@ -2721,8 +2684,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
 dependencies = [
  "heck",
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -2743,9 +2706,20 @@ version = "1.0.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7f58f7e8eaa0009c5fec437aabf511bd9933e4b2d7407bd05273c01a8906ea7"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "unicode-xid 0.2.2",
+]
+
+[[package]]
+name = "syn"
+version = "2.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32d41677bcbe24c20c52e7c70b0d8db04134c5d1066bf98662e2871ad200ea3e"
+dependencies = [
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -2754,8 +2728,8 @@ version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f36bdaa60a83aca3921b5259d5400cbf5e90fc51931376a9bd4a0eb79aa7210f"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
  "unicode-xid 0.2.2",
 ]
@@ -2807,8 +2781,8 @@ version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "060d69a0afe7796bf42e9e2ff91f5ee691fb15c53d38b4b62a9a53eb23164745"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -2880,8 +2854,8 @@ version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9724f9a975fb987ef7a3cd9be0350edcbe130698af5b8f7a631e23d42d052484"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
 ]
 
@@ -2961,7 +2935,7 @@ version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f4765f83163b74f957c797ad9253caf97f103fb064d3999aea9568d09fc8a33"
 dependencies = [
- "version_check 0.1.5",
+ "version_check",
 ]
 
 [[package]]
@@ -2969,6 +2943,12 @@ name = "unicode-bidi"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a01404663e3db436ed2746d9fefef640d868edae3cceb81c3b8d5732fda678f"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b15811caf2415fb889178633e7724bad2509101cde276048e013b9def5e51fa0"
 
 [[package]]
 name = "unicode-normalization"
@@ -3090,18 +3070,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "914b1a6776c4c929a602fafd8bc742e06365d4bcbe48c30f9cca5824f70dc9dd"
 
 [[package]]
-name = "version_check"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
-
-[[package]]
 name = "vme-pkix"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
 dependencies = [
  "lazy_static 1.4.0",
- "pkix 0.1.2",
+ "pkix 0.2.0",
 ]
 
 [[package]]
@@ -3157,8 +3131,8 @@ dependencies = [
  "bumpalo",
  "log 0.4.14",
  "once_cell",
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
  "wasm-bindgen-shared",
 ]
@@ -3169,7 +3143,7 @@ version = "0.2.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "052be0f94026e6cbc75cdefc9bae13fd6052cdcaf532fa6c45e7ae33a1e6c810"
 dependencies = [
- "quote 1.0.9",
+ "quote 1.0.28",
  "wasm-bindgen-macro-support",
 ]
 
@@ -3179,8 +3153,8 @@ version = "0.2.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07bc0c051dc5f23e307b13285f9d75df86bfdf816c5721e573dec1f9b8aa193c"
 dependencies = [
- "proc-macro2 1.0.28",
- "quote 1.0.9",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
  "syn 1.0.75",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
@@ -3213,11 +3187,13 @@ dependencies = [
 
 [[package]]
 name = "which"
-version = "3.1.1"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d011071ae14a2f6671d0b74080ae0cd8ebf3a6f8c9589a2cd45f23126fe29724"
+checksum = "2441c784c52b289a054b7201fc93253e288f094e2f4be9058343127c4226a269"
 dependencies = [
+ "either",
  "libc",
+ "once_cell",
 ]
 
 [[package]]
@@ -3380,6 +3356,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yansi-term"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5c30ade05e61656247b2e334a031dfd0cc466fadef865bdcdea8d537951bf1"
+dependencies = [
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "yasna"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3398,3 +3383,44 @@ dependencies = [
  "bit-vec 0.6.3",
  "num-bigint",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a0956f1ba7c7909bfb66c2e9e4124ab6f6482560f6628b5aaeba39207c9aad9"
+
+[[patch.unused]]
+name = "async-usercalls"
+version = "0.1.0"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
+
+[[patch.unused]]
+name = "dcap-ql-sys"
+version = "0.2.1"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
+
+[[patch.unused]]
+name = "enclave-runner"
+version = "0.5.1"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
+
+[[patch.unused]]
+name = "fortanix-sgx-abi"
+version = "0.5.0"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
+
+[[patch.unused]]
+name = "ipc-queue"
+version = "0.2.0"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
+
+[[patch.unused]]
+name = "sgxs"
+version = "0.7.4"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"
+
+[[patch.unused]]
+name = "sgxs-loaders"
+version = "0.3.3"
+source = "git+https://github.com/fortanix/rust-sgx?branch=yx/new-async-usercalls_update-mbedtls#702c91c6687dbb06b55badf7e5058fdaa619fb36"

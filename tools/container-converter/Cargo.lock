@@ -464,9 +464,9 @@ dependencies = [
 
 [[package]]
 name = "dcap-ql"
-version = "0.3.3"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0ebefb9625fa74940e07aeeddefda9f8081bd7dc9dbe782caff25b6f369f57"
+checksum = "190184b414f3a220bf4a3f41b359d1d33c99dc97527e5602d6aa289c510edfd3"
 dependencies = [
  "byteorder",
  "failure",
@@ -1809,18 +1809,18 @@ dependencies = [
 
 [[package]]
 name = "sgx-isa"
-version = "0.3.3"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55adf0940448a33eac98b3c84ab2e567c1fbc086750bcfd72702d6facc39bb77"
+checksum = "00f56e039650326c0a88890fc86369fdaa488f38eb507f3a7b5d80353dc8f0df"
 dependencies = [
  "bitflags",
 ]
 
 [[package]]
 name = "sgx_pkix"
-version = "0.1.4"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f3537667753c3f13ea771ea4cbc4c0684f312c468b5ab7bf0696d5b7e9fdd33"
+checksum = "dbd99155dbd1b4c45ad6a742cb0415387b68f22ab7e8f4cabba4e49d606e5ded"
 dependencies = [
  "byteorder",
  "lazy_static",
