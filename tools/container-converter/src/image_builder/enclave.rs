@@ -1,7 +1,7 @@
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
 use api_model::ConverterOptions;
 use docker_image_reference::Reference as DockerReference;
-use log::{info, debug};
+use log::{info, debug, warn};
 use nix::unistd::chown;
 use nix::unistd::Uid;
 use nix::sys::statfs::statfs;
@@ -618,7 +618,15 @@ impl<'a, R: 'a + Read> From<tar::Entry<'a, R>> for ArchiveSize {
 
 impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Error>> for ArchiveSize {
     fn from(entry: std::result::Result<tar::Entry<'a, R>, std::io::Error>) -> Self {
-        entry.map(ArchiveSize::from).unwrap_or_default()
+        match entry {
+            Ok(entry) => {
+                ArchiveSize::from(entry)
+            },
+            Err(e) => {
+                warn!("Error reading archive entry while computing size of the client image: {:?}, ignoring.", e);
+                ArchiveSize::default()
+            }
+        }
     }
 }
 
