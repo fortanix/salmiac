@@ -8,7 +8,7 @@ use nix::sys::statfs::statfs;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use sys_mount::{Mount, Unmount, UnmountFlags};
-use tar::Archive;
+use tar::{Archive};
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
@@ -580,8 +580,13 @@ struct ArchiveSize {
 }
 
 impl ArchiveSize {
+    /// Set to a common choice for disk block size; just an estimate:
+    const DIR_ENTRY_SIZE: u64 = 4096;
+    /// Set to 1/4 a block size; just an estimate:
+    const PER_FILE_METADATA: u64 = 4096/4;
+
     fn size_bytes(self) -> u64 {
-        1024 * self.file_count + self.total_file_size + 4096 * self.dir_count
+        ArchiveSize::PER_FILE_METADATA * self.file_count + self.total_file_size + ArchiveSize::DIR_ENTRY_SIZE * self.dir_count
     }
 }
 
@@ -597,27 +602,33 @@ impl Add for ArchiveSize {
     }
 }
 
+impl<'a, R: 'a + Read> From<tar::Entry<'a, R>> for ArchiveSize {
+    fn from(entry: tar::Entry<'a, R>) -> Self {
+        let entry_type = entry.header().entry_type();
+        let dir_count = entry_type.is_dir() as u64;
+        let file_count = !entry_type.is_dir() as u64;
+
+        ArchiveSize {
+            total_file_size: entry.size(),
+            dir_count,
+            file_count
+        }
+    }
+}
+
+impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Error>> for ArchiveSize {
+    fn from(entry: std::result::Result<tar::Entry<'a, R>, std::io::Error>) -> Self {
+        entry.map(ArchiveSize::from).unwrap_or_default()
+    }
+}
+
 impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
     fn size(mut self) -> std::result::Result<(Self, u64), String> {
         let entries = self
             .entries_with_seek()
             .map_err(|err| format!("Cannot read exported file system archive. {:?}", err))?;
 
-        let result = entries.fold(ArchiveSize::default(), |accm, e| {
-            let new_accm = e.map(|ee| {
-                let dir_count = if ee.header().entry_type().is_dir() { 1 } else { 0 };
-                // Anything that is not a dir we consider to be a file, meaning that `file_count` is a reciprocal of a `dir_count`
-                let file_count = dir_count ^ 1;
-
-                ArchiveSize {
-                    total_file_size: ee.size(),
-                    dir_count,
-                    file_count
-                }
-            }).unwrap_or(ArchiveSize::default());
-
-            accm + new_accm
-        });
+        let result = entries.fold(ArchiveSize::default(), |accm,  e| accm + ArchiveSize::from(e));
 
         debug!("Archive size measurements are: {:?}", result);
         // Iterating over `entries` also moves file pointer inside `Archive<File>`.
@@ -643,77 +654,25 @@ impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
 #[cfg(test)]
 mod tests {
     use crate::image_builder::enclave::{ArchiveSize, ArchiveExtensions};
-    use std::fs;
-    use std::path::{Path, PathBuf};
     use tar::{Archive, Builder};
-    use std::fs::File;
-    use std::io::{Read, Write, Seek, SeekFrom};
-
-    struct TempFile {
-        pub file: File,
-
-        pub path: PathBuf
-    }
-
-    impl TempFile {
-        pub fn new(path: PathBuf) -> Self {
-            let file = fs::OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .read(true)
-                .open(&path)
-                .expect("Failed creating file");
-
-            Self {
-                file,
-                path
-            }
-        }
-    }
-
-    impl Read for TempFile {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.file.read(buf)
-        }
-    }
-
-    impl Write for TempFile {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.file.write(buf)
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.file.flush()
-        }
-    }
-
-    impl Seek for TempFile {
-        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-            self.file.seek(pos)
-        }
-    }
-
-    impl Drop for TempFile {
-        fn drop(&mut self) {
-            fs::remove_file(&self.path).expect(&format!("Failed deleting path {}", self.path.display()));
-        }
-    }
+    use tempfile::NamedTempFile;
+    use std::path::Path;
+    use std::io::{Write, Seek};
 
     #[test]
     fn archive_size_add_zero_correct_pass() {
         let a = ArchiveSize {
             total_file_size: 1,
-            dir_count: 1,
-            file_count: 1
+            dir_count: 2,
+            file_count: 3
         };
 
         let b = ArchiveSize::default();
         let result = a + b;
 
         assert_eq!(result.total_file_size, 1);
-        assert_eq!(result.dir_count, 1);
-        assert_eq!(result.file_count, 1);
+        assert_eq!(result.dir_count, 2);
+        assert_eq!(result.file_count, 3);
     }
 
     #[test]
@@ -726,22 +685,22 @@ mod tests {
 
         let b = ArchiveSize {
             total_file_size: 1,
-            dir_count: 1,
-            file_count: 1
+            dir_count: 2,
+            file_count: 3
         };
 
         let result = a + b;
 
         assert_eq!(result.total_file_size, 2);
-        assert_eq!(result.dir_count, 2);
-        assert_eq!(result.file_count, 2);
+        assert_eq!(result.dir_count, 3);
+        assert_eq!(result.file_count, 4);
     }
 
     #[test]
     fn empty_archive_correct_pass() {
         use ArchiveExtensions;
 
-        let archive_file = TempFile::new(Path::new("/tmp/archive.tar").to_path_buf());
+        let archive_file = NamedTempFile::new_in("/tmp").expect("Failed creating archive file");
 
         let mut builder = Builder::new(archive_file);
         builder.finish().expect("failed building archive");
@@ -758,25 +717,30 @@ mod tests {
     fn dir_and_file_archive_correct_pass() {
         use ArchiveExtensions;
 
-        let archive_file = TempFile::new(Path::new("/tmp/archive.tar").to_path_buf());
-        let mut data_file_a = TempFile::new(Path::new("/tmp/file_a.txt").to_path_buf());
+        let archive_file = NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating archive file");
+        let mut data_file_a = NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating data file");
 
         let test_data = "Hello World";
-        data_file_a.file.write_all(test_data.as_bytes()).expect("Failed writing test data");
+        data_file_a.write_all(test_data.as_bytes()).expect("Failed writing test data");
         data_file_a.rewind().expect("Failed rewinding file");
 
         let mut builder = Builder::new(archive_file);
         builder.append_dir("test-dir-a", "/").expect("Failed appending dir to archive");
-        builder.append_file("test-dir-a/file_a.txt", &mut data_file_a.file).expect("Failed appending path to archive");
+        builder.append_file("test-dir-a/file_a.txt", data_file_a.as_file_mut()).expect("Failed appending path to archive");
 
         let mut file = builder.into_inner().expect("Failed unwrapping builder");
-        file.file.rewind().expect("Failed rewinding file");
+        file.rewind().expect("Failed rewinding file");
 
         let archive = Archive::new(file);
 
         let (_, result) = archive.size().expect("Failed computing size of the archive");
+        let reference = ArchiveSize {
+            total_file_size: test_data.as_bytes().len() as u64,
+            dir_count: 1,
+            file_count: 1
+        };
 
-        assert_eq!(result, (4096 * 1 + 1024 * 1 + test_data.as_bytes().len()) as u64)
+        assert_eq!(result, reference.size_bytes())
     }
 
 }
