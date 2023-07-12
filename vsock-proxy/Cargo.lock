@@ -1329,9 +1329,9 @@ dependencies = [
 
 [[package]]
 name = "mbedtls-sys-auto"
-version = "3.5.0-alpha.2+0b3de6f"
+version = "3.5.0-alpha.3+0b3de6f"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc2fed7a591aa3a5ede441deee912c7b064710961875f9b3af18c3fd619aba30"
+checksum = "d4d400666d95ff406ddded4d79fc1a1558ac499c93816036047b87f159492750"
 dependencies = [
  "bindgen",
  "cc",
