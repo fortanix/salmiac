@@ -1,14 +1,14 @@
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
 use api_model::ConverterOptions;
 use docker_image_reference::Reference as DockerReference;
-use log::info;
+use log::{info, debug, warn};
 use nix::unistd::chown;
 use nix::unistd::Uid;
 use nix::sys::statfs::statfs;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use sys_mount::{Mount, Unmount, UnmountFlags};
-use tar::Archive;
+use tar::{Archive};
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
@@ -21,9 +21,10 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::fs::File;
-use std::io::Seek;
+use std::io::{Seek, Read};
 use std::path::Path;
 use std::sync::mpsc::Sender;
+use std::ops::Add;
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {
@@ -506,13 +507,12 @@ impl<'a> EnclaveImageBuilder<'a> {
             .export_image_file_system(docker_util, &self.dir.path().join("fs.tar"))
             .await?;
 
-        let (rewinded_client_fs_tar, size_mb) = client_fs_tar.size().map_err(|message| ConverterError {
+        let (rewinded_client_fs_tar, size) = client_fs_tar.size().map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        info!("Client file system size is {}MB", size_mb);
-
+        let size_mb = size / MEGA_BYTE;
         let size_mb_up = (size_mb as f64 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u64;
 
         let available_disc_space = get_available_disc_space(self.dir.path()).await?;
@@ -570,18 +570,75 @@ trait ArchiveExtensions {
     fn unpack_preserve_permissions(self, destination: &Path) -> std::result::Result<(), String>;
 }
 
-impl ArchiveExtensions for Archive<File> {
+#[derive(Default, Debug)]
+struct ArchiveSize {
+    pub total_file_size: u64,
+
+    pub dir_count: u64,
+
+    pub file_count: u64
+}
+
+impl ArchiveSize {
+    /// Set to a common choice for disk block size; just an estimate:
+    const DIR_ENTRY_SIZE: u64 = 4096;
+    /// Set to 1/4 a block size; just an estimate:
+    const PER_FILE_METADATA: u64 = 4096/4;
+
+    fn size_bytes(self) -> u64 {
+        ArchiveSize::PER_FILE_METADATA * self.file_count + self.total_file_size + ArchiveSize::DIR_ENTRY_SIZE * self.dir_count
+    }
+}
+
+impl Add for ArchiveSize {
+    type Output = ArchiveSize;
+
+    fn add(self, other: ArchiveSize) -> Self {
+        ArchiveSize {
+            total_file_size: self.total_file_size + other.total_file_size,
+            dir_count: self.dir_count + other.dir_count,
+            file_count: self.file_count + other.file_count
+        }
+    }
+}
+
+impl<'a, R: 'a + Read> From<tar::Entry<'a, R>> for ArchiveSize {
+    fn from(entry: tar::Entry<'a, R>) -> Self {
+        let entry_type = entry.header().entry_type();
+        let dir_count = entry_type.is_dir() as u64;
+        let file_count = !entry_type.is_dir() as u64;
+
+        ArchiveSize {
+            total_file_size: entry.size(),
+            dir_count,
+            file_count
+        }
+    }
+}
+
+impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Error>> for ArchiveSize {
+    fn from(entry: std::result::Result<tar::Entry<'a, R>, std::io::Error>) -> Self {
+        match entry {
+            Ok(entry) => {
+                ArchiveSize::from(entry)
+            },
+            Err(e) => {
+                warn!("Error reading archive entry while computing size of the client image: {:?}, ignoring.", e);
+                ArchiveSize::default()
+            }
+        }
+    }
+}
+
+impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
     fn size(mut self) -> std::result::Result<(Self, u64), String> {
         let entries = self
             .entries_with_seek()
             .map_err(|err| format!("Cannot read exported file system archive. {:?}", err))?;
 
-        let result = entries.fold(0 as u64, |acc, e| {
-            let entry_size = e.map(|ee| ee.size()).unwrap_or(0);
+        let result = entries.fold(ArchiveSize::default(), |accm,  e| accm + ArchiveSize::from(e));
 
-            acc + entry_size
-        }) / MEGA_BYTE;
-
+        debug!("Archive size measurements are: {:?}", result);
         // Iterating over `entries` also moves file pointer inside `Archive<File>`.
         // To preserve the archive state from a caller perspective we have to rewind the file pointer and recreate the `Archive<File>` object.
         let mut archive_file = self.into_inner();
@@ -590,7 +647,7 @@ impl ArchiveExtensions for Archive<File> {
             .rewind()
             .map_err(|err| format!("Failed rewinding fs archive file. {:?}", err))?;
 
-        Ok((Archive::new(archive_file), result))
+        Ok((Archive::new(archive_file), result.size_bytes()))
     }
 
     fn unpack_preserve_permissions(mut self, destination: &Path) -> std::result::Result<(), String> {
@@ -600,4 +657,98 @@ impl ArchiveExtensions for Archive<File> {
         self.unpack(destination)
             .map_err(|err| format!("Failed unpacking client fs archive {}. {:?}", destination.display(), err))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::image_builder::enclave::{ArchiveSize, ArchiveExtensions};
+    use tar::{Archive, Builder};
+    use tempfile::NamedTempFile;
+    use std::path::Path;
+    use std::io::{Write, Seek};
+
+    #[test]
+    fn archive_size_add_zero_correct_pass() {
+        let a = ArchiveSize {
+            total_file_size: 1,
+            dir_count: 2,
+            file_count: 3
+        };
+
+        let b = ArchiveSize::default();
+        let result = a + b;
+
+        assert_eq!(result.total_file_size, 1);
+        assert_eq!(result.dir_count, 2);
+        assert_eq!(result.file_count, 3);
+    }
+
+    #[test]
+    fn archive_size_add_correct_pass() {
+        let a = ArchiveSize {
+            total_file_size: 1,
+            dir_count: 1,
+            file_count: 1
+        };
+
+        let b = ArchiveSize {
+            total_file_size: 1,
+            dir_count: 2,
+            file_count: 3
+        };
+
+        let result = a + b;
+
+        assert_eq!(result.total_file_size, 2);
+        assert_eq!(result.dir_count, 3);
+        assert_eq!(result.file_count, 4);
+    }
+
+    #[test]
+    fn empty_archive_correct_pass() {
+        use ArchiveExtensions;
+
+        let archive_file = NamedTempFile::new_in("/tmp").expect("Failed creating archive file");
+
+        let mut builder = Builder::new(archive_file);
+        builder.finish().expect("failed building archive");
+
+        let file = builder.into_inner().expect("Failed unwrapping builder");
+
+        let archive = Archive::new(file);
+        let (_, result) = archive.size().expect("Failed computing size of the archive");
+
+        assert_eq!(result, 0)
+    }
+
+    #[test]
+    fn dir_and_file_archive_correct_pass() {
+        use ArchiveExtensions;
+
+        let archive_file = NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating archive file");
+        let mut data_file_a = NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating data file");
+
+        let test_data = "Hello World";
+        data_file_a.write_all(test_data.as_bytes()).expect("Failed writing test data");
+        data_file_a.rewind().expect("Failed rewinding file");
+
+        let mut builder = Builder::new(archive_file);
+        builder.append_dir("test-dir-a", "/").expect("Failed appending dir to archive");
+        builder.append_file("test-dir-a/file_a.txt", data_file_a.as_file_mut()).expect("Failed appending path to archive");
+
+        let mut file = builder.into_inner().expect("Failed unwrapping builder");
+        file.rewind().expect("Failed rewinding file");
+
+        let archive = Archive::new(file);
+
+        let (_, result) = archive.size().expect("Failed computing size of the archive");
+        let reference = ArchiveSize {
+            total_file_size: test_data.as_bytes().len() as u64,
+            dir_count: 1,
+            file_count: 1
+        };
+
+        assert_eq!(result, reference.size_bytes())
+    }
+
 }
