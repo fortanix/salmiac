@@ -1,13 +1,13 @@
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::net::IpAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{env, fs};
 
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
-use ipnetwork::{IpNetwork};
+use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use shared::models::{
     ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
@@ -23,8 +23,8 @@ use tokio::task::JoinHandle;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
 use crate::network::{
-    choose_addrs_for_private_taps, list_network_devices, set_up_private_tap_devices, setup_network_devices,
-    PairedPcapDevice, PairedTapDevice,
+    choose_addrs_for_private_taps, list_network_devices, set_up_private_tap_devices, setup_network_devices, PairedPcapDevice,
+    PairedTapDevice,
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
@@ -33,10 +33,16 @@ const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
 const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
 
-const RW_BLOCK_FILE_OUT: &'static str = "/opt/fortanix/enclave-os/Blockfile-rw.ext4";
+const OVERLAYFS_BLOCKFILE_DIR: &'static str = "/opt/fortanix/enclave-os/overlayfs";
+
+const RW_BLOCK_FILE_OUT: &'static str = "Blockfile-rw.ext4";
+
+// Recommended minimum size is 32Mib because luks2 default header
+// size is 16Mib here - https://wiki.archlinux.org/title/dm-crypt/Device_encryption
+// Double this value in salmiac to 64 Mib
+const MIN_RW_BLOCKFILE_SIZE: usize = 64 * 1024 * 1024;
 
 const VSOCK_PARENT_PORT: u32 = 5006;
-
 const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     NBDExportConfig {
         name: "enclave-fs",
@@ -46,7 +52,7 @@ const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     },
     NBDExportConfig {
         name: "enclave-rw-fs",
-        block_file_path: "/opt/fortanix/enclave-os/Blockfile-rw.ext4",
+        block_file_path: "/opt/fortanix/enclave-os/overlayfs/Blockfile-rw.ext4",
         port: 7778,
         is_read_only: false,
     },
@@ -59,6 +65,13 @@ const DEFAULT_MEMORY_SIZE: u64 = 2048;
 const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
+    info!("Checking presence of overlayfs parent directory.");
+    let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
+    if !overlayfs_parent_dir.exists() {
+        info!("Creating overlayfs directory where the rw encrypted blockfile would be created...");
+        fs::create_dir_all(overlayfs_parent_dir).map_err(|e| format!("Unable to create overlayfs parent dir : {:?}", e))?;
+    }
+
     info!("Spawning enclave process.");
     // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
     let _enclave_process = tokio::spawn(start_nitro_enclave());
@@ -238,13 +251,8 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
 ///
 /// TODO: We should monitor the child process and restart it if crashes or exits.
 async fn run_dnsmasq() -> Result<(), String> {
-    run_subprocess(
-        "/usr/sbin/dnsmasq",
-        &["--keep-in-foreground"]
-    )
-        .await
+    run_subprocess("/usr/sbin/dnsmasq", &["--keep-in-foreground"]).await
 }
-
 
 async fn enables_console_logs() -> Result<(), String> {
     run_subprocess(
@@ -318,13 +326,13 @@ struct ParentSetupResult {
 
     private_tap: PairedTapDevice,
 
-    start_dnsmasq: bool
+    start_dnsmasq: bool,
 }
 
 struct ResolvConfResult {
     resolv_conf_file: FileWithPath,
 
-    start_dnsmasq: bool
+    start_dnsmasq: bool,
 }
 
 async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
@@ -346,10 +354,7 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
     let start_dnsmasq = send_global_network_settings(parent_address, vsock).await?;
 
     let private_tap = {
-
-        create_rw_block_file(rw_block_file_size)?;
-        info!("RW Block file of size {} bytes has been created.", rw_block_file_size);
-
+        create_rw_block_file(rw_block_file_size, Path::new(OVERLAYFS_BLOCKFILE_DIR).join(RW_BLOCK_FILE_OUT))?;
         set_up_private_tap_devices(vsock, parent_address, PRIVATE_TAP_NAME, enclave_address, PRIVATE_TAP_NAME).await?
     };
 
@@ -358,7 +363,7 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
     Ok(ParentSetupResult {
         network_devices: paired_network_devices,
         private_tap,
-        start_dnsmasq
+        start_dnsmasq,
     })
 }
 
@@ -377,10 +382,9 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
 /// Note that this function does NOT modify the parent's resolv.conf. It just returns the modified version
 /// that should be used by the enclave.
 fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResult, String> {
-    let parent_resolv = File::open(DNS_RESOLV_FILE)
-        .map_err(|err| format!("Could not open {}. {:?}", DNS_RESOLV_FILE, err))?;
+    let parent_resolv = File::open(DNS_RESOLV_FILE).map_err(|err| format!("Could not open {}. {:?}", DNS_RESOLV_FILE, err))?;
 
-    let mut enclave_resolv: Vec<u8> = vec!();
+    let mut enclave_resolv: Vec<u8> = vec![];
     let mut start_dnsmasq: bool = false;
     let lines = BufReader::new(parent_resolv).lines();
 
@@ -391,13 +395,21 @@ fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResu
         // character, since the keyword must be followed by whitespace. There don't currently appear to be any
         // config keywords that begin with "nameserver" that aren't "nameserver", but possibly new keywords could
         // be added in the future.
-        if !(line.starts_with(NAMESERVER_KEYWORD) &&
-            line.chars().nth(NAMESERVER_KEYWORD.len()).map(|e| e.is_whitespace()).unwrap_or_default()) {
+        if !(line.starts_with(NAMESERVER_KEYWORD)
+            && line
+                .chars()
+                .nth(NAMESERVER_KEYWORD.len())
+                .map(|e| e.is_whitespace())
+                .unwrap_or_default())
+        {
             enclave_resolv.extend_from_slice(line.as_bytes());
         } else {
             let dns_resolver_addr = line.split_at(NAMESERVER_KEYWORD.len()).1.trim();
             if dns_resolver_addr.starts_with("127.0.0.") {
-                info!("Updating resolv.conf data sent to enclave with parent's tap device address {:?}", nameserver_address.ip());
+                info!(
+                    "Updating resolv.conf data sent to enclave with parent's tap device address {:?}",
+                    nameserver_address.ip()
+                );
                 enclave_resolv.extend_from_slice(format!("nameserver {:?}\n", nameserver_address.ip()).as_bytes());
                 start_dnsmasq = true;
             } else {
@@ -406,17 +418,23 @@ fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResu
         }
         // We have to manually insert a newline after each line, because lines() consumes the newlines.
         enclave_resolv.extend_from_slice("\n".as_bytes());
-    };
+    }
 
-    let result = ResolvConfResult { resolv_conf_file: FileWithPath {
-        path: DNS_RESOLV_FILE.to_string(),
-        data: enclave_resolv,
-    }, start_dnsmasq };
+    let result = ResolvConfResult {
+        resolv_conf_file: FileWithPath {
+            path: DNS_RESOLV_FILE.to_string(),
+            data: enclave_resolv,
+        },
+        start_dnsmasq,
+    };
 
     Ok(result)
 }
 
-async fn send_global_network_settings(nameserver_address: IpNetwork, enclave_port: &mut AsyncVsockStream) -> Result<bool, String> {
+async fn send_global_network_settings(
+    nameserver_address: IpNetwork,
+    enclave_port: &mut AsyncVsockStream,
+) -> Result<bool, String> {
     fn read_file(path: &str) -> Result<FileWithPath, String> {
         fs::read_to_string(path)
             .map(|e| FileWithPath {
@@ -558,29 +576,103 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
     }
 }
 
-fn create_rw_block_file(size: u64) -> Result<(), String> {
-    if Path::new(RW_BLOCK_FILE_OUT).exists() {
-        info!("{:?} already exists, skipping creating a new blockfile", RW_BLOCK_FILE_OUT);
-        return Ok(());
+fn check_rw_min_size_requirement(size: usize) -> Result<(), String> {
+    if size < MIN_RW_BLOCKFILE_SIZE {
+        return Err(format!(
+            "Existing file size {} doesn't reach minimum RW block file size requirements of {}",
+            size, MIN_RW_BLOCKFILE_SIZE
+        ));
+    }
+    Ok(())
+}
+
+fn create_rw_block_file(size: u64, path: PathBuf) -> Result<(), String> {
+    match fs::metadata(path.clone()) {
+        Ok(md) => {
+            let real_size = md.len();
+            check_rw_min_size_requirement(real_size as usize)?;
+            info!(
+                "{:?} of size {:?} already exists, skipping creating a new blockfile",
+                path.as_path(),
+                real_size
+            );
+            return Ok(());
+        }
+        Err(_) => {
+            check_rw_min_size_requirement(size as usize)?;
+            // Create a new file only if it does not exist, otherwise open an existing file
+            // and return the file pointer. We need this to ensure that when a docker container
+            // restarts, it reuses the existing blockfile which contains state from the previous
+            // run rather than create a new blockfile which overwrites the previous rw layer.
+            let block_file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path.as_path())
+                .map_err(|err| format!("Failed creating RW block file {:?}. {:?}", path.as_path(), err))?;
+
+            info!("Setting RW blockfile size to {:?}", size);
+            block_file.set_len(size).map_err(|err| {
+                format!(
+                    "Failed truncating RW block file {:?} to size {}. {:?}",
+                    path.as_path(),
+                    size,
+                    err
+                )
+            })?;
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+    use std::path::PathBuf;
+    use tempdir::TempDir;
+
+    use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE};
+
+    // Create a temporary directory. Create a file of specified size in the directory.
+    // If size is set to 0, skip creation of file.
+    fn setup_rw_blockfile(testname: &str, size: usize) {
+        let dir = TempDir::new(testname.as_ref()).expect("Can't create temp dir");
+
+        if size > 0 {
+            let file_path = dir.path().join(testname);
+            let file = File::create(file_path).expect("Can't create test file path");
+            file.set_len(size as u64).expect("Unable to set size of test file");
+        }
     }
 
-    // Create a new file only if it does not exist, otherwise open an existing file
-    // and return the file pointer. We need this to ensure that when a docker container
-    // restarts, it reuses the existing blockfile which contains state from the previous
-    // run rather than create a new blockfile which overwrites the previous rw layer.
-    let block_file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(RW_BLOCK_FILE_OUT)
-        .map_err(|err| format!("Failed creating RW block file {}. {:?}", RW_BLOCK_FILE_OUT, err))?;
+    // Given the input params to create_rw_block_file, check if the result of the
+    // function matches the status
+    fn check_create_rw_block_file_res(path: &str, size: usize, success: bool) {
+        if success {
+            create_rw_block_file(size as u64, PathBuf::from(path)).expect("Unexpected failure");
+        } else {
+            create_rw_block_file(size as u64, PathBuf::from(path)).expect_err("Unexpected success");
+        }
+    }
 
-    info!("Setting RW blockfile size to {:?}", size);
-    block_file.set_len(size).map_err(|err| {
-        format!(
-            "Failed truncating RW block file {} to size {}. {:?}",
-            RW_BLOCK_FILE_OUT, size, err
-        )
-    })?;
+    #[test]
+    fn test_create_rw_block_file() {
+        // List of test cases - each element in the vector consists of 4 values:
+        // (testname, actual block file size, expected block file size, test status)
+        // actual block file size - used by the setup function to create a file
+        // of the specified size
+        // expected block file size - input to the create_rw_block_file function which is being
+        // tested here
+        // test status - expected test result - whether it is expected to succeed or fail
+        let testcases: Vec<(&str, usize, usize, bool)> = vec![
+            ("existing_min_size_file", MIN_RW_BLOCKFILE_SIZE, MIN_RW_BLOCKFILE_SIZE, true),
+            ("existing_less_than_min_size_file", 10 * 1024 * 1024, 10 * 1024 * 1024, false),
+            ("nonexistent_file", 0, 70 * 1024 * 1024, true),
+            ("nonexistent_size_check", 0, 10, false),
+        ];
 
-    Ok(())
+        for testcase in testcases {
+            setup_rw_blockfile(testcase.0, testcase.1);
+            check_create_rw_block_file_res(testcase.0, testcase.2, testcase.3);
+        }
+    }
 }
