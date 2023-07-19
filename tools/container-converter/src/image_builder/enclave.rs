@@ -119,7 +119,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub const BLOCK_FILE_OUT: &'static str = "Blockfile.ext4";
 
-    const BLOCK_FILE_SIZE_MULTIPLIER: f64 = 2.0;
+    const BLOCK_FILE_SIZE_MULTIPLIER_INCREASE: f64 = 1.5; // 50% increase of the block file size
 
     const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         Resource {
@@ -433,7 +433,20 @@ impl<'a> EnclaveImageBuilder<'a> {
                 })
         }
 
-        fn create_block_file(block_file_out_path: &Path, size_mb: u64) -> Result<()> {
+        async fn create_block_file(working_dir: &Path, block_file_out_path: &Path, size_mb: u64) -> Result<()> {
+            let available_disc_space = get_available_disc_space(working_dir).await?;
+
+            if available_disc_space < size_mb {
+                return Err(ConverterError {
+                    message: format!(
+                        "Available disk space: {} Required disk space: {}",
+                        available_disc_space, size_mb
+                    )
+                        .to_string(),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                });
+            }
+
             info!("Creating block file of size {}MB", size_mb);
             let block_file = fs::File::create(block_file_out_path).map_err(|err| ConverterError {
                 message: format!("Failed creating block file {}. {:?}", block_file_out_path.display(), err).to_string(),
@@ -455,7 +468,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         }
 
         async fn populate_block_file(
-            client_fs_archive: Archive<File>,
+            client_fs_archive: &mut Archive<File>,
             block_file_path: &Path,
             mount_path: &Path,
         ) -> Result<()> {
@@ -484,7 +497,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 .unpack_preserve_permissions(mount_path)
                 .map_err(|message| ConverterError {
                     message,
-                    kind: ConverterErrorKind::BlockFileCreation,
+                    kind: ConverterErrorKind::BlockFileFull,
                 })?;
 
             // Make the current user the owner of the root of the filesystem on the block
@@ -503,34 +516,42 @@ impl<'a> EnclaveImageBuilder<'a> {
             })
         }
 
-        let client_fs_tar = self
+        let mut client_fs_tar = self
             .export_image_file_system(docker_util, &self.dir.path().join("fs.tar"))
             .await?;
 
-        let (rewinded_client_fs_tar, size) = client_fs_tar.size().map_err(|message| ConverterError {
+        let size = client_fs_tar.size().map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        let size_mb = size / MEGA_BYTE;
-        let size_mb_up = (size_mb as f64 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER) as u64;
+        let mut size_mb_up = (size / MEGA_BYTE) as u64;
+        let mut archive = client_fs_tar;
 
-        let available_disc_space = get_available_disc_space(self.dir.path()).await?;
-
-        if available_disc_space < size_mb_up {
-            return Err(ConverterError {
-                message: format!(
-                    "Available disk space: {} Required disk space: {}",
-                    available_disc_space, size_mb_up
-                )
-                .to_string(),
+        // We retry image extraction below with a bigger block file size on every iteration
+        // as it's hard to precisely compute the size required to describe all entities in the file system.
+        // The total size includes file and directory metadata which varies based on the number of directories and files present in the client image.
+        loop {
+            size_mb_up = (size_mb_up as f64 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE) as u64;
+            archive = archive.rewind().map_err(|message| ConverterError {
+                message,
                 kind: ConverterErrorKind::BlockFileCreation,
-            });
+            })?;
+
+            create_block_file(self.dir.path(), block_file_out_path, size_mb_up).await?;
+
+            match populate_block_file(&mut archive, block_file_out_path, mount_dir).await {
+                Err(ConverterError { kind: ConverterErrorKind::BlockFileFull, .. }) => {
+
+                }
+                Err(err) => {
+                    return Err(err)
+                }
+                _ => {
+                    break
+                }
+            }
         }
-
-        create_block_file(block_file_out_path, size_mb_up)?;
-
-        populate_block_file(rewinded_client_fs_tar, block_file_out_path, mount_dir).await?;
 
         // Note that we're using the same file to contain the filesystem and the
         // filesystem hashes. That's why `block_file_out_as_str` is on the command line here twice.
@@ -560,14 +581,25 @@ impl<'a> EnclaveImageBuilder<'a> {
 
 trait ArchiveExtensions {
     /// Returns total size of unpacked entities inside an archive without unpacking the archive itself.
-    fn size(self) -> std::result::Result<(Self, u64), String>
+    /// # Mutability remarks
+    /// Modifies the underlying data pointer when iterating over the entries.
+    /// To work with archive object again you have to rewind the pointer to the beginning of the underlying data structure.
+    fn size(&mut self) -> std::result::Result<u64, String>
     where
         Self: Sized;
 
     /// Unpacks the contents of the archive while preserving file permissions.
     /// Without it any unknown file ownerships will default to a user id of the user who runs the program.
     /// This will lead to a permission issues when said files are accessed in a `chroot` environment.
-    fn unpack_preserve_permissions(self, destination: &Path) -> std::result::Result<(), String>;
+    /// # Mutability remarks
+    /// Modifies the underlying data pointer when iterating over the entries.
+    /// To work with archive object again you have to rewind the pointer to the beginning of the underlying data structure.
+    fn unpack_preserve_permissions(&mut self, destination: &Path) -> std::result::Result<(), String>;
+
+    /// Rewinds the underlying data pointer to point to the beginning of the underlying data structure of the archive.
+    fn rewind(self) -> std::result::Result<Self, String>
+    where
+        Self: Sized;
 }
 
 #[derive(Default, Debug)]
@@ -631,7 +663,7 @@ impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Erro
 }
 
 impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
-    fn size(mut self) -> std::result::Result<(Self, u64), String> {
+    fn size(&mut self) -> std::result::Result<u64, String> {
         let entries = self
             .entries_with_seek()
             .map_err(|err| format!("Cannot read exported file system archive. {:?}", err))?;
@@ -639,23 +671,26 @@ impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
         let result = entries.fold(ArchiveSize::default(), |accm,  e| accm + ArchiveSize::from(e));
 
         debug!("Archive size measurements are: {:?}", result);
-        // Iterating over `entries` also moves file pointer inside `Archive<File>`.
-        // To preserve the archive state from a caller perspective we have to rewind the file pointer and recreate the `Archive<File>` object.
-        let mut archive_file = self.into_inner();
 
-        archive_file
-            .rewind()
-            .map_err(|err| format!("Failed rewinding fs archive file. {:?}", err))?;
-
-        Ok((Archive::new(archive_file), result.size_bytes()))
+        Ok(result.size_bytes())
     }
 
-    fn unpack_preserve_permissions(mut self, destination: &Path) -> std::result::Result<(), String> {
+    fn unpack_preserve_permissions(&mut self, destination: &Path) -> std::result::Result<(), String> {
         self.set_preserve_permissions(true);
         self.set_preserve_ownerships(true);
 
         self.unpack(destination)
             .map_err(|err| format!("Failed unpacking client fs archive {}. {:?}", destination.display(), err))
+    }
+
+    fn rewind(self) -> std::result::Result<Self, String> {
+        let mut archive_file = self.into_inner();
+
+        archive_file
+            .rewind()
+            .map_err(|err| format!("Failed rewinding archive. {:?}", err))?;
+
+        Ok(Archive::new(archive_file))
     }
 }
 
@@ -715,8 +750,8 @@ mod tests {
 
         let file = builder.into_inner().expect("Failed unwrapping builder");
 
-        let archive = Archive::new(file);
-        let (_, result) = archive.size().expect("Failed computing size of the archive");
+        let mut archive = Archive::new(file);
+        let result = archive.size().expect("Failed computing size of the archive");
 
         assert_eq!(result, 0)
     }
@@ -739,9 +774,9 @@ mod tests {
         let mut file = builder.into_inner().expect("Failed unwrapping builder");
         file.rewind().expect("Failed rewinding file");
 
-        let archive = Archive::new(file);
+        let mut archive = Archive::new(file);
 
-        let (_, result) = archive.size().expect("Failed computing size of the archive");
+        let result = archive.size().expect("Failed computing size of the archive");
         let reference = ArchiveSize {
             total_file_size: test_data.as_bytes().len() as u64,
             dir_count: 1,

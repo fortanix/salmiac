@@ -53,6 +53,7 @@ pub enum ConverterErrorKind {
     BlockFileCreation,
     ImageFileSystemExport,
     ContainerCreation,
+    BlockFileFull
 }
 
 impl fmt::Display for ConverterError {
