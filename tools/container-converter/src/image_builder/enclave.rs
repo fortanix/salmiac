@@ -1,5 +1,5 @@
 use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
-use api_model::ConverterOptions;
+use api_model::{ConverterOptions, CertificateConfig};
 use docker_image_reference::Reference as DockerReference;
 use log::{info, debug, warn};
 use nix::unistd::chown;
@@ -8,7 +8,7 @@ use nix::sys::statfs::statfs;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use sys_mount::{Mount, Unmount, UnmountFlags};
-use tar::{Archive};
+use tar::Archive;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
@@ -158,7 +158,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        let file_system_config = self.create_block_file(docker_util).await?;
+        let file_system_config = self.create_block_file(docker_util, &user_config).await?;
         info!("Client FS Block file has been created.");
 
         let enclave_manifest = EnclaveManifest {
@@ -310,7 +310,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil) -> Result<FileSystemConfig> {
+    async fn create_block_file(&self, docker_util: &dyn DockerUtil, user_config: &UserConfig) -> Result<FileSystemConfig> {
         let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
         let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
 
@@ -319,7 +319,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        self.create_block_file0(&block_file_mount_dir, &block_file_out, docker_util)
+        self.create_block_file0(&block_file_mount_dir, &block_file_out, user_config, docker_util)
             .await
     }
 
@@ -412,6 +412,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         mount_dir: &Path,
         block_file_out_path: &Path,
+        user_config: &UserConfig,
         docker_util: &dyn DockerUtil,
     ) -> Result<FileSystemConfig> {
         async fn run_subprocess0<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + Debug>(
@@ -469,6 +470,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         async fn populate_block_file(
             client_fs_archive: &mut Archive<File>,
+            user_config: &UserConfig,
             block_file_path: &Path,
             mount_path: &Path,
         ) -> Result<()> {
@@ -513,7 +515,11 @@ impl<'a> EnclaveImageBuilder<'a> {
                 )
                 .to_string(),
                 kind: ConverterErrorKind::BlockFileCreation,
-            })
+            })?;
+
+            EnclaveImageBuilder::check_path_exists(user_config, block_file_path)?;
+
+            Ok(())
         }
 
         let mut client_fs_tar = self
@@ -540,7 +546,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
             create_block_file(self.dir.path(), block_file_out_path, size_mb_up).await?;
 
-            match populate_block_file(&mut archive, block_file_out_path, mount_dir).await {
+            match populate_block_file(&mut archive, user_config, block_file_out_path, mount_dir).await {
                 Err(ConverterError { kind: ConverterErrorKind::BlockFileFull, .. }) => {
 
                 }
@@ -576,6 +582,41 @@ impl<'a> EnclaveImageBuilder<'a> {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
         })
+    }
+
+    fn check_path_exists(user_config: &UserConfig, block_file_out_path: &Path) -> Result<()> {
+        fn check_path_exists0(path_to_check: &Path, block_file_out_path: &Path, object_name: &str) -> Result<()> {
+            let path = if path_to_check.is_absolute() {
+                path_to_check.strip_prefix("/").unwrap()
+            } else {
+                path_to_check
+            };
+
+            if !block_file_out_path.join(path).exists() {
+                Err(ConverterError {
+                    message: format!("{} path: {} doesn't exist inside client image.", object_name, path.display()).to_string(),
+                    kind: ConverterErrorKind::BadRequest,
+                })
+            } else {
+                Ok(())
+            }
+        }
+
+        match user_config.certificate_config.first() {
+            Some(CertificateConfig { key_path: Some(key_path), cert_path: Some(cert_path), ..}) => {
+                check_path_exists0(Path::new(&key_path), block_file_out_path, "key")?;
+                check_path_exists0(Path::new(&cert_path), block_file_out_path, "certificate")
+            }
+            Some(CertificateConfig { key_path: Some(key_path), ..}) => {
+                check_path_exists0(Path::new(&key_path), block_file_out_path, "key")
+            }
+            Some(CertificateConfig { cert_path: Some(cert_path), ..}) => {
+                check_path_exists0(Path::new(&cert_path), block_file_out_path, "certificate")
+            }
+            _ => {
+                Ok(())
+            }
+        }
     }
 }
 
@@ -701,6 +742,10 @@ mod tests {
     use tempfile::NamedTempFile;
     use std::path::Path;
     use std::io::{Write, Seek};
+    use crate::image_builder::enclave::EnclaveImageBuilder;
+    use api_model::shared::{UserConfig, UserProgramConfig, WorkingDir, User};
+    use api_model::{CertificateConfig, CertIssuer, KeyType};
+    use rand::RngCore;
 
     #[test]
     fn archive_size_add_zero_correct_pass() {
@@ -786,4 +831,136 @@ mod tests {
         assert_eq!(result, reference.size_bytes())
     }
 
+    fn user_config(key_path: Option<String>, cert_path: Option<String>) -> UserConfig {
+        UserConfig {
+            user_program_config: UserProgramConfig {
+                entry_point: "".to_string(),
+                arguments: vec![],
+                working_dir: WorkingDir::from(""),
+                user: User::from(""),
+                group: User::from(""),
+            },
+            certificate_config: vec![CertificateConfig {
+                issuer: CertIssuer::ManagerCa,
+                subject: None,
+                alt_names: vec![],
+                key_type: KeyType::Rsa,
+                key_param: None,
+                key_path,
+                cert_path,
+                chain_path: None,
+            }],
+        }
+    }
+
+    fn no_certs_user_config() -> UserConfig {
+        UserConfig {
+            user_program_config: UserProgramConfig {
+                entry_point: "".to_string(),
+                arguments: vec![],
+                working_dir: WorkingDir::from(""),
+                user: User::from(""),
+                group: User::from(""),
+            },
+            certificate_config: vec![],
+        }
+    }
+
+    fn abs_non_existent_path() -> String {
+        non_existent_path(Path::new("/path/to/some/file"))
+    }
+
+    fn relative_non_existent_path() -> String {
+        non_existent_path(Path::new("path/to/some/file"))
+    }
+
+    fn non_existent_path(base_path: &Path) -> String {
+        let mut rng = rand::thread_rng();
+        let mut result = base_path.to_path_buf();
+
+        while result.exists() {
+            let random_number = rng.next_u32();
+            result = base_path.join(random_number.to_string());
+        }
+
+        result.as_path()
+            .as_os_str()
+            .to_str()
+            .expect("Failed to convert path to string")
+            .to_string()
+    }
+
+    #[test]
+    fn check_path_not_found_correct_path() {
+        let abs_key_path = abs_non_existent_path();
+        let abs_cert_path = abs_non_existent_path();
+        let relative_key_path = relative_non_existent_path();
+        let relative_cert_path = relative_non_existent_path();
+
+        let configs = vec![
+            user_config(Some(abs_key_path.clone()), None),
+            user_config(None, Some(abs_cert_path.clone())),
+            user_config(Some(abs_key_path), Some(abs_cert_path)),
+            user_config(Some(relative_key_path.clone()), None),
+            user_config(None, Some(relative_cert_path.clone())),
+            user_config(Some(relative_key_path), Some(relative_cert_path))
+        ];
+
+        let block_file_valid_path = Path::new("/tmp");
+
+        for config in &configs {
+            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_err())
+        }
+
+        let block_file_invalid_path = abs_non_existent_path();
+
+        for config in &configs {
+            assert!(EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path)).is_err())
+        }
+    }
+
+    #[test]
+    fn check_path_empty_config_correct_path() {
+        let configs = vec![
+            user_config(None, None),
+            no_certs_user_config()
+        ];
+
+        for config in &configs {
+            assert!(EnclaveImageBuilder::check_path_exists(config, Path::new("/tmp")).is_ok())
+        }
+    }
+
+    #[test]
+    fn check_path_found_correct_path() {
+        fn path_to_str(path: &Path, prefix: &str) -> String {
+            path.strip_prefix(prefix)
+                .expect("Failed removing file prefix")
+                .to_str()
+                .expect("Failed removing file prefix")
+                .to_string()
+        }
+
+        let block_file_valid_path = Path::new("/tmp");
+        let key_file = NamedTempFile::new_in(block_file_valid_path).expect("Failed creating file");
+        let cert_file = NamedTempFile::new_in(block_file_valid_path).expect("Failed creating file");
+
+        let abs_key_path = path_to_str(key_file.path(), "/tmp");
+        let abs_cert_path = path_to_str(cert_file.path(), "/tmp");
+        let relative_key_path = path_to_str(key_file.path(), "/tmp/");
+        let relative_cert_path = path_to_str(cert_file.path(), "/tmp/");
+
+        let configs = vec![
+            user_config(Some(abs_key_path.clone()), None),
+            user_config(None, Some(abs_cert_path.clone())),
+            user_config(Some(abs_key_path), Some(abs_cert_path)),
+            user_config(Some(relative_key_path.clone()), None),
+            user_config(None, Some(relative_cert_path.clone())),
+            user_config(Some(relative_key_path), Some(relative_cert_path))
+        ];
+
+        for config in &configs {
+            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_ok())
+        }
+    }
 }

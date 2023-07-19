@@ -1,12 +1,10 @@
-use std::fs;
-
-use api_model::NitroEnclavesConversionRequest;
-
-#[allow(unused_imports)]
-use container_converter::{ConverterError, ConverterErrorKind};
 use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
 use log::error;
+
+use api_model::NitroEnclavesConversionRequest;
+
+use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
