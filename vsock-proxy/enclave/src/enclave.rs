@@ -65,13 +65,11 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         )
         .await?;
 
-        let first_certificate_info = certificate_info.get_mut(0);
-
         setup_file_system(
             &setup_result.enclave_manifest,
             &mut parent_port,
             &setup_result.env_vars,
-            first_certificate_info,
+            certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
         )
         .await?;
 
@@ -79,17 +77,20 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             write_certificate(certificate)?;
         }
 
-        let first_certificate_result = certificate_info.into_iter().next().map(|e| e.certificate_result);
-        setup_app_configuration(&setup_result.app_config, first_certificate_result)?;
+        let first_certificate = certificate_info.into_iter()
+            .next()
+            .map(|e| e.certificate_result);
+
+        setup_app_configuration(&setup_result.app_config, first_certificate)?;
 
         let exit_status = start_and_await_user_program_return(setup_result, hostname).await?;
 
         cleanup().await?;
 
-        send_user_program_exit_status(&mut parent_port, exit_status.clone()).await?;
-
         Ok(exit_status)
     });
+
+    send_user_program_exit_status(&mut parent_port, result.clone()).await?;
 
     await_enclave_exit(&mut parent_port).await?;
 
@@ -178,9 +179,9 @@ fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
 ) -> Result<(), String> {
-    if let (Some(mut certificate_info), Some(_)) = (certificate_info, &app_config.id) {
+    if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
         let api = Box::new(EmAppApplicationConfiguration::new());
-        let credentials = EmAppCredentials::new(&mut certificate_info, app_config.skip_server_verify)?;
+        let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
 
         info!("Setting up application configuration.");
 
@@ -199,7 +200,7 @@ async fn setup_file_system(
     enclave_manifest: &EnclaveManifest,
     parent_port: &mut AsyncVsockStream,
     env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
 ) -> Result<(), String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
@@ -226,7 +227,7 @@ async fn cleanup() -> Result<(), String> {
     Ok(())
 }
 
-async fn send_user_program_exit_status(vsock: &mut VsockStream, exit_status: UserProgramExitStatus) -> Result<(), String> {
+async fn send_user_program_exit_status(vsock: &mut VsockStream, exit_status: Result<UserProgramExitStatus, String>) -> Result<(), String> {
     vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
 }
 
@@ -258,7 +259,7 @@ async fn setup_file_system0(
     nbd_config: &NBDConfiguration,
     enclave_manifest: &EnclaveManifest,
     env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
 ) -> Result<(), String> {
     for export in &nbd_config.exports {
         run_nbd_client(nbd_config.address, export.port, &export.name).await?;

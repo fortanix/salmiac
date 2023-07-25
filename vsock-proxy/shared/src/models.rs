@@ -14,7 +14,7 @@ pub enum SetupMessages {
     GlobalNetworkSettings(GlobalNetworkSettings),
     CSR(String),
     Certificate(String),
-    UserProgramExit(UserProgramExitStatus),
+    UserProgramExit(Result<UserProgramExitStatus, String>),
     ApplicationConfig(ApplicationConfiguration),
     NBDConfiguration(NBDConfiguration),
     EnvVariables(Vec<(String, String)>),

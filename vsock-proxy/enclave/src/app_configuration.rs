@@ -337,7 +337,7 @@ pub(crate) struct EmAppCredentials {
 }
 
 impl EmAppCredentials {
-    pub(crate) fn new(certificate_info: &mut CertificateResult, skip_server_verify: bool) -> Result<Self, String> {
+    pub(crate) fn new(mut certificate_info: CertificateResult, skip_server_verify: bool) -> Result<Self, String> {
         let certificate = {
             certificate_info.certificate.push('\0');
 
@@ -347,7 +347,7 @@ impl EmAppCredentials {
             Arc::new(app_cert)
         };
 
-        // The private key from certificate info can't be copied/cloned, so use mbedtls
+        // The private key from certificate info can't be copied/cloned, thus we use mbedtls
         // library functions to convert it into DER buffer and create a Pk from it.
         let der_buf = certificate_info.key.write_private_der_vec().unwrap();
         let dup_pk = Pk::from_private_key(&mut mbedtls::rng::Rdrand, &*der_buf, None).unwrap();

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::run_subprocess;
 
-use crate::certificate::CertificateWithPath;
+use crate::certificate::{CertificateResult};
 use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
@@ -152,7 +152,7 @@ async fn update_luks_token(device_path: &str, token_path: &str, op: TokenOp) -> 
 /// fetch the overlay fs key used to wrap the RW volume passkey.
 async fn get_key_from_out_token(
     env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
 ) -> Result<(), String> {
     // Open and parse the dmcrypt volume token file
     let mut token_file = fs::File::open(TOKEN_OUT_FILE).map_err(|err| format!("Unable to open token out file : {:?}", err))?;
@@ -199,7 +199,7 @@ async fn get_key_from_out_token(
 /// the device
 async fn get_key_file(
     env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
     conv_use_dsm_key: bool,
 ) -> Result<bool, String> {
     let device_path = NBD_RW_DEVICE;
@@ -280,7 +280,7 @@ fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc
 
 pub(crate) async fn mount_read_write_file_system(
     env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
     enable_overlayfs_persistence: bool,
 ) -> Result<(), String> {
     let create_ext4 = get_key_file(env_vars, cert_list, enable_overlayfs_persistence).await?;

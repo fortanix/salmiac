@@ -18,7 +18,7 @@ use sdkms::api_model::{
 use sdkms::SdkmsClient;
 use url;
 
-use crate::certificate::CertificateWithPath;
+use crate::certificate::{CertificateResult};
 use crate::file_system::find_env_or_err;
 
 const GCM_TAG_LEN_BITS: usize = 128;
@@ -35,7 +35,7 @@ struct ClientWithKey {
 
 fn dsm_create_client(
     env_vars: &[(String, String)],
-    auth_cert: Option<&mut CertificateWithPath>,
+    auth_cert: Option<&mut CertificateResult>,
 ) -> Result<SdkmsClient, String> {
     info!("Looking for env variables needed to create DSM client.");
     let api_key = find_env_or_err("FS_API_KEY", env_vars).unwrap_or("".to_string());
@@ -73,7 +73,7 @@ fn dsm_create_client(
     }
 }
 
-fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateWithPath) -> Result<Arc<Client>, String> {
+fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateResult) -> Result<Arc<Client>, String> {
     let mut config = Config::new(Endpoint::Client, Transport::Stream, Preset::Default);
     config.set_authmode(AuthMode::Optional);
     config.set_rng(Arc::new(mbedtls::rng::Rdrand));
@@ -81,10 +81,8 @@ fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateWi
         .set_min_version(TLS_MIN_VERSION)
         .map_err(|e| format!("TLS configuration failed: {:?}", e))?;
 
-    let cert_res = &auth_cert.certificate_result;
-
     let cert = {
-        let cert_pem = CString::new(&*cert_res.certificate)
+        let cert_pem = CString::new(&*auth_cert.certificate)
             .map_err(|e| format!("Can't create cstring from cert pem {:?}", e.to_string()))?;
         let app_cert = Certificate::from_pem_multiple(cert_pem.as_bytes_with_nul())
             .map_err(|e| format!("Parsing certificate failed: {:?}", e))?;
@@ -92,8 +90,10 @@ fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateWi
         Arc::new(app_cert)
     };
 
-    let der_key = auth_cert.certificate_result.key.write_private_der_vec().unwrap();
-    let pk_key = Pk::from_private_key(&mut mbedtls::rng::Rdrand, &*der_key, None).unwrap();
+    let der_key = auth_cert.key.write_private_der_vec()
+        .map_err(|e| format!("Failed writing certificate key as der format. {:?}", e))?;
+    let pk_key = Pk::from_private_key(&mut mbedtls::rng::Rdrand, &*der_key, None)
+        .map_err(|e| format!("Failed creating private key from der format. {:?}", e))?;
     let key = Arc::new(pk_key);
 
     config
@@ -203,7 +203,7 @@ fn dsm_decrypt_blob(dec_req: &DecryptRequest, client: &SdkmsClient) -> Result<De
 }
 
 fn dsm_get_overlayfs_key(
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
     env_vars: &[(String, String)],
 ) -> Result<ClientWithKey, String> {
     let client = dsm_create_client(env_vars, cert_list)?;
@@ -215,7 +215,7 @@ fn dsm_get_overlayfs_key(
 }
 
 pub(crate) fn dsm_enc_with_overlayfs_key(
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
     env_vars: &[(String, String)],
     plaintext: Blob,
 ) -> Result<EncryptResponse, String> {
@@ -225,7 +225,7 @@ pub(crate) fn dsm_enc_with_overlayfs_key(
 }
 
 pub(crate) fn dsm_dec_with_overlayfs_key(
-    cert_list: Option<&mut CertificateWithPath>,
+    cert_list: Option<&mut CertificateResult>,
     env_vars: &[(String, String)],
     ciphertext: Blob,
     iv: Blob,
@@ -304,19 +304,17 @@ mod tests {
         let _cert_size = File::open(certpath).unwrap().read_to_end(&mut cert_contents).unwrap();
 
         let key = Pk::from_private_key(&mut mbedtls::rng::Rdrand, key_contents.as_slice(), None).unwrap();
-        let cert_res = CertificateResult {
+        let mut cert_res = CertificateResult {
             certificate: String::from_utf8(cert_contents).unwrap(),
             key,
         };
 
-        let mut cert_with_path = CertificateWithPath::new(cert_res, &CertificateConfig::new(), "/".as_ref());
-
         // Note - Do not pass DSM_ENV_VARS here otherwise the API key will be used for auth to DSM
         // rather than use the appcert
-        let enc_resp = dsm_enc_with_overlayfs_key(Some(&mut cert_with_path), &vec![], Blob::from(PLAINTEXT)).unwrap();
+        let enc_resp = dsm_enc_with_overlayfs_key(Some(&mut cert_res), &vec![], Blob::from(PLAINTEXT)).unwrap();
 
         let dec_resp = dsm_dec_with_overlayfs_key(
-            Some(&mut cert_with_path),
+            Some(&mut cert_res),
             &vec![],
             enc_resp.cipher,
             enc_resp.iv.unwrap(),

@@ -472,7 +472,7 @@ async fn send_global_network_settings(
 async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<(UserProgramExitStatus, AsyncVsockStream), String> {
     let result = extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)?;
 
-    Ok((result, vsock))
+    result.map(|e| (e, vsock))
 }
 
 async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
