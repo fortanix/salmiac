@@ -26,7 +26,7 @@ const SOBJECT_LIST_LIMIT: usize = 10;
 pub const DEFAULT_DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
 const OVERLAY_FS_SECURITY_OBJECT_PREFIX: &str = "fortanix-overlayfs-security-object-build-";
 pub const DEFAULT_DSM_APP_ENDPOINT: &str = "https://apps.amer.smartkey.io/";
-const TLS_MIN_VERSION: Version = Version::Tls12;
+const TLS_MIN_VERSION: Version = Version::Tls1_2;
 
 struct ClientWithKey {
     overlayfs_key: Sobject,
@@ -92,7 +92,7 @@ fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateRe
 
     let der_key = auth_cert.key.write_private_der_vec()
         .map_err(|e| format!("Failed writing certificate key as der format. {:?}", e))?;
-    let pk_key = Pk::from_private_key(&mut mbedtls::rng::Rdrand, &*der_key, None)
+    let pk_key = Pk::from_private_key(&*der_key, None)
         .map_err(|e| format!("Failed creating private key from der format. {:?}", e))?;
     let key = Arc::new(pk_key);
 
@@ -303,7 +303,7 @@ mod tests {
         let mut cert_contents: Vec<u8> = Vec::new();
         let _cert_size = File::open(certpath).unwrap().read_to_end(&mut cert_contents).unwrap();
 
-        let key = Pk::from_private_key(&mut mbedtls::rng::Rdrand, key_contents.as_slice(), None).unwrap();
+        let key = Pk::from_private_key(key_contents.as_slice(), None).unwrap();
         let mut cert_res = CertificateResult {
             certificate: String::from_utf8(cert_contents).unwrap(),
             key,

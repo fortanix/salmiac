@@ -5,29 +5,3 @@ members = [
     "parent",
     "enclave",
 ]
-
-[patch.crates-io]
-# Patched all crates being used from rust-sgx `yx/new-async-usercalls_update-mbedtls` branch
-#
-# Other services don't patch all these crates as they have an old
-# version of the same fixed in their Cargo.lock files.
-# We can do the same here - force to use old versions like
-# other services but this seems to be a better way. Builds should
-# preferably not break if one decides to clear the Cargo.lock.
-#
-# More about this here:
-# https://github.com/rust-lang/cargo/issues/6126
-#
-# TODO: Once PROD-6770 is addressed, all following patches on `rust-sgx` should be removed.
-async-usercalls = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-enclave-runner = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-dcap-ql = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-dcap-ql-sys = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-fortanix-sgx-abi = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-ipc-queue = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-sgx-isa = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-sgxs = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-sgxs-loaders = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-em-app = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-sgx_pkix = { git = "https://github.com/fortanix/rust-sgx", branch = "yx/new-async-usercalls_update-mbedtls" }
-

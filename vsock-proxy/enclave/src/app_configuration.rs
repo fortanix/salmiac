@@ -350,7 +350,7 @@ impl EmAppCredentials {
         // The private key from certificate info can't be copied/cloned, thus we use mbedtls
         // library functions to convert it into DER buffer and create a Pk from it.
         let der_buf = certificate_info.key.write_private_der_vec().unwrap();
-        let dup_pk = Pk::from_private_key(&mut mbedtls::rng::Rdrand, &*der_buf, None).unwrap();
+        let dup_pk = Pk::from_private_key(&*der_buf, None).unwrap();
         let key = Arc::new(dup_pk);
 
         let root_certificate = if skip_server_verify {
@@ -397,7 +397,7 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 -----END RSA PRIVATE KEY-----
 \0";
 
-        let pk = Pk::from_private_key(&mut mbedtls::rng::Rdrand, key.as_bytes(), None).unwrap();
+        let pk = Pk::from_private_key(key.as_bytes(), None).unwrap();
 
         let cert_list = MbedtlsList::<Certificate>::new();
 
