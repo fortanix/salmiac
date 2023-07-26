@@ -592,13 +592,28 @@ impl<'a> EnclaveImageBuilder<'a> {
                 path_to_check
             };
 
-            if !block_file_out_path.join(path).exists() {
-                Err(ConverterError {
-                    message: format!("{} path: {} doesn't exist inside client image.", object_name, path.display()).to_string(),
-                    kind: ConverterErrorKind::BadRequest,
-                })
-            } else {
-                Ok(())
+            match path.parent() {
+                // This match arm describes a path that contains a valid directory prefix
+                // Paths that consist of a single file name like "key.pem" will also end up here with path = "" (empty string),
+                // which describes a file inside a folder specified by block_file_out_path
+                Some(path) if !block_file_out_path.join(path).exists() => {
+                    Err(ConverterError {
+                        message: format!("{} path: {} doesn't exist inside client image.", object_name, path.display()).to_string(),
+                        kind: ConverterErrorKind::BadRequest,
+                    })
+                }
+                // If a path doesn't have any parent() it means that it doesn't have any directory prefix and is invalid.
+                // A simple example of said path would be just a "/" symbol or an empty string.
+                None => {
+                    Err(ConverterError {
+                        message: format!("{} path: {} parent directory doesn't exist inside client image.", object_name, path.display()).to_string(),
+                        kind: ConverterErrorKind::BadRequest,
+                    })
+                }
+                // If path contains a valid directory prefix that exists within block_file_out_path we return Ok
+                _ => {
+                    Ok(())
+                }
             }
         }
 
@@ -739,8 +754,8 @@ impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
 mod tests {
     use crate::image_builder::enclave::{ArchiveSize, ArchiveExtensions};
     use tar::{Archive, Builder};
-    use tempfile::NamedTempFile;
-    use std::path::Path;
+    use tempfile::{NamedTempFile, TempDir};
+    use std::path::{Path, PathBuf};
     use std::io::{Write, Seek};
     use crate::image_builder::enclave::EnclaveImageBuilder;
     use api_model::shared::{UserConfig, UserProgramConfig, WorkingDir, User};
@@ -866,15 +881,15 @@ mod tests {
         }
     }
 
-    fn abs_non_existent_path() -> String {
+    fn abs_non_existent_path() -> PathBuf {
         non_existent_path(Path::new("/path/to/some/file"))
     }
 
-    fn relative_non_existent_path() -> String {
+    fn relative_non_existent_path() -> PathBuf {
         non_existent_path(Path::new("path/to/some/file"))
     }
 
-    fn non_existent_path(base_path: &Path) -> String {
+    fn non_existent_path(base_path: &Path) -> PathBuf {
         let mut rng = rand::thread_rng();
         let mut result = base_path.to_path_buf();
 
@@ -883,10 +898,12 @@ mod tests {
             result = base_path.join(random_number.to_string());
         }
 
-        result.as_path()
-            .as_os_str()
-            .to_str()
-            .expect("Failed to convert path to string")
+        result
+    }
+
+    fn path_to_str(path: &Path) -> String {
+        path.to_str()
+            .expect("path to str fail")
             .to_string()
     }
 
@@ -896,26 +913,34 @@ mod tests {
         let abs_cert_path = abs_non_existent_path();
         let relative_key_path = relative_non_existent_path();
         let relative_cert_path = relative_non_existent_path();
+        let no_file_path = Path::new("/");
+
+        assert!(abs_cert_path.is_absolute());
+        assert!(abs_cert_path.is_absolute());
+        assert!(relative_key_path.is_relative());
+        assert!(relative_cert_path.is_relative());
 
         let configs = vec![
-            user_config(Some(abs_key_path.clone()), None),
-            user_config(None, Some(abs_cert_path.clone())),
-            user_config(Some(abs_key_path), Some(abs_cert_path)),
-            user_config(Some(relative_key_path.clone()), None),
-            user_config(None, Some(relative_cert_path.clone())),
-            user_config(Some(relative_key_path), Some(relative_cert_path))
+            user_config(Some(path_to_str(&abs_key_path)), None),
+            user_config(None, Some(path_to_str(&abs_cert_path))),
+            user_config(Some(path_to_str(&abs_key_path)), Some(path_to_str(&abs_cert_path))),
+            user_config(Some(path_to_str(&relative_key_path)), None),
+            user_config(None, Some(path_to_str(&relative_cert_path))),
+            user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path))),
+            user_config(Some(path_to_str(&no_file_path)), Some(path_to_str(&no_file_path))),
+            user_config(Some(String::new()), Some(String::new()))
         ];
 
         let block_file_valid_path = Path::new("/tmp");
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_err())
+            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_err(), "Config used: {:?}", config)
         }
 
         let block_file_invalid_path = abs_non_existent_path();
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path)).is_err())
+            assert!(EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path)).is_err(), "Config used: {:?}", config)
         }
     }
 
@@ -933,34 +958,39 @@ mod tests {
 
     #[test]
     fn check_path_found_correct_path() {
-        fn path_to_str(path: &Path, prefix: &str) -> String {
-            path.strip_prefix(prefix)
-                .expect("Failed removing file prefix")
-                .to_str()
-                .expect("Failed removing file prefix")
-                .to_string()
-        }
-
         let block_file_valid_path = Path::new("/tmp");
-        let key_file = NamedTempFile::new_in(block_file_valid_path).expect("Failed creating file");
-        let cert_file = NamedTempFile::new_in(block_file_valid_path).expect("Failed creating file");
+        let key_file_dir = TempDir::new_in(block_file_valid_path).expect("Failed creating key file dir");
+        let cert_file_dir = TempDir::new_in(block_file_valid_path).expect("Failed creating cert file dir");
 
-        let abs_key_path = path_to_str(key_file.path(), "/tmp");
-        let abs_cert_path = path_to_str(cert_file.path(), "/tmp");
-        let relative_key_path = path_to_str(key_file.path(), "/tmp/");
-        let relative_cert_path = path_to_str(cert_file.path(), "/tmp/");
+        let abs_key_path = {
+            let result = key_file_dir.path().strip_prefix("/tmp").unwrap().join("key.pem");
+            Path::new("/").join(result)
+        };
+        let abs_cert_path = {
+            let result = cert_file_dir.path().strip_prefix("/tmp").unwrap().join("cert.pem");
+            Path::new("/").join(result)
+        };
+
+        assert!(abs_key_path.is_absolute());
+        assert!(abs_cert_path.is_absolute());
+
+        let relative_key_path = key_file_dir.path().strip_prefix("/tmp/").unwrap().join("key.pem");
+        let relative_cert_path = cert_file_dir.path().strip_prefix("/tmp/").unwrap().join("cert.pem");
+
+        assert!(relative_key_path.is_relative());
+        assert!(relative_cert_path.is_relative());
 
         let configs = vec![
-            user_config(Some(abs_key_path.clone()), None),
-            user_config(None, Some(abs_cert_path.clone())),
-            user_config(Some(abs_key_path), Some(abs_cert_path)),
-            user_config(Some(relative_key_path.clone()), None),
-            user_config(None, Some(relative_cert_path.clone())),
-            user_config(Some(relative_key_path), Some(relative_cert_path))
+            user_config(Some(path_to_str(&abs_key_path)), None),
+            user_config(None, Some(path_to_str(&abs_cert_path))),
+            user_config(Some(path_to_str(&abs_key_path)), Some(path_to_str(&abs_cert_path))),
+            user_config(Some(path_to_str(&relative_key_path)), None),
+            user_config(None, Some(path_to_str(&relative_cert_path))),
+            user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path)))
         ];
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_ok())
+            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_ok(), "Config used: {:?}", config)
         }
     }
 }
