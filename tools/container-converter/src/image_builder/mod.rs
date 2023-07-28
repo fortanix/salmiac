@@ -5,6 +5,7 @@ pub mod enclave;
 pub mod parent;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
+const ORIG_ENV_LIST_PATH: &'static str = "original-parent.env";
 
 const MEGA_BYTE: u64 = 1024 * 1024;
 

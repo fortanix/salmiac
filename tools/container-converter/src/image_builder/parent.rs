@@ -11,7 +11,7 @@ use crate::docker::DockerUtil;
 use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
-use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR};
+use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
@@ -151,12 +151,16 @@ impl<'a> ParentImageBuilder<'a> {
 
         let env_vars = [log_env, cpu_count_env, mem_size_env, eos_debug_env];
 
+        let abs_orig_env_list_path = Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH).display().to_string();
+        let save_envs_run_command = format!("printenv > {}", abs_orig_env_list_path);
+
         let from = self.parent_image.clone();
 
         DockerFile {
             from,
             add: Some(add),
             env: env_vars.to_vec(),
+            run: Some(save_envs_run_command),
             cmd: None,
             entrypoint: Some(run_parent_cmd),
         }

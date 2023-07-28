@@ -31,6 +31,8 @@ use crate::ParentConsoleArguments;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
+const ORIG_ENV_LIST_PATH: &str = "original-parent.env";
+
 const NBD_CONFIG_FILE: &'static str = "/opt/fortanix/enclave-os/nbd.config";
 
 const OVERLAYFS_BLOCKFILE_DIR: &'static str = "/opt/fortanix/enclave-os/overlayfs";
@@ -134,9 +136,36 @@ async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), St
     enclave_port.write_lv(&SetupMessages::ExitEnclave).await
 }
 
+fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>, String> {
+    let mut runtime_vars: Vec<(String, String)> = env::vars().collect();
+
+    info!("Found the following environment variables in parent : {:?}", runtime_vars);
+
+    // Filter the environment variables sent from the parent. The ORIG_ENV_LIST_PATH file contains
+    // the list of variables which were set in the parent at conversion time. Rules for filtering:
+    //  - Always pass HOSTNAME
+    //  - Keep all environment variables which are new (i.e. not present in the parent at conversion
+    //    time)
+    //  - Keep environment variables which were present in the parent container but their values
+    //    have now been updated. The exception to this rule is for the PATH variable.
+    let file = File::open(orig_env_path.as_path()).map_err(|e| format!("Unable to find parent's original env variables : {}", e))?;
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let env_line = line.map_err(|e| format!("Unable to read line from file {:?} : {:?}", orig_env_path, e))?;
+        // Ill formed env variables will be ignored
+        let env_key_val = env_line.split_once("=").unwrap_or(("", ""));
+        if env_key_val.0 != "HOSTNAME" {
+            info!("Testing if {} does not exist or has been updated.", env_line);
+            runtime_vars.retain(|o| o.0 != env_key_val.0 || (o.0 != "PATH" && (o.0 == env_key_val.0 && o.1 != env_key_val.1)));
+        }
+    }
+    Ok(runtime_vars)
+}
+
 async fn send_env_variables(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
-    let runtime_vars: Vec<(String, String)> = env::vars().collect();
-    enclave_port.write_lv(&SetupMessages::EnvVariables(runtime_vars)).await
+    let filtered_env_vars = filter_env_variables(Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH))?;
+    info!("Passing these variables to the enclave : {:?}", filtered_env_vars);
+    enclave_port.write_lv(&SetupMessages::EnvVariables(filtered_env_vars)).await
 }
 
 async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, arguments: Vec<String>) -> Result<(), String> {

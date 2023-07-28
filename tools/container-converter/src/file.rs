@@ -146,6 +146,8 @@ pub(crate) struct DockerFile {
 
     pub(crate) env: Vec<String>,
 
+    pub(crate) run: Option<String>,
+
     pub(crate) cmd: Option<String>,
 
     pub(crate) entrypoint: Option<String>,
@@ -158,6 +160,7 @@ impl DockerFile {
             from,
             add: None,
             env: vec![],
+            run: None,
             cmd: None,
             entrypoint: None,
         }
@@ -174,6 +177,10 @@ impl ToString for DockerFile {
 
         if !self.env.is_empty() {
             result.push_str(&format!("ENV {} \n", self.env.join(" ")));
+        }
+
+        if let Some(run) = &self.run {
+            result.push_str(&format!("RUN {} \n", run));
         }
 
         if let Some(cmd) = &self.cmd {

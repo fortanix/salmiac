@@ -403,6 +403,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             from: self.enclave_base_image.to_string(),
             add: Some(add),
             env: enclave_settings.env_vars,
+            run: None,
             cmd: Some(run_enclave_cmd),
             entrypoint: None,
         }

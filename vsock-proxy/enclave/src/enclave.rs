@@ -1,6 +1,6 @@
 use std::convert::From;
 use std::path::Path;
-use std::{env, fs};
+use std::fs;
 
 use api_model::shared::EnclaveManifest;
 use api_model::CertificateConfig;
@@ -28,10 +28,6 @@ use crate::file_system::{
 };
 
 const STARTUP_BINARY: &str = "/enclave-startup";
-
-const HOSTNAME_ENV_VAR: &str = "HOSTNAME";
-
-const PATH_ENV_VAR: &str = "PATH";
 
 const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
 
@@ -130,9 +126,11 @@ async fn startup(
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
-    let mut env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
-    let mut manifest_env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
-    env_vars.append(&mut manifest_env_vars);
+    let mut runtime_env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
+    let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
+    // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
+    // configuration must be set at conversion time.
+    env_vars.append(&mut runtime_env_vars);
 
     let mut extra_user_program_args =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
@@ -298,33 +296,6 @@ async fn setup_file_system0(
     Ok(())
 }
 
-fn set_env_vars(command: &mut Command, env_vars: Vec<(String, String)>) {
-    // These are environment variables that are set in the EIF file which
-    // contain the variables from the original input image. Set these variables
-    // first.
-    // After implementing the file system, we run the user program using a
-    // subprocess command. The subprocess command sets up the
-    // environment for the user program based on the variables we pass to it,
-    // so we need to explicitly set the original variables again here.
-    for (key, val) in env::vars() {
-        debug!("Setting env from enclave runtime environment {:?}={:?}", key, val);
-        command.env(key, val);
-    }
-
-    // env_vars contains the list of environment variables from the parent
-    // container. Since they are set at runtime, we give them higher precedence
-    // over the variables set in the EIF file (i.e. at conversion time).
-    for (key, val) in env_vars {
-        // Only filter out hostname and path for now.
-        // TODO:: Filter out env variables based on what is
-        // specified in the converter request
-        if key != HOSTNAME_ENV_VAR && key != PATH_ENV_VAR {
-            debug!("Adding env {:?}={:?}", key, val);
-            command.env(key, val);
-        }
-    }
-}
-
 async fn start_user_program(
     enclave_setup_result: EnclaveSetupResult,
     hostname: String,
@@ -363,7 +334,8 @@ async fn start_user_program(
         client_command
     };
 
-    set_env_vars(&mut client_command, enclave_setup_result.env_vars);
+    info!("Setting the following env vars {:?}", enclave_setup_result.env_vars);
+    client_command.envs(enclave_setup_result.env_vars);
 
     let client_program = client_command
         .spawn()
