@@ -518,7 +518,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
 
-            EnclaveImageBuilder::check_path_exists(user_config, block_file_path)?;
+            EnclaveImageBuilder::check_path_exists(user_config, mount_path)?;
 
             Ok(())
         }
