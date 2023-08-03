@@ -1,6 +1,6 @@
 use std::convert::From;
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 use api_model::shared::EnclaveManifest;
 use api_model::CertificateConfig;
@@ -23,8 +23,9 @@ use crate::app_configuration::{setup_application_configuration, EmAppApplication
 use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client,
-    setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+    fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
+    DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 
 const STARTUP_BINARY: &str = "/enclave-startup";
@@ -73,9 +74,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             write_certificate(certificate)?;
         }
 
-        let first_certificate = certificate_info.into_iter()
-            .next()
-            .map(|e| e.certificate_result);
+        let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
 
         setup_app_configuration(&setup_result.app_config, first_certificate)?;
 
@@ -225,7 +224,10 @@ async fn cleanup() -> Result<(), String> {
     Ok(())
 }
 
-async fn send_user_program_exit_status(vsock: &mut VsockStream, exit_status: Result<UserProgramExitStatus, String>) -> Result<(), String> {
+async fn send_user_program_exit_status(
+    vsock: &mut VsockStream,
+    exit_status: Result<UserProgramExitStatus, String>,
+) -> Result<(), String> {
     vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
 }
 
@@ -286,7 +288,8 @@ async fn setup_file_system0(
     mount_overlay_fs().await?;
     info!("Mounted enclave root with overlay-fs.");
 
-    mount_file_system_nodes(FILE_SYSTEM_NODES).await?;
+    let fs_mount_opts = fetch_fs_mount_options()?;
+    mount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
 
     copy_dns_file_to_mount()?;
     copy_startup_binary_to_mount(STARTUP_BINARY)?;
@@ -368,7 +371,11 @@ async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<EnclaveNetwor
 
 async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<TapDeviceInfo, String> {
     let configuration = extract_enum_value!(vsock.read_lv().await?, SetupMessages::PrivateNetworkDeviceSettings(e) => e)?;
-    let tap = create_async_tap_device(&tap_device_config(&configuration.l3_address, &configuration.name, configuration.mtu))?;
+    let tap = create_async_tap_device(&tap_device_config(
+        &configuration.l3_address,
+        &configuration.name,
+        configuration.mtu,
+    ))?;
     let fs_vsock = connect_to_parent_async(configuration.vsock_port_number).await?;
 
     info!("FS Device {} is connected and ready.", configuration.vsock_port_number);

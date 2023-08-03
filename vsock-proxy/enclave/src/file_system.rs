@@ -5,13 +5,14 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use log::{error, info};
+use nix::sys::statvfs::FsFlags;
 use rand::{thread_rng, Rng};
 use sdkms::api_model::{Blob, EncryptResponse};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::run_subprocess;
 
-use crate::certificate::{CertificateResult};
+use crate::certificate::CertificateResult;
 use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
@@ -49,6 +50,10 @@ pub struct LuksToken {
     pub iv: Blob,
 }
 
+pub struct FsMountOptions {
+    pub is_tmp_exec: bool,
+}
+
 #[derive(PartialEq)]
 enum TokenOp {
     Export,
@@ -61,19 +66,24 @@ pub(crate) enum FileSystemNode {
     File(&'static str),
 }
 
-pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<(), String> {
+pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_options: FsMountOptions) -> Result<(), String> {
     for node in nodes {
         match node {
             FileSystemNode::Proc => {
                 run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
             }
             FileSystemNode::TreeNode(node_path) => {
-                run_mount(&[
-                    "--rbind",
-                    node_path,
-                    &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path),
-                ])
-                .await?;
+                let formatted_mount_point_str = format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path);
+                let mut mount_args = vec!["--rbind", node_path, &formatted_mount_point_str];
+                if node_path.clone() == "/tmp" && mount_options.is_tmp_exec {
+                    mount_args.push("-o");
+                    mount_args.push("exec");
+                    // Make the tmp directory of the enclave base image executable first
+                    // since this is the directory that is mounted into client's
+                    // overlay root.
+                    run_mount(&["/tmp", "-o", "remount,exec"]).await?;
+                }
+                run_mount(&mount_args).await?;
             }
             FileSystemNode::File(file_path) => {
                 run_mount(&[
@@ -91,8 +101,16 @@ pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<
 
 pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
     let dm_verity_device = DEVICE_MAPPER.to_string() + DM_VERITY_VOLUME;
-
     run_mount(&["-o", "ro", &dm_verity_device, ENCLAVE_FS_LOWER]).await
+}
+
+pub(crate) fn fetch_fs_mount_options() -> Result<FsMountOptions, String> {
+    let ro_only_mnt_tmp_path = Path::new(ENCLAVE_FS_LOWER).join("tmp");
+    let statfs_res = nix::sys::statvfs::statvfs(ro_only_mnt_tmp_path.as_path())
+        .map_err(|e| format!("Unable to obtain stat info on client's tmp fs : {:?}", e))?;
+    Ok(FsMountOptions {
+        is_tmp_exec: !statfs_res.flags().contains(FsFlags::ST_NOEXEC),
+    })
 }
 
 pub(crate) fn generate_keyfile() -> Result<Vec<u8>, String> {
