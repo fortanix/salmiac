@@ -8,6 +8,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y \
+       awscli \
        build-essential \
        cryptsetup-bin \
        curl \
@@ -36,6 +37,9 @@ VOLUME /tmp/build
 
 COPY requirements_frozen.txt /tmp/build/requirements_frozen.txt
 RUN pip3 install -r /tmp/build/requirements_frozen.txt && rm -fdr /tmp/build/*
+
+RUN pip3 install awsebcli --upgrade \
+    && pip3 install --upgrade awscli
 
 # To update requirements_frozen.txt: comment out above 2 commands, and uncomment below 2 commands, then `base64 -d > requirements_frozen.txt`
 #COPY requirements.txt /tmp/build/requirements.txt
