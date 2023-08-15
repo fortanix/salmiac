@@ -10,7 +10,7 @@ use rand::{thread_rng, Rng};
 use sdkms::api_model::{Blob, EncryptResponse};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use shared::run_subprocess;
+use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
 
 use crate::certificate::CertificateResult;
 use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
@@ -28,6 +28,7 @@ const DEVICE_MAPPER: &str = "/dev/mapper/";
 const DM_VERITY_VOLUME: &str = "rodir";
 
 const DM_CRYPT_DEVICE: &str = "cryptdevice";
+const DM_CRYPT_FOLDER: &str = "/run/cryptsetup";
 const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
 const CRYPT_KEYSIZE: usize = 512;
 const TOKEN_IN_FILE: &str = "/etc/token-in.json";
@@ -150,9 +151,12 @@ async fn luks_format_device(key_path: &Path, device_path: &str) -> Result<(), St
 /// Passing --type specifically checks for the version of luks used
 /// -v option provides a verbose output rather than returning 0 or 1
 /// for success or failure
-async fn is_luks_device(device_path: &str) -> Result<(), String> {
+async fn is_luks_device(device_path: &str) -> Result<async_process::Output, String> {
     let args = ["isLuks", "--type", "luks2", "-v", device_path];
-    run_subprocess("cryptsetup", &args).await
+
+    // Calling `cryptsetup` with `isLuks` argument is expected to fail if no cryptsetup device has been setup prior.
+    // To not pollute the console with the errors from `crypsetup` we pipe the stdout/err when calling the sub process
+    run_subprocess_with_output_setup("cryptsetup", &args, CommandOutputConfig::all_piped()).await
 }
 
 /// Export or import a token object from the given luks2 device. Always looks for the
@@ -301,6 +305,10 @@ pub(crate) async fn mount_read_write_file_system(
     cert_list: Option<&mut CertificateResult>,
     enable_overlayfs_persistence: bool,
 ) -> Result<(), String> {
+    // Create dir to get rid of the warning that is printed to the console by cryptsetup
+    fs::create_dir_all(DM_CRYPT_FOLDER)
+        .map_err(|err| format!("Failed to create folder {} for cryptsetup path. {:?}", DM_CRYPT_FOLDER, err))?;
+
     let create_ext4 = get_key_file(env_vars, cert_list, enable_overlayfs_persistence).await?;
 
     let crypt_setup_args: [&str; 7] = [
