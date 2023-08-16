@@ -244,12 +244,11 @@ mod tests {
     use std::path::PathBuf;
     use std::{env, println as info};
 
-    use api_model::CertificateConfig;
     use lazy_static::lazy_static;
     use mbedtls::pk::Pk;
     use sdkms::api_model::Blob;
 
-    use crate::certificate::{CertificateResult, CertificateWithPath};
+    use crate::certificate::{CertificateResult};
     use crate::dsm_key_config::{
         dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key,
         OVERLAY_FS_SECURITY_OBJECT_PREFIX,
