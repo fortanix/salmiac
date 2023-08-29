@@ -3,6 +3,7 @@ SUBDIRS = \
 	tools/app-test-infra/apps/invalid-auth-config \
 	tools/app-test-infra/apps/mariadb \
 	tools/app-test-infra/apps/nginx/self-proxy \
+	tools/app-test-infra/apps/python-minver \
 	tools/app-test-infra/apps/python-web-server \
 	tools/app-test-infra/apps/java/elasticsearch \
 	tools/app-test-infra/apps/java/websphere \
