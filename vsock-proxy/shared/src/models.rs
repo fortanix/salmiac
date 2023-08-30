@@ -20,6 +20,7 @@ pub enum SetupMessages {
     EnvVariables(Vec<(String, String)>),
     ExtraUserProgramArguments(Vec<String>),
     ExitEnclave,
+    EncryptedSpaceAvailable(usize),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

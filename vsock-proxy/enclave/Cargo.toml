@@ -7,31 +7,32 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
 async-process = "1.2.0"
 base64 = "0.13.0"
-shared = { path = "../shared" }
 clap = "2.33"
-env_logger = "0.7"
-log = "0.4"
-nix = "0.15.0"
-futures = "0.3"
-rtnetlink = "0.8.0"
-tun = {version = "0.5.3" ,features = ["async"] }
-tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }
-tokio-vsock = "0.3.1"
 em-app = { git = "https://github.com/fortanix/rust-sgx.git"}
+env_logger = "0.7"
+futures = "0.3"
+hyper = "0.10"
+interfaces = "0.0.8"
+ipnetwork = { version = "0.18.0", features = ["serde"] }
+log = "0.4"
 mbedtls = "0.8.1"
-serde_json = "1.0.68"
+nix = "0.15.0"
+rand = "0.8.5"
+rtnetlink = "0.8.0"
+sdkms = { version = "0.2.1", default-features = false, features = ["hyper-native-tls"] }
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
-api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
-sdkms = { version = "0.2.1", default-features = false, features = ["hyper-native-tls"] }
-ipnetwork = { version = "0.18.0", features = ["serde"] }
-interfaces = "0.0.8"
-rand = "0.8.5"
-hyper = "0.10"
-uuid = "0.7.4"
+serde_json = "1.0.68"
+shared = { path = "../shared" }
+sysinfo = "0.29.8"
+tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }
+tokio-vsock = "0.3.1"
+tun = {version = "0.5.3" ,features = ["async"] }
 url = "2.3.1"
+uuid = "0.7.4"
 
 [build-dependencies]
 pkix = "0.1.2"

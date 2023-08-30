@@ -338,6 +338,31 @@ pub(crate) async fn mount_read_write_file_system(
     Ok(())
 }
 
+use shared::models::SetupMessages;
+use shared::socket::AsyncWriteLvStream;
+use tokio_vsock::VsockStream as AsyncVsockStream;
+
+pub(crate) async fn check_available_encrypted_space(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
+    use sysinfo::{DiskExt, System, SystemExt};
+
+    let mut s = System::new();
+    s.refresh_disks_list();
+    for disk in s.disks() {
+        info!(
+            "{:?} total space = {}B free space = {}B",
+            disk.name(),
+            disk.total_space(),
+            disk.available_space()
+        );
+        if disk.name() == Path::new("/dev/mapper/").join(DM_CRYPT_DEVICE) {
+            parent_port
+                .write_lv(&SetupMessages::EncryptedSpaceAvailable(disk.available_space() as usize))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
     let overlay_dir_config = format!(
         "lowerdir={},upperdir={},workdir={}",

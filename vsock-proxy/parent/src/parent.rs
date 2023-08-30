@@ -102,6 +102,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
         send_nbd_configuration(&mut enclave_port, tap_l3_address).await?;
+        log_encrypted_space_available(&mut enclave_port).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -148,7 +149,8 @@ fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>,
     //    time)
     //  - Keep environment variables which were present in the parent container but their values
     //    have now been updated. The exception to this rule is for the PATH variable.
-    let file = File::open(orig_env_path.as_path()).map_err(|e| format!("Unable to find parent's original env variables : {}", e))?;
+    let file =
+        File::open(orig_env_path.as_path()).map_err(|e| format!("Unable to find parent's original env variables : {}", e))?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
         let env_line = line.map_err(|e| format!("Unable to read line from file {:?} : {:?}", orig_env_path, e))?;
@@ -394,6 +396,12 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
         private_tap,
         start_dnsmasq,
     })
+}
+
+async fn log_encrypted_space_available(vsock: &mut AsyncVsockStream) -> Result<(), String> {
+    let encrypted_space_size = extract_enum_value!(vsock.read_lv().await?, SetupMessages::EncryptedSpaceAvailable(s) => s)?;
+    info!("Encrypted space available = {}B", encrypted_space_size);
+    Ok(())
 }
 
 /// Customize the resolv.conf before we send it to the enclave. In certain Docker network configurations,
@@ -657,6 +665,7 @@ fn create_rw_block_file(size: u64, path: PathBuf) -> Result<(), String> {
 mod tests {
     use std::fs::File;
     use std::path::PathBuf;
+
     use tempdir::TempDir;
 
     use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE};
