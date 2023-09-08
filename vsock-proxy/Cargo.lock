@@ -1259,9 +1259,9 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "mbedtls"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4cdd74b4f7c633899ce071acfd307b053ccab39b7ca1ffac6900ed39a050e85"
+checksum = "70bd8527c25d8261f418a6538e8bd2262276eaa6c60c798c91a111e1e080d921"
 dependencies = [
  "bitflags",
  "byteorder",
