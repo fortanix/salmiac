@@ -90,13 +90,8 @@ async fn run0(
     conversion_request: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
 ) -> Result<NitroEnclavesConversionResponse> {
-    if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
-        return Err(ConverterError {
-            message: "Input and output images must be different".to_string(),
-            kind: ConverterErrorKind::BadRequest,
-        });
-    }
 
+    validate_request(conversion_request.clone())?;
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
     info!("Parent base image is {}", parent_image);
     info!("Retrieving requisite images!");
@@ -315,6 +310,31 @@ fn env_var_or_none(var_name: &str) -> Option<String> {
     }
 }
 
+fn validate_request(conversion_request: NitroEnclavesConversionRequest) -> Result<()> {
+    if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
+        return Err(ConverterError {
+            message: "Input and output images must be different".to_string(),
+            kind: ConverterErrorKind::BadRequest,
+        });
+    }
+
+    // Enable this check only in release builds. Salmiac CI runs debug builds at the moment and use
+    // API keys to obtain the overlayfs encryption key instead of configuring certificates. We do
+    // not have access to the CCM backend in CI testing yet, due to which there are no certificates
+    // based tests. When we do have such tests enabled in the future, this check can be removed.
+    if ! cfg!(debug_assertions) {
+        if conversion_request.request.converter_options.enable_overlay_filesystem_persistence.is_some() {
+            if conversion_request.request.converter_options.certificates.is_empty() {
+                return Err(ConverterError {
+                    message: "Certificates need to be configured while using filesystem persistence".to_string(),
+                    kind: ConverterErrorKind::BadRequest,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn preserve_images_list() -> Result<HashSet<ImageKind>> {
     let mut result: HashSet<ImageKind> = HashSet::new();
 
@@ -409,8 +429,9 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
 #[cfg(test)]
 mod tests {
     use std::env;
+    use api_model::{CertificateConfig, CertIssuer, ConversionRequest, ConversionRequestImageInfo, ConverterOptions, KeyType, NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions};
 
-    use crate::{preserve_images_list, ImageKind};
+    use crate::{preserve_images_list, ImageKind, validate_request};
 
     #[test]
     fn preserve_image_list_correct_pass() -> () {
@@ -445,5 +466,58 @@ mod tests {
 
             assert_eq!(left, right);
         }
+    }
+
+
+    #[test]
+    fn test_validate_request() {
+        let mut request = NitroEnclavesConversionRequest {
+            request: ConversionRequest {
+                input_image: ConversionRequestImageInfo { name: "input".to_string(), auth_config: None },
+                output_image: ConversionRequestImageInfo { name: "output".to_string(), auth_config: None },
+                converter_options: ConverterOptions {
+                    allow_cmdline_args: None,
+                    allow_docker_pull_failure: None,
+                    app: None,
+                    ca_certificates: vec![],
+                    certificates: vec![],
+                    debug: None,
+                    entry_point: vec![],
+                    entry_point_args: vec![],
+                    push_converted_image: None,
+                    env_vars: vec![],
+                    java_mode: None,
+                    enable_overlay_filesystem_persistence: None,
+                },
+            },
+            nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None },
+        };
+
+        // Test 1 - FS persistence enabled, cert is empty - expected to fail
+        if ! cfg!(debug_assertions) {
+            request.request.converter_options.enable_overlay_filesystem_persistence = Some(true);
+            let res = validate_request(request.clone());
+            assert_eq!(res.is_err(), true);
+        }
+
+        // Test 2 - FS persistence enabled, cert is configured - expected to succeed
+        let sample_cert = CertificateConfig {
+            issuer: CertIssuer::ManagerCa,
+            subject: None,
+            alt_names: vec![],
+            key_type: KeyType::Rsa,
+            key_param: None,
+            key_path: Some("/tmp/key.pem".to_string()),
+            cert_path: Some("/tmp/cert.pem".to_string()),
+            chain_path: None,
+        };
+
+        request.request.converter_options.certificates.push(sample_cert);
+        validate_request(request.clone()).unwrap();
+
+        // Test 3 - FS persistence is disabled - expected to succeed
+        request.request.converter_options.enable_overlay_filesystem_persistence = Some(false);
+        validate_request(request.clone()).unwrap();
+
     }
 }
