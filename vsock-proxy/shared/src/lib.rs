@@ -193,6 +193,13 @@ impl CommandOutputConfig {
             stderr: Some(Stdio::piped())
         }
     }
+
+    pub fn all_null() -> Self {
+        CommandOutputConfig{
+            stdout: Some(Stdio::null()),
+            stderr: Some(Stdio::null())
+        }
+    }
 }
 
 pub async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), String> {

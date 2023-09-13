@@ -1,4 +1,4 @@
-FROM 513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-parent-base:1.1.1 as nitro-cli
+FROM 513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-parent-base:1.1.3 as nitro-cli
 
 ARG PLATFORM
 ARG FLAVOR

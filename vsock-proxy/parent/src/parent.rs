@@ -15,10 +15,7 @@ use shared::models::{
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
-use shared::{
-    extract_enum_value, run_subprocess, with_background_tasks, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
-    VSOCK_PARENT_CID,
-};
+use shared::{extract_enum_value, run_subprocess, with_background_tasks, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID, CommandOutputConfig, run_subprocess_with_output_setup};
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
@@ -348,6 +345,23 @@ fn start_background_tasks(
     } else {
         info!("Dnsmasq service not required.");
     }
+
+    // Running tcpdump somehow solves the network hang when workflow is being requested by the enclave.
+    // The cause of that is currently unknown and will be investigated in: https://fortanix.atlassian.net/browse/SALM-477
+    // After investigation finishes this quick fix will be removed.
+    if env::var("IS_EKS").unwrap_or("".to_string()) == "true" {
+        info!("Started tcpdump to make work flow retrieval work on EKS.");
+        let tcpdump = tokio::spawn(async {
+            
+            // We set stdin/out to null for subprocess to not pollute the console with tcpdump logs
+            // and to prevent anyone from sniffing it's output
+            run_subprocess_with_output_setup("tcpdump", &[],CommandOutputConfig::all_null())
+                .await
+                .map(|_| ())
+        });
+        result.push(tcpdump);
+    }
+
 
     Ok(result)
 }
