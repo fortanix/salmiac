@@ -6,6 +6,7 @@
 # defaults.make so they can be included earlier than this file.
 
 DOCKER_REGISTRY := 513076507034.dkr.ecr.us-west-1.amazonaws.com
+ENCLAVE-KERNEL-TAR := amzn-linux-nbd-v1.tar
 
 # Definitions related to string management
 PY_STRING_TABLE := $(REPO_ROOT)/strings/generated_string_table.py
