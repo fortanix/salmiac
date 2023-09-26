@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::{env, fs};
 
-use api_model::AuthConfig;
+use api_model::converter::AuthConfig;
 use async_trait::async_trait;
 use docker_image_reference::{Reference as DockerReference, Reference};
 use futures::StreamExt;

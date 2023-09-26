@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use api_model::CertificateConfig;
+use api_model::converter::CertificateConfig;
 use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;

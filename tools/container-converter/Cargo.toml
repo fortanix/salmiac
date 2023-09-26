@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+api-model = { path = "../../api-model", features = ["serde"] }
 async-process = "1.2.0"
 async-trait = "0.1.51"
 env_logger = "0.7"
@@ -24,8 +25,6 @@ toml = "0.5.8"
 serde = { version = "1.0.127", features = ["derive"] }
 docker-image-reference = "0.1.0"
 serde_json = "1.0.68"
-api-model = { path = "../../container-converter-service/api-model", package = "nitro-enclaves-converter-api-model" }
-model_types = { path = "../../../model/model_types" }
 rand = "0.8.4"
 http = "0.2.8"
 

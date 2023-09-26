@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use api_model::NitroEnclavesConversionRequestOptions;
+use api_model::converter::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
 use tempfile::TempDir;

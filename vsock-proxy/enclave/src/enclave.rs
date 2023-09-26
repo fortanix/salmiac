@@ -2,8 +2,8 @@ use std::convert::From;
 use std::fs;
 use std::path::Path;
 
-use api_model::shared::EnclaveManifest;
-use api_model::CertificateConfig;
+use api_model::enclave::EnclaveManifest;
+use api_model::converter::CertificateConfig;
 use async_process::Command;
 use futures::stream::FuturesUnordered;
 use log::{debug, info, warn};

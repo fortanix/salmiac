@@ -1,5 +1,5 @@
-use api_model::shared::{EnclaveManifest, FileSystemConfig, UserConfig};
-use api_model::{ConverterOptions, CertificateConfig};
+use api_model::enclave::{EnclaveManifest, FileSystemConfig, UserConfig};
+use api_model::converter::{ConverterOptions, CertificateConfig};
 use docker_image_reference::Reference as DockerReference;
 use log::{info, debug, warn};
 use nix::unistd::chown;
@@ -759,9 +759,9 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::io::{Write, Seek};
     use crate::image_builder::enclave::EnclaveImageBuilder;
-    use api_model::shared::{UserConfig, UserProgramConfig, WorkingDir, User};
-    use api_model::{CertificateConfig, CertIssuer, KeyType};
+    use api_model::enclave::{UserConfig, UserProgramConfig, WorkingDir, User};
     use rand::RngCore;
+    use api_model::converter::{CertificateConfig, CertIssuer, KeyType};
 
     #[test]
     fn archive_size_add_zero_correct_pass() {

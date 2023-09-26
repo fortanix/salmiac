@@ -51,6 +51,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28ae2b3dec75a406790005a200b1bd89785afc02517a00ca99ecfe093ee9e6cf"
 
 [[package]]
+name = "api-model"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json 1.0.2",
+]
+
+[[package]]
 name = "async-channel"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -396,18 +405,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clustering-api-model"
-version = "0.1.0"
-dependencies = [
- "model-macros",
- "model_types",
- "serde",
- "serde_json 1.0.68",
- "uuid 1.1.1",
- "webservice-api-model",
-]
-
-[[package]]
 name = "cmake"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -444,12 +441,6 @@ name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
-name = "convert_case"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb4a24b1aaf0fd0ce8b45161144d6f42cd91677fd5940fd431183eb023b3a2b8"
 
 [[package]]
 name = "core-foundation"
@@ -650,6 +641,7 @@ dependencies = [
 name = "enclave"
 version = "0.1.0"
 dependencies = [
+ "api-model",
  "async-process",
  "base64 0.13.0",
  "clap",
@@ -662,7 +654,6 @@ dependencies = [
  "lazy_static 1.4.0",
  "log 0.4.14",
  "mbedtls",
- "nitro-enclaves-converter-api-model",
  "nix 0.15.0",
  "pkix",
  "rand 0.8.5",
@@ -970,6 +961,12 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "httparse"
@@ -1399,7 +1396,7 @@ dependencies = [
 name = "model-macro-types"
 version = "0.1.0"
 dependencies = [
- "convert_case 0.4.0",
+ "convert_case",
  "error-spanned",
  "macro-helpers",
  "proc-macro2",
@@ -1430,13 +1427,6 @@ dependencies = [
  "strum",
  "syn",
  "thiserror",
-]
-
-[[package]]
-name = "model_codegen"
-version = "0.1.0"
-dependencies = [
- "toml",
 ]
 
 [[package]]
@@ -1554,22 +1544,6 @@ dependencies = [
  "libc",
  "log 0.4.14",
  "tokio",
-]
-
-[[package]]
-name = "nitro-enclaves-converter-api-model"
-version = "0.1.0"
-dependencies = [
- "clustering-api-model",
- "diff",
- "model-macros",
- "model_codegen",
- "model_types",
- "serde",
- "serde_json 1.0.2",
- "uuid 1.1.1",
- "version-api-model",
- "webservice-api-model",
 ]
 
 [[package]]
@@ -2767,15 +2741,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "736b60249cb25337bc196faa43ee12c705e426f3d55c214d73a4e7be06f92cb4"
-dependencies = [
- "rustc-serialize",
-]
-
-[[package]]
 name = "traitobject"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2924,14 +2889,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
-name = "version-api-model"
-version = "0.1.0"
-dependencies = [
- "model_types",
- "serde",
-]
-
-[[package]]
 name = "version_check"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3039,16 +2996,6 @@ name = "wasm-bindgen-shared"
 version = "0.2.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
-
-[[package]]
-name = "webservice-api-model"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "convert_case 0.5.0",
- "serde",
- "uuid 1.1.1",
-]
 
 [[package]]
 name = "wepoll-ffi"

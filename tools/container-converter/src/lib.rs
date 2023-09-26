@@ -1,5 +1,6 @@
-use api_model::shared::{UserConfig, UserProgramConfig};
-use api_model::{
+use api_model::HexString;
+use api_model::enclave::{UserConfig, UserProgramConfig};
+use api_model::converter::{
     AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
     NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
 };
@@ -8,7 +9,6 @@ use docker_image_reference::Reference as DockerReference;
 use image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
 use image_builder::parent::ParentImageBuilder;
 use log::{debug, error, info, warn};
-use model_types::HexString;
 use shiplift::{Docker, Image};
 use shiplift::image::{DeleteOptions};
 use tempfile::TempDir;

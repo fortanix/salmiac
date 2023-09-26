@@ -2,7 +2,7 @@ use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
 use log::error;
 
-use api_model::NitroEnclavesConversionRequest;
+use api_model::converter::NitroEnclavesConversionRequest;
 
 use std::fs;
 

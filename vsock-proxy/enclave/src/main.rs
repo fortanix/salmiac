@@ -4,13 +4,14 @@ mod dsm_key_config;
 mod enclave;
 mod file_system;
 
-use std::path::Path;
-use std::process;
-
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{debug, error};
+
 use shared::models::UserProgramExitStatus;
 use shared::{parse_console_argument, NumArg};
+
+use std::path::Path;
+use std::process;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
