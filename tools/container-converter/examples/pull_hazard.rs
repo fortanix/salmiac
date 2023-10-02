@@ -1,3 +1,9 @@
+/* Copyright (c) Fortanix, Inc.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 // example/pull_hazard: demonstrate use of image_download_hazard_check
 //
 // This example exercises the check in images.rs for a potential system

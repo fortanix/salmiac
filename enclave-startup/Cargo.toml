@@ -1,7 +1,10 @@
 [package]
 name = "enclave-startup"
 version = "0.1.0"
-edition = "2021"
+authors = ["Fortanix, Inc."]
+edition = "2018"
+license = "MPL-2.0"
+repository = "https://github.com/fortanix/salmiac"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

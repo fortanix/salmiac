@@ -1,3 +1,9 @@
+/* Copyright (c) Fortanix, Inc.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 pub mod converter;
 pub mod enclave;
 
@@ -8,6 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use std::ops::Deref;
 use std::fmt;
+use std::convert::TryFrom;
 
 /// Contains raw bytes of a hex decoded string
 #[derive(Clone, Debug, Eq, PartialEq)]

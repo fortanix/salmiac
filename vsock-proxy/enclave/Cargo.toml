@@ -1,8 +1,10 @@
 [package]
 name = "enclave"
 version = "0.1.0"
-authors = ["NikitaShyrei <nikita.shyrei@fortanix.com>"]
+authors = ["Fortanix, Inc."]
 edition = "2018"
+license = "MPL-2.0"
+repository = "https://github.com/fortanix/salmiac"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -35,9 +37,9 @@ url = "2.3.1"
 uuid = "0.7.4"
 
 [build-dependencies]
+mbedtls = { version = "0.8.4", features = [ "rdrand", "std" ], default-features = false }
 pkix = "0.1.2"
 serde_cbor = "0.11.2"
-mbedtls = { version = "0.8.4", features = [ "rdrand", "std" ], default-features = false }
 
 [dev-dependencies]
 lazy_static = "1.0"
