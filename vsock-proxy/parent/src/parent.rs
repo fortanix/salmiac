@@ -84,7 +84,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     info!("Awaiting confirmation from enclave.");
     let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;
 
-    info!("Connected to enclave. Fetching console logs.");
+    info!("Connected to enclave.");
     let console_process = tokio::spawn(enables_console_logs());
 
     // Add enclave processes to a separate list of futures. They will be cleaned up
@@ -289,12 +289,17 @@ async fn run_dnsmasq() -> Result<(), String> {
 }
 
 async fn enables_console_logs() -> Result<(), String> {
-    run_subprocess(
-        "nitro-cli",
-        &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"],
-    )
-    .await
+    if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
+        info!("ENCLAVEOS_DEBUG set, fetching enclave console logs.");
+        run_subprocess(
+            "nitro-cli",
+            &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"],
+        )
+            .await?;
+    }
+    Ok(())
 }
+
 
 async fn start_nitro_enclave() -> Result<(), String> {
     let cpu_count = env::var("CPU_COUNT").unwrap_or(DEFAULT_CPU_COUNT.to_string());
