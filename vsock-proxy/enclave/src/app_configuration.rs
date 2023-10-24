@@ -42,12 +42,15 @@ const CREDENTIALS_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
 
-pub(crate) fn setup_application_configuration(
+pub(crate) fn setup_application_configuration<T>(
     em_app_credentials: &EmAppCredentials,
     ccm_backend_url: &CCMBackendUrl,
-    api: Box<dyn ApplicationConfiguration>,
+    api: T,
     fs_root: &Path,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    T: ApplicationConfiguration,
+{
     info!("Requesting application configuration.");
 
     let app_config = api
@@ -56,7 +59,7 @@ pub(crate) fn setup_application_configuration(
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
 
-    setup_datasets(&app_config.extra, em_app_credentials, &api.dataset_api(), fs_root)?;
+    setup_datasets(&app_config.extra, em_app_credentials, api.dataset_api(), fs_root)?;
 
     setup_app_configs(&app_config.config.app_config, fs_root)
 }
@@ -73,12 +76,15 @@ fn write_runtime_configuration_to_file(app_config: &RuntimeAppConfig, fs_root: &
     Ok(())
 }
 
-fn setup_datasets(
+fn setup_datasets<T>(
     config: &ApplicationConfigExtra,
     credentials: &EmAppCredentials,
-    api: &Box<dyn SdkmsDataset>,
+    api: &T,
     fs_root: &Path,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    T: SdkmsDataset,
+{
     info!("Requesting application data sets.");
 
     let connections_map = config
@@ -116,8 +122,8 @@ fn setup_datasets(
 
 fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>, fs_root: &Path) -> Result<(), String> {
     for (file, contents_opt) in config_map {
-        let file_path =
-            normalize_path_and_make_relative(&file).map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
+        let file_path = normalize_path_and_make_relative(&file)
+            .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
 
         if !file_path.starts_with(APPLICATION_CONFIG_DIR) {
             return Err(format!(
@@ -249,37 +255,45 @@ fn normalize_path_and_make_relative(raw_path: &str) -> Result<PathBuf, String> {
 }
 
 pub(crate) trait ApplicationConfiguration {
-    fn runtime_config_api(&self) -> &Box<dyn RuntimeConfiguration>;
+    type R: RuntimeConfiguration;
 
-    fn dataset_api(&self) -> &Box<dyn SdkmsDataset>;
+    type S: SdkmsDataset;
+
+    fn runtime_config_api(&self) -> &Self::R;
+
+    fn dataset_api(&self) -> &Self::S;
 }
 
 pub(crate) struct EmAppApplicationConfiguration {
-    pub runtime_config_api: Box<dyn RuntimeConfiguration>,
+    pub runtime_config_api: EmAppRuntimeConfiguration,
 
-    pub dataset_api: Box<dyn SdkmsDataset>,
+    pub dataset_api: EmAppSdkmsDataset,
 }
 
 impl EmAppApplicationConfiguration {
     pub(crate) fn new() -> Self {
         EmAppApplicationConfiguration {
-            runtime_config_api: Box::new(EmAppRuntimeConfiguration {}),
-            dataset_api: Box::new(EmAppSdkmsDataset {}),
+            runtime_config_api: EmAppRuntimeConfiguration {},
+            dataset_api: EmAppSdkmsDataset {},
         }
     }
 }
 
 impl ApplicationConfiguration for EmAppApplicationConfiguration {
-    fn runtime_config_api(&self) -> &Box<dyn RuntimeConfiguration> {
+    type R = EmAppRuntimeConfiguration;
+
+    type S = EmAppSdkmsDataset;
+
+    fn runtime_config_api(&self) -> &EmAppRuntimeConfiguration {
         &self.runtime_config_api
     }
 
-    fn dataset_api(&self) -> &Box<dyn SdkmsDataset> {
+    fn dataset_api(&self) -> &EmAppSdkmsDataset {
         &self.dataset_api
     }
 }
 
-struct EmAppRuntimeConfiguration {}
+pub(crate) struct EmAppRuntimeConfiguration {}
 
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
     fn get_runtime_configuration(
@@ -306,7 +320,7 @@ pub(crate) trait RuntimeConfiguration {
     ) -> Result<RuntimeAppConfig, String>;
 }
 
-struct EmAppSdkmsDataset {}
+pub(crate) struct EmAppSdkmsDataset {}
 
 impl SdkmsDataset for EmAppSdkmsDataset {
     fn get_dataset(
@@ -643,9 +657,9 @@ mod tests {
     fn setup_datasets_should_fail_when_no_connections_are_present() {
         let config = ApplicationConfigExtra { connections: None };
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+        let api = MockDataSet {
             json_data: VALID_APP_CONF,
-        });
+        };
 
         let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
         assert!(
@@ -659,15 +673,14 @@ mod tests {
         let config = MockDataSet::application_config_extra();
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+        let api = MockDataSet {
             json_data: VALID_APP_CONF,
-        });
+        };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("datasets");
         let test_folder = TempDir(&test_folder_path);
         let files = DataSetFiles::new("test_location", "test_port", test_folder.0.clone());
         let _temp_dataset_dir = TempDir(&files.dataset_dir);
-
 
         let result = setup_datasets(&config, &credentials, &api, &test_folder.0);
         assert!(result.is_ok(), "{:?}", result);
@@ -702,9 +715,9 @@ mod tests {
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn SdkmsDataset> = Box::new(MockDataSet {
+        let api = MockDataSet {
             json_data: VALID_APP_CONF,
-        });
+        };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-location");
         let test_folder = TempDir(&test_folder_path);
@@ -746,8 +759,12 @@ mod tests {
 
         setup_app_configs(&runtime_config.config.app_config, &test_folder.0).expect("Failed setting up runtime app config");
 
-        let result = fs::read_to_string(&test_folder.0.join("opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt"))
-            .expect("Failed reading app config file");
+        let result = fs::read_to_string(
+            &test_folder
+                .0
+                .join("opt/fortanix/enclave-os/app-config/rw/folder/app_conf.txt"),
+        )
+        .expect("Failed reading app config file");
 
         assert_eq!(result, "Dead Beef")
     }
@@ -763,11 +780,23 @@ mod tests {
 
     #[test]
     fn normalize_path_correct_pass() {
-        assert_eq!(Path::new("❤/✈/☆"), normalize_path_and_make_relative("/❤/✈/☆").unwrap().as_path());
-        assert_eq!(Path::new("air/✈/plane"), normalize_path_and_make_relative("/air/✈/plane").unwrap().as_path());
+        assert_eq!(
+            Path::new("❤/✈/☆"),
+            normalize_path_and_make_relative("/❤/✈/☆").unwrap().as_path()
+        );
+        assert_eq!(
+            Path::new("air/✈/plane"),
+            normalize_path_and_make_relative("/air/✈/plane").unwrap().as_path()
+        );
 
-        assert_eq!(Path::new("a/b"), normalize_path_and_make_relative("/a////b").unwrap().as_path());
-        assert_eq!(Path::new("a/b"), normalize_path_and_make_relative("/a/./././b").unwrap().as_path());
+        assert_eq!(
+            Path::new("a/b"),
+            normalize_path_and_make_relative("/a////b").unwrap().as_path()
+        );
+        assert_eq!(
+            Path::new("a/b"),
+            normalize_path_and_make_relative("/a/./././b").unwrap().as_path()
+        );
         assert_eq!(Path::new("..."), normalize_path_and_make_relative("/...").unwrap().as_path());
         assert_eq!(Path::new("a."), normalize_path_and_make_relative("/a.").unwrap().as_path());
         assert_eq!(Path::new("a.."), normalize_path_and_make_relative("/a..").unwrap().as_path());

@@ -24,7 +24,7 @@ use sdkms::api_model::{
 use sdkms::SdkmsClient;
 use url;
 
-use crate::certificate::{CertificateResult};
+use crate::certificate::CertificateResult;
 use crate::file_system::find_env_or_err;
 
 const GCM_TAG_LEN_BITS: usize = 128;
@@ -39,10 +39,7 @@ struct ClientWithKey {
     dsm_client: SdkmsClient,
 }
 
-fn dsm_create_client(
-    env_vars: &[(String, String)],
-    auth_cert: Option<&mut CertificateResult>,
-) -> Result<SdkmsClient, String> {
+fn dsm_create_client(env_vars: &[(String, String)], auth_cert: Option<&mut CertificateResult>) -> Result<SdkmsClient, String> {
     info!("Looking for env variables needed to create DSM client.");
     let api_key = find_env_or_err("FS_API_KEY", env_vars).unwrap_or("".to_string());
 
@@ -96,10 +93,12 @@ fn dsm_create_hyper_client_with_cert(host: String, auth_cert: &mut CertificateRe
         Arc::new(app_cert)
     };
 
-    let der_key = auth_cert.key.write_private_der_vec()
+    let der_key = auth_cert
+        .key
+        .write_private_der_vec()
         .map_err(|e| format!("Failed writing certificate key as der format. {:?}", e))?;
-    let pk_key = Pk::from_private_key(&*der_key, None)
-        .map_err(|e| format!("Failed creating private key from der format. {:?}", e))?;
+    let pk_key =
+        Pk::from_private_key(&*der_key, None).map_err(|e| format!("Failed creating private key from der format. {:?}", e))?;
     let key = Arc::new(pk_key);
 
     config
@@ -254,7 +253,7 @@ mod tests {
     use mbedtls::pk::Pk;
     use sdkms::api_model::Blob;
 
-    use crate::certificate::{CertificateResult};
+    use crate::certificate::CertificateResult;
     use crate::dsm_key_config::{
         dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key,
         OVERLAY_FS_SECURITY_OBJECT_PREFIX,

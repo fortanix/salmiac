@@ -4,12 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::io;
+use std::io::Error;
+use std::pin::Pin;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::task::{Context, Poll};
+
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-
-use std::io;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 /// Stream abstraction for length-value framing
 #[async_trait]
@@ -92,6 +97,67 @@ impl ErrorString for io::Error {
             _ => {
                 format!("{}", self)
             }
+        }
+    }
+}
+
+/// A type that mimics the behavior of a real async socket using a two-way channel
+/// This type is intended to be used only for unit testing when a real socket is expected
+pub struct InMemorySocket {
+    sender: Sender<Vec<u8>>,
+
+    receiver: Receiver<Vec<u8>>,
+}
+
+impl InMemorySocket {
+    /// Create a socket pair which are connected to each other via two channels
+    pub fn socket_pair() -> (InMemorySocket, InMemorySocket) {
+        let (to_parent, from_enclave) = mpsc::channel();
+        let (to_enclave, from_parent) = mpsc::channel();
+
+        let enclave_socket = InMemorySocket {
+            sender: to_parent,
+            receiver: from_parent,
+        };
+
+        let parent_socket = InMemorySocket {
+            sender: to_enclave,
+            receiver: from_enclave,
+        };
+
+        (enclave_socket, parent_socket)
+    }
+}
+
+impl AsyncWrite for InMemorySocket {
+    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
+        match self.sender.send(buf.to_vec()).map(|_| buf.len() as usize) {
+            Ok(result) => Poll::Ready(Ok(result)),
+            // Returning 0 means that accepting channel doesn't accept any more data
+            // We do this to gracefully exit from a write function even if the accepting channel is closed
+            Err(_) => Poll::Ready(Ok(0)),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncRead for InMemorySocket {
+    fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        match self.receiver.recv() {
+            Ok(result) => {
+                buf.put_slice(&result);
+                Poll::Ready(Ok(()))
+            }
+            // Not change the buffer means that accepting channel doesn't accept any more data
+            // We do this to gracefully exit from a read function even if the accepting channel is closed
+            Err(_) => Poll::Ready(Ok(())),
         }
     }
 }

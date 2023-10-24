@@ -4,23 +4,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::HashSet;
+use std::sync::mpsc;
+use std::sync::mpsc::TryRecvError;
+use std::thread;
+
 use futures::stream::Fuse;
 use futures::StreamExt;
 use log::{info, warn};
 use pcap::{Active, Capture, Device};
 use pcap_async::{Config, Handle};
+use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
 use tokio_vsock::VsockStream as AsyncVsockStream;
 
 use crate::network::{recompute_packet_checksum, ChecksumComputationError};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-
-use std::collections::HashSet;
-use std::sync::mpsc;
-use std::sync::mpsc::TryRecvError;
-use std::thread;
 
 pub(crate) struct PcapLoopsResult {
     pub(crate) pcap_to_vsock: JoinHandle<Result<(), String>>,

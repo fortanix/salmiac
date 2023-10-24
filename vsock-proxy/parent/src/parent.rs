@@ -15,13 +15,16 @@ use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
+use parent_lib::{communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS};
 use shared::models::{
-    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, NBDConfiguration, NBDExport, SetupMessages,
-    UserProgramExitStatus,
+    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus,
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
-use shared::{extract_enum_value, run_subprocess, with_background_tasks, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID, CommandOutputConfig, run_subprocess_with_output_setup};
+use shared::{
+    extract_enum_value, run_subprocess, run_subprocess_with_output_setup, with_background_tasks, CommandOutputConfig,
+    DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
+};
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
@@ -48,20 +51,6 @@ const RW_BLOCK_FILE_OUT: &'static str = "Blockfile-rw.ext4";
 const MIN_RW_BLOCKFILE_SIZE: usize = 64 * 1024 * 1024;
 
 const VSOCK_PARENT_PORT: u32 = 5006;
-const NBD_EXPORTS: &'static [NBDExportConfig] = &[
-    NBDExportConfig {
-        name: "enclave-fs",
-        block_file_path: "/opt/fortanix/enclave-os/Blockfile.ext4",
-        port: 7777,
-        is_read_only: true,
-    },
-    NBDExportConfig {
-        name: "enclave-rw-fs",
-        block_file_path: "/opt/fortanix/enclave-os/overlayfs/Blockfile-rw.ext4",
-        port: 7778,
-        is_read_only: false,
-    },
-];
 
 const DEFAULT_CPU_COUNT: u8 = 2;
 
@@ -104,8 +93,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     let mut background_tasks = start_background_tasks(setup_result)?;
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-        send_nbd_configuration(&mut enclave_port, tap_l3_address).await?;
-        log_encrypted_space_available(&mut enclave_port).await?;
+        setup_file_system(&mut enclave_port, tap_l3_address).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -177,33 +165,6 @@ async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, ar
     enclave_port
         .write_lv(&SetupMessages::ExtraUserProgramArguments(arguments))
         .await
-}
-
-async fn send_nbd_configuration(enclave_port: &mut AsyncVsockStream, tap_l3_address: IpAddr) -> Result<(), String> {
-    let exports = NBD_EXPORTS
-        .iter()
-        .map(|e| NBDExport {
-            name: e.name.to_string(),
-            port: e.port,
-        })
-        .collect();
-
-    let configuration = NBDConfiguration {
-        address: tap_l3_address,
-        exports,
-    };
-
-    enclave_port.write_lv(&SetupMessages::NBDConfiguration(configuration)).await
-}
-
-struct NBDExportConfig {
-    pub name: &'static str,
-
-    pub block_file_path: &'static str,
-
-    pub port: u16,
-
-    pub is_read_only: bool,
 }
 
 fn write_nbd_config(l3_address: IpAddr, exports: &[NBDExportConfig]) -> Result<(), String> {
@@ -295,11 +256,10 @@ async fn enables_console_logs() -> Result<(), String> {
             "nitro-cli",
             &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"],
         )
-            .await?;
+        .await?;
     }
     Ok(())
 }
-
 
 async fn start_nitro_enclave() -> Result<(), String> {
     let cpu_count = env::var("CPU_COUNT").unwrap_or(DEFAULT_CPU_COUNT.to_string());
@@ -363,16 +323,14 @@ fn start_background_tasks(
     if env::var("IS_EKS").unwrap_or("".to_string()) == "true" {
         info!("Started tcpdump to make work flow retrieval work on EKS.");
         let tcpdump = tokio::spawn(async {
-            
             // We set stdin/out to null for subprocess to not pollute the console with tcpdump logs
             // and to prevent anyone from sniffing it's output
-            run_subprocess_with_output_setup("tcpdump", &[],CommandOutputConfig::all_null())
+            run_subprocess_with_output_setup("tcpdump", &[], CommandOutputConfig::all_null())
                 .await
                 .map(|_| ())
         });
         result.push(tcpdump);
     }
-
 
     Ok(result)
 }
@@ -414,19 +372,13 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
         set_up_private_tap_devices(vsock, parent_address, PRIVATE_TAP_NAME, enclave_address, PRIVATE_TAP_NAME).await?
     };
 
-    communicate_certificates(vsock).await?;
+    communicate_certificates(vsock, EmAppCertificateApi {}).await?;
 
     Ok(ParentSetupResult {
         network_devices: paired_network_devices,
         private_tap,
         start_dnsmasq,
     })
-}
-
-async fn log_encrypted_space_available(vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    let encrypted_space_size = extract_enum_value!(vsock.read_lv().await?, SetupMessages::EncryptedSpaceAvailable(s) => s)?;
-    info!("Encrypted space available = {}B", encrypted_space_size);
-    Ok(())
 }
 
 /// Customize the resolv.conf before we send it to the enclave. In certain Docker network configurations,
@@ -537,45 +489,12 @@ async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<(UserP
     result.map(|e| (e, vsock))
 }
 
-async fn communicate_certificates(vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    // Don't bother looking for a node agent address unless there's at least one
-    // certificate configured. This allows us to run with the NODE_AGENT
-    // environment variable being unset, if there are no configured certificates.
-    let mut node_agent_address: Option<String> = None;
-
-    // Process certificate requests until we get the SetupSuccessful message
-    // indicating that the enclave is done with setup. There can be any number
-    // of certificate requests, including 0.
-    loop {
-        let msg: SetupMessages = vsock.read_lv().await?;
-
-        match msg {
-            SetupMessages::NoMoreCertificates => return Ok(()),
-            SetupMessages::CSR(csr) => {
-                let addr = match node_agent_address {
-                    Some(ref addr) => addr.clone(),
-                    None => {
-                        let result = env::var("NODE_AGENT")
-                            .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
-
-                        let addr = if !result.starts_with("http://") {
-                           "http://".to_string() + &result
-                        } else {
-                            result
-                        };
-                        node_agent_address = Some(addr.clone());
-                        addr
-                    },
-                };
-                let certificate = em_app::request_issue_certificate(&addr, csr)
-                    .map_err(|err| format!("Failed to receive certificate {:?}", err))
-                    .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))?;
-
-                vsock.write_lv(&SetupMessages::Certificate(certificate)).await?;
-            },
-            other => return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
-                                        other)),
-        };
+struct EmAppCertificateApi {}
+impl CertificateApi for EmAppCertificateApi {
+    fn request_issue_certificate(&self, url: &str, csr_pem: String) -> Result<String, String> {
+        em_app::request_issue_certificate(url, csr_pem)
+            .map_err(|err| format!("Failed to receive certificate {:?}", err))
+            .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))
     }
 }
 

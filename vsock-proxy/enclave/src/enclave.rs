@@ -8,28 +8,35 @@ use std::convert::From;
 use std::fs;
 use std::path::Path;
 
-use api_model::enclave::EnclaveManifest;
 use api_model::converter::CertificateConfig;
+use api_model::enclave::EnclaveManifest;
 use async_process::Command;
+use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
-use shared::models::{ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, SetupMessages, UserProgramExitStatus};
+use shared::models::{
+    ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
+    UserProgramExitStatus,
+};
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{extract_enum_value, with_background_tasks, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{request_certificate, write_certificate, CertificateResult, CertificateWithPath};
+use crate::certificate::{
+    create_signer_key, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi,
+};
 use crate::file_system::{
-    check_available_encrypted_space, close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount,
-    copy_startup_binary_to_mount, create_overlay_dirs, fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs,
+    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
+    fetch_fs_mount_options, get_available_encrypted_space, mount_file_system_nodes, mount_overlay_fs,
     mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
@@ -62,19 +69,19 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let result = with_background_tasks!(background_tasks, {
         let mut certificate_info = setup_enclave_certification(
             &mut parent_port,
+            EmAppCSRApi {},
             &setup_result.app_config.id,
             &setup_result.enclave_manifest.user_config.certificate_config,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
         )
         .await?;
 
-        setup_file_system(
-            &setup_result.enclave_manifest,
-            &mut parent_port,
-            &setup_result.env_vars,
-            certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
-        )
-        .await?;
+        let fs_setup_config = FileSystemSetupConfig {
+            enclave_manifest: &setup_result.enclave_manifest,
+            env_vars: &setup_result.env_vars,
+            cert_list: certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
+        };
+        setup_file_system(&mut parent_port, FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
         for certificate in &mut certificate_info {
             write_certificate(certificate)?;
@@ -183,7 +190,7 @@ fn setup_app_configuration(
     certificate_info: Option<CertificateResult>,
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
-        let api = Box::new(EmAppApplicationConfiguration::new());
+        let api = EmAppApplicationConfiguration::new();
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
 
         info!("Setting up application configuration.");
@@ -199,19 +206,79 @@ fn setup_app_configuration(
     }
 }
 
-async fn setup_file_system(
-    enclave_manifest: &EnclaveManifest,
-    parent_port: &mut AsyncVsockStream,
-    env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateResult>,
+pub(crate) async fn setup_file_system<'a, Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: FileSystemSetupApi<'a>>(
+    parent_socket: &mut Socket,
+    api: Api,
+    setup_config: FileSystemSetupConfig<'a>,
 ) -> Result<(), String> {
     info!("Awaiting NBD config");
-    let nbd_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
+    let nbd_config = extract_enum_value!(parent_socket.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
-    setup_file_system0(&nbd_config, &enclave_manifest, env_vars, cert_list).await?;
+    let space = api.setup(nbd_config, setup_config).await?;
 
-    check_available_encrypted_space(parent_port).await?;
+    parent_socket.write_lv(&SetupMessages::EncryptedSpaceAvailable(space)).await?;
+
     Ok(())
+}
+
+pub struct FileSystemSetupConfig<'a> {
+    pub enclave_manifest: &'a EnclaveManifest,
+
+    pub env_vars: &'a [(String, String)],
+
+    pub cert_list: Option<&'a mut CertificateResult>,
+}
+
+#[async_trait]
+pub trait FileSystemSetupApi<'a> {
+    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<usize, String>;
+}
+
+struct FileSystemSetupApiImpl {}
+#[async_trait]
+impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
+    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<usize, String> {
+        let enclave_manifest = arg.enclave_manifest;
+        let env_vars = arg.env_vars;
+        let cert_list = arg.cert_list;
+
+        for export in &nbd_config.exports {
+            run_nbd_client(nbd_config.address, export.port, &export.name).await?;
+
+            info!("Export {} is connected to NBD", export.name);
+        }
+        info!("All block files are connected and ready.");
+
+        let verity_config = DMVerityConfig::new(
+            enclave_manifest.file_system_config.hash_offset,
+            enclave_manifest.file_system_config.root_hash.to_string(),
+        );
+
+        setup_dm_verity(&verity_config).await?;
+        info!("Finished setup dm-verity.");
+
+        create_overlay_dirs()?;
+        info!("Created directories needed for overlay fs mount.");
+
+        mount_read_only_file_system().await?;
+        info!("Finished read only file system mount.");
+
+        mount_read_write_file_system(env_vars, cert_list, enclave_manifest.enable_overlay_filesystem_persistence).await?;
+        info!("Finished read/write file system mount.");
+
+        mount_overlay_fs().await?;
+        info!("Mounted enclave root with overlay-fs.");
+
+        let fs_mount_opts = fetch_fs_mount_options()?;
+        mount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
+
+        copy_dns_file_to_mount()?;
+        copy_startup_binary_to_mount(STARTUP_BINARY)?;
+
+        info!("Finished file system mount.");
+
+        get_available_encrypted_space().await
+    }
 }
 
 async fn cleanup() -> Result<(), String> {
@@ -260,50 +327,6 @@ async fn start_and_await_user_program_return(
     user_program
         .await
         .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
-}
-
-async fn setup_file_system0(
-    nbd_config: &NBDConfiguration,
-    enclave_manifest: &EnclaveManifest,
-    env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateResult>,
-) -> Result<(), String> {
-    for export in &nbd_config.exports {
-        run_nbd_client(nbd_config.address, export.port, &export.name).await?;
-
-        info!("Export {} is connected to NBD", export.name);
-    }
-    info!("All block files are connected and ready.");
-
-    let verity_config = DMVerityConfig::new(
-        enclave_manifest.file_system_config.hash_offset,
-        enclave_manifest.file_system_config.root_hash.to_string(),
-    );
-
-    setup_dm_verity(&verity_config).await?;
-    info!("Finished setup dm-verity.");
-
-    create_overlay_dirs()?;
-    info!("Created directories needed for overlay fs mount.");
-
-    mount_read_only_file_system().await?;
-    info!("Finished read only file system mount.");
-
-    mount_read_write_file_system(env_vars, cert_list, enclave_manifest.enable_overlay_filesystem_persistence).await?;
-    info!("Finished read/write file system mount.");
-
-    mount_overlay_fs().await?;
-    info!("Mounted enclave root with overlay-fs.");
-
-    let fs_mount_opts = fetch_fs_mount_options()?;
-    mount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
-
-    copy_dns_file_to_mount()?;
-    copy_startup_binary_to_mount(STARTUP_BINARY)?;
-
-    info!("Finished file system mount.");
-
-    Ok(())
 }
 
 async fn start_user_program(
@@ -369,15 +392,19 @@ async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<EnclaveNetwor
     let mut result = setup_enclave_networking(vsock).await?;
     info!("Finished networking setup.");
 
-    let file_system_tap = setup_file_system_tap_device(vsock).await?;
+    let file_system_tap = {
+        let configuration = extract_enum_value!(vsock.read_lv().await?, SetupMessages::PrivateNetworkDeviceSettings(e) => e)?;
+
+        setup_file_system_tap_device(configuration).await?
+    };
+
     result.tap_devices.push(file_system_tap);
     info!("Finished file system tap device setup.");
 
     Ok(result)
 }
 
-async fn setup_file_system_tap_device(vsock: &mut AsyncVsockStream) -> Result<TapDeviceInfo, String> {
-    let configuration = extract_enum_value!(vsock.read_lv().await?, SetupMessages::PrivateNetworkDeviceSettings(e) => e)?;
+async fn setup_file_system_tap_device(configuration: PrivateNetworkDeviceSettings) -> Result<TapDeviceInfo, String> {
     let tap = create_async_tap_device(&tap_device_config(
         &configuration.l3_address,
         &configuration.name,
@@ -471,7 +498,7 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
         .set_link_for_device(tap_index, &parent_settings.self_l2_address)
         .await?;
 
-    // It is required that we add routes first and than the gateway
+    // It is required that we add routes first and then the gateway
     // Kernel allows us to add the gateway only if there is a reachable route for
     // gateway's address in the routing table. Without said route(s) the kernel
     // will return NETWORK_UNREACHABLE status code for our add_gateway function.
@@ -505,8 +532,9 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     Ok(tap_device)
 }
 
-async fn setup_enclave_certification(
-    vsock: &mut AsyncVsockStream,
+pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+    vsock: &mut Socket,
+    csr_api: Api,
     app_config_id: &Option<String>,
     cert_settings: &Vec<CertificateConfig>,
     fs_root: &Path,
@@ -515,9 +543,15 @@ async fn setup_enclave_certification(
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        let certificate_result = request_certificate(vsock, cert_config, app_config_id).await?;
+        let mut key = create_signer_key()?;
+        let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+        let certificate = request_certificate(vsock, csr).await?;
 
-        result.push(CertificateWithPath::new(certificate_result, cert_config, fs_root));
+        result.push(CertificateWithPath::new(
+            CertificateResult { certificate, key },
+            cert_config,
+            fs_root,
+        ));
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
@@ -545,4 +579,73 @@ fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {
 
 pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
     fs::write(path, data).map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use api_model::enclave::{EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir};
+    use async_trait::async_trait;
+    use shared::models::NBDConfiguration;
+    use shared::socket::InMemorySocket;
+    use tokio::runtime::Runtime;
+
+    use crate::enclave::{FileSystemSetupApi, FileSystemSetupConfig};
+
+    struct MockFileSystemApi {}
+    #[async_trait]
+    impl<'a> FileSystemSetupApi<'a> for MockFileSystemApi {
+        async fn setup(&self, _nbd_config: NBDConfiguration, _arg: FileSystemSetupConfig<'a>) -> Result<usize, String> {
+            Ok(777)
+        }
+    }
+
+    async fn parent(mut parent_socket: InMemorySocket) -> Result<(), String> {
+        parent_lib::setup_file_system(&mut parent_socket, IpAddr::V4(Ipv4Addr::LOCALHOST)).await
+    }
+
+    async fn enclave(mut enclave_socket: InMemorySocket) -> Result<(), String> {
+        let setup_config = FileSystemSetupConfig {
+            enclave_manifest: &EnclaveManifest {
+                user_config: UserConfig {
+                    user_program_config: UserProgramConfig {
+                        entry_point: "".to_string(),
+                        arguments: vec![],
+                        working_dir: WorkingDir::from(""),
+                        user: User::from(""),
+                        group: User::from(""),
+                    },
+                    certificate_config: vec![],
+                },
+                file_system_config: FileSystemConfig {
+                    root_hash: "".to_string(),
+                    hash_offset: 0,
+                },
+                is_debug: false,
+                env_vars: vec![],
+                enable_overlay_filesystem_persistence: false,
+            },
+            env_vars: &[],
+            cert_list: None,
+        };
+
+        crate::enclave::setup_file_system(&mut enclave_socket, MockFileSystemApi {}, setup_config).await
+    }
+
+    #[test]
+    fn setup_enclave_file_system_correct_pass() {
+        let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
+        let rt = Runtime::new().expect("Tokio runtime OK");
+
+        rt.block_on(async move {
+            let a = tokio::spawn(parent(parent_socket));
+            let b = tokio::spawn(enclave(enclave_socket));
+
+            let (a_result, b_result) = tokio::join!(a, b);
+
+            assert!(a_result.is_ok());
+            assert!(b_result.is_ok());
+        });
+    }
 }

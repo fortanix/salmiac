@@ -11,6 +11,7 @@ repository = "https://github.com/fortanix/salmiac"
 [dependencies]
 api-model = { path = "../../api-model", features = ["serde"] }
 async-process = "1.2.0"
+async-trait = "0.1.51"
 base64 = "0.13.0"
 clap = "2.33"
 em-app = { git = "https://github.com/fortanix/rust-sgx.git"}
@@ -43,3 +44,4 @@ serde_cbor = "0.11.2"
 
 [dev-dependencies]
 lazy_static = "1.0"
+parent_lib = { path = "../parent/lib" }

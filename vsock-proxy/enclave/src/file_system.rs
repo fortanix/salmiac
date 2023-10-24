@@ -344,16 +344,12 @@ pub(crate) async fn mount_read_write_file_system(
     Ok(())
 }
 
-use shared::models::SetupMessages;
-use shared::socket::AsyncWriteLvStream;
-use tokio_vsock::VsockStream as AsyncVsockStream;
-
-pub(crate) async fn check_available_encrypted_space(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
+pub(crate) async fn get_available_encrypted_space() -> Result<usize, String> {
     use sysinfo::{DiskExt, System, SystemExt};
 
-    let mut s = System::new();
-    s.refresh_disks_list();
-    for disk in s.disks() {
+    let mut system = System::new();
+    system.refresh_disks_list();
+    for disk in system.disks() {
         info!(
             "{:?} total space = {}B free space = {}B",
             disk.name(),
@@ -361,12 +357,10 @@ pub(crate) async fn check_available_encrypted_space(parent_port: &mut AsyncVsock
             disk.available_space()
         );
         if disk.name() == Path::new("/dev/mapper/").join(DM_CRYPT_DEVICE) {
-            parent_port
-                .write_lv(&SetupMessages::EncryptedSpaceAvailable(disk.available_space() as usize))
-                .await?;
+            return Ok(disk.available_space() as usize);
         }
     }
-    Ok(())
+    Ok(0)
 }
 
 pub(crate) async fn mount_overlay_fs() -> Result<(), String> {

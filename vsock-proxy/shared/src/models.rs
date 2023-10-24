@@ -4,13 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::net::IpAddr;
+
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
-
-use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {

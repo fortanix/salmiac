@@ -14,14 +14,14 @@ use etherparse::TransportSlice::{Tcp, Udp, Unknown};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use log::warn;
 use nix::net::if_::if_nametoindex;
-use pcap::{Device, Address};
+use pcap::{Address, Device};
 use rtnetlink::packet::NUD_PERMANENT;
-use shared::models::{PrivateNetworkDeviceSettings, NetworkDeviceSettings, SetupMessages};
+use shared::models::{NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::{ARPEntry, NetlinkARP};
 use shared::netlink::route::{Gateway, NetlinkRoute, Route};
 use shared::netlink::{LinkMessageExt, Netlink, NetlinkCommon};
 use shared::socket::AsyncWriteLvStream;
-use shared::tap::{create_async_tap_device, PRIVATE_TAP_MTU, tap_device_config};
+use shared::tap::{create_async_tap_device, tap_device_config, PRIVATE_TAP_MTU};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::AsyncDevice;
 
@@ -38,7 +38,6 @@ const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 
 // Prefix size that allows only 2 addresses in a network
 const FS_TAP_NETWORK_PREFIX_SIZE: u8 = 30;
-
 
 pub(crate) struct PairedPcapDevice {
     pub(crate) pcap: Device,
@@ -104,7 +103,10 @@ pub(crate) async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDe
 }
 
 async fn get_network_settings_for_device<D, N>(device: &D, netlink: &N) -> Result<NetworkDeviceSettings, String>
-where D: NetworkDevice, N: NetlinkCommon + NetlinkARP + NetlinkRoute {
+where
+    D: NetworkDevice,
+    N: NetlinkCommon + NetlinkARP + NetlinkRoute,
+{
     let device_name = device.name();
     let device_index = device.index()?;
 
@@ -151,7 +153,10 @@ where D: NetworkDevice, N: NetlinkCommon + NetlinkARP + NetlinkRoute {
     Ok(result)
 }
 
-async fn get_static_arp_entries<N>(netlink: &N, device_index: u32) -> Result<Vec<ARPEntry>, String> where N: NetlinkARP {
+async fn get_static_arp_entries<N>(netlink: &N, device_index: u32) -> Result<Vec<ARPEntry>, String>
+where
+    N: NetlinkARP,
+{
     let neighbours = netlink.get_neighbours_for_device(device_index).await?;
 
     let arp_entries_it = neighbours.iter().filter_map(|neighbour| {
@@ -346,7 +351,7 @@ trait NetworkDevice {
 
     fn addresses(&self) -> &Vec<Address>;
 
-    fn index(&self) -> Result<u32, String>  {
+    fn index(&self) -> Result<u32, String> {
         let device_name = self.name();
 
         if_nametoindex(device_name).map_err(|err| format!("Cannot find index for device {}, error {:?}", device_name, err))
@@ -354,21 +359,17 @@ trait NetworkDevice {
 
     fn ip_network(&self) -> Result<IpNetwork, String> {
         fn addresses_to_string(addresses: &[Address]) -> String {
-            addresses
-                .iter()
-                .map(|e| e.addr.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
+            addresses.iter().map(|e| e.addr.to_string()).collect::<Vec<_>>().join(",")
         }
 
         let device_name = self.name();
         let assigned_addresses = self.addresses();
 
-        let address = assigned_addresses
-            .iter()
-            .find(|e| e.addr.is_ipv4())
-            .ok_or(
-                format!("Cannot find an IpV4 address for device {}. Device address list is {:?}", device_name, addresses_to_string(&assigned_addresses)))?;
+        let address = assigned_addresses.iter().find(|e| e.addr.is_ipv4()).ok_or(format!(
+            "Cannot find an IpV4 address for device {}. Device address list is {:?}",
+            device_name,
+            addresses_to_string(&assigned_addresses)
+        ))?;
 
         let netmask = address
             .netmask
@@ -391,14 +392,16 @@ impl NetworkDevice for pcap::Device {
 
 #[cfg(test)]
 mod tests {
-    use crate::network::NetworkDevice;
-    use pcap::Address;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
     use ipnetwork::{IpNetwork, Ipv4Network};
+    use pcap::Address;
+
+    use crate::network::NetworkDevice;
 
     #[derive(Debug)]
     struct TestNetworkDevice {
-        pub addresses_data: Vec<Address>
+        pub addresses_data: Vec<Address>,
     }
 
     impl NetworkDevice for TestNetworkDevice {
@@ -414,37 +417,53 @@ mod tests {
     #[test]
     fn ip_network_incorrect_pass() {
         let no_addresses = TestNetworkDevice { addresses_data: vec![] };
-        let no_netmask = TestNetworkDevice { addresses_data: vec![Address {
-            addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            netmask: None,
-            broadcast_addr: None,
-            dst_addr: None
-        }] };
+        let no_netmask = TestNetworkDevice {
+            addresses_data: vec![Address {
+                addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                netmask: None,
+                broadcast_addr: None,
+                dst_addr: None,
+            }],
+        };
         let no_ipv4_address = TestNetworkDevice {
             addresses_data: vec![Address {
                 addr: IpAddr::V6(Ipv6Addr::LOCALHOST),
                 netmask: None,
                 broadcast_addr: None,
-                dst_addr: None
-            }]
+                dst_addr: None,
+            }],
         };
 
-        assert!(no_addresses.ip_network().is_err(), "Ip network should fail when there is no addresses present. {:?}", no_addresses);
-        assert!(no_netmask.ip_network().is_err(), "Ip network should fail when there is no netmask for address. {:?}", no_netmask);
-        assert!(no_ipv4_address.ip_network().is_err(), "Ip network should fail when there is no ipv4 address. {:?}", no_ipv4_address)
+        assert!(
+            no_addresses.ip_network().is_err(),
+            "Ip network should fail when there is no addresses present. {:?}",
+            no_addresses
+        );
+        assert!(
+            no_netmask.ip_network().is_err(),
+            "Ip network should fail when there is no netmask for address. {:?}",
+            no_netmask
+        );
+        assert!(
+            no_ipv4_address.ip_network().is_err(),
+            "Ip network should fail when there is no ipv4 address. {:?}",
+            no_ipv4_address
+        )
     }
 
     #[test]
     fn ip_network_correct_pass() {
         let ip_address = Ipv4Addr::LOCALHOST;
-        let netmask = Ipv4Addr::new(0,0,0,0);
+        let netmask = Ipv4Addr::new(0, 0, 0, 0);
 
-        let device = TestNetworkDevice { addresses_data: vec![Address {
-            addr: IpAddr::V4(ip_address.clone()),
-            netmask: Some(IpAddr::V4(netmask.clone())),
-            broadcast_addr: None,
-            dst_addr: None
-        }] };
+        let device = TestNetworkDevice {
+            addresses_data: vec![Address {
+                addr: IpAddr::V4(ip_address.clone()),
+                netmask: Some(IpAddr::V4(netmask.clone())),
+                broadcast_addr: None,
+                dst_addr: None,
+            }],
+        };
 
         let result = device.ip_network().expect("ip network failed");
         let reference = IpNetwork::V4(Ipv4Network::with_netmask(ip_address, netmask).expect("ipv4 network ctor failed"));

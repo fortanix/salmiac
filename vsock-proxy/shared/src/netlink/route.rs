@@ -4,17 +4,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::convert::TryFrom;
+use std::net::IpAddr;
+
 use async_trait::async_trait;
+use ipnetwork::{Ipv4Network, Ipv6Network};
 use rtnetlink::packet::{RouteMessage, AF_INET, RTN_UNICAST};
 use serde::{Deserialize, Serialize};
 
 use crate::extract_enum_value;
-use crate::netlink::next_in_stream;
-use crate::netlink::Netlink;
-
-use ipnetwork::{Ipv4Network, Ipv6Network};
-use std::convert::TryFrom;
-use std::net::IpAddr;
+use crate::netlink::{next_in_stream, Netlink};
 
 /// Netlink functions to manipulate routing table
 #[async_trait]

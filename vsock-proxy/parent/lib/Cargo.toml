@@ -1,0 +1,18 @@
+[package]
+name = "parent_lib"
+version = "0.1.0"
+authors = ["Fortanix, Inc."]
+edition = "2018"
+license = "MPL-2.0"
+repository = "https://github.com/fortanix/salmiac"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "parent_lib"
+path = "lib.rs"
+
+[dependencies]
+shared = { path = "../../shared" }
+tokio = { version = "1.21.1", features = ["macros", "rt", "rt-multi-thread"] }
+log = "0.4"

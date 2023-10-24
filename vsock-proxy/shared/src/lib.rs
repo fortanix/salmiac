@@ -9,13 +9,14 @@ pub mod netlink;
 pub mod socket;
 pub mod tap;
 
-use async_process::{Command, Stdio};
-use clap::ArgMatches;
-use log::debug;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::ParseIntError;
+
+use async_process::{Command, Stdio};
+use clap::ArgMatches;
+use log::debug;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
@@ -189,30 +190,36 @@ macro_rules! with_background_tasks {
 pub struct CommandOutputConfig {
     pub stdout: Option<Stdio>,
 
-    pub stderr: Option<Stdio>
+    pub stderr: Option<Stdio>,
 }
 
 impl CommandOutputConfig {
     pub fn all_piped() -> Self {
-        CommandOutputConfig{
+        CommandOutputConfig {
             stdout: Some(Stdio::piped()),
-            stderr: Some(Stdio::piped())
+            stderr: Some(Stdio::piped()),
         }
     }
 
     pub fn all_null() -> Self {
-        CommandOutputConfig{
+        CommandOutputConfig {
             stdout: Some(Stdio::null()),
-            stderr: Some(Stdio::null())
+            stderr: Some(Stdio::null()),
         }
     }
 }
 
 pub async fn run_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(), String> {
-    run_subprocess_with_output_setup(subprocess_path, args, CommandOutputConfig::default()).await.map(|_| ())
+    run_subprocess_with_output_setup(subprocess_path, args, CommandOutputConfig::default())
+        .await
+        .map(|_| ())
 }
 
-pub async fn run_subprocess_with_output_setup(subprocess_path: &str, args: &[&str], output_config: CommandOutputConfig) -> Result<async_process::Output, String> {
+pub async fn run_subprocess_with_output_setup(
+    subprocess_path: &str,
+    args: &[&str],
+    output_config: CommandOutputConfig,
+) -> Result<async_process::Output, String> {
     let mut command = Command::new(subprocess_path);
 
     command.args(args);

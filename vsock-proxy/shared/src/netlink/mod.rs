@@ -7,6 +7,8 @@
 pub mod arp;
 pub mod route;
 
+use std::ops::Deref;
+
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use futures::TryStream;
@@ -14,8 +16,6 @@ use rtnetlink::packet::LinkMessage;
 use tokio::task::JoinHandle;
 
 use crate::find_map;
-
-use std::ops::Deref;
 
 pub struct Netlink {
     handle: rtnetlink::Handle,

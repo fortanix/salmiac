@@ -13,7 +13,7 @@ use mbedtls::rng::Rdrand;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
-use tokio_vsock::VsockStream as AsyncVsockStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::enclave::write_to_file;
 
@@ -21,10 +21,10 @@ const RSA_SIZE: u32 = 3072;
 
 const RSA_EXPONENT: u32 = 0x10001;
 
-pub(crate) struct CertificateResult {
-    pub(crate) certificate: String,
+pub struct CertificateResult {
+    pub certificate: String,
 
-    pub(crate) key: Pk,
+    pub key: Pk,
 }
 
 pub(crate) struct CertificateWithPath {
@@ -73,28 +73,142 @@ pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Res
     )
 }
 
-pub(crate) async fn request_certificate(
-    vsock: &mut AsyncVsockStream,
-    cert_settings: &CertificateConfig,
-    app_config_id: &Option<String>,
-) -> Result<CertificateResult, String> {
-    let mut rng = Rdrand;
-    let mut key =
-        Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))?;
-
-    let common_name = cert_settings.subject.as_ref().map(|e| e.as_str()).unwrap_or("localhost");
-
-    let csr = em_app::get_remote_attestation_csr(
-        "localhost", //this param is not used for now
-        common_name,
-        &mut key,
-        None,
-        app_config_id.as_deref(),
-    )
-    .map_err(|err| format!("Failed to get CSR. {:?}", err))?;
-
+pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
+    vsock: &mut Socket,
+    csr: String,
+) -> Result<String, String> {
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
-    let certificate = extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)?;
-    Ok(CertificateResult { certificate, key })
+    extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)
+}
+
+pub(crate) fn create_signer_key() -> Result<Pk, String> {
+    let mut rng = Rdrand;
+    Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))
+}
+
+pub(crate) trait CSRApi {
+    fn get_remote_attestation_csr(
+        &self,
+        cert_config: &CertificateConfig,
+        app_config_id: &Option<String>,
+        key: &mut Pk,
+    ) -> Result<String, String>;
+}
+
+pub(crate) struct EmAppCSRApi {}
+impl CSRApi for EmAppCSRApi {
+    fn get_remote_attestation_csr(
+        &self,
+        cert_config: &CertificateConfig,
+        app_config_id: &Option<String>,
+        key: &mut Pk,
+    ) -> Result<String, String> {
+        let common_name = cert_config.subject.as_ref().map(|e| e.as_str()).unwrap_or("localhost");
+
+        em_app::get_remote_attestation_csr(
+            "localhost", //this param is not used for now
+            common_name,
+            key,
+            None,
+            app_config_id.as_deref(),
+        )
+        .map_err(|err| format!("Failed to get CSR. {:?}", err))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+    use mbedtls::pk::Pk;
+    use parent_lib::{communicate_certificates, CertificateApi};
+    use shared::socket::InMemorySocket;
+    use tokio::runtime::Runtime;
+
+    use crate::certificate::CSRApi;
+    use crate::enclave::setup_enclave_certification;
+
+    struct MockCertApi {}
+    impl CertificateApi for MockCertApi {
+        fn request_issue_certificate(&self, _url: &str, _csr_pem: String) -> Result<String, String> {
+            Ok("certificate".to_string())
+        }
+    }
+
+    struct MockCSRApi {}
+    impl CSRApi for MockCSRApi {
+        fn get_remote_attestation_csr(
+            &self,
+            _cert_config: &CertificateConfig,
+            _app_config_id: &Option<String>,
+            _key: &mut Pk,
+        ) -> Result<String, String> {
+            Ok("csr".to_string())
+        }
+    }
+
+    async fn parent(mut parent_socket: InMemorySocket) -> Result<(), String> {
+        std::env::set_var("NODE_AGENT", "test");
+        communicate_certificates(&mut parent_socket, MockCertApi {}).await
+    }
+
+    async fn enclave(mut enclave_socket: InMemorySocket, cert_configs: Vec<CertificateConfig>) -> () {
+        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &cert_configs, Path::new("/"))
+            .await
+            .expect("Request certificate OK");
+
+        assert_eq!(result[0].certificate_result.certificate, "certificate")
+    }
+
+    async fn enclave_no_certs(mut enclave_socket: InMemorySocket) -> () {
+        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &vec![], Path::new("/"))
+            .await
+            .expect("Request certificate OK");
+
+        assert!(result.is_empty())
+    }
+
+    #[test]
+    fn setup_enclave_certification_certificate_present_correct_pass() {
+        let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
+        let certificate_config = CertificateConfig {
+            issuer: CertIssuer::ManagerCa,
+            subject: None,
+            alt_names: vec![],
+            key_type: KeyType::Rsa,
+            key_param: None,
+            key_path: None,
+            cert_path: None,
+            chain_path: None,
+        };
+        let rt = Runtime::new().expect("Tokio runtime OK");
+
+        rt.block_on(async move {
+            let a = tokio::spawn(parent(parent_socket));
+            let b = tokio::spawn(enclave(enclave_socket, vec![certificate_config]));
+
+            let (a_result, b_result) = tokio::join!(a, b);
+
+            assert!(a_result.is_ok());
+            assert!(b_result.is_ok());
+        });
+    }
+
+    #[test]
+    fn setup_enclave_certification_no_certificate_present_correct_pass() {
+        let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
+        let rt = Runtime::new().expect("Tokio runtime OK");
+
+        rt.block_on(async move {
+            let a = tokio::spawn(parent(parent_socket));
+            let b = tokio::spawn(enclave_no_certs(enclave_socket));
+
+            let (a_result, b_result) = tokio::join!(a, b);
+
+            assert!(a_result.is_ok());
+            assert!(b_result.is_ok());
+        });
+    }
 }

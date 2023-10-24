@@ -4,19 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::convert::TryFrom;
+use std::net::IpAddr;
+use std::ops::Deref;
+
 use async_trait::async_trait;
 use rtnetlink::packet::NeighbourMessage;
 use rtnetlink::IpVersion;
 use serde::{Deserialize, Serialize};
 
-use crate::find_map;
-use crate::netlink::next_in_stream;
-use crate::netlink::Netlink;
-use crate::vec_to_ip4;
-
-use std::convert::TryFrom;
-use std::net::IpAddr;
-use std::ops::Deref;
+use crate::netlink::{next_in_stream, Netlink};
+use crate::{find_map, vec_to_ip4};
 
 /// Netlink functions to manipulate ARP table
 #[async_trait]
