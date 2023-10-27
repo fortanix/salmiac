@@ -21,8 +21,9 @@ hyper = "0.10"
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
-mbedtls = { version = "0.8.4" }
+mbedtls = { version = "0.9.3" }
 nix = "0.15.0"
+pkix = "0.1.2"
 rand = "0.8.5"
 rtnetlink = "0.8.0"
 sdkms = { version = "0.2.1", default-features = false, features = ["hyper-native-tls"] }
@@ -38,7 +39,7 @@ url = "2.3.1"
 uuid = "0.7.4"
 
 [build-dependencies]
-mbedtls = { version = "0.8.4", features = [ "rdrand", "std" ], default-features = false }
+mbedtls = { version = "0.9.3", features = [ "rdrand", "std" ], default-features = false }
 pkix = "0.1.2"
 serde_cbor = "0.11.2"
 

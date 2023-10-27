@@ -198,6 +198,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
+name = "aws-nitro-enclaves-nsm-api"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17e83ef53714474149215e48438d2cf8f96fb76ae5a00f21f16051fab79c0627"
+dependencies = [
+ "libc",
+ "log 0.4.14",
+ "nix 0.20.0",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+]
+
+[[package]]
 name = "b64-ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -569,15 +583,14 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 [[package]]
 name = "em-app"
 version = "0.4.0"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
 dependencies = [
+ "aws-nitro-enclaves-nsm-api",
  "b64-ct",
  "em-client",
  "em-node-agent-client",
  "hyper",
  "mbedtls",
- "nsm-driver",
- "nsm-io",
  "pkix",
  "rustc-serialize",
  "sdkms",
@@ -1258,9 +1271,9 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "mbedtls"
-version = "0.8.4"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70bd8527c25d8261f418a6538e8bd2262276eaa6c60c798c91a111e1e080d921"
+checksum = "a3a846b1d4b990bc3d900554a12528dfe4b3ab920eac016ee5b314aef4f8e4a9"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -1269,7 +1282,6 @@ dependencies = [
  "mbedtls-platform-support",
  "mbedtls-sys-auto",
  "rs-libc",
- "rustc_version",
  "serde",
  "serde_derive",
  "yasna 0.2.2",
@@ -1575,6 +1587,18 @@ dependencies = [
 
 [[package]]
 name = "nix"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa9b4819da1bc61c0ea48b63b7bc8604064dd43013e7cc325df098d49cd7c18a"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+]
+
+[[package]]
+name = "nix"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
@@ -1608,31 +1632,6 @@ checksum = "ffb4262d26ed83a1c0a33a38fe2bb15797329c85770da05e6b828ddb782627af"
 dependencies = [
  "memchr",
  "version_check 0.9.3",
-]
-
-[[package]]
-name = "nsm-driver"
-version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
-dependencies = [
- "libc",
- "log 0.4.14",
- "nix 0.15.0",
- "nsm-io",
- "serde_cbor",
-]
-
-[[package]]
-name = "nsm-io"
-version = "0.1.0"
-source = "git+https://github.com/aws/aws-nitro-enclaves-nsm-api?rev=6745598d0e0e8af57e9b96ee2bf3d11b216fe649#6745598d0e0e8af57e9b96ee2bf3d11b216fe649"
-dependencies = [
- "libc",
- "log 0.4.14",
- "nix 0.15.0",
- "serde",
- "serde_bytes",
- "serde_cbor",
 ]
 
 [[package]]
@@ -2243,15 +2242,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
-name = "rustc_version"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
-dependencies = [
- "semver",
-]
-
-[[package]]
 name = "ryu"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2325,21 +2315,6 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
-
-[[package]]
-name = "semver"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
-dependencies = [
- "semver-parser",
-]
-
-[[package]]
-name = "semver-parser"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
@@ -2424,16 +2399,16 @@ dependencies = [
 
 [[package]]
 name = "sgx-isa"
-version = "0.3.3"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+version = "0.4.1"
+source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
 dependencies = [
  "bitflags",
 ]
 
 [[package]]
 name = "sgx_pkix"
-version = "0.1.1"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+version = "0.2.2"
+source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
 dependencies = [
  "byteorder",
  "lazy_static 1.4.0",
@@ -2915,7 +2890,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 [[package]]
 name = "vme-pkix"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/rust-sgx.git#a7ee253352856b35e54be22c505775c6556ffa82"
+source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
 dependencies = [
  "lazy_static 1.4.0",
  "pkix",

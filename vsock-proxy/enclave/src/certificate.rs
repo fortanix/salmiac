@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use api_model::converter::CertificateConfig;
@@ -104,13 +105,21 @@ impl CSRApi for EmAppCSRApi {
         app_config_id: &Option<String>,
         key: &mut Pk,
     ) -> Result<String, String> {
-        let common_name = cert_config.subject.as_ref().map(|e| e.as_str()).unwrap_or("localhost");
+        let subject;
+        let common_name = cert_config.subject.as_ref().map(|e| e.as_str()).unwrap_or_default();
+        if common_name.is_empty() {
+            subject = pkix::types::Name::from(vec![]);
+        } else {
+            subject = em_app::common_name_to_subject(common_name);
+        }
 
-        em_app::get_remote_attestation_csr(
+        let alt_names = cert_config.alt_names.clone().into_iter().map(|s| Cow::Owned(s)).collect();
+
+        em_app::get_remote_attestation_csr_subject(
             "localhost", //this param is not used for now
-            common_name,
+            &subject,
             key,
-            None,
+            Some(alt_names),
             app_config_id.as_deref(),
         )
         .map_err(|err| format!("Failed to get CSR. {:?}", err))
