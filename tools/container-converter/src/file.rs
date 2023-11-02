@@ -159,20 +159,6 @@ pub(crate) struct DockerFile {
     pub(crate) entrypoint: Option<String>,
 }
 
-impl DockerFile {
-    /// A convenience constructor that populates only `FROM` field from `DockerReference`
-    pub fn from(from: String) -> Self {
-        DockerFile {
-            from,
-            add: None,
-            env: vec![],
-            run: None,
-            cmd: None,
-            entrypoint: None,
-        }
-    }
-}
-
 impl ToString for DockerFile {
     fn to_string(&self) -> String {
         let mut result = format!("FROM {} \n", self.from);

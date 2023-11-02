@@ -179,28 +179,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         info!("Enclave build prerequisites have been created!");
 
-        let result_image_raw = if is_debug {
-            self.enclave_debug_image()
-        } else {
-            self.enclave_image()
-        };
-
-        let result_reference = if is_debug {
-            let reference = DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
-                message: format!("Failed to create enclave image reference. {:?}", message),
-                kind: ConverterErrorKind::RequisitesCreation,
-            })?;
-
-            self.create_debug_client_image(&self.enclave_base_image, reference, docker_util)
-                .await
-                .map(|e| e.reference)?
-        } else {
-            DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
-                message: format!("Failed to create enclave image reference. {:?}", message),
-                kind: ConverterErrorKind::RequisitesCreation,
-            })?
-        };
-
         let build_context_archive_file = build_context
             .package_into_archive(&self.dir.path().join("enclave-build-context.tar"))
             .map_err(|message| ConverterError {
@@ -210,6 +188,13 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         // This image is made temporary because it is only used by nitro-cli to create an `.eif` file.
         // After nitro-cli finishes we can safely reclaim it.
+        let result_image_raw = self.enclave_image();
+
+        let result_reference = DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
+            message: format!("Failed to create enclave image reference. {:?}", message),
+            kind: ConverterErrorKind::RequisitesCreation,
+        })?;
+
         let result = docker_util
             .create_image_from_archive(result_reference, build_context_archive_file)
             .await
@@ -228,42 +213,6 @@ impl<'a> EnclaveImageBuilder<'a> {
         info!("Nitro image has been created!");
 
         Ok(nitro_measurements)
-    }
-
-    async fn create_debug_client_image<'b>(
-        &self,
-        debug_enclave_base: &DockerReference<'_>,
-        result_reference: DockerReference<'b>,
-        docker_util: &dyn DockerUtil,
-    ) -> Result<ImageWithDetails<'b>> {
-        info!("Creating debug enclave image");
-
-        let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
-
-        build_context
-            .create_docker_file(&DockerFile::from(debug_enclave_base.to_string()))
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::RequisitesCreation,
-            })?;
-
-        let build_context_archive_file = build_context
-            .package_into_archive(&self.dir.path().join("enclave-debug-build-context.tar"))
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::RequisitesCreation,
-            })?;
-
-        docker_util
-            .create_image_from_archive(result_reference, build_context_archive_file)
-            .await
-            .map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::EnclaveImageCreation,
-            })
     }
 
     pub(crate) async fn export_image_file_system(
@@ -331,10 +280,6 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     fn enclave_image(&self) -> String {
         self.retag_client_image(&Alphanumeric.sample_string(&mut rand::thread_rng(), 16))
-    }
-
-    fn enclave_debug_image(&self) -> String {
-        self.retag_client_image("debug")
     }
 
     fn retag_client_image(&self, tag: &str) -> String {
