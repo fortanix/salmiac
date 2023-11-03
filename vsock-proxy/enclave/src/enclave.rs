@@ -40,6 +40,7 @@ use crate::file_system::{
     mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
+use sdkms::api_model::Blob;
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
@@ -189,7 +190,7 @@ fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
 ) -> Result<(), String> {
-    if let (Some(certificate_info), Some(_)) = (certificate_info, &app_config.id) {
+    if let (Some(certificate_info), Some(id)) = (certificate_info, &app_config.id) {
         let api = EmAppApplicationConfiguration::new();
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
 
@@ -200,6 +201,7 @@ fn setup_app_configuration(
             &app_config.ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
+            Blob::from(id.as_str())
         )
     } else {
         Ok(())

@@ -583,7 +583,7 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 [[package]]
 name = "em-app"
 version = "0.4.0"
-source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
+source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "b64-ct",
@@ -2400,7 +2400,7 @@ dependencies = [
 [[package]]
 name = "sgx-isa"
 version = "0.4.1"
-source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
+source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
 dependencies = [
  "bitflags",
 ]
@@ -2408,7 +2408,7 @@ dependencies = [
 [[package]]
 name = "sgx_pkix"
 version = "0.2.2"
-source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
+source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
 dependencies = [
  "byteorder",
  "lazy_static 1.4.0",
@@ -2890,7 +2890,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 [[package]]
 name = "vme-pkix"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/rust-sgx.git#8e1fefce1b9b59e237c43929f36d231c8085af0f"
+source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
 dependencies = [
  "lazy_static 1.4.0",
  "pkix",
