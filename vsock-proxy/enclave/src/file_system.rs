@@ -20,6 +20,7 @@ use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConf
 
 use crate::certificate::CertificateResult;
 use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
+use crate::enclave::DEFAULT_CERT_DIR;
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -441,6 +442,11 @@ pub(crate) fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), S
     fs::copy(&from, &to).map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
 
     Ok(())
+}
+
+pub(crate) fn create_fortanix_directories() -> Result<(), String> {
+    let dir = Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default());
+    fs::create_dir_all(dir.clone()).map_err(|e| format!("Failed to create fortanix directory {:?} : {:?}", dir, e))
 }
 
 pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {

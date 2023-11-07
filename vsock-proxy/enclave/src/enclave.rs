@@ -7,14 +7,16 @@
 use std::convert::From;
 use std::fs;
 use std::path::Path;
+use std::string::ToString;
 
-use api_model::converter::CertificateConfig;
+use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
 use api_model::enclave::EnclaveManifest;
 use async_process::Command;
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
+use sdkms::api_model::Blob;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
     UserProgramExitStatus,
@@ -35,16 +37,25 @@ use crate::certificate::{
     create_signer_key, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi,
 };
 use crate::file_system::{
-    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_overlay_dirs,
-    fetch_fs_mount_options, get_available_encrypted_space, mount_file_system_nodes, mount_overlay_fs,
-    mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
-    unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
+    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options, get_available_encrypted_space,
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client,
+    setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
-use sdkms::api_model::Blob;
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
 const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
+
+// These are the default values for a certificate obtained
+// from the manager when there is none configured by a user
+pub const DEFAULT_CERT_DIR: &str = "/opt/fortanix/enclave-os/default_cert";
+const DEFAULT_KEY_FILE: &str = "app_private.pem";
+const DEFAULT_CERT_FILE: &str = "app_public.pem";
+const DEFAULT_CERT_RSA_KEY_SIZE: u32 = 3072;
+const DEFAULT_KEY_TYPE: KeyType = KeyType::Rsa;
+const DEFAULT_CERT_ISSUER: CertIssuer = CertIssuer::ManagerCa;
+const DEFAULT_RSA_KEY_SIZE_FIELD: &str = const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
 
 const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::Proc,
@@ -67,13 +78,20 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     // execution and it is considered an error if they do.
     let mut background_tasks = start_background_tasks(networking_setup_result.tap_devices);
 
+    let skip_def_cert_req = setup_result
+        .env_vars
+        .iter()
+        .find(|(k, v)| k == "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE" && !v.trim().is_empty())
+        .is_some();
+
     let result = with_background_tasks!(background_tasks, {
         let mut certificate_info = setup_enclave_certification(
             &mut parent_port,
             EmAppCSRApi {},
             &setup_result.app_config.id,
-            &setup_result.enclave_manifest.user_config.certificate_config,
+            &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
+            skip_def_cert_req,
         )
         .await?;
 
@@ -201,7 +219,7 @@ fn setup_app_configuration(
             &app_config.ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
-            Blob::from(id.as_str())
+            Blob::from(id.as_str()),
         )
     } else {
         Ok(())
@@ -276,6 +294,8 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
 
         copy_dns_file_to_mount()?;
         copy_startup_binary_to_mount(STARTUP_BINARY)?;
+
+        create_fortanix_directories()?;
 
         info!("Finished file system mount.");
 
@@ -534,14 +554,32 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     Ok(tap_device)
 }
 
+fn default_certificate() -> CertificateConfig {
+    CertificateConfig {
+        issuer: DEFAULT_CERT_ISSUER,
+        subject: None,
+        alt_names: vec![],
+        key_type: DEFAULT_KEY_TYPE,
+        key_param: Some(serde_json::from_str(DEFAULT_RSA_KEY_SIZE_FIELD).unwrap_or_default()),
+        key_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_KEY_FILE).display().to_string()),
+        cert_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_CERT_FILE).display().to_string()),
+        chain_path: None,
+    }
+}
+
 pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
     vsock: &mut Socket,
     csr_api: Api,
     app_config_id: &Option<String>,
-    cert_settings: &Vec<CertificateConfig>,
+    cert_settings: &mut Vec<CertificateConfig>,
     fs_root: &Path,
+    skip_def_cert_req: bool,
 ) -> Result<Vec<CertificateWithPath>, String> {
     let mut result = Vec::new();
+
+    if !skip_def_cert_req && cert_settings.is_empty() {
+        cert_settings.push(default_certificate());
+    }
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {

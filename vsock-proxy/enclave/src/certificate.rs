@@ -163,16 +163,23 @@ mod tests {
         communicate_certificates(&mut parent_socket, MockCertApi {}).await
     }
 
-    async fn enclave(mut enclave_socket: InMemorySocket, cert_configs: Vec<CertificateConfig>) -> () {
-        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &cert_configs, Path::new("/"))
-            .await
-            .expect("Request certificate OK");
+    async fn enclave(mut enclave_socket: InMemorySocket, mut cert_configs: Vec<CertificateConfig>) -> () {
+        let result = setup_enclave_certification(
+            &mut enclave_socket,
+            MockCSRApi {},
+            &None,
+            &mut cert_configs,
+            Path::new("/"),
+            true,
+        )
+        .await
+        .expect("Request certificate OK");
 
         assert_eq!(result[0].certificate_result.certificate, "certificate")
     }
 
     async fn enclave_no_certs(mut enclave_socket: InMemorySocket) -> () {
-        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &vec![], Path::new("/"))
+        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
             .await
             .expect("Request certificate OK");
 
