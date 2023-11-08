@@ -7,11 +7,14 @@
 use std::convert::From;
 use std::fs;
 use std::path::Path;
+use std::process::Stdio;
 use std::string::ToString;
 
 use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
 use api_model::enclave::EnclaveManifest;
-use async_process::Command;
+use async_process::{Child, Command};
+use futures::{AsyncBufReadExt, StreamExt};
+use futures::io::{BufReader, Lines};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use log::{debug, info, warn};
@@ -26,12 +29,12 @@ use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
-use shared::{extract_enum_value, with_background_tasks, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID};
-use tokio::io::{AsyncRead, AsyncWrite};
+use shared::{extract_enum_value, with_background_tasks, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID, cleanup_tokio_tasks, AppLogPortInfo, StreamType};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::{AsyncDevice, Device};
-
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{
     create_signer_key, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi,
@@ -71,6 +74,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
     let (setup_result, networking_setup_result) = startup(&mut parent_port, settings_path).await?;
+
     let hostname = networking_setup_result.hostname.clone();
     // Background tasks are futures that run for the whole duration of the enclave.
     // They represent background processes that run forever like forwarding network
@@ -110,9 +114,10 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         setup_app_configuration(&setup_result.app_config, first_certificate)?;
 
-        let exit_status = start_and_await_user_program_return(setup_result, hostname).await?;
+        let log_conn_addrs = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        let exit_status = start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
 
-        cleanup().await?;
+        cleanup_fs().await?;
 
         Ok(exit_status)
     });
@@ -303,7 +308,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
     }
 }
 
-async fn cleanup() -> Result<(), String> {
+async fn cleanup_fs() -> Result<(), String> {
     unmount_file_system_nodes(FILE_SYSTEM_NODES).await?;
     info!("Unmounted file system nodes.");
 
@@ -343,22 +348,81 @@ fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<J
 async fn start_and_await_user_program_return(
     enclave_setup_result: EnclaveSetupResult,
     hostname: String,
+    log_conn_addrs: Vec<AppLogPortInfo>,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname));
+
+    let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname, log_conn_addrs));
 
     user_program
         .await
         .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
 }
 
+async fn connect_to_log_ports(log_addrs: Vec<AppLogPortInfo>) -> Result<Vec<(TcpStream, StreamType)>, String> {
+    let mut res : Vec<(TcpStream, StreamType)> = vec![];
+        for log_info in log_addrs {
+            let stream = TcpStream::connect(log_info.sock_addr)
+               .await
+               .map_err(|e| format!("Unable to connect to parent log server on socket {:?} : {:?}", log_info.sock_addr, e))?;
+            info!("Connected to parent on {:?} for stream {:?}", stream, log_info.stream_type);
+            res.push((stream, log_info.stream_type));
+       }
+       Ok(res)
+}
+
+async fn forward_client_logs(enable_log_forwarding: bool, streams: Vec<(TcpStream, StreamType)>, client_program: &mut Child) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+    let tasks = FuturesUnordered::new();
+    if enable_log_forwarding {
+        for (tcp_stream, stream_type) in streams {
+            match stream_type {
+                StreamType::Stdout => {
+                    if let Some(handle) = client_program.stdout.take() {
+                        tasks.push(send_logs(tcp_stream, handle).await);
+                    }
+                }
+                StreamType::Stderr => {
+                    if let Some(handle) = client_program.stderr.take() {
+                        tasks.push(send_logs(tcp_stream, handle).await);
+                    }
+                }
+            }
+        }
+    }
+    Ok(tasks)
+}
+
+async fn send_logs<R : futures::io::AsyncRead + Unpin + Send + 'static>(out_stream: TcpStream, in_stream: R) -> JoinHandle<Result<(), String>> {
+    let buffered_reader = BufReader::new(in_stream);
+    let lines = buffered_reader.lines();
+    tokio::spawn(write_lines_to_client(lines, out_stream))
+}
+
+async fn write_lines_to_client<R : futures::io::AsyncRead + Unpin + Send>(mut lines: Lines<BufReader<R>>, mut stream: TcpStream) -> Result<(), String> {
+    while let Some(line) = lines.next().await {
+        let line1 = line.unwrap_or_default();
+        stream
+            .write_all(line1.as_ref())
+            .await
+            .map_err(|e| format!("Unable to write to tcp sock : {:?}", e))?;
+        stream
+            .write("\n".as_ref())
+            .await
+            .map_err(|e| format!("Unable to print new line : {:?}", e))?;
+    }
+    Ok(())
+}
+
 async fn start_user_program(
     enclave_setup_result: EnclaveSetupResult,
     hostname: String,
+    log_conn_addrs: Vec<AppLogPortInfo>,
 ) -> Result<UserProgramExitStatus, String> {
     let user_program = enclave_setup_result.enclave_manifest.user_config.user_program_config;
     let is_debug_shell = enclave_setup_result
         .env_vars
         .contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
+
+    let enable_log_forwarding = !log_conn_addrs.is_empty();
 
     let mut client_command = if !is_debug_shell {
         let mut client_command = Command::new("chroot");
@@ -374,6 +438,10 @@ async fn start_user_program(
         ]);
 
         client_command.args(user_program.arguments.clone());
+        if enable_log_forwarding {
+            client_command.stdout(Stdio::piped());
+            client_command.stderr(Stdio::piped());
+        }
 
         client_command
     } else {
@@ -392,20 +460,28 @@ async fn start_user_program(
     info!("Setting the following env vars {:?}", enclave_setup_result.env_vars);
     client_command.envs(enclave_setup_result.env_vars);
 
-    let client_program = client_command
+    let streams = connect_to_log_ports(log_conn_addrs).await?;
+
+    let mut client_program = client_command
         .spawn()
         .map_err(|err| format!("Failed to start client program!. {:?}", err))?;
 
+    let tasks = forward_client_logs(enable_log_forwarding, streams, &mut client_program).await?;
+
+    info!("launching client program");
     let output = client_program
         .output()
         .await
         .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
 
+    info!("client program returns result status >> {:?}", output.status);
     let result = if let Some(code) = output.status.code() {
         UserProgramExitStatus::ExitCode(code)
     } else {
         UserProgramExitStatus::TerminatedBySignal
     };
+
+    cleanup_tokio_tasks(tasks)?;
 
     Ok(result)
 }

@@ -8,6 +8,7 @@ use std::net::IpAddr;
 
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
+use crate::AppLogPortInfo;
 
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
@@ -27,6 +28,7 @@ pub enum SetupMessages {
     ExtraUserProgramArguments(Vec<String>),
     ExitEnclave,
     EncryptedSpaceAvailable(usize),
+    AppLogPort(Vec<AppLogPortInfo>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -6,7 +6,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{env, fs};
@@ -22,9 +22,11 @@ use shared::models::{
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
-    extract_enum_value, run_subprocess, run_subprocess_with_output_setup, with_background_tasks, CommandOutputConfig,
-    DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
+    cleanup_tokio_tasks, extract_enum_value, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
+    AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
+    VSOCK_PARENT_CID,
 };
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
@@ -58,6 +60,8 @@ const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
 const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
+const CLIENT_LOG_STREAMS: [StreamType; 2] = [StreamType::Stdout, StreamType::Stderr];
+
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
     info!("Checking presence of overlayfs parent directory.");
     let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
@@ -75,7 +79,6 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
     info!("Connected to enclave.");
     let console_process = tokio::spawn(enables_console_logs());
-
     // Add enclave processes to a separate list of futures. They will be cleaned up
     // once the parent sends the ExitEnclave message to the enclave port.
     let enclave_tasks = FuturesUnordered::new();
@@ -90,10 +93,28 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
     let tap_l3_address = setup_result.private_tap.tap_l3_address.ip();
 
+    let mut log_listeners = setup_log_listeners(tap_l3_address).await?;
     let mut background_tasks = start_background_tasks(setup_result)?;
+
+    let log_ports = get_log_sock_addrs(&mut log_listeners)?;
+    info!("Client log listeners set up.");
+
+    let tcp_log_tasks = run_log_listeners(log_listeners)
+        .await
+        .map_err(|e| format!("Unable to start app log listeners : {:?}", e))?;
+
+    // Once the client app exits, the sockets between the parent and enclave are closed and these
+    // tasks finish. They are not added to background tasks since they finish after client app
+    // completes but before enclave exit.
+    for log_task in tcp_log_tasks {
+        enclave_tasks.push(log_task);
+    }
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
         setup_file_system(&mut enclave_port, tap_l3_address).await?;
+
+        // Pass the ports which the enclave can connect to for forwarding logs
+        enclave_port.write_lv(&SetupMessages::AppLogPort(log_ports)).await?;
 
         let user_program = tokio::spawn(await_user_program_return(enclave_port));
 
@@ -102,26 +123,62 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
             .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
     })?;
 
-    cleanup(background_tasks)?;
+    cleanup_tokio_tasks(background_tasks)?;
 
     send_enclave_exit(&mut enclave_port).await?;
 
     // Workaround for SALM-298. Kill the nitro-cli console process
     // if it is still waiting for data after enclave exits.
-    cleanup(enclave_tasks)?;
+    cleanup_tokio_tasks(enclave_tasks)?;
 
     Ok(exit_code)
 }
 
-fn cleanup(background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
-    for background_task in &background_tasks {
-        while !background_task.is_finished() {
-            background_task.abort();
+// Setup two Tcp servers - one to read stdout and another for stderr of the client program
+async fn setup_log_listeners(tap_l3_address: IpAddr) -> Result<Vec<(TcpListener, StreamType)>, String> {
+    if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) != "debug" {
+        let mut res: Vec<(TcpListener, StreamType)> = Vec::with_capacity(2);
+        for stream in CLIENT_LOG_STREAMS {
+            let listen = TcpListener::bind(SocketAddr::new(tap_l3_address, 0)).await.map_err(|e| {
+                format!(
+                    "Unable to setup tcp listener, bind on IP {:?} failed : {:?}",
+                    tap_l3_address, e
+                )
+            })?;
+            res.push((listen, stream));
+        }
+        Ok(res)
+    } else {
+        Ok(vec![])
+    }
+}
+
+// Obtain the socket addresses of the tcp listeners which were setup to obtain client
+// application logs.
+fn get_log_sock_addrs(listeners: &mut Vec<(TcpListener, StreamType)>) -> Result<Vec<AppLogPortInfo>, String> {
+    Ok(listeners
+        .iter()
+        .filter_map(|(tcp_listener, stream_type)| {
+            get_tcp_local_addr(tcp_listener).map(|sock_addr| AppLogPortInfo {
+                sock_addr,
+                stream_type: *stream_type,
+            })
+        })
+        .collect())
+}
+
+// Don't fail the app execution if we are not able to forward logs
+fn get_tcp_local_addr(tcp_listener: &TcpListener) -> Option<SocketAddr> {
+    match tcp_listener.local_addr() {
+        Ok(sock_addr) => Some(sock_addr),
+        Err(e) => {
+            warn!(
+                "Unable to obtain log listener {:?} address, failing silently : {:?}",
+                tcp_listener, e
+            );
+            None
         }
     }
-
-    info!("All background tasks have exited successfully.");
-    Ok(())
 }
 
 async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
@@ -249,6 +306,43 @@ async fn run_dnsmasq() -> Result<(), String> {
     run_subprocess("/usr/sbin/dnsmasq", &["--keep-in-foreground"]).await
 }
 
+async fn start_accepting_connections(listen: TcpListener, stream_type: StreamType) -> Result<(), String> {
+    // We need to accept one connection which is expected from the enclave side
+    info!(
+        "Waiting for connections on {:?}",
+        listen
+            .local_addr()
+            .map_err(|e| format!("unable to get local addr for listener {:?}", e))?
+    );
+    let (mut stream, _socket) = listen
+        .accept()
+        .await
+        .map_err(|e| format!("Unable to accept a new connection on the log listener : {:?}", e))?;
+
+    // Copy data from the tcp streams to the respective stdout/stderr of the parent console
+    // tokio::io::copy continues to run until the stream returns an EOF, at which point it returns Ok(0)
+    match stream_type {
+        StreamType::Stdout => {
+            let _copy_size = tokio::io::copy(&mut stream, &mut tokio::io::stdout())
+                .await
+                .map_err(|e| format!("Unable to copy data from socket {:?} to stdout of parent : {:?}", stream, e))?;
+        }
+        StreamType::Stderr => {
+            let _copy_size = tokio::io::copy(&mut stream, &mut tokio::io::stderr())
+                .await
+                .map_err(|e| format!("Unable to copy data from socket {:?} to stderr of parent : {:?}", stream, e))?;
+        }
+    }
+    Ok(())
+}
+async fn run_log_listeners(listeners_info: Vec<(TcpListener, StreamType)>) -> Result<Vec<JoinHandle<Result<(), String>>>, ()> {
+    let mut tasks = vec![];
+    for (tcp_listener, stream_type) in listeners_info {
+        tasks.push(tokio::spawn(start_accepting_connections(tcp_listener, stream_type)));
+    }
+    Ok(tasks)
+}
+
 async fn enables_console_logs() -> Result<(), String> {
     if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
         info!("ENCLAVEOS_DEBUG set, fetching enclave console logs.");
@@ -304,7 +398,10 @@ fn start_background_tasks(
 
     for export_config in NBD_EXPORTS {
         let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
-        info!("Started nbd server serving block file {}", export_config.block_file_path);
+        info!(
+            "Started nbd server on port {} serving block file {}",
+            export_config.port, export_config.block_file_path
+        );
 
         result.push(nbd_process);
     }

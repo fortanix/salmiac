@@ -9,14 +9,16 @@ pub mod netlink;
 pub mod socket;
 pub mod tap;
 
-use std::borrow::Borrow;
-use std::convert::TryFrom;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::num::ParseIntError;
-
 use async_process::{Command, Stdio};
 use clap::ArgMatches;
-use log::debug;
+use log::{debug, info};
+use std::borrow::Borrow;
+use std::convert::TryFrom;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::num::ParseIntError;
+use futures::stream::FuturesUnordered;
+use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 
 // 14 bytes constant size Ethernet header (https://en.wikipedia.org/wiki/Ethernet_frame#Header)
 // plus 0 or maximum 2 IEEE 802.1Q tags (https://en.wikipedia.org/wiki/IEEE_802.1Q) of size 4 bytes each.
@@ -41,6 +43,22 @@ pub const HOSTNAME_FILE: &'static str = "/etc/hostname";
 // name-service information in a range of categories and in what order.
 // https://man7.org/linux/man-pages/man5/nsswitch.conf.5.html
 pub const NS_SWITCH_FILE: &'static str = "/etc/nsswitch.conf";
+
+// The types of std streams which are forwarded from the client
+// application to the parent for better logging
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+pub enum StreamType {
+    Stdout,
+    Stderr
+}
+
+// The data shared between the parent and enclave to
+// forward client application logs
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AppLogPortInfo {
+    pub sock_addr: SocketAddr,
+    pub stream_type: StreamType
+}
 
 /// Converts array slice into a `Ipv4Addr`
 /// # Returns
@@ -249,4 +267,15 @@ pub async fn run_subprocess_with_output_setup(
     } else {
         Err(format!("Process exited with a negative return code. Output is: {:?}", output))
     }
+}
+
+pub fn cleanup_tokio_tasks(background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
+    for background_task in &background_tasks {
+        while !background_task.is_finished() {
+            background_task.abort();
+        }
+    }
+
+    info!("All background tasks have exited successfully.");
+    Ok(())
 }
