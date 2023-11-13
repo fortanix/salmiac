@@ -60,11 +60,13 @@ where
         .runtime_config_api()
         .get_runtime_configuration(&ccm_backend_url, em_app_credentials)?;
 
-    let app_config_id_check = check_application_config_id(&app_config.config, app_config_id);
+    let _app_config_id_check = check_application_config_id(&app_config.config, app_config_id);
 
-    if !app_config_id_check.unwrap_or(false) {
+    // reverts https://fortanix.atlassian.net/browse/SALM-113 until we figure out how to properly handle debug
+    // enclave in ccm.test
+    /*if !app_config_id_check.unwrap_or(false) {
         return Err(format!("Received app config id doesn't match app config id from the user. The application won't start."));
-    }
+    }*/
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
 
