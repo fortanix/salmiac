@@ -18,9 +18,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
 
-use crate::certificate::CertificateResult;
+use crate::certificate::{CertificateResult, DEFAULT_CERT_DIR};
 use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
-use crate::enclave::DEFAULT_CERT_DIR;
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";

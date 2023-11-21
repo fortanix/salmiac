@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use api_model::converter::CertificateConfig;
+use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
 use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
@@ -17,6 +17,16 @@ use shared::{extract_enum_value, get_relative_path};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::enclave::write_to_file;
+
+// These are the default values for a certificate obtained
+// from the manager when there is none configured by a user
+pub const DEFAULT_CERT_DIR: &str = "/opt/fortanix/enclave-os/default_cert";
+const DEFAULT_KEY_FILE: &str = "app_private.pem";
+const DEFAULT_CERT_FILE: &str = "app_public.pem";
+const DEFAULT_CERT_RSA_KEY_SIZE: u32 = 3072;
+const DEFAULT_KEY_TYPE: KeyType = KeyType::Rsa;
+const DEFAULT_CERT_ISSUER: CertIssuer = CertIssuer::ManagerCa;
+const DEFAULT_RSA_KEY_SIZE_FIELD: &str = const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
 
 const RSA_SIZE: u32 = 3072;
 
@@ -52,7 +62,10 @@ impl CertificateWithPath {
     }
 }
 
-pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Result<(), String> {
+pub(crate) fn write_certificate(
+    cert_with_path: &mut CertificateWithPath,
+    default_cert_dir: Option<PathBuf>,
+) -> Result<(), String> {
     // Get a mutable reference to the private key, mbedtls requires the key to be
     // mutable even though it does not make any changes to it. This is done
     // because the underlying C libraries use a void * reference rather than
@@ -71,7 +84,30 @@ pub(crate) fn write_certificate(cert_with_path: &mut CertificateWithPath) -> Res
         &cert_with_path.certificate_path,
         &cert_with_path.certificate_result.certificate,
         "certificate",
-    )
+    )?;
+
+    if let Some(d) = default_cert_dir {
+        let def_key_path = Path::new(d.as_path()).join(DEFAULT_KEY_FILE);
+        let def_cert_path = Path::new(d.as_path()).join(DEFAULT_CERT_FILE);
+        if cert_with_path.key_path.cmp(&def_key_path).is_ne() || cert_with_path.certificate_path.cmp(&def_cert_path).is_ne() {
+            write_to_file(&def_key_path, &key_as_pem, "key")?;
+            write_to_file(&def_cert_path, &cert_with_path.certificate_result.certificate, "certificate")?;
+        }
+    }
+
+    Ok(())
+}
+pub(crate) fn default_certificate() -> CertificateConfig {
+    CertificateConfig {
+        issuer: DEFAULT_CERT_ISSUER,
+        subject: None,
+        alt_names: vec![],
+        key_type: DEFAULT_KEY_TYPE,
+        key_param: Some(serde_json::from_str(DEFAULT_RSA_KEY_SIZE_FIELD).unwrap_or_default()),
+        key_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_KEY_FILE).display().to_string()),
+        cert_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_CERT_FILE).display().to_string()),
+        chain_path: None,
+    }
 }
 
 pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
@@ -129,6 +165,7 @@ impl CSRApi for EmAppCSRApi {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::{env, fs};
 
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use mbedtls::pk::Pk;
@@ -136,7 +173,10 @@ mod tests {
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
 
-    use crate::certificate::CSRApi;
+    use crate::certificate::{
+        create_signer_key, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE,
+        DEFAULT_KEY_FILE,
+    };
     use crate::enclave::setup_enclave_certification;
 
     struct MockCertApi {}
@@ -226,5 +266,32 @@ mod tests {
             assert!(a_result.is_ok());
             assert!(b_result.is_ok());
         });
+    }
+
+    #[test]
+    fn check_default_app_cert_path() {
+        let cert_dir = env::temp_dir();
+        let def_cert_dir = env::temp_dir();
+        let private_key = create_signer_key().expect("Unable to generate private key");
+        let cert_string = "Sample test string";
+        let mut cert_info = CertificateWithPath {
+            certificate_result: CertificateResult {
+                certificate: cert_string.to_string(),
+                key: private_key,
+            },
+            key_path: cert_dir.join("key.pem"),
+            certificate_path: cert_dir.join("cert.pem"),
+        };
+        write_certificate(&mut cert_info, Some(def_cert_dir)).expect("Unable to write certificate in expected locations");
+
+        let expected_def_cert_path = cert_dir.join(DEFAULT_CERT_FILE);
+        let expected_def_key_path = cert_dir.join(DEFAULT_KEY_FILE);
+        assert!(expected_def_cert_path.exists());
+        assert!(expected_def_key_path.exists());
+
+        assert_eq!(
+            fs::read_to_string(expected_def_cert_path).expect("Unable to read cert file"),
+            cert_string
+        );
     }
 }

@@ -10,13 +10,13 @@ use std::path::Path;
 use std::process::Stdio;
 use std::string::ToString;
 
-use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+use api_model::converter::CertificateConfig;
 use api_model::enclave::EnclaveManifest;
 use async_process::{Child, Command};
-use futures::{AsyncBufReadExt, StreamExt};
-use futures::io::{BufReader, Lines};
 use async_trait::async_trait;
+use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
+use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
 use sdkms::api_model::Blob;
@@ -29,15 +29,20 @@ use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
-use shared::{extract_enum_value, with_background_tasks, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID, cleanup_tokio_tasks, AppLogPortInfo, StreamType};
+use shared::{
+    cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType, HOSTNAME_FILE, HOSTS_FILE,
+    NS_SWITCH_FILE, VSOCK_PARENT_CID,
+};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::{AsyncDevice, Device};
+
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{
-    create_signer_key, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi,
+    create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult,
+    CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
 };
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
@@ -49,16 +54,6 @@ use crate::file_system::{
 const STARTUP_BINARY: &str = "/enclave-startup";
 
 const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
-
-// These are the default values for a certificate obtained
-// from the manager when there is none configured by a user
-pub const DEFAULT_CERT_DIR: &str = "/opt/fortanix/enclave-os/default_cert";
-const DEFAULT_KEY_FILE: &str = "app_private.pem";
-const DEFAULT_CERT_FILE: &str = "app_public.pem";
-const DEFAULT_CERT_RSA_KEY_SIZE: u32 = 3072;
-const DEFAULT_KEY_TYPE: KeyType = KeyType::Rsa;
-const DEFAULT_CERT_ISSUER: CertIssuer = CertIssuer::ManagerCa;
-const DEFAULT_RSA_KEY_SIZE_FIELD: &str = const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
 
 const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::Proc,
@@ -107,7 +102,10 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         setup_file_system(&mut parent_port, FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
         for certificate in &mut certificate_info {
-            write_certificate(certificate)?;
+            write_certificate(
+                certificate,
+                Some(Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())),
+            )?;
         }
 
         let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
@@ -350,7 +348,6 @@ async fn start_and_await_user_program_return(
     hostname: String,
     log_conn_addrs: Vec<AppLogPortInfo>,
 ) -> Result<UserProgramExitStatus, String> {
-
     let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname, log_conn_addrs));
 
     user_program
@@ -359,18 +356,25 @@ async fn start_and_await_user_program_return(
 }
 
 async fn connect_to_log_ports(log_addrs: Vec<AppLogPortInfo>) -> Result<Vec<(TcpStream, StreamType)>, String> {
-    let mut res : Vec<(TcpStream, StreamType)> = vec![];
-        for log_info in log_addrs {
-            let stream = TcpStream::connect(log_info.sock_addr)
-               .await
-               .map_err(|e| format!("Unable to connect to parent log server on socket {:?} : {:?}", log_info.sock_addr, e))?;
-            info!("Connected to parent on {:?} for stream {:?}", stream, log_info.stream_type);
-            res.push((stream, log_info.stream_type));
-       }
-       Ok(res)
+    let mut res: Vec<(TcpStream, StreamType)> = vec![];
+    for log_info in log_addrs {
+        let stream = TcpStream::connect(log_info.sock_addr).await.map_err(|e| {
+            format!(
+                "Unable to connect to parent log server on socket {:?} : {:?}",
+                log_info.sock_addr, e
+            )
+        })?;
+        info!("Connected to parent on {:?} for stream {:?}", stream, log_info.stream_type);
+        res.push((stream, log_info.stream_type));
+    }
+    Ok(res)
 }
 
-async fn forward_client_logs(enable_log_forwarding: bool, streams: Vec<(TcpStream, StreamType)>, client_program: &mut Child) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
+async fn forward_client_logs(
+    enable_log_forwarding: bool,
+    streams: Vec<(TcpStream, StreamType)>,
+    client_program: &mut Child,
+) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let tasks = FuturesUnordered::new();
     if enable_log_forwarding {
         for (tcp_stream, stream_type) in streams {
@@ -391,13 +395,19 @@ async fn forward_client_logs(enable_log_forwarding: bool, streams: Vec<(TcpStrea
     Ok(tasks)
 }
 
-async fn send_logs<R : futures::io::AsyncRead + Unpin + Send + 'static>(out_stream: TcpStream, in_stream: R) -> JoinHandle<Result<(), String>> {
+async fn send_logs<R: futures::io::AsyncRead + Unpin + Send + 'static>(
+    out_stream: TcpStream,
+    in_stream: R,
+) -> JoinHandle<Result<(), String>> {
     let buffered_reader = BufReader::new(in_stream);
     let lines = buffered_reader.lines();
     tokio::spawn(write_lines_to_client(lines, out_stream))
 }
 
-async fn write_lines_to_client<R : futures::io::AsyncRead + Unpin + Send>(mut lines: Lines<BufReader<R>>, mut stream: TcpStream) -> Result<(), String> {
+async fn write_lines_to_client<R: futures::io::AsyncRead + Unpin + Send>(
+    mut lines: Lines<BufReader<R>>,
+    mut stream: TcpStream,
+) -> Result<(), String> {
     while let Some(line) = lines.next().await {
         let line1 = line.unwrap_or_default();
         stream
@@ -628,19 +638,6 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     }
 
     Ok(tap_device)
-}
-
-fn default_certificate() -> CertificateConfig {
-    CertificateConfig {
-        issuer: DEFAULT_CERT_ISSUER,
-        subject: None,
-        alt_names: vec![],
-        key_type: DEFAULT_KEY_TYPE,
-        key_param: Some(serde_json::from_str(DEFAULT_RSA_KEY_SIZE_FIELD).unwrap_or_default()),
-        key_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_KEY_FILE).display().to_string()),
-        cert_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_CERT_FILE).display().to_string()),
-        chain_path: None,
-    }
 }
 
 pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
