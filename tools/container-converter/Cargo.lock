@@ -1347,7 +1347,7 @@ dependencies = [
 [[package]]
 name = "serde_json"
 version = "1.0.2"
-source = "git+ssh://git@github.com/fortanix/serde-json.git?branch=base64_bytes#fd90ef0a3cc1d450d3247b720860ba48e78bcf57"
+source = "git+https://github.com/fortanix/serde-json.git?branch=base64_bytes#fd90ef0a3cc1d450d3247b720860ba48e78bcf57"
 dependencies = [
  "dtoa",
  "itoa 0.3.4",
