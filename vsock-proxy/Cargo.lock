@@ -56,7 +56,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "serde",
- "serde_json 1.0.2 (git+https://github.com/fortanix/serde-json.git?branch=base64_bytes)",
+ "serde_json 1.0.2",
 ]
 
 [[package]]
@@ -428,10 +428,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codegen-annotations"
-version = "0.1.0"
-
-[[package]]
 name = "codespan-reporting"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -469,12 +465,6 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
-
-[[package]]
-name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
 name = "core-foundation"
@@ -580,15 +570,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "diff"
-version = "0.1.0"
-dependencies = [
- "itertools",
- "serde",
- "serde_json 1.0.68",
-]
-
-[[package]]
 name = "dtoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -640,7 +621,7 @@ dependencies = [
  "hyper",
  "lazy_static 1.4.0",
  "log 0.3.9",
- "mime 0.2.6",
+ "mime",
  "serde",
  "serde_derive",
  "serde_ignored",
@@ -661,7 +642,7 @@ dependencies = [
  "hyper",
  "lazy_static 1.4.0",
  "log 0.3.9",
- "mime 0.2.6",
+ "mime",
  "serde",
  "serde_derive",
  "serde_ignored",
@@ -685,7 +666,7 @@ dependencies = [
  "futures 0.3.16",
  "hyper",
  "interfaces",
- "ipnetwork 0.18.0",
+ "ipnetwork",
  "lazy_static 1.4.0",
  "log 0.4.14",
  "mbedtls",
@@ -755,14 +736,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "error-spanned"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "syn",
-]
-
-[[package]]
 name = "etherparse"
 version = "0.10.1"
 source = "git+https://github.com/fortanix/etherparse.git?branch=udp_checksum_from_slice#f7d1ee7ddd5705d674bf93d23c621a5408c4f30a"
@@ -781,10 +754,6 @@ checksum = "b394ed3d285a429378d3b384b9eb1285267e7df4b166df24b7a6939a04dc392e"
 dependencies = [
  "instant",
 ]
-
-[[package]]
-name = "flags-trait"
-version = "0.1.0"
 
 [[package]]
 name = "foreign-types"
@@ -981,15 +950,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "heck"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1035,7 +995,7 @@ dependencies = [
  "httparse",
  "language-tags",
  "log 0.3.9",
- "mime 0.2.6",
+ "mime",
  "num_cpus",
  "time",
  "traitobject",
@@ -1142,29 +1102,11 @@ dependencies = [
 
 [[package]]
 name = "ipnetwork"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02c3eaab3ac0ede60ffa41add21970a7df7d91772c03383aac6c2c3d53cc716b"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "ipnetwork"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4088d739b183546b239688ddbc79891831df421773df95e236daf7867866d355"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "itertools"
-version = "0.7.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d47946d458e94a1b7bcabbf6521ea7c037062c81f534615abcad76e84d4970d"
-dependencies = [
- "either",
 ]
 
 [[package]]
@@ -1276,15 +1218,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "macro-helpers"
-version = "0.1.0"
-dependencies = [
- "error-spanned",
- "proc-macro2",
- "syn",
-]
-
-[[package]]
 name = "matches"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1379,12 +1312,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mime"
-version = "0.3.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
-
-[[package]]
 name = "mio"
 version = "0.6.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1425,66 +1352,6 @@ dependencies = [
  "net2",
  "winapi 0.2.8",
  "ws2_32-sys",
-]
-
-[[package]]
-name = "model-macro-types"
-version = "0.1.0"
-dependencies = [
- "convert_case",
- "error-spanned",
- "macro-helpers",
- "proc-macro2",
- "quote",
- "strum",
- "syn",
- "thiserror",
-]
-
-[[package]]
-name = "model-macros"
-version = "0.1.0"
-dependencies = [
- "flags-trait",
- "model-macros-inner",
-]
-
-[[package]]
-name = "model-macros-inner"
-version = "0.1.0"
-dependencies = [
- "error-spanned",
- "macro-helpers",
- "model-macro-types",
- "proc-macro2",
- "quote",
- "std-utils",
- "strum",
- "syn",
- "thiserror",
-]
-
-[[package]]
-name = "model_types"
-version = "0.1.0"
-dependencies = [
- "bitflags",
- "chrono",
- "codegen-annotations",
- "diff",
- "ipnetwork 0.17.0",
- "mime 0.3.16",
- "model-macros",
- "pck-types",
- "rustc-serialize",
- "serde",
- "serde-value",
- "serde_json 1.0.2 (git+ssh://git@bitbucket.org/fortanix/serde-json.git?branch=base64_bytes)",
- "strum",
- "thiserror",
- "time",
- "url 1.7.2",
- "uuid 1.1.1",
 ]
 
 [[package]]
@@ -1765,27 +1632,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "ordered-float"
-version = "2.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97c9d06878b3a851e8026ef94bf7fef9ba93062cd412601da4d9cf369b1cc62d"
-dependencies = [
- "num-traits 0.2.14",
-]
-
-[[package]]
 name = "parent"
 version = "0.1.0"
 dependencies = [
+ "api-model",
  "async-process",
  "clap",
  "em-app",
  "env_logger 0.7.1",
  "etherparse",
  "futures 0.3.16",
- "ipnetwork 0.18.0",
+ "ipnetwork",
  "log 0.4.14",
- "model_types",
  "nix 0.26.2",
  "parent_lib",
  "pcap",
@@ -1859,13 +1717,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "winapi 0.3.9",
-]
-
-[[package]]
-name = "pck-types"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -2347,16 +2198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-value"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
-dependencies = [
- "ordered-float",
- "serde",
-]
-
-[[package]]
 name = "serde_bytes"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2409,18 +2250,6 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.2"
-source = "git+ssh://git@bitbucket.org/fortanix/serde-json.git?branch=base64_bytes#fd90ef0a3cc1d450d3247b720860ba48e78bcf57"
-dependencies = [
- "dtoa",
- "itoa 0.3.4",
- "num-traits 0.1.43",
- "rustc-serialize",
- "serde",
-]
-
-[[package]]
-name = "serde_json"
 version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f690853975602e1bfe1ccbf50504d67174e3bcf340f23b5ea9992e0587a52d8"
@@ -2451,12 +2280,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1_smol"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
-
-[[package]]
 name = "shared"
 version = "0.1.0"
 dependencies = [
@@ -2465,7 +2288,7 @@ dependencies = [
  "byteorder",
  "clap",
  "futures 0.3.16",
- "ipnetwork 0.18.0",
+ "ipnetwork",
  "log 0.4.14",
  "rtnetlink",
  "serde",
@@ -2542,35 +2365,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "std-utils"
-version = "0.1.0"
-
-[[package]]
 name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
-
-[[package]]
-name = "strum"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaf86bbcfd1fa9670b7a129f64fc0c9fcbbfe4f1bc4210e9e98fe71ffc12cde2"
-dependencies = [
- "strum_macros",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "syn"
@@ -2819,12 +2617,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-segmentation"
-version = "1.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8895849a949e7845e06bd6dc1aa51731a103c42707010a5b591c0038fb73385b"
-
-[[package]]
 name = "unicode-width"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2883,17 +2675,6 @@ checksum = "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
 dependencies = [
  "rand 0.6.5",
  "serde",
-]
-
-[[package]]
-name = "uuid"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6d5d669b51467dcf7b2f1a796ce0f955f05f01cafda6c19d6e95f730df29238"
-dependencies = [
- "getrandom",
- "serde",
- "sha1_smol",
 ]
 
 [[package]]

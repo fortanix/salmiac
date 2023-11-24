@@ -12,7 +12,7 @@ use std::process;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{error, info, warn};
-use model_types::ByteUnit;
+use api_model::ByteUnit;
 use shared::models::UserProgramExitStatus;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
