@@ -678,7 +678,7 @@ dependencies = [
  "sdkms",
  "serde",
  "serde_cbor",
- "serde_json 1.0.68",
+ "serde_json 1.0.2",
  "shared",
  "sysinfo",
  "tokio",

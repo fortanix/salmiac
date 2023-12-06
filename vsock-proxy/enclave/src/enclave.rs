@@ -40,10 +40,7 @@ use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{
-    create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult,
-    CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
-};
+use crate::certificate::{create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
     create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options, get_available_encrypted_space,
@@ -656,15 +653,20 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        let mut key = create_signer_key()?;
-        let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-        let certificate = request_certificate(vsock, csr).await?;
+        if let Some(kp) = &cert_config.key_param {
+            let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+            let mut key = create_signer_key(key_size as u32)?;
+            let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+            let certificate = request_certificate(vsock, csr).await?;
 
-        result.push(CertificateWithPath::new(
-            CertificateResult { certificate, key },
-            cert_config,
-            fs_root,
-        ));
+            result.push(CertificateWithPath::new(
+                CertificateResult { certificate, key },
+                cert_config,
+                fs_root,
+            ));
+        } else {
+            return Err(format!("key param not specified for cert config {:?}", cert_config));
+        }
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;

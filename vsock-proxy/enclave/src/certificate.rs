@@ -23,13 +23,10 @@ use crate::enclave::write_to_file;
 pub const DEFAULT_CERT_DIR: &str = "/opt/fortanix/enclave-os/default_cert";
 const DEFAULT_KEY_FILE: &str = "app_private.pem";
 const DEFAULT_CERT_FILE: &str = "app_public.pem";
-const DEFAULT_CERT_RSA_KEY_SIZE: u32 = 3072;
+pub const DEFAULT_CERT_RSA_KEY_SIZE: u32 = 3072;
 const DEFAULT_KEY_TYPE: KeyType = KeyType::Rsa;
 const DEFAULT_CERT_ISSUER: CertIssuer = CertIssuer::ManagerCa;
 const DEFAULT_RSA_KEY_SIZE_FIELD: &str = const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
-
-const RSA_SIZE: u32 = 3072;
-
 const RSA_EXPONENT: u32 = 0x10001;
 
 pub struct CertificateResult {
@@ -119,9 +116,9 @@ pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin +
     extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)
 }
 
-pub(crate) fn create_signer_key() -> Result<Pk, String> {
+pub(crate) fn create_signer_key(key_size: u32) -> Result<Pk, String> {
     let mut rng = Rdrand;
-    Pk::generate_rsa(&mut rng, RSA_SIZE, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))
+    Pk::generate_rsa(&mut rng, key_size, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))
 }
 
 pub(crate) trait CSRApi {
@@ -169,14 +166,12 @@ mod tests {
 
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use mbedtls::pk::Pk;
+    use serde_json::value::Value;
     use parent_lib::{communicate_certificates, CertificateApi};
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
 
-    use crate::certificate::{
-        create_signer_key, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE,
-        DEFAULT_KEY_FILE,
-    };
+    use crate::certificate::{create_signer_key, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
     use crate::enclave::setup_enclave_certification;
 
     struct MockCertApi {}
@@ -234,7 +229,7 @@ mod tests {
             subject: None,
             alt_names: vec![],
             key_type: KeyType::Rsa,
-            key_param: None,
+            key_param: Some(Value::from(DEFAULT_CERT_RSA_KEY_SIZE)),
             key_path: None,
             cert_path: None,
             chain_path: None,
@@ -272,7 +267,7 @@ mod tests {
     fn check_default_app_cert_path() {
         let cert_dir = env::temp_dir();
         let def_cert_dir = env::temp_dir();
-        let private_key = create_signer_key().expect("Unable to generate private key");
+        let private_key = create_signer_key(DEFAULT_CERT_RSA_KEY_SIZE).expect("Unable to generate private key");
         let cert_string = "Sample test string";
         let mut cert_info = CertificateWithPath {
             certificate_result: CertificateResult {

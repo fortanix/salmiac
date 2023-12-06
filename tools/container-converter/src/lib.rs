@@ -6,10 +6,7 @@
 
 use api_model::HexString;
 use api_model::enclave::{UserConfig, UserProgramConfig};
-use api_model::converter::{
-    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
-    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
-};
+use api_model::converter::{AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion};
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
 use image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
@@ -46,7 +43,7 @@ pub struct ConverterError {
     pub kind: ConverterErrorKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ConverterErrorKind {
     ImageGet,
     ImagePush,
@@ -59,7 +56,8 @@ pub enum ConverterErrorKind {
     BlockFileCreation,
     ImageFileSystemExport,
     ContainerCreation,
-    BlockFileFull
+    BlockFileFull,
+    BadCertConfig
 }
 
 impl fmt::Display for ConverterError {
@@ -75,6 +73,9 @@ const PARENT_IMAGE: &str = "parent-base";
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
 const ENCLAVE_IMAGE_DEBUG: &str = "enclave-base-debug";
+
+const DEFAULT_RSA_SIZE: u32 = 3072;
+const RSA_KEY_SIZES: [u32; 3] = [ 2048, DEFAULT_RSA_SIZE, 4096 ];
 
 pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
     let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
@@ -92,16 +93,53 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     })?
 }
 
-async fn run0(
-    conversion_request: NitroEnclavesConversionRequest,
-    images_to_clean_snd: Sender<ImageToClean>,
-) -> Result<NitroEnclavesConversionResponse> {
-    if conversion_request.request.input_image.name == conversion_request.request.output_image.name {
+fn validate_request(request: &NitroEnclavesConversionRequest) -> Result<()> {
+
+    if request.request.input_image.name == request.request.output_image.name {
         return Err(ConverterError {
             message: "Input and output images must be different".to_string(),
             kind: ConverterErrorKind::BadRequest,
         });
     }
+
+    if !request.request.converter_options.certificates.is_empty() {
+        for cert_settings in &request.request.converter_options.certificates {
+            if let Some(kp) = &cert_settings.key_param {
+                let key_size = kp.as_u64().unwrap_or(DEFAULT_RSA_SIZE.into());
+                // If a certificate is configured and it contains a valid number, it should
+                // be one of the RSA_KEY_SIZES that is supported.
+                if !RSA_KEY_SIZES.contains(&(key_size as u32)) {
+                    return Err(ConverterError {
+                        message: format!("Key param {:?} of certificate is not supported", key_size),
+                        kind: ConverterErrorKind::BadCertConfig,
+                    });
+                }
+            }
+
+            if let Some(_s) = &cert_settings.chain_path {
+                return Err(ConverterError {
+                    message: "Chain path is not supported on this platform yet".to_string(),
+                    kind: ConverterErrorKind::BadCertConfig,
+                });
+            }
+        }
+    }
+
+    if !request.request.converter_options.ca_certificates.is_empty() {
+        return Err(ConverterError {
+            message: "CA certificates are not supported on this platform yet".to_string(),
+            kind: ConverterErrorKind::BadCertConfig,
+        });
+    }
+    Ok(())
+}
+
+async fn run0(
+    conversion_request: NitroEnclavesConversionRequest,
+    images_to_clean_snd: Sender<ImageToClean>,
+) -> Result<NitroEnclavesConversionResponse> {
+
+    validate_request(&conversion_request)?;
 
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
     info!("Parent base image is {}", parent_image);
@@ -415,8 +453,10 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
 #[cfg(test)]
 mod tests {
     use std::env;
+    use api_model::converter::{CaCertificateConfig, CertificateConfig, CertIssuer, ConversionRequest, ConversionRequestImageInfo, ConverterOptions, KeyType, NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions};
+    use serde_json::Value;
 
-    use crate::{preserve_images_list, ImageKind};
+    use crate::{preserve_images_list, ImageKind, validate_request, ConverterErrorKind};
 
     #[test]
     fn preserve_image_list_correct_pass() -> () {
@@ -452,4 +492,180 @@ mod tests {
             assert_eq!(left, right);
         }
     }
+
+    #[test]
+    fn validate_converter_request_same_input_output_image_name() -> () {
+        let request = NitroEnclavesConversionRequest { request: ConversionRequest {
+            input_image: ConversionRequestImageInfo { name: "sample-image".to_string(), auth_config: None },
+            output_image: ConversionRequestImageInfo { name: "sample-image".to_string(), auth_config: None },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+            },
+        }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert!(converter_error.message.contains("Input and output images must be different"));
+        assert!(converter_error.kind == ConverterErrorKind::BadRequest);
+    }
+
+    #[test]
+    fn validate_converter_request_correct_key_param() -> () {
+        let request = NitroEnclavesConversionRequest { request: ConversionRequest {
+            input_image: ConversionRequestImageInfo { name: "input-image".to_string(), auth_config: None },
+            output_image: ConversionRequestImageInfo { name: "output-image".to_string(), auth_config: None },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![ CertificateConfig{
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+            },
+        }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
+        let res = validate_request(&request);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn validate_converter_request_incorrect_key_param() -> () {
+        let request = NitroEnclavesConversionRequest { request: ConversionRequest {
+            input_image: ConversionRequestImageInfo { name: "input-image".to_string(), auth_config: None },
+            output_image: ConversionRequestImageInfo { name: "output-image".to_string(), auth_config: None },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![ CertificateConfig{
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(1024)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+            },
+        }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert!(converter_error.message.contains("Key param 1024 of certificate is not supported"));
+        assert!(converter_error.kind == ConverterErrorKind::BadCertConfig);
+    }
+
+    #[test]
+    fn validate_converter_request_unsupported_chain_path() -> () {
+        let request = NitroEnclavesConversionRequest { request: ConversionRequest {
+            input_image: ConversionRequestImageInfo { name: "input-image".to_string(), auth_config: None },
+            output_image: ConversionRequestImageInfo { name: "output-image".to_string(), auth_config: None },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![ CertificateConfig{
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: Some("/tmp/capath".to_string()),
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+            },
+        }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert!(converter_error.message.contains("Chain path is not supported on this platform yet"));
+        assert!(converter_error.kind == ConverterErrorKind::BadCertConfig);
+    }
+    #[test]
+    fn validate_converter_request_unsupported_ca_certificates() -> () {
+        let request = NitroEnclavesConversionRequest { request: ConversionRequest {
+            input_image: ConversionRequestImageInfo { name: "input-image".to_string(), auth_config: None },
+            output_image: ConversionRequestImageInfo { name: "output-image".to_string(), auth_config: None },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![ CaCertificateConfig {
+                    ca_path: None,
+                    ca_cert: None,
+                    system: None,
+                } ],
+                certificates: vec![ CertificateConfig{
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+            },
+        }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert!(converter_error.message.contains("CA certificates are not supported on this platform yet"));
+        assert!(converter_error.kind == ConverterErrorKind::BadCertConfig);
+    }
+
 }

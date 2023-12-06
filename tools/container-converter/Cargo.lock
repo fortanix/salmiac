@@ -332,7 +332,7 @@ dependencies = [
  "nix",
  "rand",
  "serde",
- "serde_json 1.0.81",
+ "serde_json 1.0.2",
  "shiplift",
  "sys-mount",
  "tar 0.4.38 (git+https://github.com/alexcrichton/tar-rs)",
