@@ -1,0 +1,83 @@
+name: Build Solution
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Pull main repository
+        uses: actions/checkout@v3
+
+      - name: Pull submodules
+        uses: actions/checkout@v3
+        with:
+          repository: fortanix/app-test-infra-test
+          token: ${{ secrets.PAT }}
+          path: tools/app-test-infra
+
+      - name: Configure AWS credentials
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-west-1
+
+      - name: Login into ECR
+        uses: aws-actions/amazon-ecr-login@v2.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper
+
+      - name: Install docker-credential-ecr-login
+        run: |
+          # Download the latest release of docker-credential-ecr-login
+          aws s3 cp s3://fortanix-internal-artifact-repository/other-packages/docker-credential-ecr-login .
+
+          # Make it executable
+          chmod +x docker-credential-ecr-login
+
+          # Move it to a directory in the PATH
+          sudo mv docker-credential-ecr-login /usr/local/bin/
+
+      - name: Build Rust code
+        run: |
+          ./build-solution.sh
+
+      - name: Run Rust unit tests
+        env:
+          FORTANIX_API_KEY: ${{ secrets.FORTANIX_API_KEY }}
+          OVERLAYFS_UNIT_TEST_API_KEY: ${{ secrets.OVERLAYFS_UNIT_TEST_API_KEY }}
+        run: |
+          ./unit-test-solution.sh
+
+      - name: Build application tests container
+        run: |
+          ./build-app-tests-container.sh
+
+      - name: Run application tests container
+        env:
+          FORTANIX_API_KEY: ${{ secrets.FORTANIX_API_KEY }}
+          OVERLAYFS_UNIT_TEST_API_KEY: ${{ secrets.OVERLAYFS_UNIT_TEST_API_KEY }}
+        run: |
+          ./run-application-tests.sh ${{ env.TESTS_CONTAINER_ECR }} ${{ env.FORTANIX_API_KEY }}
