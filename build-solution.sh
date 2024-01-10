@@ -23,24 +23,7 @@ if [ ! -z "$2" ]; then
   features_list="--features "$2
 fi;
 
-mkdir -p tools/container-converter/src/resources/enclave
-mkdir -p tools/container-converter/src/resources/parent
-
-pushd vsock-proxy
-cargo build $cargo_build_flag $features_list
-
-cp "target/${vsock_proxy_bin_folder}/enclave" ../tools/container-converter/src/resources/enclave
-cp "target/${vsock_proxy_bin_folder}/parent" ../tools/container-converter/src/resources/parent
-
-popd
-
-pushd enclave-startup
 rustup target add $enclave_startup_toolchain
-cargo build $cargo_build_flag $features_list --target $enclave_startup_toolchain
-file "target/$enclave_startup_bin_folder/enclave-startup"
-cp "target/$enclave_startup_bin_folder/enclave-startup" ../tools/container-converter/src/resources/enclave
-
-popd
 
 pushd tools/container-converter
 cargo build $cargo_build_flag $features_list
