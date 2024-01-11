@@ -29,8 +29,3 @@ pushd tools/container-converter
 cargo build $cargo_build_flag $features_list
 
 popd
-
-pushd container-converter-service
-cargo build $cargo_build_flag $features_list
-
-popd
