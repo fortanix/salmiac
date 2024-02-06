@@ -26,5 +26,5 @@ jobs:
           path: tools/app-test-infra
 
   call-build-solution:
-    uses: ./.github/workflows/build-solution.yml@main
+    uses: ./.github/workflows/build-solution.yml
     secrets: inherit
