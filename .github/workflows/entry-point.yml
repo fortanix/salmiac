@@ -25,6 +25,6 @@ jobs:
           token: ${{ secrets.PAT }}
           path: tools/app-test-infra
 
-      call-build-solution:
+      - name: Call build solution
         uses: ./.github/workflows/build-solution.yml@main
         secrets: inherit
