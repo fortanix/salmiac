@@ -1,13 +1,18 @@
-name: Build Solution
+name: Reusable workflow that builds solution and runs tests
 
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
-
-env:
-  CARGO_TERM_COLOR: always
+  workflow_call:
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      EC2_PRIVATE_SSH_KEY:
+        required: true
+      FORTANIX_API_KEY:
+        required: true
+      OVERLAYFS_UNIT_TEST_API_KEY:
+        required: true
 
 jobs:
   build:
@@ -15,16 +20,6 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
-      - name: Pull main repository
-        uses: actions/checkout@v3
-
-      - name: Pull submodules
-        uses: actions/checkout@v3
-        with:
-          repository: fortanix/app-test-infra-test
-          token: ${{ secrets.PAT }}
-          path: tools/app-test-infra
-
       - name: Configure AWS credentials
         run: |
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
