@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  checkout:
 
     runs-on: ubuntu-20.04
 
@@ -25,6 +25,6 @@ jobs:
           token: ${{ secrets.PAT }}
           path: tools/app-test-infra
 
-      - name: Call build solution
-        uses: ./.github/workflows/build-solution.yml@main
-        secrets: inherit
+  call-build-solution:
+    uses: ./.github/workflows/build-solution.yml@main
+    secrets: inherit
