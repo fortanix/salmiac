@@ -26,7 +26,7 @@ echo "FORTANIX_API_KEY=$FORTANIX_API_KEY" >> docker-env
 docker pull $TESTS_CONTAINER
 docker save $TESTS_CONTAINER -o salmiac-tests-container.tar.gz
 
-SSH_OPTS="-o StrictHostKeyChecking=no -o BatchMode=yes"
+SSH_OPTS="-o StrictHostKeyChecking=no -o BatchMode=yes -o ServerAliveInterval=60"
 
 echo "######### Copying tests container to Nitro VM. ###############"
 scp $SSH_OPTS salmiac-tests-container.tar.gz $SSH_USERNAME_AWS@$VM_ADDRESS:~/salmiac-tests-container.tar.gz
