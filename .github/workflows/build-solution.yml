@@ -47,9 +47,10 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           targets: x86_64-unknown-linux-musl
+          toolchain: nightly
 
       - name: Setup SSH
         run: |
