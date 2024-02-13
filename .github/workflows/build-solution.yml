@@ -13,6 +13,8 @@ on:
         required: true
       OVERLAYFS_UNIT_TEST_API_KEY:
         required: true
+      PAT:
+        required: true
   push:
     branches: [ "master" ]
   pull_request:
@@ -29,6 +31,8 @@ jobs:
     steps:
       - name: Pull main repository
         uses: actions/checkout@v3
+        with:
+          repository: fortanix/salmiac
 
       - name: Pull submodules
         uses: actions/checkout@v3
