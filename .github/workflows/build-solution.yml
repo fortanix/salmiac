@@ -33,8 +33,7 @@ jobs:
       - name: Pull submodules
         uses: actions/checkout@v3
         with:
-          repository: fortanix/app-test-infra-test
-          token: ${{ secrets.PAT }}
+          repository: fortanix/app-test-infra
           path: tools/app-test-infra
 
       - name: Configure AWS credentials
