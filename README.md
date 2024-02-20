@@ -6,7 +6,7 @@ A confidential VM running unmodified container images in AWS [Nitro Enclaves](ht
 Salmiac makes it possible to run an application in isolated compute environments to protect and securely process highly sensitive data.
 
 By default bare Nitro Enclaves doesn't provide any networking capability outside of the enclave environment as well
-as no persistent storage, meaning that all your data is lost when container image finishes it's execution.
+as no persistent storage, meaning that all your data is lost when container image finishes its execution.
 
 Salmiac enhances Nitro Enclaves by enabling networking for external communication and providing encrypted persistent storage.
 
@@ -28,7 +28,7 @@ Quick Start Guide
    Follow [this](https://docs.docker.com/engine/install/) guide.
 
 
-3. Setup your Nitro-enabled AWS EC2 instance:
+3. Set up your Nitro-enabled AWS EC2 instance:
     - Install docker on your EC2:
       Follow step #2
     - Install nitro-cli on your EC2:
@@ -51,7 +51,7 @@ Quick Start Guide
     ```bash
       # Run from the root of the repository
       cd salmiac
-      ./build-solution.sh   
+      ./build-converter.sh   
     ```
 
 6. Create a simple conversion request json file
