@@ -19,23 +19,24 @@ Useful links
 
 Quick Start Guide
 --------------
+This guide allows you to build salmiac from source and convert your docker application into a one that can run in a nitro enclave. 
 
-1. Install Rust:
-   Follow [this](https://www.rust-lang.org/tools/install) guide.
+1. Set up your Ubuntu based build system:
+    - Install Rust:
+      Follow [this](https://www.rust-lang.org/tools/install) guide.
+    - Install Docker:
+      Follow [this](https://docs.docker.com/engine/install/) guide.
+    - Install tools needed to build the linux kernel:
+      Follow [this](https://kernelnewbies.org/KernelBuild) guide.
 
-
-2. Install Docker:
-   Follow [this](https://docs.docker.com/engine/install/) guide.
-
-
-3. Set up your Nitro-enabled AWS EC2 instance:
+2. Set up your Nitro-enabled AWS EC2 instance:
     - Install docker on your EC2:
-      Follow step #2
+      Follow [this](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-docker.html) guide.
     - Install nitro-cli on your EC2:
       Follow [this](https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-cli-install.html) guide.
 
 
-4. Build requisite docker images needed to run container converter
+3. Build requisite docker images needed to run container converter
    ```bash
    # Run from the root of the repository
    # build enclave-base image
@@ -43,28 +44,41 @@ Quick Start Guide
    docker build -t enclave-base .
          
    # build parent-base image
-   cd ..//parent-base
+   cd ../parent-base
    docker build -t parent-base .
     ```
 
-5. Compile container converter:
+4. Build the enclave kernel. This step takes a long time and needs to be done only once. The artifacts produced by this step need not be cleaned up unless the kernel config is updated.
+   ```bash
+   cd amzn-linux-nbd
+   ./build-enclave-kernel.sh build
+    ```
+
+5. Build the converter image. To produce a debug build of the converter, ensure the release flag is removed from the step below.
     ```bash
       # Run from the root of the repository
       cd salmiac
-      ./build-converter.sh   
+      # To produce a debug build of the converter, ensure the release flag is removed from the step below.
+      ./build-converter.sh --release
+
+      cd docker
+      # If a debug build of the converter was produced, use debug as an argument to the below script
+      ./build-conv-container.sh release
     ```
 
-6. Create a simple conversion request json file
+6. Create a simple conversion request json file (say /tmp/req.json)
+   More details about each field of the conversion request can be found in /salmiac/api-model/src/converter.rs
    ```javascript
     {
       "input_image": {
-         "name": "<your application image tag>",         
+         "name": "hello-world", 
       },
       "output_image": {
-         "name": "<your output image tag>",            
+         "name": "hello-world-nitro",
       },
       "converter_options": {
-         "debug": true
+         "push_converted_image": false,
+         "enable_overlay_filesystem_persistence": false
       },
       "nitro_enclaves_options": {
          "cpu_count": 2,
@@ -73,19 +87,19 @@ Quick Start Guide
    }
    ```
 
-7. Make your application Nitro VM-capable by running container converter with the file from previous step
+7. Make your application Nitro VM-capable by running container converter with the file from previous step.
+   The converter by default pulls the input image and pushes the output image to remote repositories. These images are then cleaned up from the local docker cache. In our example, the output image push is disabled in the request json and to preserve the images in the docker cache, 'PRESERVE_IMAGES' environment variable is specified.
    ```bash
-      # Run from the root of the repository
-      cd tools/container-converter/target/debug
-      ./container-converter --request-file <path to file from step 4>
+      docker run --rm --name converter --user 0 --privileged -v /var/run/docker.sock:/var/run/docker.sock -e PRESERVE_IMAGES=input,result -v /tmp/req-files:/app converter --request-file /app/req.json
     ```
 
-8. Copy converted image into your EC2 instance and run the image
+8. Copy converted image into your EC2 instance and run the image.
+   Note the use of the environment variable which disables the use of default certificates, which allows you to skip access to Fortanix CCM. Read more about environment variables used in salmiac here - /salmiac/ENV_VARS.md
    ```bash
       # Copy your converted image from step #7 into your EC2 isntance
       # ...       
       # Run copied image inside EC2
-      docker run -it --rm --privileged -v /run/nitro_enclaves:/run/nitro_enclaves <your image name>
+      docker run -it --rm --privileged -v /run/nitro_enclaves:/run/nitro_enclaves -e ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE=true hello-world-nitro
     ```
 
 # Contributing
