@@ -25,9 +25,17 @@ This guide allows you to build salmiac from source and convert your docker appli
     - Install Rust:
       Follow [this](https://www.rust-lang.org/tools/install) guide.
     - Install Docker:
-      Follow [this](https://docs.docker.com/engine/install/) guide.
+      Follow [this](https://docs.docker.com/engine/install/) guide to install version 24.0.x
+      OR
+      ```bash
+      apt-get install docker-ce=5:24.0.1-1~ubuntu.20.04~focal docker-ce-cli=5:24.0.1-1~ubuntu.20.04~focal  containerd.io
+      ```
     - Install tools needed to build the linux kernel:
       Follow [this](https://kernelnewbies.org/KernelBuild) guide.
+    - Install additional dependencies:
+      ```bash
+      apt-get install pkg-config libclang-dev cmake libpcap-dev
+      ```
 
 2. Set up your Nitro-enabled AWS EC2 instance:
     - Install docker on your EC2:

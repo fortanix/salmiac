@@ -36,8 +36,8 @@ buildkernel() {
   # Build the enclave kernel
   make prepare
   make modules_prepare
-  make modules
-  make
+  make modules -j
+  make -j
   make bzImage
 
   # Once build is complete, we would need a copy of the bzImage file

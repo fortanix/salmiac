@@ -13,5 +13,10 @@ mv ./staging/container-converter ./staging/server
 docker save -o ./staging/nitro-enclave-base.tar enclave-base
 docker save -o ./staging/nitro-parent-base.tar parent-base
 
+# The Dockerfile used to build the converter uses a prebuilt parent-base
+# image by default which resides in the Fortanix ECR repository. The users
+# of this script can use the parent-base image which was built by them.
+docker tag parent-base 513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-parent-base:1.1.3
+
 # Build the converter
 docker build -t converter .
