@@ -35,9 +35,9 @@ RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
 # Install nitro-cli
 ENV NITRO_CLI_INSTALL_DIR=./install
-RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git && \
+RUN git clone https://github.com/MihirLuthra/aws-nitro-enclaves-cli.git && \
     cd aws-nitro-enclaves-cli && \
-    git checkout v1.1.0 && \
+    git checkout mihir/1-build-on-amzn && \
     make nitro-cli-native && make vsock-proxy-native && make install
 
 
