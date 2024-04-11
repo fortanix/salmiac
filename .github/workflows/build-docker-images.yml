@@ -18,7 +18,7 @@ on:
 jobs:
   build-docker-images:
     runs-on: ubuntu-20.04
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
+    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'edited')
     steps:
       - name: Pull main repository
         uses: actions/checkout@v3
@@ -28,11 +28,13 @@ jobs:
       - name: Build docker images
         run: |
           cd docker/enclave-base
-          docker build -t fortanix/enclave-base .
+          TAG=$(cat tag.txt)
+          docker build -t fortanix/enclave-base:$TAG .
           docker save -o /tmp/enclave-base.tar fortanix/enclave-base
 
           cd ../parent-base
-          docker build -t fortanix/parent-base .
+          TAG=$(cat tag.txt)
+          docker build -t fortanix/parent-base:$TAG .
           docker save -o /tmp/parent-base.tar fortanix/parent-base
 
       - name: Upload enclave-base artifact
@@ -57,18 +59,12 @@ jobs:
         with:
           name: enclave-base
           path: /tmp/enclave-base
-      - name: Load enclave-base image
-        run: |
-          docker load --input /tmp/enclave-base/enclave-base.tar
 
       - name: Download parent-base artifact
         uses: actions/download-artifact@v3
         with:
           name: parent-base
           path: /tmp/parent-base
-      - name: Load parent-base image
-        run: |
-          docker load --input /tmp/parent-base/parent-base.tar
 
       - name: Login to Docker Hub
         uses: docker/login-action@v1
@@ -76,7 +72,10 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Push docker images
+      - name: Load and push docker images
         run: |
-          docker push fortanix/enclave-base
-          docker push fortanix/parent-base
+          enclave_base_load_output = docker load --input /tmp/enclave-base/enclave-base.tar
+          parent_base_load_output = docker load --input /tmp/parent-base/parent-base.tar
+
+          docker push $(echo "enclave_base_load_output" | awk '{print $3}')
+          docker push $(echo "parent_base_load_output" | awk '{print $3}')
