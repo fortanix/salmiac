@@ -74,8 +74,8 @@ jobs:
 
       - name: Load and push docker images
         run: |
-          enclave_base_load_output = docker load --input /tmp/enclave-base/enclave-base.tar
-          parent_base_load_output = docker load --input /tmp/parent-base/parent-base.tar
+          enclave_base_load_output=$(docker load --input /tmp/enclave-base/enclave-base.tar)
+          parent_base_load_output=$(docker load --input /tmp/parent-base/parent-base.tar)
 
-          docker push $(echo "enclave_base_load_output" | awk '{print $3}')
-          docker push $(echo "parent_base_load_output" | awk '{print $3}')
+          docker push $(echo $enclave_base_load_output | awk '{print $3}')
+          docker push $(echo $parent_base_load_output | awk '{print $3}')
