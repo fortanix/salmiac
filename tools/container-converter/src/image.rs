@@ -237,7 +237,7 @@ mod tests {
             repo_tags: None,
             repo_digests: None,
             size: 0,
-            virtual_size: 0,
+            virtual_size: Some(0),
         };
 
         let mut input_image = ImageWithDetails { reference, details };
