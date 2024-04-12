@@ -87,7 +87,7 @@ jobs:
 
       - name: Build Rust code
         run: |
-          ./build-solution.sh
+          ./build-converter.sh
 
       - name: Run Rust unit tests
         env:
