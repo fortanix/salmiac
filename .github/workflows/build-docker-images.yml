@@ -28,12 +28,12 @@ jobs:
       - name: Build docker images
         run: |
           cd docker/enclave-base
-          TAG=$(cat tag.txt)
+          TAG=$(cat tag)
           docker build -t fortanix/enclave-base:$TAG .
           docker save -o /tmp/enclave-base.tar fortanix/enclave-base
 
           cd ../parent-base
-          TAG=$(cat tag.txt)
+          TAG=$(cat tag)
           docker build -t fortanix/parent-base:$TAG .
           docker save -o /tmp/parent-base.tar fortanix/parent-base
 
