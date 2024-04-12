@@ -3,22 +3,22 @@ name: Build and publish Docker Images
 on:
   push:
     branches: [ "master" ]
-    paths:
-      - 'docker/enclave-base/**'
-      - 'docker/parent-base/**'
+#    paths:
+#      - 'docker/enclave-base/**'
+#      - 'docker/parent-base/**'
   pull_request:
     branches: [ "master" ]
-    types:
-      - closed
-      - opened
-    paths:
-      - 'docker/enclave-base/**'
-      - 'docker/parent-base/**'
+#    types:
+#      - closed
+#      - opened
+#    paths:
+#      - 'docker/enclave-base/**'
+#      - 'docker/parent-base/**'
 
 jobs:
   build-docker-images:
     runs-on: ubuntu-20.04
-    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'edited')
+#    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'edited')
     steps:
       - name: Pull main repository
         uses: actions/checkout@v3
@@ -52,7 +52,7 @@ jobs:
   push-docker-images:
     runs-on: ubuntu-20.04
     needs: build-docker-images
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+#    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
     steps:
       - name: Download enclave-base artifact
         uses: actions/download-artifact@v3
