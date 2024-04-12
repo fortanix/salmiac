@@ -47,14 +47,14 @@ jobs:
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set region us-west-1
 
-      - name: Login into ECR
-        uses: aws-actions/amazon-ecr-login@v2.0.1
-
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_PASSWORD }}
           password: ${{ secrets.DOCKER_PAT }}
+
+      - name: Login into ECR
+        uses: aws-actions/amazon-ecr-login@v2.0.1
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
