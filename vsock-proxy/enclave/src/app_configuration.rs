@@ -446,8 +446,7 @@ mod tests {
     use sdkms::api_model::Blob;
     use shared::models::CCMBackendUrl;
 
-    use crate::app_configuration::{normalize_path_and_make_relative, setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, RuntimeConfiguration, SdkmsDataset, ApplicationConfiguration, check_application_config_id};
-    use em_app::compute_app_config_hash;
+    use crate::app_configuration::{normalize_path_and_make_relative, setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, RuntimeConfiguration, SdkmsDataset, ApplicationConfiguration};
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
 
@@ -580,6 +579,7 @@ mod tests {
 
     struct MockDataSet {
         pub json_data: &'static str,
+        pub hash: Blob
     }
 
     impl MockDataSet {
@@ -616,8 +616,13 @@ mod tests {
             &self,
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
+            expected_hash: Blob
         ) -> Result<RuntimeAppConfig, String> {
-            Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
+            if self.hash != expected_hash {
+                Err(format!("Expected hash: {:?} doesn't equal saved hash: {:?}", expected_hash, self.hash))
+            } else {
+                Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
+            }
         }
     }
 
@@ -660,9 +665,9 @@ mod tests {
         };
 
         let credentials = EmAppCredentials::mock();
-        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet { json_data });
+        let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet { json_data, hash: Blob::default() });
 
-        let result = api.get_runtime_configuration(&backend_url, &credentials);
+        let result = api.get_checked_runtime_configuration(&backend_url, &credentials, Blob::default());
         assert!(result.is_ok(), "{:?}", result);
 
         result.unwrap()
@@ -674,6 +679,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
+            hash: Blob::default()
         };
 
         let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
@@ -690,6 +696,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
+            hash: Blob::default()
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("datasets");
@@ -732,6 +739,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
+            hash: Blob::default()
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-location");
@@ -834,20 +842,12 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
+            hash: Blob::from("correct hash".as_bytes().to_vec())
         };
         let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
+        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials, Blob::from("correct hash".as_bytes().to_vec()));
 
-        let app_config_id = {
-            let json = serde_json::to_string(&runtime_config.config).expect("Config to json fail");
-
-            compute_app_config_hash(&json, mbedtls::hash::Type::Sha256).expect("Compute hash fail")
-        };
-
-        let result = check_application_config_id(&runtime_config.config, app_config_id);
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true)
+        assert!(runtime_config.is_ok());
     }
 
     #[test]
@@ -855,15 +855,11 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
+            hash: Blob::from("correct hash".as_bytes().to_vec())
         };
         let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
+        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials, Blob::from("This_is_not_a_valid_hash".as_bytes().to_vec()));
 
-        let app_config_id = Blob::from("This_is_not_a_valid_hash");
-
-        let result = check_application_config_id(&runtime_config.config, app_config_id);
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), false)
+        assert!(runtime_config.is_err());
     }
 }
