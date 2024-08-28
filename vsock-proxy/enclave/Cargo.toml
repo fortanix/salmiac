@@ -15,19 +15,19 @@ async-trait = "0.1.51"
 base64 = "0.13.0"
 clap = "2.33"
 const_format = "0.2.32"
-em-app = { git = "https://github.com/fortanix/rust-sgx.git" }
+em-app = { git = "https://github.com/fortanix/rust-sgx.git", branch = "ns/RTE-147" }
 env_logger = "0.7"
 futures = "0.3"
 hyper = "0.10"
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
-mbedtls = { version = "0.9.3" }
+mbedtls = { version = "0.12.1" }
 nix = "0.15.0"
 pkix = "0.1.2"
 rand = "0.8.5"
 rtnetlink = "0.8.0"
-sdkms = { version = "0.2.1", default-features = false, features = ["hyper-native-tls"] }
+sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
 serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }

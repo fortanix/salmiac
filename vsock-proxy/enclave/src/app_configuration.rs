@@ -21,8 +21,6 @@ use shared::models::CCMBackendUrl;
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
-use em_app::compute_app_config_hash;
-use em_app::utils::models;
 
 // All of the paths below are purposefully made relative because they are joined with the path pointing to the chroot environment.
 pub const APPLICATION_CONFIG_DIR: &str = "opt/fortanix/enclave-os/app-config/rw";
@@ -58,33 +56,13 @@ where
 
     let app_config = api
         .runtime_config_api()
-        .get_runtime_configuration(&ccm_backend_url, em_app_credentials)?;
-
-    let _app_config_id_check = check_application_config_id(&app_config.config, app_config_id);
-
-    // reverts https://fortanix.atlassian.net/browse/SALM-113 until we figure out how to properly handle debug
-    // enclave in ccm.test
-    /*if !app_config_id_check.unwrap_or(false) {
-        return Err(format!("Received app config id doesn't match app config id from the user. The application won't start."));
-    }*/
+        .get_checked_runtime_configuration(&ccm_backend_url, em_app_credentials, app_config_id)?;
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
 
     setup_datasets(&app_config.extra, em_app_credentials, api.dataset_api(), fs_root)?;
 
     setup_app_configs(&app_config.config.app_config, fs_root)
-}
-
-fn check_application_config_id(received_app_config: &models::HashedConfig, app_config_id_from_user: Blob) -> Result<bool, String> {
-    let received_app_config_id = {
-        let json = serde_json::to_string(&received_app_config)
-            .map_err(|e| format!("Failed to serialize app config to json. {:?}", e))?;
-
-        compute_app_config_hash(&json, mbedtls::hash::Type::Sha256)
-            .map_err(|e| format!("Failed to compute app config hash. App config is {}. {:?}", json, e))?
-    };
-
-    Ok(received_app_config_id == app_config_id_from_user)
 }
 
 fn write_runtime_configuration_to_file(app_config: &RuntimeAppConfig, fs_root: &Path) -> Result<(), String> {
@@ -319,27 +297,30 @@ impl ApplicationConfiguration for EmAppApplicationConfiguration {
 pub(crate) struct EmAppRuntimeConfiguration {}
 
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
-    fn get_runtime_configuration(
+    fn get_checked_runtime_configuration(
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
+        expected_hash: Blob
     ) -> Result<RuntimeAppConfig, String> {
-        em_app::utils::get_runtime_configuration(
+        em_app::utils::get_checked_runtime_configuration(
             &ccm_backend_url.host,
             ccm_backend_url.port,
             credentials.certificate.clone(),
             credentials.key.clone(),
             credentials.root_certificate.clone(),
             None,
+            expected_hash
         )
     }
 }
 
 pub(crate) trait RuntimeConfiguration {
-    fn get_runtime_configuration(
+    fn get_checked_runtime_configuration(
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
+        expected_hash: Blob
     ) -> Result<RuntimeAppConfig, String>;
 }
 
@@ -631,7 +612,7 @@ mod tests {
     }
 
     impl RuntimeConfiguration for MockDataSet {
-        fn get_runtime_configuration(
+        fn get_checked_runtime_configuration(
             &self,
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
@@ -855,7 +836,7 @@ mod tests {
             json_data: VALID_APP_CONF,
         };
         let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
+        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
 
         let app_config_id = {
             let json = serde_json::to_string(&runtime_config.config).expect("Config to json fail");
@@ -876,7 +857,7 @@ mod tests {
             json_data: VALID_APP_CONF,
         };
         let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
+        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
 
         let app_config_id = Blob::from("This_is_not_a_valid_hash");
 
