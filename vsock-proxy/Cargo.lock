@@ -584,27 +584,54 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 [[package]]
 name = "em-app"
 version = "0.4.0"
+source = "git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147#a8a42b160201cc3ea7d8bc293b2803db559adc67"
+dependencies = [
+ "aws-nitro-enclaves-nsm-api",
+ "b64-ct",
+ "em-client 3.1.0",
+ "em-node-agent-client",
+ "hyper",
+ "mbedtls 0.12.1",
+ "pkix",
+ "rustc-serialize",
+ "sdkms 0.3.0",
+ "serde",
+ "serde_bytes",
+ "serde_derive",
+ "serde_json 1.0.68",
+ "sgx-isa 0.4.1 (git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147)",
+ "sgx_pkix 0.2.2 (git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147)",
+ "url 1.7.2",
+ "uuid 0.6.5",
+ "uuid 0.8.2",
+ "vme-pkix 0.1.1",
+ "yasna 0.3.2",
+]
+
+[[package]]
+name = "em-app"
+version = "0.4.0"
 source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "b64-ct",
- "em-client",
+ "em-client 3.0.0",
  "em-node-agent-client",
  "hyper",
  "mbedtls 0.9.3",
  "pkix",
  "rustc-serialize",
- "sdkms",
+ "sdkms 0.2.1",
  "serde",
  "serde_bytes",
  "serde_derive",
  "serde_json 1.0.68",
- "sgx-isa",
- "sgx_pkix",
+ "sgx-isa 0.4.1 (git+https://github.com/fortanix/rust-sgx.git)",
+ "sgx_pkix 0.2.2 (git+https://github.com/fortanix/rust-sgx.git)",
  "url 1.7.2",
  "uuid 0.6.5",
  "uuid 0.7.4",
- "vme-pkix",
+ "vme-pkix 0.1.0",
  "yasna 0.3.2",
 ]
 
@@ -621,6 +648,28 @@ dependencies = [
  "hyper",
  "lazy_static 1.4.0",
  "log 0.3.9",
+ "mime",
+ "serde",
+ "serde_derive",
+ "serde_ignored",
+ "serde_json 1.0.68",
+ "url 1.7.2",
+ "uuid 0.6.5",
+]
+
+[[package]]
+name = "em-client"
+version = "3.1.0"
+source = "git+https://github.com/fortanix/em-client-rust?branch=ns/RTE-147#f23e6a89474fd79d1334d6710405730b231c5a33"
+dependencies = [
+ "base64 0.10.1",
+ "bitflags",
+ "chrono",
+ "futures 0.1.31",
+ "hyper",
+ "lazy_static 1.4.0",
+ "log 0.3.9",
+ "mbedtls 0.9.3",
  "mime",
  "serde",
  "serde_derive",
@@ -661,7 +710,7 @@ dependencies = [
  "base64 0.13.0",
  "clap",
  "const_format",
- "em-app",
+ "em-app 0.4.0 (git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147)",
  "env_logger 0.7.1",
  "futures 0.3.16",
  "hyper",
@@ -670,13 +719,12 @@ dependencies = [
  "lazy_static 1.4.0",
  "log 0.4.14",
  "mbedtls 0.12.1",
- "mbedtls 0.9.3",
  "nix 0.15.0",
  "parent_lib",
  "pkix",
  "rand 0.8.5",
  "rtnetlink",
- "sdkms",
+ "sdkms 0.3.0",
  "serde",
  "serde_cbor",
  "serde_json 1.0.2",
@@ -1657,7 +1705,7 @@ dependencies = [
  "api-model",
  "async-process",
  "clap",
- "em-app",
+ "em-app 0.4.0 (git+https://github.com/fortanix/rust-sgx.git)",
  "env_logger 0.7.1",
  "etherparse",
  "futures 0.3.16",
@@ -2174,7 +2222,6 @@ dependencies = [
  "bitflags",
  "chrono",
  "hyper",
- "hyper-native-tls",
  "log 0.4.14",
  "rustc-serialize",
  "serde",
@@ -2182,6 +2229,24 @@ dependencies = [
  "serde_json 1.0.68",
  "url 1.7.2",
  "uuid 0.7.4",
+]
+
+[[package]]
+name = "sdkms"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b12e3cb05862db268118482cbad26eee384b479de1924fe5404028e3444481a"
+dependencies = [
+ "bitflags",
+ "chrono",
+ "hyper",
+ "hyper-native-tls",
+ "log 0.4.14",
+ "rustc-serialize",
+ "serde",
+ "serde_json 1.0.68",
+ "url 1.7.2",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -2281,9 +2346,29 @@ dependencies = [
 [[package]]
 name = "sgx-isa"
 version = "0.4.1"
+source = "git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147#a8a42b160201cc3ea7d8bc293b2803db559adc67"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "sgx-isa"
+version = "0.4.1"
 source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "sgx_pkix"
+version = "0.2.2"
+source = "git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147#a8a42b160201cc3ea7d8bc293b2803db559adc67"
+dependencies = [
+ "byteorder",
+ "lazy_static 1.4.0",
+ "pkix",
+ "quick-error",
+ "sgx-isa 0.4.1 (git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147)",
 ]
 
 [[package]]
@@ -2295,7 +2380,7 @@ dependencies = [
  "lazy_static 1.4.0",
  "pkix",
  "quick-error",
- "sgx-isa",
+ "sgx-isa 0.4.1 (git+https://github.com/fortanix/rust-sgx.git)",
 ]
 
 [[package]]
@@ -2703,6 +2788,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
+dependencies = [
+ "getrandom",
+ "serde",
+]
+
+[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2730,6 +2825,15 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 name = "vme-pkix"
 version = "0.1.0"
 source = "git+https://github.com/fortanix/rust-sgx.git#c9028cffb8d80fe325f10eefb26f1f912c235c21"
+dependencies = [
+ "lazy_static 1.4.0",
+ "pkix",
+]
+
+[[package]]
+name = "vme-pkix"
+version = "0.1.1"
+source = "git+https://github.com/fortanix/rust-sgx.git?branch=ns/RTE-147#a8a42b160201cc3ea7d8bc293b2803db559adc67"
 dependencies = [
  "lazy_static 1.4.0",
  "pkix",
