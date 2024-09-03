@@ -12,7 +12,7 @@ repository = "https://github.com/fortanix/salmiac"
 api-model = { path = "../../api-model" }
 async-process = "1.2.0"
 clap = "2.33"
-em-app = { git = "https://github.com/fortanix/rust-sgx.git" }
+em-app = { workspace = true }
 env_logger = "0.7"
 etherparse = { git = "https://github.com/fortanix/etherparse.git", branch = "udp_checksum_from_slice" }
 futures = "0.3"

@@ -15,7 +15,7 @@ async-trait = "0.1.51"
 base64 = "0.13.0"
 clap = "2.33"
 const_format = "0.2.32"
-em-app = { git = "https://github.com/fortanix/rust-sgx.git", branch = "ns/RTE-147" }
+em-app = { workspace = true }
 env_logger = "0.7"
 futures = "0.3"
 hyper = "0.10"
