@@ -5,3 +5,11 @@ members = [
     "parent",
     "enclave",
 ]
+
+[workspace.dependencies]
+em-app = { version = "0.4.0" }
+em-client = { version = "4.0.0" }
+
+[patch.crates-io]
+em-app = { git = "https://github.com/fortanix/rust-sgx.git" }
+em-client = { git = "https://github.com/fortanix/em-client-rust" }
