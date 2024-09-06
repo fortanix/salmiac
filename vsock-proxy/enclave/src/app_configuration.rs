@@ -61,7 +61,7 @@ where
 
     let app_config = api
         .runtime_config_api()
-        .get_checked_runtime_configuration(&ccm_backend_url, em_app_credentials, &app_config_id_raw)?;
+        .get_runtime_configuration(&ccm_backend_url, em_app_credentials, &app_config_id_raw)?;
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
 
@@ -302,7 +302,7 @@ impl ApplicationConfiguration for EmAppApplicationConfiguration {
 pub(crate) struct EmAppRuntimeConfiguration {}
 
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
-    fn get_checked_runtime_configuration(
+    fn get_runtime_configuration(
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
@@ -321,7 +321,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
 }
 
 pub(crate) trait RuntimeConfiguration {
-    fn get_checked_runtime_configuration(
+    fn get_runtime_configuration(
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
@@ -618,7 +618,7 @@ mod tests {
     }
 
     impl RuntimeConfiguration for MockDataSet {
-        fn get_checked_runtime_configuration(
+        fn get_runtime_configuration(
             &self,
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
@@ -852,7 +852,7 @@ mod tests {
             hash: correct_hash.clone()
         };
         let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials, &correct_hash);
+        let runtime_config = api.runtime_config_api().get_runtime_configuration(&backend_url, &credentials, &correct_hash);
 
         assert!(runtime_config.is_ok());
     }
@@ -867,7 +867,7 @@ mod tests {
             hash: correct_hash
         };
         let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_checked_runtime_configuration(&backend_url, &credentials, &incorrect_hash);
+        let runtime_config = api.runtime_config_api().get_runtime_configuration(&backend_url, &credentials, &incorrect_hash);
 
         assert!(runtime_config.is_err());
     }
