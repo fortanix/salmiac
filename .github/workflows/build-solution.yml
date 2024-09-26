@@ -15,9 +15,10 @@ on:
         required: true
       PAT:
         required: true
-  on:
-    pull_request_review:
-      types: [ submitted, edited ]
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,7 +27,7 @@ jobs:
   build:
 
     runs-on: ubuntu-20.04
-    if: github.event_name == 'pull_request' && github.event.review.state == 'approved'
+
     steps:
       - name: Pull main repository
         uses: actions/checkout@v3
