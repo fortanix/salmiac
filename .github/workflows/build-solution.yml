@@ -15,7 +15,10 @@ on:
         required: true
       PAT:
         required: true
-
+  push:
+    branches: [ "master" ]
+    pull_request:
+      branches: [ "master" ]
   #pull_request_review:
     #types: [ submitted, edited ]
 
