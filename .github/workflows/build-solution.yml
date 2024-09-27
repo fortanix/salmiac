@@ -65,6 +65,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          sudo apt update
           sudo apt-get update
           sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper docker-credential-ecr-login
 
