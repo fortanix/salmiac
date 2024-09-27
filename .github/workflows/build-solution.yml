@@ -66,17 +66,9 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper
+          sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper docker-credential-ecr-login
 
-      - name: Install docker-credential-ecr-login
-        run: |
-          # Download the latest release of docker-credential-ecr-login
-          aws s3 cp s3://fortanix-internal-artifact-repository/other-packages/docker-credential-ecr-login .
-
-          # Make it executable
-          chmod +x docker-credential-ecr-login
-
-          # Move it to a directory in the PATH
+          # Move docker-credential-ecr-login to a directory in the PATH
           sudo mv docker-credential-ecr-login /usr/local/bin/
 
       - name: Build Rust code
