@@ -69,8 +69,8 @@ jobs:
           sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper
 
           # Setup docker-credential-ecr-login
-          chmod +x docker-credential-ecr-login
-          sudo mv docker-credential-ecr-login /usr/local/bin/
+          chmod +x /usr/bin/docker-credential-ecr-login
+          sudo mv /usr/bin/docker-credential-ecr-login /usr/local/bin/
 
       - name: Build Rust code
         run: |
