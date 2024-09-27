@@ -65,13 +65,11 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu focal-updates main universe"
-          sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu focal-security main universe"
-
           sudo apt-get update
-          sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper docker-credential-ecr-login
+          sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper
 
-          # Move docker-credential-ecr-login to a directory in the PATH
+          # Setup docker-credential-ecr-login
+          chmod +x docker-credential-ecr-login
           sudo mv docker-credential-ecr-login /usr/local/bin/
 
       - name: Build Rust code
