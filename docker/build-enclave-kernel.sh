@@ -7,7 +7,7 @@ set -exo pipefail
 ARTIFACT_NAME="amzn-linux-nbd-v1.tar"
 ARTIFACT_DIR="amzn-linux-nbd"
 fetchartifacts() {
-  aws s3 cp s3://fortanix-internal-artifact-repository/salmiac/$ARTIFACT_NAME .
+  aws s3 cp https://s3.us-west-1.amazonaws.com/downloads.fortanix.com/salmiac/$ARTIFACT_NAME .
   tar -xvf $ARTIFACT_NAME
 }
 
