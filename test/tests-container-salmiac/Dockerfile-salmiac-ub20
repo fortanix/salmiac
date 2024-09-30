@@ -1,4 +1,4 @@
-FROM 513076507034.dkr.ecr.us-west-1.amazonaws.com/development-images/nitro-parent-base:1.1.4 as nitro-cli
+FROM fortanix/nitro-parent-base:1.1.4 as nitro-cli
 
 ARG PLATFORM
 ARG FLAVOR
