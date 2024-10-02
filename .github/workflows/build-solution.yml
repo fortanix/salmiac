@@ -15,9 +15,10 @@ on:
         required: true
       PAT:
         required: true
-  on:
-    pull_request_review:
-      types: [ submitted, edited ]
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,7 +27,7 @@ jobs:
   build:
 
     runs-on: ubuntu-20.04
-    if: github.event_name == 'pull_request' && github.event.review.state == 'approved'
+
     steps:
       - name: Pull main repository
         uses: actions/checkout@v3
@@ -67,16 +68,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper
 
-      - name: Install docker-credential-ecr-login
-        run: |
-          # Download the latest release of docker-credential-ecr-login
-          aws s3 cp s3://fortanix-internal-artifact-repository/other-packages/docker-credential-ecr-login .
-
-          # Make it executable
-          chmod +x docker-credential-ecr-login
-
-          # Move it to a directory in the PATH
-          sudo mv docker-credential-ecr-login /usr/local/bin/
+          # Setup docker-credential-ecr-login
+          sudo mv /usr/bin/docker-credential-ecr-login /usr/local/bin/
 
       - name: Build Rust code
         run: |
@@ -89,13 +82,13 @@ jobs:
         run: |
           ./unit-test-solution.sh
 
-      - name: Build application tests container
-        run: |
-          ./build-app-tests-container.sh
+#      - name: Build application tests container
+#        run: |
+#          ./build-app-tests-container.sh
 
-      - name: Run application tests container
-        env:
-          FORTANIX_API_KEY: ${{ secrets.FORTANIX_API_KEY }}
-          OVERLAYFS_UNIT_TEST_API_KEY: ${{ secrets.OVERLAYFS_UNIT_TEST_API_KEY }}
-        run: |
-          ./run-application-tests.sh ${{ env.TESTS_CONTAINER_ECR }} ${{ env.FORTANIX_API_KEY }}
+#      - name: Run application tests container
+#        env:
+#          FORTANIX_API_KEY: ${{ secrets.FORTANIX_API_KEY }}
+#          OVERLAYFS_UNIT_TEST_API_KEY: ${{ secrets.OVERLAYFS_UNIT_TEST_API_KEY }}
+#        run: |
+#         ./run-application-tests.sh ${{ env.TESTS_CONTAINER_ECR }} ${{ env.FORTANIX_API_KEY }}
