@@ -7,6 +7,7 @@ FORTANIX_API_KEY=$2
 SSH_USERNAME_AWS="ec2-user"
 VM_ADDRESS="ec2-63-35-198-180.eu-west-1.compute.amazonaws.com"
 
+
 echo "######### Preparing test container. ###############"
 touch docker-env
 echo "AWS_CONFIG=$(/usr/bin/base64 --wrap=0 < ~/.aws/config)" > docker-env
@@ -15,10 +16,10 @@ echo "AWS_CREDENTIALS=$(/usr/bin/base64 --wrap=0 < ~/.aws/credentials)" >> docke
 ECR_PASSWORD=$(aws ecr get-login-password --region us-west-1)
 echo "ECR_PASSWORD=$ECR_PASSWORD" >> docker-env
 
-PARENT_IMAGE=fortanix//nitro-parent-base:1.1.4
+PARENT_IMAGE=fortanix/nitro-parent-base:1.1.4
 echo "PARENT_IMAGE=$PARENT_IMAGE" >> docker-env
 
-ENCLAVE_IMAGE=fortanix//nitro-enclave-base:1.0.2
+ENCLAVE_IMAGE=fortanix/nitro-enclave-base:1.0.2
 echo "ENCLAVE_IMAGE=$ENCLAVE_IMAGE" >> docker-env
 
 echo "FORTANIX_API_KEY=$FORTANIX_API_KEY" >> docker-env
