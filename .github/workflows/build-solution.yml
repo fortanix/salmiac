@@ -82,6 +82,7 @@ jobs:
         run: |
           ./unit-test-solution.sh
 
+#       Will be uncommented in RTE-188
 #      - name: Build application tests container
 #        run: |
 #          ./build-app-tests-container.sh
