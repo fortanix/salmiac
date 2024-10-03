@@ -93,7 +93,7 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-inrfa/bin/tests-container
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-infra/bin/tests-container-run.py,$(TESTS-STAGE-DIR)/tests-container-run.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/docker-config.json,$(TESTS-STAGE-DIR)/docker-config.json))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/container-converter/target/$(FLAVOR)/container-converter,$(TESTS-STAGE-DIR)/container-converter))
-$(eval $(call pull-s3,s3\://fortanix-internal-artifact-repository/salmiac/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR)))
+$(eval $(call pull-s3,s3\://downloads.fortanix.com/salmiac/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR)))
 $(eval $(call untar-pkg,$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/amzn-linux-nbd))
 
 # This generates the rules for copying the contents of tools/app-test-infra/python
