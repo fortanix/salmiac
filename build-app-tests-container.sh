@@ -10,7 +10,7 @@ FLAVOR=debug
 if [ -z "$SKIP_RUNNING_TESTS" ]; then
   make tests-container FLAVOR=$FLAVOR
   TESTS_CONTAINER_TAG=$(cat build/nitro-$FLAVOR/tests-container-tag)
-  TESTS_CONTAINER_ECR="513076507034.dkr.ecr.us-west-1.amazonaws.com/development-images/$TESTS_CONTAINER_TAG"
+  TESTS_CONTAINER_ECR="513076507034.dkr.ecr.us-west-1.amazonaws.com/salmiac-github-ci/$TESTS_CONTAINER_TAG"
 
   docker load -i build/nitro-$FLAVOR/salmiac-tests-container.tar.gz
   docker tag $TESTS_CONTAINER_TAG $TESTS_CONTAINER_ECR
