@@ -127,4 +127,4 @@ $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
 
 $(TESTS-CONTAINER-APP-TESTS-FILE)::    | $(dir $(TESTS-CONTAINER-APP-TESTS-FILE))
 
-$(eval $(call make-cp-rule,/usr/local/bin/$(DOCKER-AWS-HELPER),$(TESTS-STAGE-DIR)/$(DOCKER-AWS-HELPER)))
+$(eval $(call make-cp-rule,/usr/bin/$(DOCKER-AWS-HELPER),$(TESTS-STAGE-DIR)/$(DOCKER-AWS-HELPER)))
