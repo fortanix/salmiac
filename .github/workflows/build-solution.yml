@@ -75,6 +75,9 @@ jobs:
           # Make it executable
           chmod +x docker-credential-ecr-login
 
+          # Move it to a directory in the PATH
+          sudo mv docker-credential-ecr-login /usr/local/bin/
+
       - name: Build Rust code
         run: |
           ./build-converter.sh
