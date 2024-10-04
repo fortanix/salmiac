@@ -68,11 +68,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpcap-dev amazon-ecr-credential-helper
 
-      - name: Install docker-credential-ecr-login
-        run: |
-          # Download the latest release of docker-credential-ecr-login
-          aws s3 cp s3://fortanix-internal-artifact-repository/other-packages/docker-credential-ecr-login .
-
       - name: Build Rust code
         run: |
           ./build-converter.sh
