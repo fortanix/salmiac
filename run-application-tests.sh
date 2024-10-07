@@ -15,10 +15,10 @@ echo "AWS_CREDENTIALS=$(/usr/bin/base64 --wrap=0 < ~/.aws/credentials)" >> docke
 ECR_PASSWORD=$(aws ecr get-login-password --region us-west-1)
 echo "ECR_PASSWORD=$ECR_PASSWORD" >> docker-env
 
-PARENT_IMAGE=513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-parent-base:1.1.1
+PARENT_IMAGE=fortanix/nitro-parent-base:1.1.4
 echo "PARENT_IMAGE=$PARENT_IMAGE" >> docker-env
 
-ENCLAVE_IMAGE=513076507034.dkr.ecr.us-west-1.amazonaws.com/nitro-enclave-base:1.0.1
+ENCLAVE_IMAGE=fortanix/nitro-enclave-base:1.0.2
 echo "ENCLAVE_IMAGE=$ENCLAVE_IMAGE" >> docker-env
 
 echo "FORTANIX_API_KEY=$FORTANIX_API_KEY" >> docker-env
