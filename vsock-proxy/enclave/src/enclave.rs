@@ -19,7 +19,6 @@ use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
-use sdkms::api_model::Blob;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
     UserProgramExitStatus,
@@ -219,7 +218,7 @@ fn setup_app_configuration(
             &app_config.ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
-            Blob::from(id.as_str()),
+            &id,
         )
     } else {
         Ok(())
