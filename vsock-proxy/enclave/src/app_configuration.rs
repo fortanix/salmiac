@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use std::convert::TryFrom;
+use std::convert::TryInto;
 
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
@@ -57,7 +57,10 @@ where
 {
     info!("Requesting application configuration.");
 
-    let app_config_id_raw = <[u8; APPLICATION_CONFIGURATION_ID_LENGTH]>::try_from(app_config_id.as_bytes()).map_err(|err| format!("Cannot convert application config id into an array. Error: {:?}. Perhaps your id isn't {} characters long?", err, APPLICATION_CONFIGURATION_ID_LENGTH))?;
+    let app_config_id_raw: [u8; APPLICATION_CONFIGURATION_ID_LENGTH] = app_config_id
+        .as_bytes()
+        .try_into()
+        .map_err(|err| format!("Cannot convert application config id into an array. Error: {:?}. Perhaps your id isn't {} characters long?", err, APPLICATION_CONFIGURATION_ID_LENGTH))?;
 
     let app_config = api
         .runtime_config_api()
@@ -673,7 +676,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet { json_data, hash: [0; APPLICATION_CONFIGURATION_ID_LENGTH] });
 
-        let result = api.get_checked_runtime_configuration(&backend_url, &credentials, &[0; APPLICATION_CONFIGURATION_ID_LENGTH]);
+        let result = api.get_runtime_configuration(&backend_url, &credentials, &[0; APPLICATION_CONFIGURATION_ID_LENGTH]);
         assert!(result.is_ok(), "{:?}", result);
 
         result.unwrap()
