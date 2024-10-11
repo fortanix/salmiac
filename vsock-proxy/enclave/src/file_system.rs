@@ -19,7 +19,9 @@ use serde_json;
 use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
 
 use crate::certificate::{CertificateResult, DEFAULT_CERT_DIR};
-use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
+use crate::dsm_key_config::{
+    dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT,
+};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -73,14 +75,27 @@ pub(crate) enum FileSystemNode {
     File(&'static str),
 }
 
-pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_options: FsMountOptions) -> Result<(), String> {
+pub(crate) async fn mount_file_system_nodes(
+    nodes: &[FileSystemNode],
+    mount_options: FsMountOptions,
+) -> Result<(), String> {
     for node in nodes {
         match node {
             FileSystemNode::Proc => {
-                run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+                run_mount(&[
+                    "-t",
+                    "proc",
+                    "/proc",
+                    &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT),
+                ])
+                .await?;
             }
             FileSystemNode::TreeNode(node_path) => {
-                let formatted_mount_point_str = format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path);
+                let formatted_mount_point_str = format!(
+                    "{}{node_path}",
+                    ENCLAVE_FS_OVERLAY_ROOT,
+                    node_path = node_path
+                );
                 let mut mount_args = vec!["--rbind", node_path, &formatted_mount_point_str];
                 if *node_path == "/tmp" && mount_options.is_tmp_exec {
                     mount_args.push("-o");
@@ -96,7 +111,11 @@ pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_opti
                 run_mount(&[
                     "--bind",
                     file_path,
-                    &format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path = file_path),
+                    &format!(
+                        "{}{file_path}",
+                        ENCLAVE_FS_OVERLAY_ROOT,
+                        file_path = file_path
+                    ),
                 ])
                 .await?;
             }
@@ -128,7 +147,8 @@ pub(crate) fn generate_keyfile() -> Result<Vec<u8>, String> {
         .map_err(|err| format!("Unable to fill key buffer with random data : {:?}", err))?;
 
     // Write the key contents to the keyfile
-    let mut key_file = fs::File::create(CRYPT_KEYFILE).map_err(|err| format!("Unable to create key file : {:?}", err))?;
+    let mut key_file = fs::File::create(CRYPT_KEYFILE)
+        .map_err(|err| format!("Unable to create key file : {:?}", err))?;
     key_file
         .write(&*arr.clone())
         .map_err(|err| format!("Unable to write to key file: {:?}", err))?;
@@ -145,11 +165,19 @@ pub(crate) fn generate_keyfile() -> Result<Vec<u8>, String> {
 /// The minimum size of a luks2 header is 16MB - it is important that the size
 /// of the device meets this requirement (RW_BLOCK_FILE_DEFAULT_SIZE).
 async fn luks_format_device(key_path: &Path, device_path: &str) -> Result<(), String> {
-    let key_path_as_str = key_path
-        .to_str()
-        .ok_or(format!("Failed converting path {} to string", key_path.display()))?;
+    let key_path_as_str = key_path.to_str().ok_or(format!(
+        "Failed converting path {} to string",
+        key_path.display()
+    ))?;
 
-    let luks_format_args = ["luksFormat", "-q", "--type", "luks2", device_path, key_path_as_str];
+    let luks_format_args = [
+        "luksFormat",
+        "-q",
+        "--type",
+        "luks2",
+        device_path,
+        key_path_as_str,
+    ];
     run_subprocess("cryptsetup", &luks_format_args).await
 }
 
@@ -168,10 +196,25 @@ async fn is_luks_device(device_path: &str) -> Result<async_process::Output, Stri
 /// Export or import a token object from the given luks2 device. Always looks for the
 /// token with ID 0 and expects a file where the token is read from or written to.
 async fn update_luks_token(device_path: &str, token_path: &str, op: TokenOp) -> Result<(), String> {
-    let op_str = if op == TokenOp::Import { "import" } else { "export" };
+    let op_str = if op == TokenOp::Import {
+        "import"
+    } else {
+        "export"
+    };
 
-    info!("{:?} token for device {:?} at {:?}", &op_str, &device_path, &token_path);
-    let token_args = ["token", op_str, "--token-id", "0", "--json-file", token_path, device_path];
+    info!(
+        "{:?} token for device {:?} at {:?}",
+        &op_str, &device_path, &token_path
+    );
+    let token_args = [
+        "token",
+        op_str,
+        "--token-id",
+        "0",
+        "--json-file",
+        token_path,
+        device_path,
+    ];
     run_subprocess("cryptsetup", &token_args).await
 }
 
@@ -183,7 +226,8 @@ async fn get_key_from_out_token(
     cert_list: Option<&mut CertificateResult>,
 ) -> Result<(), String> {
     // Open and parse the dmcrypt volume token file
-    let mut token_file = fs::File::open(TOKEN_OUT_FILE).map_err(|err| format!("Unable to open token out file : {:?}", err))?;
+    let mut token_file = fs::File::open(TOKEN_OUT_FILE)
+        .map_err(|err| format!("Unable to open token out file : {:?}", err))?;
     let mut token_contents = [0; MAX_TOKEN_SIZE];
     let token_size = token_file
         .read(&mut token_contents)
@@ -191,12 +235,14 @@ async fn get_key_from_out_token(
 
     info!(
         "Token contents are >> {:?} : {:?}",
-        std::str::from_utf8(&token_contents.clone()).map_err(|e| format!("Unable to convert token contents to utf8 : {:?}", e)),
+        std::str::from_utf8(&token_contents.clone())
+            .map_err(|e| format!("Unable to convert token contents to utf8 : {:?}", e)),
         token_size
     );
 
-    let token_json_obj: LuksToken = serde_json::from_slice(token_contents.split_at(token_size).0)
-        .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
+    let token_json_obj: LuksToken =
+        serde_json::from_slice(token_contents.split_at(token_size).0)
+            .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
 
     // Fetch the decrypted volume passkey
     let dec_resp = dsm_dec_with_overlayfs_key(
@@ -208,7 +254,8 @@ async fn get_key_from_out_token(
     )?;
 
     // Create the key file
-    let key_file = fs::File::create(CRYPT_KEYFILE).map_err(|err| format!("Unable to create key file : {:?}", err));
+    let key_file = fs::File::create(CRYPT_KEYFILE)
+        .map_err(|err| format!("Unable to create key file : {:?}", err));
     let key_contents = dec_resp.plain;
 
     key_file?
@@ -274,7 +321,11 @@ async fn get_key_file(
 /// Generate the luks2 token object and write the same to
 /// the json file which will be used to add a luks2 header
 /// to the RW blockfile
-fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc_resp: EncryptResponse) -> Result<(), String> {
+fn create_luks2_token_input(
+    token_path: &str,
+    env_vars: &[(String, String)],
+    enc_resp: EncryptResponse,
+) -> Result<(), String> {
     info!("Creating Luks2 token object");
     let iv = enc_resp
         .iv
@@ -287,18 +338,20 @@ fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc
     let token_object = LuksToken {
         token_type: "Fortanix-sealing-key".to_string(),
         key_slots: vec!["0".to_string()],
-        endpoint: find_env_or_err("FS_DSM_ENDPOINT", env_vars).unwrap_or(DEFAULT_DSM_ENDPOINT.to_string()),
+        endpoint: find_env_or_err("FS_DSM_ENDPOINT", env_vars)
+            .unwrap_or(DEFAULT_DSM_ENDPOINT.to_string()),
         isvsvn: None,
         tag,
         enc_key: enc_resp.cipher,
         iv,
     };
 
-    let token_string =
-        serde_json::to_string(&token_object).map_err(|err| format!("Unable to convert token object to string : {:?}", err))?;
+    let token_string = serde_json::to_string(&token_object)
+        .map_err(|err| format!("Unable to convert token object to string : {:?}", err))?;
 
     info!("Writing luks2 token to file >> {:?}", token_string);
-    let mut token_file = File::create(token_path).map_err(|err| format!("Unable to create token input file : {:?}", err))?;
+    let mut token_file = File::create(token_path)
+        .map_err(|err| format!("Unable to create token input file : {:?}", err))?;
     token_file
         .write_all(&*token_string.into_bytes())
         .map_err(|err| format!("Unable to write to token object: {:?}", err))?;
@@ -312,8 +365,12 @@ pub(crate) async fn mount_read_write_file_system(
     enable_overlayfs_persistence: bool,
 ) -> Result<(), String> {
     // Create dir to get rid of the warning that is printed to the console by cryptsetup
-    fs::create_dir_all(DM_CRYPT_FOLDER)
-        .map_err(|err| format!("Failed to create folder {} for cryptsetup path. {:?}", DM_CRYPT_FOLDER, err))?;
+    fs::create_dir_all(DM_CRYPT_FOLDER).map_err(|err| {
+        format!(
+            "Failed to create folder {} for cryptsetup path. {:?}",
+            DM_CRYPT_FOLDER, err
+        )
+    })?;
 
     let create_ext4 = get_key_file(env_vars, cert_list, enable_overlayfs_persistence).await?;
 
@@ -369,22 +426,38 @@ pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
         ENCLAVE_FS_LOWER, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
     );
 
-    run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT]).await
+    run_mount(&[
+        "-t",
+        "overlay",
+        "-o",
+        &overlay_dir_config,
+        "none",
+        ENCLAVE_FS_OVERLAY_ROOT,
+    ])
+    .await
 }
 
 pub(crate) fn create_overlay_dirs() -> Result<(), String> {
-    fs::create_dir(ENCLAVE_FS_LOWER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
-    fs::create_dir(ENCLAVE_FS_RW_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
-    fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT)
-        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
+    fs::create_dir(ENCLAVE_FS_LOWER)
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
+    fs::create_dir(ENCLAVE_FS_RW_ROOT)
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
+    fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT).map_err(|err| {
+        format!(
+            "Failed to create dir {}. {:?}",
+            ENCLAVE_FS_OVERLAY_ROOT, err
+        )
+    })?;
 
     Ok(())
 }
 
 pub(crate) fn create_overlay_rw_dirs() -> Result<(), String> {
     info!("Creating work and upper layers....");
-    fs::create_dir(ENCLAVE_FS_WORK).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
-    fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
+    fs::create_dir(ENCLAVE_FS_WORK)
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
+    fs::create_dir(ENCLAVE_FS_UPPER)
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
 
     Ok(())
 }
@@ -424,8 +497,17 @@ pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), Strin
     run_subprocess("veritysetup", &args).await
 }
 
-pub(crate) async fn run_nbd_client(server_address: IpAddr, block_file_port: u16, mount_name: &str) -> Result<(), String> {
-    let args: [&str; 4] = [&server_address.to_string(), &block_file_port.to_string(), "-N", mount_name];
+pub(crate) async fn run_nbd_client(
+    server_address: IpAddr,
+    block_file_port: u16,
+    mount_name: &str,
+) -> Result<(), String> {
+    let args: [&str; 4] = [
+        &server_address.to_string(),
+        &block_file_port.to_string(),
+        "-N",
+        mount_name,
+    ];
     // NBD client exits with zero if it is able to connect to the server
     // and create /dev/nbdX device. After that we can `mount` said device
     // and use it to access the block file in `parent`.
@@ -438,14 +520,21 @@ pub(crate) fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), S
     let from = STARTUP_PATH.to_string() + startup_binary;
     let to = ENCLAVE_FS_OVERLAY_ROOT.to_string() + startup_binary;
 
-    fs::copy(&from, &to).map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
+    fs::copy(&from, &to).map_err(|err| {
+        format!(
+            "Failed to copy enclave startup binary from {} to {}. {:?}",
+            from, to, err
+        )
+    })?;
 
     Ok(())
 }
 
 pub(crate) fn create_fortanix_directories() -> Result<(), String> {
-    let dir = Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default());
-    fs::create_dir_all(dir.clone()).map_err(|e| format!("Failed to create fortanix directory {:?} : {:?}", dir, e))
+    let dir = Path::new(ENCLAVE_FS_OVERLAY_ROOT)
+        .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default());
+    fs::create_dir_all(dir.clone())
+        .map_err(|e| format!("Failed to create fortanix directory {:?} : {:?}", dir, e))
 }
 
 pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
@@ -455,12 +544,15 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
 
     let nbd_etc_dir: &str = &format!("{}/etc", ENCLAVE_FS_OVERLAY_ROOT);
 
-    let nbd_run_resolv_file: &str = &format!("{}/run/resolvconf/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
+    let nbd_run_resolv_file: &str =
+        &format!("{}/run/resolvconf/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
     let nbd_etc_resolv_file: &str = &format!("{}/etc/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
-    fs::create_dir_all(nbd_run_resolv_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
-    fs::create_dir_all(nbd_etc_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
+    fs::create_dir_all(nbd_run_resolv_dir)
+        .map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
+    fs::create_dir_all(nbd_etc_dir)
+        .map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
 
     // We copy resolv.conf from the enclave kernel into the block file mount point
     // so that DNS will work correctly after we do a `chroot`.
@@ -496,12 +588,21 @@ pub(crate) async fn unmount_file_system_nodes(nodes: &[FileSystemNode]) -> Resul
             FileSystemNode::TreeNode(node_path) => {
                 run_unmount(&[
                     "-R",
-                    &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path),
+                    &format!(
+                        "{}{node_path}",
+                        ENCLAVE_FS_OVERLAY_ROOT,
+                        node_path = node_path
+                    ),
                 ])
                 .await?;
             }
             FileSystemNode::File(file_path) => {
-                run_unmount(&[&format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path = file_path)]).await?;
+                run_unmount(&[&format!(
+                    "{}{file_path}",
+                    ENCLAVE_FS_OVERLAY_ROOT,
+                    file_path = file_path
+                )])
+                .await?;
             }
         }
     }
