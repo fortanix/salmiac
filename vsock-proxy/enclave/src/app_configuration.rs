@@ -5,21 +5,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::BTreeMap;
-use std::convert::TryInto;
+use std::convert::{TryInto, TryFrom};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use em_app::utils::models::{
-    ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials,
-    RuntimeAppConfig,
+    ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
 };
 use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
 use sdkms::api_model::Blob;
-use shared::models::CCMBackendUrl;
+use shared::models::{CCMBackendUrl};
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
@@ -44,58 +43,77 @@ const CREDENTIALS_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
 
-const APPLICATION_CONFIGURATION_ID_LENGTH: usize = 32;
+// https://en.wikipedia.org/wiki/SHA-2
+const SHA256_BYTE_LENGTH: usize = 32;
+
+const SHA256_CHAR_LENGTH: usize = SHA256_BYTE_LENGTH * 2;
+
+#[derive(Debug)]
+pub struct Sha256Hash([u8; SHA256_BYTE_LENGTH]);
+
+impl TryFrom<&str> for Sha256Hash {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value.len() != SHA256_CHAR_LENGTH {
+            return Err(format!("SHA-256 string should be exactly {} characters long, instead got a string of len {}", SHA256_CHAR_LENGTH, value.len()))
+        } else if !(value.chars().all(|c| c.is_ascii_hexdigit())) {
+            return Err(format!("SHA-256 string should contain only hexadecimal characters in the format [0-9a-fA-F], but got {}", value))
+        } else {
+            let mut result = [0u8; SHA256_BYTE_LENGTH];
+
+            for i in 0..SHA256_BYTE_LENGTH {
+                // We iterate input string by chunks of 2 because 1 hex char is half a byte.
+                let chunk = &value[2 * i..2 * i + 2];
+                result[i] = u8::from_str_radix(chunk, 16).map_err(|err| {
+                    format!(
+                        "Invalid hex format for chunk '{}' at position {}. Error {:?}",
+                        chunk, i, err
+                    )
+                })?;
+            }
+
+            Ok(Sha256Hash(result))
+        }
+    }
+}
 
 pub(crate) fn setup_application_configuration<T>(
     em_app_credentials: &EmAppCredentials,
     ccm_backend_url: &CCMBackendUrl,
     api: T,
     fs_root: &Path,
-    app_config_id: &str,
+    app_config_id: &str
 ) -> Result<(), String>
 where
     T: ApplicationConfiguration,
 {
     info!("Requesting application configuration.");
 
-    let app_config_id_raw: [u8; APPLICATION_CONFIGURATION_ID_LENGTH] = app_config_id
+    let app_config_id_raw: [u8; SHA256_BYTE_LENGTH] = app_config_id
         .as_bytes()
         .try_into()
-        .map_err(|err| format!("Cannot convert application config id into an array. Error: {:?}. Perhaps your id isn't {} characters long?", err, APPLICATION_CONFIGURATION_ID_LENGTH))?;
+        .map_err(|err| format!("Cannot convert application config id into an array. Error: {:?}. Perhaps your id isn't {} characters long?", err, SHA256_BYTE_LENGTH))?;
 
-    let app_config = api.runtime_config_api().get_runtime_configuration(
-        &ccm_backend_url,
-        em_app_credentials,
-        &app_config_id_raw,
-    )?;
+    let app_config = api
+        .runtime_config_api()
+        .get_runtime_configuration(&ccm_backend_url, em_app_credentials, &app_config_id_raw)?;
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
 
-    setup_datasets(
-        &app_config.extra,
-        em_app_credentials,
-        api.dataset_api(),
-        fs_root,
-    )?;
+    setup_datasets(&app_config.extra, em_app_credentials, api.dataset_api(), fs_root)?;
 
     setup_app_configs(&app_config.config.app_config, fs_root)
 }
 
-fn write_runtime_configuration_to_file(
-    app_config: &RuntimeAppConfig,
-    fs_root: &Path,
-) -> Result<(), String> {
-    let data = serde_json::to_string(app_config)
-        .map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
+fn write_runtime_configuration_to_file(app_config: &RuntimeAppConfig, fs_root: &Path) -> Result<(), String> {
+    let data =
+        serde_json::to_string(app_config).map_err(|err| format!("Failed serializing app config to string. {:?}", err))?;
 
     fs::create_dir_all(fs_root.join(Path::new(APPLICATION_CONFIG_DIR)))
         .map_err(|err| format!("Failed to create app config directory. {:?}", err))?;
 
-    write_to_file(
-        &fs_root.join(Path::new(APPLICATION_CONFIG_FILE)),
-        &data,
-        "application config",
-    )?;
+    write_to_file(&fs_root.join(Path::new(APPLICATION_CONFIG_FILE)), &data, "application config")?;
 
     Ok(())
 }
@@ -136,11 +154,7 @@ where
                 fs::create_dir_all(&files.application_dir)
                     .map_err(|err| format!("Failed to create application directory. {:?}", err))?;
 
-                write_to_file(
-                    &files.location_file,
-                    &application.workflow_domain,
-                    "workflow domain",
-                )?;
+                write_to_file(&files.location_file, &application.workflow_domain, "workflow domain")?;
             }
         }
     }
@@ -148,10 +162,7 @@ where
     Ok(())
 }
 
-fn setup_app_configs(
-    config_map: &BTreeMap<String, ApplicationConfigContents>,
-    fs_root: &Path,
-) -> Result<(), String> {
+fn setup_app_configs(config_map: &BTreeMap<String, ApplicationConfigContents>, fs_root: &Path) -> Result<(), String> {
     for (file, contents_opt) in config_map {
         let file_path = normalize_path_and_make_relative(&file)
             .map_err(|err| format!("Cannot normalize file path in application config. {}", err))?;
@@ -168,22 +179,13 @@ fn setup_app_configs(
             file
         ))?;
 
-        fs::create_dir_all(fs_root.join(dir))
-            .map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
+        fs::create_dir_all(fs_root.join(dir)).map_err(|err| format!("Failed to create dir for file {}. {:?}", file, err))?;
 
         if let Some(encoded_contents) = &contents_opt.contents {
-            let decoded_contents = base64::decode(encoded_contents).map_err(|err| {
-                format!(
-                    "Failed to base64 decode application config contents. {:?}",
-                    err
-                )
-            })?;
+            let decoded_contents = base64::decode(encoded_contents)
+                .map_err(|err| format!("Failed to base64 decode application config contents. {:?}", err))?;
 
-            write_to_file(
-                &fs_root.join(file_path),
-                &decoded_contents,
-                "application config contents",
-            )?;
+            write_to_file(&fs_root.join(file_path), &decoded_contents, "application config contents")?;
         } else {
             warn!(
                 "Found application config {} with no contents. Created file will be empty.",
@@ -240,8 +242,8 @@ impl ApplicationFiles {
 fn read_root_certificates() -> MbedtlsList<Certificate> {
     let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
 
-    let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
-        .expect("Failed deserializing root certificate list");
+    let ca_cert_list: Vec<Vec<u8>> =
+        serde_cbor::from_slice(&file_contents[..]).expect("Failed deserializing root certificate list");
 
     let mut result = MbedtlsList::<Certificate>::new();
     for i in ca_cert_list {
@@ -253,19 +255,13 @@ fn read_root_certificates() -> MbedtlsList<Certificate> {
 
 fn normalize_path_and_make_relative(raw_path: &str) -> Result<PathBuf, String> {
     if raw_path.ends_with("/") || raw_path.ends_with("/.") {
-        return Err(format!(
-            "Can't normalize path {}. The path ends with '/' or '/.'.",
-            raw_path
-        ));
+        return Err(format!("Can't normalize path {}. The path ends with '/' or '/.'.", raw_path));
     }
 
     let path = Path::new(raw_path);
 
     if !path.has_root() {
-        return Err(format!(
-            "Can't normalize path {}. Path must be absolute. ",
-            path.display()
-        ));
+        return Err(format!("Can't normalize path {}. Path must be absolute. ", path.display()));
     }
 
     // We remove the root ("/") to make the path relative so that it can be joined with the path pointing to the chroot environment
@@ -346,7 +342,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
-        expected_hash: &[u8; APPLICATION_CONFIGURATION_ID_LENGTH],
+        expected_hash: &[u8; SHA256_BYTE_LENGTH],
     ) -> Result<RuntimeAppConfig, String> {
         em_app::utils::get_runtime_configuration(
             &ccm_backend_url.host,
@@ -355,7 +351,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
             credentials.key.clone(),
             credentials.root_certificate.clone(),
             None,
-            expected_hash,
+            expected_hash
         )
     }
 }
@@ -365,7 +361,7 @@ pub(crate) trait RuntimeConfiguration {
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
-        expected_hash: &[u8; APPLICATION_CONFIGURATION_ID_LENGTH],
+        expected_hash: &[u8; SHA256_BYTE_LENGTH],
     ) -> Result<RuntimeAppConfig, String>;
 }
 
@@ -406,10 +402,7 @@ pub(crate) struct EmAppCredentials {
 }
 
 impl EmAppCredentials {
-    pub(crate) fn new(
-        mut certificate_info: CertificateResult,
-        skip_server_verify: bool,
-    ) -> Result<Self, String> {
+    pub(crate) fn new(mut certificate_info: CertificateResult, skip_server_verify: bool) -> Result<Self, String> {
         let certificate = {
             certificate_info.certificate.push('\0');
 
@@ -484,14 +477,14 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::convert::TryFrom;
     use std::fs;
     use std::path::Path;
+    use std::convert::TryFrom;
+    use crate::app_configuration::Sha256Hash;
 
     use em_app::utils::models::{
-        ApplicationConfigConnection, ApplicationConfigConnectionApplication,
-        ApplicationConfigConnectionDataset, ApplicationConfigDatasetCredentials,
-        ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
+        ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset,
+        ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
     };
     use sdkms::api_model::Blob;
     use shared::models::CCMBackendUrl;
@@ -499,7 +492,7 @@ mod tests {
     use crate::app_configuration::{
         normalize_path_and_make_relative, setup_app_configs, setup_datasets,
         ApplicationConfiguration, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset, APPLICATION_CONFIGURATION_ID_LENGTH,
+        RuntimeConfiguration, SdkmsDataset, SHA256_BYTE_LENGTH,
     };
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
@@ -627,20 +620,18 @@ mod tests {
 
     impl<'a> Drop for TempDir<'a> {
         fn drop(&mut self) {
-            fs::remove_dir_all(self.0)
-                .expect(&format!("Failed deleting path {}", self.0.display()));
+            fs::remove_dir_all(self.0).expect(&format!("Failed deleting path {}", self.0.display()));
         }
     }
 
     struct MockDataSet {
         pub json_data: &'static str,
-        pub hash: [u8; APPLICATION_CONFIGURATION_ID_LENGTH],
+        pub hash: [u8; SHA256_BYTE_LENGTH],
     }
 
     impl MockDataSet {
         fn application_config_extra() -> ApplicationConfigExtra {
-            let mut connections: BTreeMap<String, BTreeMap<String, ApplicationConfigConnection>> =
-                BTreeMap::new();
+            let mut connections: BTreeMap<String, BTreeMap<String, ApplicationConfigConnection>> = BTreeMap::new();
             let mut app_config: BTreeMap<String, ApplicationConfigConnection> = BTreeMap::new();
             let dataset = ApplicationConfigConnectionDataset {
                 location: "www.test.com".to_string(),
@@ -672,13 +663,10 @@ mod tests {
             &self,
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
-            expected_hash: &[u8; APPLICATION_CONFIGURATION_ID_LENGTH],
+            expected_hash: &[u8; SHA256_BYTE_LENGTH],
         ) -> Result<RuntimeAppConfig, String> {
             if self.hash != *expected_hash {
-                Err(format!(
-                    "Expected hash: {:?} doesn't equal saved hash: {:?}",
-                    expected_hash, self.hash
-                ))
+                Err(format!("Expected hash: {:?} doesn't equal saved hash: {:?}", expected_hash, self.hash))
             } else {
                 Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
             }
@@ -712,8 +700,7 @@ mod tests {
     fn setup_runtime_config_correct_json() {
         let config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_RUNTIME_CONF);
 
-        let reference: RuntimeAppConfig =
-            serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json");
+        let reference: RuntimeAppConfig = serde_json::from_str(VALID_RUNTIME_CONF).expect("Failed serializing test json");
 
         assert_eq!(config, reference);
     }
@@ -727,13 +714,13 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet {
             json_data,
-            hash: [0; APPLICATION_CONFIGURATION_ID_LENGTH],
+            hash: [0; SHA256_BYTE_LENGTH],
         });
 
         let result = api.get_runtime_configuration(
             &backend_url,
             &credentials,
-            &[0; APPLICATION_CONFIGURATION_ID_LENGTH],
+            &[0; SHA256_BYTE_LENGTH],
         );
         assert!(result.is_ok(), "{:?}", result);
 
@@ -746,7 +733,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: [0; APPLICATION_CONFIGURATION_ID_LENGTH],
+            hash: [0; SHA256_BYTE_LENGTH],
         };
 
         let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
@@ -763,7 +750,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: [0; APPLICATION_CONFIGURATION_ID_LENGTH],
+            hash: [0; SHA256_BYTE_LENGTH],
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("datasets");
@@ -774,10 +761,8 @@ mod tests {
         let result = setup_datasets(&config, &credentials, &api, &test_folder.0);
         assert!(result.is_ok(), "{:?}", result);
 
-        let credentials =
-            fs::read_to_string(&files.credentials_file).expect("Failed reading credentials file");
-        let location =
-            fs::read_to_string(&files.location_file).expect("Failed reading locations file");
+        let credentials = fs::read_to_string(&files.credentials_file).expect("Failed reading credentials file");
+        let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
 
         assert_eq!(credentials, "OK");
         assert_eq!(location, "www.test.com");
@@ -786,8 +771,7 @@ mod tests {
     #[test]
     fn setup_application_location_correct_pass() {
         let config = {
-            let mut connections: BTreeMap<String, BTreeMap<String, ApplicationConfigConnection>> =
-                BTreeMap::new();
+            let mut connections: BTreeMap<String, BTreeMap<String, ApplicationConfigConnection>> = BTreeMap::new();
             let mut app_config: BTreeMap<String, ApplicationConfigConnection> = BTreeMap::new();
             let application = ApplicationConfigConnectionApplication {
                 workflow_domain: "test_workflow".to_string(),
@@ -809,7 +793,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: [0; APPLICATION_CONFIGURATION_ID_LENGTH],
+            hash: [0; SHA256_BYTE_LENGTH],
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-location");
@@ -821,8 +805,7 @@ mod tests {
         let result = setup_datasets(&config, &credentials, &api, &test_folder.0);
         assert!(result.is_ok(), "{:?}", result);
 
-        let location =
-            fs::read_to_string(&files.location_file).expect("Failed reading locations file");
+        let location = fs::read_to_string(&files.location_file).expect("Failed reading locations file");
 
         assert_eq!(location, "test_workflow");
     }
@@ -835,30 +818,23 @@ mod tests {
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        setup_app_configs(&runtime_config.config.app_config, &test_folder.0)
-            .expect("Failed setting up runtime app config");
+        setup_app_configs(&runtime_config.config.app_config, &test_folder.0).expect("Failed setting up runtime app config");
 
-        let result = fs::read_to_string(
-            test_folder
-                .0
-                .join("opt/fortanix/enclave-os/app-config/rw/app_conf.txt"),
-        )
-        .expect("Failed reading app config file");
+        let result = fs::read_to_string(test_folder.0.join("opt/fortanix/enclave-os/app-config/rw/app_conf.txt"))
+            .expect("Failed reading app config file");
 
         assert_eq!(result, "Hello World")
     }
 
     #[test]
     fn setup_application_configurations_additional_folder_correct_pass() {
-        let runtime_config: RuntimeAppConfig =
-            run_setup_runtime_configuration(VALID_APP_CONF_ADDITIONAL_FOLDER);
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(VALID_APP_CONF_ADDITIONAL_FOLDER);
         let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-additional-folder");
         let test_folder = TempDir(&test_folder_path);
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
-        setup_app_configs(&runtime_config.config.app_config, &test_folder.0)
-            .expect("Failed setting up runtime app config");
+        setup_app_configs(&runtime_config.config.app_config, &test_folder.0).expect("Failed setting up runtime app config");
 
         let result = fs::read_to_string(
             &test_folder
@@ -872,8 +848,7 @@ mod tests {
 
     #[test]
     fn setup_application_configurations_incorrect_file_path() {
-        let runtime_config: RuntimeAppConfig =
-            run_setup_runtime_configuration(APP_CONF_INCORRECT_FILE_PATH);
+        let runtime_config: RuntimeAppConfig = run_setup_runtime_configuration(APP_CONF_INCORRECT_FILE_PATH);
 
         assert_eq!(runtime_config.config.app_config.is_empty(), false);
 
@@ -884,47 +859,28 @@ mod tests {
     fn normalize_path_correct_pass() {
         assert_eq!(
             Path::new("❤/✈/☆"),
-            normalize_path_and_make_relative("/❤/✈/☆")
-                .unwrap()
-                .as_path()
+            normalize_path_and_make_relative("/❤/✈/☆").unwrap().as_path()
         );
         assert_eq!(
             Path::new("air/✈/plane"),
-            normalize_path_and_make_relative("/air/✈/plane")
-                .unwrap()
-                .as_path()
+            normalize_path_and_make_relative("/air/✈/plane").unwrap().as_path()
         );
 
         assert_eq!(
             Path::new("a/b"),
-            normalize_path_and_make_relative("/a////b")
-                .unwrap()
-                .as_path()
+            normalize_path_and_make_relative("/a////b").unwrap().as_path()
         );
         assert_eq!(
             Path::new("a/b"),
-            normalize_path_and_make_relative("/a/./././b")
-                .unwrap()
-                .as_path()
+            normalize_path_and_make_relative("/a/./././b").unwrap().as_path()
         );
-        assert_eq!(
-            Path::new("..."),
-            normalize_path_and_make_relative("/...").unwrap().as_path()
-        );
-        assert_eq!(
-            Path::new("a."),
-            normalize_path_and_make_relative("/a.").unwrap().as_path()
-        );
-        assert_eq!(
-            Path::new("a.."),
-            normalize_path_and_make_relative("/a..").unwrap().as_path()
-        );
+        assert_eq!(Path::new("..."), normalize_path_and_make_relative("/...").unwrap().as_path());
+        assert_eq!(Path::new("a."), normalize_path_and_make_relative("/a.").unwrap().as_path());
+        assert_eq!(Path::new("a.."), normalize_path_and_make_relative("/a..").unwrap().as_path());
 
         assert_eq!(
             Path::new("a/b/d/c"),
-            normalize_path_and_make_relative("/a//.///b/d/.///./c")
-                .unwrap()
-                .as_path()
+            normalize_path_and_make_relative("/a//.///b/d/.///./c").unwrap().as_path()
         );
 
         assert!(normalize_path_and_make_relative("a/b/c").is_err());
@@ -936,48 +892,44 @@ mod tests {
     }
 
     #[test]
-    fn check_application_config_id_correct_hash() {
-        let credentials = EmAppCredentials::mock();
-        let correct_hash = <[u8; APPLICATION_CONFIGURATION_ID_LENGTH]>::try_from(
-            "a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTux".as_bytes(),
-        )
-        .unwrap();
-        let api = MockDataSet {
-            json_data: VALID_APP_CONF,
-            hash: correct_hash.clone(),
-        };
-        let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_runtime_configuration(
-            &backend_url,
-            &credentials,
-            &correct_hash,
-        );
+    fn test_valid_sha256_hash() {
+        let valid_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let hash = Sha256Hash::try_from(valid_sha256);
 
-        assert!(runtime_config.is_ok());
+        assert!(hash.is_ok());
+        let hash = hash.unwrap();
+        assert_eq!(hash.0.len(), SHA256_BYTE_LENGTH);
+        assert_eq!(
+            hash.0,
+            [
+                0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f,
+                0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b,
+                0x78, 0x52, 0xb8, 0x55
+            ]
+        );
     }
 
     #[test]
-    fn check_application_config_id_incorrect_hash() {
-        let credentials = EmAppCredentials::mock();
-        let correct_hash = <[u8; APPLICATION_CONFIGURATION_ID_LENGTH]>::try_from(
-            "a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTux".as_bytes(),
-        )
-        .unwrap();
-        let incorrect_hash = <[u8; APPLICATION_CONFIGURATION_ID_LENGTH]>::try_from(
-            "Xy9Wq2rT6vZa8Lc1Pd0BmJk4Gh7UfVsN".as_bytes(),
-        )
-        .unwrap();
-        let api = MockDataSet {
-            json_data: VALID_APP_CONF,
-            hash: correct_hash,
-        };
-        let backend_url = CCMBackendUrl::default();
-        let runtime_config = api.runtime_config_api().get_runtime_configuration(
-            &backend_url,
-            &credentials,
-            &incorrect_hash,
-        );
+    fn test_invalid_length_sha256_hash() {
+        let invalid_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852"; // 62 characters
+        let hash = Sha256Hash::try_from(invalid_sha256);
 
-        assert!(runtime_config.is_err());
+        assert!(hash.is_err());
+    }
+
+    #[test]
+    fn test_invalid_hex_sha256_hash() {
+        let invalid_sha256 = "X3b0c44298Lc1c149afbf4c8996fb92427XX41e4649b934WW495991b7852Y855";
+        let hash = Sha256Hash::try_from(invalid_sha256);
+
+        assert!(hash.is_err());
+    }
+
+    #[test]
+    fn test_empty_sha256_hash() {
+        let empty_sha256 = "";
+        let hash = Sha256Hash::try_from(empty_sha256);
+
+        assert!(hash.is_err());
     }
 }
