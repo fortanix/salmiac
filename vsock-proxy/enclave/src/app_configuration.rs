@@ -5,7 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::BTreeMap;
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -83,21 +83,16 @@ pub(crate) fn setup_application_configuration<T>(
     ccm_backend_url: &CCMBackendUrl,
     api: T,
     fs_root: &Path,
-    app_config_id: &str
+    app_config_id: Sha256Hash
 ) -> Result<(), String>
 where
     T: ApplicationConfiguration,
 {
     info!("Requesting application configuration.");
 
-    let app_config_id_raw: [u8; SHA256_BYTE_LENGTH] = app_config_id
-        .as_bytes()
-        .try_into()
-        .map_err(|err| format!("Cannot convert application config id into an array. Error: {:?}. Perhaps your id isn't {} characters long?", err, SHA256_BYTE_LENGTH))?;
-
     let app_config = api
         .runtime_config_api()
-        .get_runtime_configuration(&ccm_backend_url, em_app_credentials, &app_config_id_raw)?;
+        .get_runtime_configuration(&ccm_backend_url, em_app_credentials, app_config_id)?;
 
     write_runtime_configuration_to_file(&app_config, fs_root)?;
 
@@ -342,7 +337,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
-        expected_hash: &[u8; SHA256_BYTE_LENGTH],
+        expected_hash: Sha256Hash,
     ) -> Result<RuntimeAppConfig, String> {
         em_app::utils::get_runtime_configuration(
             &ccm_backend_url.host,
@@ -351,7 +346,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
             credentials.key.clone(),
             credentials.root_certificate.clone(),
             None,
-            expected_hash
+            &expected_hash.0
         )
     }
 }
@@ -361,7 +356,7 @@ pub(crate) trait RuntimeConfiguration {
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
-        expected_hash: &[u8; SHA256_BYTE_LENGTH],
+        expected_hash: Sha256Hash,
     ) -> Result<RuntimeAppConfig, String>;
 }
 
@@ -626,7 +621,7 @@ mod tests {
 
     struct MockDataSet {
         pub json_data: &'static str,
-        pub hash: [u8; SHA256_BYTE_LENGTH],
+        pub hash: Sha256Hash,
     }
 
     impl MockDataSet {
@@ -663,9 +658,9 @@ mod tests {
             &self,
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
-            expected_hash: &[u8; SHA256_BYTE_LENGTH],
+            expected_hash: Sha256Hash,
         ) -> Result<RuntimeAppConfig, String> {
-            if self.hash != *expected_hash {
+            if self.hash.0 != expected_hash.0 {
                 Err(format!("Expected hash: {:?} doesn't equal saved hash: {:?}", expected_hash, self.hash))
             } else {
                 Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
@@ -714,13 +709,13 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet {
             json_data,
-            hash: [0; SHA256_BYTE_LENGTH],
+            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
         });
 
         let result = api.get_runtime_configuration(
             &backend_url,
             &credentials,
-            &[0; SHA256_BYTE_LENGTH],
+            Sha256Hash([0; SHA256_BYTE_LENGTH]),
         );
         assert!(result.is_ok(), "{:?}", result);
 
@@ -733,7 +728,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: [0; SHA256_BYTE_LENGTH],
+            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
         };
 
         let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
@@ -750,7 +745,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: [0; SHA256_BYTE_LENGTH],
+            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("datasets");
@@ -793,7 +788,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: [0; SHA256_BYTE_LENGTH],
+            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-location");
