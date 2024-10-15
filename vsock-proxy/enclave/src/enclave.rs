@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::fs;
 use std::path::Path;
 use std::process::Stdio;
@@ -19,7 +19,6 @@ use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
-use sdkms::api_model::Blob;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
     UserProgramExitStatus,
@@ -39,7 +38,7 @@ use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::{AsyncDevice, Device};
 
-use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials, Sha256Hash};
 use crate::certificate::{create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
@@ -214,12 +213,15 @@ fn setup_app_configuration(
 
         info!("Setting up application configuration.");
 
+        let app_config_id = Sha256Hash::try_from(id.as_str())
+            .map_err(|err| format!("App config id is not a valid SHA-256 string. App config id is {}. Error {:?}", &id, err))?;
+
         setup_application_configuration(
             &credentials,
             &app_config.ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
-            Blob::from(id.as_str()),
+            app_config_id,
         )
     } else {
         Ok(())
