@@ -30,7 +30,7 @@ rtnetlink = "0.8.0"
 sdkms = { version = "0.2.1", default-features = false, features = ["hyper-native-tls"] }
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
-serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+serde_json = { workspace = true }
 shared = { path = "../shared" }
 sysinfo = "0.29.8"
 tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }

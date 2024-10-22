@@ -10,4 +10,7 @@ repository = "https://github.com/fortanix/salmiac"
 [dependencies]
 hex = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+serde_json = "1.0"
+
+[patch.crates-io]
+serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes_1.0.51" }
