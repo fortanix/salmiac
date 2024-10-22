@@ -22,7 +22,7 @@ log = "0.4"
 nix = { version = "0.26.1", features = ["user", "fs"] }
 rand = "0.8.4"
 serde = { version = "1.0.127", features = ["derive"] }
-serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+serde_json = "1.0"
 shiplift = { git = "https://github.com/fortanix/shiplift.git" }
 sys-mount = "1.5.1"
 tar = { git = "https://github.com/alexcrichton/tar-rs" }
@@ -32,3 +32,6 @@ toml = "0.5.8"
 
 [dev-dependencies]
 chrono = "0.4.22"
+
+[patch.crates-io]
+serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
