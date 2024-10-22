@@ -34,4 +34,4 @@ toml = "0.5.8"
 chrono = "0.4.22"
 
 [patch.crates-io]
-serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes_1.0.51" }

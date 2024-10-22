@@ -10,4 +10,4 @@ members = [
 serde_json = "1.0"
 
 [patch.crates-io]
-serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes_1.0.51" }
