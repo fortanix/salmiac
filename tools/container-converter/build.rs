@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let current_dir = env::current_dir().expect("Failed retrieving current directory");
 
-    {
+    let status = {
         let mut result = Command::new("cargo");
 
         result.current_dir(current_dir.join("../../vsock-proxy"))
@@ -51,6 +51,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         result
     }.status().expect("Failed to build vsock-proxy project");
+
+    if !status.success() {
+        panic!("Failed to build vsock-proxy project");
+    }
 
     fs::copy(vsock_proxy_bin_dir.join("enclave"), resources_enclave_dir.join("enclave"))
         .expect("Failed to copy enclave bin");

@@ -55,6 +55,11 @@ async fn read_from_device_async(
 ) -> Result<(), String> {
     let mut unsupported_protocols = HashSet::<u8>::new();
 
+    use tokio::io::BufReader;
+    use tokio::io::BufWriter;
+
+    let mut buffered_vsock = BufWriter::new(enclave_stream);
+
     loop {
         let packets = match capture.next().await {
             Some(Ok(packets)) => packets,
@@ -81,7 +86,7 @@ async fn read_from_device_async(
                     _ => {}
                 }
 
-                enclave_stream.write_lv_bytes(&data).await?;
+                buffered_vsock.write_lv_bytes(&data).await?;
             } else {
                 warn!(
                     "Dropped PCAP captured packet! \
@@ -102,6 +107,10 @@ async fn write_to_device_async(
     let (packet_tx, packet_rx) = mpsc::channel();
     let (error_tx, error_rx) = mpsc::sync_channel(1);
 
+    use tokio::io::BufReader;
+    let mut buffered_vsock = BufReader::new(from_enclave);
+
+
     // This is a fix to avoid blocking when writing packets to pcap,
     // as there is no async write function available in pcap crate.
     thread::spawn(move || {
@@ -117,7 +126,7 @@ async fn write_to_device_async(
     });
 
     loop {
-        let packet = from_enclave
+        let packet = buffered_vsock
             .read_lv_bytes()
             .await
             .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;

@@ -73,14 +73,19 @@ async fn read_from_tap_async(
     mut vsock: WriteHalf<AsyncVsockStream>,
     buf_len: u32,
 ) -> Result<(), String> {
+    use tokio::io::BufReader;
+    use tokio::io::BufWriter;
+
     let mut buf = vec![0 as u8; (MAX_ETHERNET_HEADER_SIZE + buf_len) as usize];
+    let mut buffered_device = BufReader::new(device);
+    let mut buffered_vsock = BufWriter::new(vsock);
 
     loop {
-        let amount = AsyncReadExt::read(&mut device, &mut buf)
+        let amount = AsyncReadExt::read(&mut buffered_device, &mut buf)
             .await
             .map_err(|err| format!("Cannot read from tap {:?}", err))?;
 
-        vsock
+        buffered_vsock
             .write_lv_bytes(&buf[..amount])
             .await
             .map_err(|err| format!("Failed to write to enclave vsock {:?}", err))?;
@@ -88,10 +93,16 @@ async fn read_from_tap_async(
 }
 
 async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
-    loop {
-        let packet = vsock.read_lv_bytes().await?;
+    use tokio::io::BufReader;
+    use tokio::io::BufWriter;
 
-        AsyncWriteExt::write_all(&mut device, &packet)
+    let mut buffered_device = BufWriter::new(device);
+    let mut buffered_vsock = BufReader::new(vsock);
+
+    loop {
+        let packet = buffered_vsock.read_lv_bytes().await?;
+
+        AsyncWriteExt::write_all(&mut buffered_device, &packet)
             .await
             .map_err(|err| format!("Cannot write to tap {:?}", err))?;
     }
