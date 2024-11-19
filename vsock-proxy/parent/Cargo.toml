@@ -19,8 +19,7 @@ futures = "0.3"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
 nix = { version = "0.26.1", features = ["hostname"] }
-pcap = "0.9.1"
-pcap-async = "0.4.1"
+pcap = { version = "2.2.0", git = "https://github.com/fortanix/pcap.git", branch = "main", features = ["capture-stream"] }
 rtnetlink = "0.8.0"
 shared = { path = "../shared" }
 tempdir = "0.3.7"
