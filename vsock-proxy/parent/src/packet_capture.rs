@@ -5,15 +5,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashSet;
-use std::sync::mpsc;
-use std::sync::mpsc::TryRecvError;
-use std::thread;
 
-use futures::stream::Fuse;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use log::{info, warn};
-use pcap::{Active, Capture, Device};
-use pcap_async::{Config, Handle};
+use pcap::{Active, Capture, Device, Direction, Packet, PacketCodec};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
@@ -34,8 +29,8 @@ pub(crate) struct PcapLoopsResult {
 /// # Returns
 /// Handles to two network forwarding tasks
 pub(crate) fn start_pcap_loops(network_device: Device, vsock: AsyncVsockStream) -> Result<PcapLoopsResult, String> {
-    let read_capture = open_async_packet_capture(&network_device.name)?;
-    let write_capture = open_packet_capture(network_device)?;
+    let read_capture = open_packet_capture(network_device.clone(), Mode::Read)?;
+    let write_capture = open_packet_capture(network_device, Mode::Write)?;
 
     let (vsock_read, vsock_write) = io::split(vsock);
 
@@ -50,130 +45,111 @@ pub(crate) fn start_pcap_loops(network_device: Device, vsock: AsyncVsockStream) 
 }
 
 async fn read_from_device_async(
-    mut capture: Fuse<pcap_async::PacketStream>,
+    capture: Capture<Active>,
     mut enclave_stream: WriteHalf<AsyncVsockStream>,
 ) -> Result<(), String> {
-    let mut unsupported_protocols = HashSet::<u8>::new();
+    struct Raw;
 
-    loop {
-        let packets = match capture.next().await {
-            Some(Ok(packets)) => packets,
-            Some(Err(e)) => return Err(format!("Failed to read packet from pcap {:?}", e)),
-            None => return Ok(()),
-        };
+    impl PacketCodec for Raw {
+        type Item = Result<Vec<u8>, String>;
 
-        for packet in packets {
-            if packet.actual_length() == packet.original_length() {
-                let mut data = packet.into_data();
-
-                match recompute_packet_checksum(&mut data) {
-                    Err(ChecksumComputationError::Err(err)) => {
-                        warn!("Failed recomputing checksum for a packet. {:?}", err);
-                    }
-                    Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
-                        if unsupported_protocols.insert(protocol) {
-                            warn!(
-                                "Unsupported protocol {} encountered when recomputing checksum for a packet.",
-                                protocol
-                            );
-                        }
-                    }
-                    _ => {}
-                }
-
-                enclave_stream.write_lv_bytes(&data).await?;
+        fn decode(&mut self, packet: Packet) -> Self::Item {
+            if packet.header.caplen == packet.header.len {
+                Ok(packet.data.to_owned())
             } else {
-                warn!(
+                Err(format!(
                     "Dropped PCAP captured packet! \
                         Reason: captured packet length ({} bytes) \
                         is different than the inbound packet length ({} bytes).",
-                    packet.actual_length(),
-                    packet.original_length()
-                );
+                    packet.header.caplen,
+                    packet.header.len
+                ))
             }
         }
     }
+
+    let mut unsupported_protocols = HashSet::<u8>::new();
+
+    let mut capture = capture.stream(Raw)
+        .map_err(|err| format!("Failed to convert capture to stream: {:?}", err))?;
+
+    while let Some(pkt) = capture.next().await {
+        if let Err(err) = async {
+            let mut data = pkt.map_err(|err| format!("error reading from pcap device: {:?}", err))??;
+            match recompute_packet_checksum(&mut data) {
+                Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
+                    if unsupported_protocols.insert(protocol) {
+                        warn!(
+                            "Unsupported protocol {} encountered when recomputing checksum for a packet.",
+                            protocol
+                        );
+                    }
+                }
+                Err(ChecksumComputationError::Err(err)) => {
+                    return Err(format!("error recomputing packet checksum: {:?}", err));
+                }
+                Ok(_) => {}
+            }
+
+            enclave_stream.write_lv_bytes(&data).await
+                .map_err(|err| format!("error writing to vsock {:?}", err))
+        }.await {
+            warn!("Failed to process packet towards enclave: {}", err);
+        }
+    };
+
+    Ok(())
 }
 
 async fn write_to_device_async(
-    mut capture: Capture<Active>,
+    capture: Capture<Active>,
     mut from_enclave: ReadHalf<AsyncVsockStream>,
 ) -> Result<(), String> {
-    let (packet_tx, packet_rx) = mpsc::channel();
-    let (error_tx, error_rx) = mpsc::sync_channel(1);
-
-    // This is a fix to avoid blocking when writing packets to pcap,
-    // as there is no async write function available in pcap crate.
-    thread::spawn(move || {
-        while let Ok(packet) = packet_rx.recv() {
-            if let Err(e) = capture.sendpacket(packet) {
-                let err = format!("Failed to write to pcap {:?}", e);
-
-                error_tx.send(err).expect("Failed sending error");
-
-                break;
-            }
-        }
-    });
-
+    let mut capture = capture.sink()
+        .map_err(|err| format!("Failed to convert capture to sink: {:?}", err))?;
     loop {
-        let packet = from_enclave
-            .read_lv_bytes()
-            .await
-            .map_err(|err| format!("Failed to read packet from enclave {:?}", err))?;
+        if let Err(err) = async {
+            let packet = from_enclave
+                .read_lv_bytes()
+                .await
+                .map_err(|err| format!("error reading from vsock: {:?}", err))?;
 
-        match error_rx.try_recv() {
-            Err(TryRecvError::Disconnected) => {
-                return Err(format!("pcap writer thread died prematurely"));
-            }
-            Ok(e) => return Err(e),
-            _ => {}
+            capture.send(packet).await
+                .map_err(|err| format!("error writing to pcap device: {:?}", err))
+        }.await {
+            warn!("Failed to process packet from enclave: {}", err);
         }
-
-        packet_tx
-            .send(packet)
-            .map_err(|err| format!("Failed to send packet to pcap writer thread {:?}", err))?;
     }
 }
 
-fn open_packet_capture(device: pcap::Device) -> Result<Capture<Active>, String> {
+enum Mode {
+    Read,
+    Write,
+}
+
+fn open_packet_capture(device: pcap::Device, mode: Mode) -> Result<Capture<Active>, String> {
     let device_name = device.name.clone();
-    let capture = Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))?;
+    let capture = Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))?
+        .immediate_mode(true);
 
-    info!("Capturing with device: {}", device_name);
+    if let Mode::Read = mode {
+        info!("Capturing with device: {}", device_name);
+    }
 
-    capture.open().map_err(|err| format!("Cannot open capture {:?}", err))
-}
+    let mut capture = capture.open().map_err(|err| format!("Cannot open capture {:?}", err))?;
+    capture = capture.setnonblock().map_err(|err| format!("Failed to configure pcap non-blocking mode {:?}", err))?;
 
-fn open_async_packet_capture(device_name: &str) -> Result<Fuse<pcap_async::PacketStream>, String> {
-    let config = async_packet_capture_config();
+    if let Mode::Read = mode {
+        // We capture only incoming packets inside the parent, however by default pcap
+        // captures all the packets that come through the network device (like
+        // tcpdump). Without this filter what would happen is that pcap will capture
+        // packets forwarded from enclave's TAP device, which in turn
+        // will get forwarded back into the enclave by the parent.
+        // This doesn't break the networking as incorrect packets will get dropped by
+        // the enclave, but that way it generates unnecessary traffic that we don't
+        // need.
+        capture.direction(Direction::In).map_err(|err| format!("Failed to set pcap capture directoin {:?}", err))?;
+    }
 
-    let handle = Handle::live_capture(device_name)
-        .map_err(|err| format!("Cannot create capture for device {}, error: {:?}", device_name, err))?;
-
-    handle
-        .set_immediate_mode()
-        .map_err(|err| format!("Failed to set pcap immediate mode {:?}", err))?;
-
-    pcap_async::PacketStream::new(config, handle)
-        .map(|e| e.fuse())
-        .map_err(|err| format!("Cannot open async capture {:?}", err))
-}
-
-fn async_packet_capture_config() -> Config {
-    let mut config = Config::default();
-
-    config.with_blocking(false);
-
-    // We capture only incoming packets inside the parent, however by default pcap
-    // captures all the packets that come through the network device (like
-    // tcpdump). Without this filter what would happen is that pcap will capture
-    // packets forwarded from enclave's TAP device, which in turn
-    // will get forwarded back into the enclave by the parent.
-    // This doesn't break the networking as incorrect packets will get dropped by
-    // the enclave, but that way it generates unnecessary traffic that we don't
-    // need.
-    config.with_bpf("inbound".to_string());
-
-    config
+    Ok(capture)
 }
