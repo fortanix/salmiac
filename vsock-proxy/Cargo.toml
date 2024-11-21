@@ -12,4 +12,4 @@ em-client = { version = "4.0.0" }
 
 [patch.crates-io]
 em-app = { git = "https://github.com/fortanix/rust-sgx.git" }
-em-client = { git = "https://github.com/fortanix/em-client-rust" }
+em-client = { git = "https://github.com/fortanix/em-client-rust", branch = "ns/print-hash" }
