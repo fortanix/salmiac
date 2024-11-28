@@ -14,6 +14,7 @@ use api_model::converter::CertificateConfig;
 use api_model::enclave::EnclaveManifest;
 use async_process::{Child, Command};
 use async_trait::async_trait;
+use em_client::Sha256Hash;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
@@ -38,7 +39,7 @@ use tokio::task::JoinHandle;
 use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
 use tun::{AsyncDevice, Device};
 
-use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials, Sha256Hash};
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,

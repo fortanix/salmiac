@@ -602,6 +602,7 @@ dependencies = [
  "clap",
  "const_format",
  "em-app",
+ "em-client",
  "env_logger 0.7.1",
  "futures 0.3.16",
  "hyper",

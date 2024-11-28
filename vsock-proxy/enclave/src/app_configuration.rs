@@ -5,7 +5,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -13,6 +12,7 @@ use std::sync::Arc;
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
 };
+use em_client::Sha256Hash;
 use log::{info, warn};
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
@@ -42,41 +42,6 @@ macro_rules! application_dir {
 const CREDENTIALS_FILE: &str = "credentials.bin";
 
 const LOCATION_FILE: &str = "location.txt";
-
-// https://en.wikipedia.org/wiki/SHA-2
-const SHA256_BYTE_LENGTH: usize = 32;
-
-const SHA256_CHAR_LENGTH: usize = SHA256_BYTE_LENGTH * 2;
-
-#[derive(Debug)]
-pub struct Sha256Hash([u8; SHA256_BYTE_LENGTH]);
-
-impl TryFrom<&str> for Sha256Hash {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value.len() != SHA256_CHAR_LENGTH {
-            return Err(format!("SHA-256 string should be exactly {} characters long, instead got a string of len {}", SHA256_CHAR_LENGTH, value.len()))
-        } else if !(value.chars().all(|c| c.is_ascii_hexdigit())) {
-            return Err(format!("SHA-256 string should contain only hexadecimal characters in the format [0-9a-fA-F], but got {}", value))
-        } else {
-            let mut result = [0u8; SHA256_BYTE_LENGTH];
-
-            for i in 0..SHA256_BYTE_LENGTH {
-                // We iterate input string by chunks of 2 because 1 hex char is half a byte.
-                let chunk = &value[2 * i..2 * i + 2];
-                result[i] = u8::from_str_radix(chunk, 16).map_err(|err| {
-                    format!(
-                        "Invalid hex format for chunk '{}' at position {}. Error {:?}",
-                        chunk, i, err
-                    )
-                })?;
-            }
-
-            Ok(Sha256Hash(result))
-        }
-    }
-}
 
 pub(crate) fn setup_application_configuration<T>(
     em_app_credentials: &EmAppCredentials,
@@ -346,7 +311,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
             credentials.key.clone(),
             credentials.root_certificate.clone(),
             None,
-            &expected_hash.0
+            &expected_hash
         )
     }
 }
@@ -487,7 +452,7 @@ mod tests {
     use crate::app_configuration::{
         normalize_path_and_make_relative, setup_app_configs, setup_datasets,
         ApplicationConfiguration, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset, SHA256_BYTE_LENGTH,
+        RuntimeConfiguration, SdkmsDataset,
     };
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
@@ -660,7 +625,7 @@ mod tests {
             _credentials: &EmAppCredentials,
             expected_hash: Sha256Hash,
         ) -> Result<RuntimeAppConfig, String> {
-            if self.hash.0 != expected_hash.0 {
+            if self.hash != expected_hash {
                 Err(format!("Expected hash: {:?} doesn't equal saved hash: {:?}", expected_hash, self.hash))
             } else {
                 Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
@@ -709,13 +674,13 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api: Box<dyn RuntimeConfiguration> = Box::new(MockDataSet {
             json_data,
-            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
+            hash: Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
         });
 
         let result = api.get_runtime_configuration(
             &backend_url,
             &credentials,
-            Sha256Hash([0; SHA256_BYTE_LENGTH]),
+            Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
         );
         assert!(result.is_ok(), "{:?}", result);
 
@@ -728,7 +693,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
+            hash: Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
         };
 
         let result = setup_datasets(&config, &credentials, &api, Path::new("/"));
@@ -745,7 +710,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
+            hash: Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("datasets");
@@ -788,7 +753,7 @@ mod tests {
         let credentials = EmAppCredentials::mock();
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
-            hash: Sha256Hash([0; SHA256_BYTE_LENGTH]),
+            hash: Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
         };
 
         let test_folder_path = Path::new(TEST_FOLDER).join("appconfig-location");
@@ -884,47 +849,5 @@ mod tests {
         assert!(normalize_path_and_make_relative("/a/b/c/").is_err());
         assert!(normalize_path_and_make_relative("/a/b/c/.").is_err());
         assert!(normalize_path_and_make_relative("/a/b/c/..").is_err());
-    }
-
-    #[test]
-    fn test_valid_sha256_hash() {
-        let valid_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-        let hash = Sha256Hash::try_from(valid_sha256);
-
-        assert!(hash.is_ok());
-        let hash = hash.unwrap();
-        assert_eq!(hash.0.len(), SHA256_BYTE_LENGTH);
-        assert_eq!(
-            hash.0,
-            [
-                0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f,
-                0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b,
-                0x78, 0x52, 0xb8, 0x55
-            ]
-        );
-    }
-
-    #[test]
-    fn test_invalid_length_sha256_hash() {
-        let invalid_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852"; // 62 characters
-        let hash = Sha256Hash::try_from(invalid_sha256);
-
-        assert!(hash.is_err());
-    }
-
-    #[test]
-    fn test_invalid_hex_sha256_hash() {
-        let invalid_sha256 = "X3b0c44298Lc1c149afbf4c8996fb92427XX41e4649b934WW495991b7852Y855";
-        let hash = Sha256Hash::try_from(invalid_sha256);
-
-        assert!(hash.is_err());
-    }
-
-    #[test]
-    fn test_empty_sha256_hash() {
-        let empty_sha256 = "";
-        let hash = Sha256Hash::try_from(empty_sha256);
-
-        assert!(hash.is_err());
     }
 }
