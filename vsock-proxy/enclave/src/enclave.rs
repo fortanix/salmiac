@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::fs;
 use std::path::Path;
 use std::process::Stdio;
@@ -13,12 +13,12 @@ use api_model::converter::{CertificateConfig};
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
 use async_process::{Child, Command};
 use async_trait::async_trait;
+use em_client::Sha256Hash;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, info, warn};
 use nix::net::if_::if_nametoindex;
-use sdkms::api_model::Blob;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
     UserProgramExitStatus,
@@ -220,12 +220,15 @@ fn setup_app_configuration(
 
         info!("Setting up application configuration.");
 
+        let app_config_id = Sha256Hash::try_from(id.as_str())
+            .map_err(|err| format!("App config id is not a valid SHA-256 string. App config id is {}. Error {:?}", &id, err))?;
+
         setup_application_configuration(
             &credentials,
             ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
-            Blob::from(id.as_str()),
+            &app_config_id,
         )
     } else {
         Ok(())
