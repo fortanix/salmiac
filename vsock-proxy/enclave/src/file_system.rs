@@ -82,7 +82,7 @@ pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_opti
             FileSystemNode::TreeNode(node_path) => {
                 let formatted_mount_point_str = format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path);
                 let mut mount_args = vec!["--rbind", node_path, &formatted_mount_point_str];
-                if node_path.clone() == "/tmp" && mount_options.is_tmp_exec {
+                if *node_path == "/tmp" && mount_options.is_tmp_exec {
                     mount_args.push("-o");
                     mount_args.push("exec");
                     // Make the tmp directory of the enclave base image executable first
