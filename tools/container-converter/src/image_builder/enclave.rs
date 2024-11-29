@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api_model::enclave::{EnclaveManifest, FileSystemConfig, UserConfig};
-use api_model::converter::{ConverterOptions, CertificateConfig};
+use api_model::enclave::{EnclaveManifest, FileSystemConfig, UserConfig, CcmBackendUrl};
+use api_model::converter::{ConverterOptions, CertificateConfig, DsmConfiguration};
 use docker_image_reference::Reference as DockerReference;
 use log::{info, debug, warn};
 use nix::unistd::chown;
@@ -86,7 +86,7 @@ pub(crate) fn get_image_env(input_image: &ImageWithDetails<'_>, converter_option
     }
     result
 }
-
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct EnclaveSettings {
     user_name: String,
 
@@ -94,7 +94,11 @@ pub(crate) struct EnclaveSettings {
 
     is_debug: bool,
 
-    enable_overlay_filesystem_persistence: bool
+    enable_overlay_filesystem_persistence: bool,
+
+    ccm_backend_url: CcmBackendUrl,
+
+    dsm_configuration: DsmConfiguration
 }
 
 impl EnclaveSettings {
@@ -103,7 +107,9 @@ impl EnclaveSettings {
             user_name: input_image.details.config.user.clone(),
             env_vars: vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
-            enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false)
+            enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false),
+            ccm_backend_url: CcmBackendUrl::new(converter_options.ccm_configuration.clone().unwrap_or_default().ccm_url.as_str()).unwrap_or_default(),
+            dsm_configuration: converter_options.dsm_configuration.clone().unwrap_or_default()
         }
     }
 }
@@ -152,6 +158,8 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;
         let enable_overlay_filesystem_persistence = enclave_settings.enable_overlay_filesystem_persistence;
+        let ccm_backend_url = enclave_settings.ccm_backend_url.clone();
+        let dsm_configuration = enclave_settings.dsm_configuration.clone();
 
         let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
             message,
@@ -172,7 +180,9 @@ impl<'a> EnclaveImageBuilder<'a> {
             file_system_config,
             is_debug,
             env_vars,
-            enable_overlay_filesystem_persistence
+            enable_overlay_filesystem_persistence,
+            ccm_backend_url,
+            dsm_configuration,
         };
 
         self.create_manifest_file(enclave_manifest, &build_context)?;

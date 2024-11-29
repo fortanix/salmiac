@@ -17,7 +17,7 @@ use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use parent_lib::{communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS};
 use shared::models::{
-    ApplicationConfiguration, CCMBackendUrl, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus,
+    ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus,
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
@@ -596,8 +596,6 @@ impl CertificateApi for EmAppCertificateApi {
 }
 
 async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<(), String> {
-    let ccm_backend_url = env_var_or_none("CCM_BACKEND").map_or(Ok(CCMBackendUrl::default()), |e| CCMBackendUrl::new(&e))?;
-
     let id = get_app_config_id();
 
     let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
@@ -606,7 +604,6 @@ async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<
 
     let application_configuration = ApplicationConfiguration {
         id,
-        ccm_backend_url,
         skip_server_verify,
     };
 

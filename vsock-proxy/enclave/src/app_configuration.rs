@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-
+use api_model::enclave::CcmBackendUrl;
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
 };
@@ -17,7 +17,6 @@ use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
 use sdkms::api_model::Blob;
-use shared::models::CCMBackendUrl;
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
@@ -46,7 +45,7 @@ const LOCATION_FILE: &str = "location.txt";
 
 pub(crate) fn setup_application_configuration<T>(
     em_app_credentials: &EmAppCredentials,
-    ccm_backend_url: &CCMBackendUrl,
+    ccm_backend_url: &CcmBackendUrl,
     api: T,
     fs_root: &Path,
     app_config_id: Blob
@@ -58,7 +57,7 @@ where
 
     let app_config = api
         .runtime_config_api()
-        .get_runtime_configuration(&ccm_backend_url, em_app_credentials)?;
+        .get_runtime_configuration(ccm_backend_url, em_app_credentials)?;
 
     let _app_config_id_check = check_application_config_id(&app_config.config, app_config_id);
 
@@ -321,7 +320,7 @@ pub(crate) struct EmAppRuntimeConfiguration {}
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
-        ccm_backend_url: &CCMBackendUrl,
+        ccm_backend_url: &CcmBackendUrl,
         credentials: &EmAppCredentials,
     ) -> Result<RuntimeAppConfig, String> {
         em_app::utils::get_runtime_configuration(
@@ -338,7 +337,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
 pub(crate) trait RuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
-        ccm_backend_url: &CCMBackendUrl,
+        ccm_backend_url: &CcmBackendUrl,
         credentials: &EmAppCredentials,
     ) -> Result<RuntimeAppConfig, String>;
 }
@@ -463,9 +462,8 @@ mod tests {
         ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
     };
     use sdkms::api_model::Blob;
-    use shared::models::CCMBackendUrl;
 
-    use crate::app_configuration::{normalize_path_and_make_relative, setup_app_configs, setup_datasets, ApplicationFiles, DataSetFiles, EmAppCredentials, RuntimeConfiguration, SdkmsDataset, ApplicationConfiguration, check_application_config_id};
+    use crate::app_configuration::{normalize_path_and_make_relative, setup_app_configs, setup_datasets, CcmBackendUrl, ApplicationFiles, DataSetFiles, EmAppCredentials, RuntimeConfiguration, SdkmsDataset, ApplicationConfiguration, check_application_config_id};
     use em_app::compute_app_config_hash;
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
@@ -633,7 +631,7 @@ mod tests {
     impl RuntimeConfiguration for MockDataSet {
         fn get_runtime_configuration(
             &self,
-            _ccm_backend_url: &CCMBackendUrl,
+            _ccm_backend_url: &CcmBackendUrl,
             _credentials: &EmAppCredentials,
         ) -> Result<RuntimeAppConfig, String> {
             Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
@@ -673,7 +671,7 @@ mod tests {
     }
 
     fn run_setup_runtime_configuration(json_data: &'static str) -> RuntimeAppConfig {
-        let backend_url = CCMBackendUrl {
+        let backend_url = CcmBackendUrl {
             host: String::new(),
             port: 0,
         };
@@ -854,7 +852,7 @@ mod tests {
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
         };
-        let backend_url = CCMBackendUrl::default();
+        let backend_url = CcmBackendUrl::default();
         let runtime_config = api.runtime_config_api().get_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
 
         let app_config_id = {
@@ -875,7 +873,7 @@ mod tests {
         let api = MockDataSet {
             json_data: VALID_APP_CONF,
         };
-        let backend_url = CCMBackendUrl::default();
+        let backend_url = CcmBackendUrl::default();
         let runtime_config = api.runtime_config_api().get_runtime_configuration(&backend_url, &credentials).expect("Get test data fail");
 
         let app_config_id = Blob::from("This_is_not_a_valid_hash");

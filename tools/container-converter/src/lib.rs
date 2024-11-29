@@ -3,9 +3,8 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 use api_model::HexString;
-use api_model::enclave::{UserConfig, UserProgramConfig};
+use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
 use api_model::converter::{AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion};
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
@@ -57,7 +56,9 @@ pub enum ConverterErrorKind {
     ImageFileSystemExport,
     ContainerCreation,
     BlockFileFull,
-    BadCertConfig
+    BadCertConfig,
+    BadCcmConfiguration,
+    BadDsmConfiguration
 }
 
 impl fmt::Display for ConverterError {
@@ -131,6 +132,25 @@ fn validate_request(request: &NitroEnclavesConversionRequest) -> Result<()> {
             kind: ConverterErrorKind::BadCertConfig,
         });
     }
+
+    if let Some(c) = &request.request.converter_options.ccm_configuration {
+        if CcmBackendUrl::new(c.ccm_url.as_str()).is_err() {
+            return Err(ConverterError {
+                message: "CcmConfiguration:ccm_url should be in <host>:<port> format".to_string(),
+                kind: ConverterErrorKind::BadCcmConfiguration,
+            });
+        }
+    }
+
+    if let Some(d) = &request.request.converter_options.dsm_configuration {
+        if url::Url::parse(&d.dsm_url).is_err() {
+            return Err(ConverterError {
+                message: "DsmConfiguration:dsm_url is not a valid url".to_string(),
+                kind: ConverterErrorKind::BadDsmConfiguration,
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -453,10 +473,46 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
 #[cfg(test)]
 mod tests {
     use std::env;
-    use api_model::converter::{CaCertificateConfig, CertificateConfig, CertIssuer, ConversionRequest, ConversionRequestImageInfo, ConverterOptions, KeyType, NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions};
+    use api_model::converter::{CertificateConfig, CertIssuer, ConversionRequest, ConversionRequestImageInfo, ConverterOptions, KeyType, NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions, CcmConfiguration, CaCertificateConfig, DsmConfiguration};
     use serde_json::Value;
+    use lazy_static::lazy_static;
 
     use crate::{preserve_images_list, ImageKind, validate_request, ConverterErrorKind};
+
+    lazy_static! {
+        static ref SAMPLE_REQUEST: NitroEnclavesConversionRequest = NitroEnclavesConversionRequest {
+        request: ConversionRequest {
+            input_image: ConversionRequestImageInfo { name: "input-image".to_string(), auth_config: None },
+            output_image: ConversionRequestImageInfo { name: "output-image".to_string(), auth_config: None },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![CertificateConfig {
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
+            },
+        },
+        nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None },
+        };
+    }
 
     #[test]
     fn preserve_image_list_correct_pass() -> () {
@@ -511,6 +567,8 @@ mod tests {
                 env_vars: vec![],
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
         let res = validate_request(&request);
@@ -548,6 +606,8 @@ mod tests {
                 env_vars: vec![],
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
         let res = validate_request(&request);
@@ -581,6 +641,8 @@ mod tests {
                 env_vars: vec![],
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
         let res = validate_request(&request);
@@ -618,6 +680,8 @@ mod tests {
                 env_vars: vec![],
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
         let res = validate_request(&request);
@@ -627,45 +691,62 @@ mod tests {
         assert!(converter_error.message.contains("Chain path is not supported on this platform yet"));
         assert!(converter_error.kind == ConverterErrorKind::BadCertConfig);
     }
+
     #[test]
     fn validate_converter_request_unsupported_ca_certificates() -> () {
-        let request = NitroEnclavesConversionRequest { request: ConversionRequest {
-            input_image: ConversionRequestImageInfo { name: "input-image".to_string(), auth_config: None },
-            output_image: ConversionRequestImageInfo { name: "output-image".to_string(), auth_config: None },
-            converter_options: ConverterOptions {
-                allow_cmdline_args: None,
-                allow_docker_pull_failure: None,
-                app: None,
-                ca_certificates: vec![ CaCertificateConfig {
-                    ca_path: None,
-                    ca_cert: None,
-                    system: None,
-                } ],
-                certificates: vec![ CertificateConfig{
-                    issuer: CertIssuer::ManagerCa,
-                    subject: None,
-                    alt_names: vec![],
-                    key_type: KeyType::Rsa,
-                    key_param: Some(Value::from(2048)),
-                    key_path: None,
-                    cert_path: None,
-                    chain_path: None,
-                }],
-                debug: None,
-                entry_point: vec![],
-                entry_point_args: vec![],
-                push_converted_image: None,
-                env_vars: vec![],
-                java_mode: None,
-                enable_overlay_filesystem_persistence: None,
-            },
-        }, nitro_enclaves_options: NitroEnclavesConversionRequestOptions { cpu_count: None, mem_size: None } };
+        let mut request = SAMPLE_REQUEST.clone();
+        request.request.converter_options.ca_certificates = vec![CaCertificateConfig {
+                ca_path: None,
+                ca_cert: None,
+                system: None,
+            }];
         let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
         assert!(converter_error.message.contains("CA certificates are not supported on this platform yet"));
-        assert!(converter_error.kind == ConverterErrorKind::BadCertConfig);
+        assert_eq!(converter_error.kind, ConverterErrorKind::BadCertConfig);
     }
 
+    #[test]
+    fn validate_converter_request_ccm_configuration() -> () {
+        let mut request = SAMPLE_REQUEST.clone();
+
+        // Test 1 - Default config i.e. No ccm config set
+        assert!(validate_request(&request).is_ok());
+
+        // Test 2 - Invalid CCM configuration set
+        request.request.converter_options.ccm_configuration = Some(CcmConfiguration { ccm_url: "InvalidUrl".to_string() });
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(converter_error.message, "CcmConfiguration:ccm_url should be in <host>:<port> format");
+        assert_eq!(converter_error.kind, ConverterErrorKind::BadCcmConfiguration);
+
+        // Test 3 - Valid CCM configuration set
+        request.request.converter_options.ccm_configuration = Some(CcmConfiguration { ccm_url: "ccm.sample.fortanix.com:267".to_string() });
+        assert!(validate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn validate_converter_request_dsm_configuration() -> () {
+        let mut request = SAMPLE_REQUEST.clone();
+
+        // Test 1 - Default config i.e. No dsm config set
+        assert!(validate_request(&request).is_ok());
+
+        // Test 2 - Invalid DSM configuration set
+        request.request.converter_options.dsm_configuration = Some(DsmConfiguration { dsm_url: "InvalidUrl".to_string() });
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(converter_error.message, "DsmConfiguration:dsm_url is not a valid url");
+        assert_eq!(converter_error.kind, ConverterErrorKind::BadDsmConfiguration);
+
+        // Test 3 - Valid DSM configuration set
+        request.request.converter_options.dsm_configuration = Some(DsmConfiguration { dsm_url: "https://someregion.smartkey.io".to_string() });
+        assert!(validate_request(&request).is_ok());
+    }
 }

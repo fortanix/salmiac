@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
 
-use crate::certificate::{CertificateResult, DEFAULT_CERT_DIR};
-use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, DEFAULT_DSM_ENDPOINT};
+use crate::certificate::{DEFAULT_CERT_DIR};
+use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, ClientConnectionInfo};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -82,7 +82,7 @@ pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_opti
             FileSystemNode::TreeNode(node_path) => {
                 let formatted_mount_point_str = format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path);
                 let mut mount_args = vec!["--rbind", node_path, &formatted_mount_point_str];
-                if node_path.clone() == "/tmp" && mount_options.is_tmp_exec {
+                if *node_path == "/tmp" && mount_options.is_tmp_exec {
                     mount_args.push("-o");
                     mount_args.push("exec");
                     // Make the tmp directory of the enclave base image executable first
@@ -178,10 +178,7 @@ async fn update_luks_token(device_path: &str, token_path: &str, op: TokenOp) -> 
 /// Opens the output token file. Parses it into a luks2 token object.
 /// After parsing the token to obtain parameters needed to access DSM,
 /// fetch the overlay fs key used to wrap the RW volume passkey.
-async fn get_key_from_out_token(
-    env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateResult>,
-) -> Result<(), String> {
+async fn get_key_from_out_token(conn_info: ClientConnectionInfo<'_>) -> Result<(), String> {
     // Open and parse the dmcrypt volume token file
     let mut token_file = fs::File::open(TOKEN_OUT_FILE).map_err(|err| format!("Unable to open token out file : {:?}", err))?;
     let mut token_contents = [0; MAX_TOKEN_SIZE];
@@ -200,8 +197,7 @@ async fn get_key_from_out_token(
 
     // Fetch the decrypted volume passkey
     let dec_resp = dsm_dec_with_overlayfs_key(
-        cert_list,
-        env_vars,
+        conn_info,
         token_json_obj.enc_key,
         token_json_obj.iv,
         token_json_obj.tag,
@@ -226,8 +222,7 @@ async fn get_key_from_out_token(
 /// of this function creates a ext4 filesystem on it after opening
 /// the device
 async fn get_key_file(
-    env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateResult>,
+    conn_info: ClientConnectionInfo<'_>,
     conv_use_dsm_key: bool,
 ) -> Result<bool, String> {
     let device_path = NBD_RW_DEVICE;
@@ -239,7 +234,7 @@ async fn get_key_file(
             match update_luks_token(device_path, TOKEN_OUT_FILE, TokenOp::Export).await {
                 Ok(_) => {
                     info!("Fetching key file by using token object.");
-                    get_key_from_out_token(env_vars, cert_list).await?;
+                    get_key_from_out_token(conn_info).await?;
                 }
                 Err(_) => {
                     error!("Can't re-run apps which are converted without filesystem persistence enabled. Filesystem persistence is set to {}", conv_use_dsm_key);
@@ -259,9 +254,10 @@ async fn get_key_file(
 
             // Use DSM for overlayfs persistance blockfile encryption.
             if conv_use_dsm_key {
+                let dsm_url = conn_info.dsm_url.clone();
                 info!("Accessing DSM to store passkey in luks2 token");
-                let enc_resp = dsm_enc_with_overlayfs_key(cert_list, env_vars, passkey)?;
-                create_luks2_token_input(TOKEN_IN_FILE, env_vars, enc_resp)?;
+                let enc_resp = dsm_enc_with_overlayfs_key(conn_info, passkey)?;
+                create_luks2_token_input(TOKEN_IN_FILE, dsm_url, enc_resp)?;
 
                 info!("Adding token object to the RW device");
                 update_luks_token(device_path, TOKEN_IN_FILE, TokenOp::Import).await?;
@@ -274,7 +270,7 @@ async fn get_key_file(
 /// Generate the luks2 token object and write the same to
 /// the json file which will be used to add a luks2 header
 /// to the RW blockfile
-fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc_resp: EncryptResponse) -> Result<(), String> {
+fn create_luks2_token_input(token_path: &str, dsm_url: String, enc_resp: EncryptResponse) -> Result<(), String> {
     info!("Creating Luks2 token object");
     let iv = enc_resp
         .iv
@@ -287,7 +283,7 @@ fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc
     let token_object = LuksToken {
         token_type: "Fortanix-sealing-key".to_string(),
         key_slots: vec!["0".to_string()],
-        endpoint: find_env_or_err("FS_DSM_ENDPOINT", env_vars).unwrap_or(DEFAULT_DSM_ENDPOINT.to_string()),
+        endpoint: dsm_url,
         isvsvn: None,
         tag,
         enc_key: enc_resp.cipher,
@@ -307,15 +303,14 @@ fn create_luks2_token_input(token_path: &str, env_vars: &[(String, String)], enc
 }
 
 pub(crate) async fn mount_read_write_file_system(
-    env_vars: &[(String, String)],
-    cert_list: Option<&mut CertificateResult>,
     enable_overlayfs_persistence: bool,
+    conn_info: ClientConnectionInfo<'_>
 ) -> Result<(), String> {
     // Create dir to get rid of the warning that is printed to the console by cryptsetup
     fs::create_dir_all(DM_CRYPT_FOLDER)
         .map_err(|err| format!("Failed to create folder {} for cryptsetup path. {:?}", DM_CRYPT_FOLDER, err))?;
 
-    let create_ext4 = get_key_file(env_vars, cert_list, enable_overlayfs_persistence).await?;
+    let create_ext4 = get_key_file(conn_info, enable_overlayfs_persistence).await?;
 
     let crypt_setup_args: [&str; 7] = [
         "open",
@@ -531,11 +526,4 @@ async fn generate_volume_passkey() -> Result<Blob, String> {
 
     // Return key material as a blob
     Ok(Blob::from(key_blob))
-}
-
-pub(crate) fn find_env_or_err(key: &str, env_vars: &[(String, String)]) -> Result<String, String> {
-    env_vars
-        .iter()
-        .find_map(|e| if e.0 == key { Some(e.1.clone()) } else { None })
-        .ok_or(format!("{:?} is missing!", key))
 }

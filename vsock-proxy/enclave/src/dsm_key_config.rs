@@ -25,13 +25,10 @@ use sdkms::SdkmsClient;
 use url;
 
 use crate::certificate::CertificateResult;
-use crate::file_system::find_env_or_err;
 
 const GCM_TAG_LEN_BITS: usize = 128;
 const SOBJECT_LIST_LIMIT: usize = 10;
-pub const DEFAULT_DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
 const OVERLAY_FS_SECURITY_OBJECT_PREFIX: &str = "fortanix-overlayfs-security-object-build-";
-pub const DEFAULT_DSM_APP_ENDPOINT: &str = "https://apps.amer.smartkey.io/";
 const TLS_MIN_VERSION: Version = Version::Tls1_2;
 
 struct ClientWithKey {
@@ -39,20 +36,27 @@ struct ClientWithKey {
     dsm_client: SdkmsClient,
 }
 
-fn dsm_create_client(env_vars: &[(String, String)], auth_cert: Option<&mut CertificateResult>) -> Result<SdkmsClient, String> {
-    info!("Looking for env variables needed to create DSM client.");
-    let api_key = find_env_or_err("FS_API_KEY", env_vars).unwrap_or("".to_string());
+/// Information needed to connect to DSM as a client
+pub struct ClientConnectionInfo<'a> {
+    pub fs_api_key: Option<String>,
+    pub auth_cert: Option<&'a mut CertificateResult>,
+    pub dsm_url: String,
+}
+
+fn dsm_create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, String> {
+    info!("Looking for API key needed to create DSM client.");
+    let api_key = conn_info.fs_api_key.unwrap_or_default();
 
     if api_key.is_empty() {
         info!("Using app cert for auth with DSM");
-        let endpoint = find_env_or_err("FS_DSM_ENDPOINT", env_vars).unwrap_or(DEFAULT_DSM_APP_ENDPOINT.to_string());
+        let endpoint = conn_info.dsm_url;
         let endoint_url = url::Url::parse(&*endpoint).map_err(|e| format!("Unable to parse endpoint : {:?}", e))?;
         let host = endoint_url
             .host_str()
             .ok_or_else(|| format!("Unable to get host from endpoint"))?;
         let hyper_client = dsm_create_hyper_client_with_cert(
             host.to_string(),
-            auth_cert.ok_or_else(|| format!("Unable to get auth cert for connection to DSM"))?,
+            conn_info.auth_cert.ok_or_else(|| format!("Unable to get auth cert for connection to DSM"))?,
         )?;
 
         Ok(SdkmsClient::builder()
@@ -64,7 +68,7 @@ fn dsm_create_client(env_vars: &[(String, String)], auth_cert: Option<&mut Certi
             .map_err(|_| format!("Unable to auth with app cert"))?)
     } else {
         info!("Using API key for auth with DSM");
-        let endpoint = find_env_or_err("FS_DSM_ENDPOINT", env_vars).unwrap_or(DEFAULT_DSM_ENDPOINT.to_string());
+        let endpoint = conn_info.dsm_url;
         // Note - mapping an empty error here, mapping an error type results in a hang
         // Needs to be investigated.
         Ok(SdkmsClient::builder()
@@ -207,11 +211,8 @@ fn dsm_decrypt_blob(dec_req: &DecryptRequest, client: &SdkmsClient) -> Result<De
         .map_err(|_| format!("Unable to decrypt using DSM client"))
 }
 
-fn dsm_get_overlayfs_key(
-    cert_list: Option<&mut CertificateResult>,
-    env_vars: &[(String, String)],
-) -> Result<ClientWithKey, String> {
-    let client = dsm_create_client(env_vars, cert_list)?;
+fn dsm_get_overlayfs_key(conn_info: ClientConnectionInfo) -> Result<ClientWithKey, String> {
+    let client = dsm_create_client(conn_info)?;
     let overlay_fs_key = dsm_get_key_by_prefix(&client, OVERLAY_FS_SECURITY_OBJECT_PREFIX)?;
     Ok(ClientWithKey {
         overlayfs_key: overlay_fs_key,
@@ -220,23 +221,21 @@ fn dsm_get_overlayfs_key(
 }
 
 pub(crate) fn dsm_enc_with_overlayfs_key(
-    cert_list: Option<&mut CertificateResult>,
-    env_vars: &[(String, String)],
+    conn_info: ClientConnectionInfo,
     plaintext: Blob,
 ) -> Result<EncryptResponse, String> {
-    let client_key_pair = dsm_get_overlayfs_key(cert_list, env_vars)?;
+    let client_key_pair = dsm_get_overlayfs_key(conn_info)?;
     let enc_req = dsm_generate_enc_req(&client_key_pair.overlayfs_key, plaintext)?;
     dsm_encrypt_blob(&enc_req, &client_key_pair.dsm_client)
 }
 
 pub(crate) fn dsm_dec_with_overlayfs_key(
-    cert_list: Option<&mut CertificateResult>,
-    env_vars: &[(String, String)],
+    conn_info: ClientConnectionInfo,
     ciphertext: Blob,
     iv: Blob,
     tag: Blob,
 ) -> Result<DecryptResponse, String> {
-    let client_key_pair = dsm_get_overlayfs_key(cert_list, env_vars)?;
+    let client_key_pair = dsm_get_overlayfs_key(conn_info)?;
     let dec_req = dsm_generate_dec_req(&client_key_pair.overlayfs_key, ciphertext, iv, tag)?;
     dsm_decrypt_blob(&dec_req, &client_key_pair.dsm_client)
 }
@@ -254,32 +253,27 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::certificate::CertificateResult;
-    use crate::dsm_key_config::{
-        dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key,
-        OVERLAY_FS_SECURITY_OBJECT_PREFIX,
-    };
+    use crate::dsm_key_config::{dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key, ClientConnectionInfo, OVERLAY_FS_SECURITY_OBJECT_PREFIX};
 
     const PLAINTEXT: &str = "hello world. This is a test string.";
     const DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
+    const DSM_APP_ENDPOINT: &str = "https://apps.amer.smartkey.io/";
 
     lazy_static! {
         static ref DSM_API_KEY: String =
             env::var("FORTANIX_API_KEY").expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
         static ref DSM_TEST_API_KEY: String = env::var("OVERLAYFS_UNIT_TEST_API_KEY")
             .expect("The environment variable OVERLAYFS_UNIT_TEST_API_KEY must be set for this unit test");
-        static ref DSM_ENV_VARS: Vec<(String, String)> = vec![
-            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
-            ("FS_API_KEY".to_string(), DSM_API_KEY.to_string()),
-        ];
-        static ref DSM_ERR_ENV_VARS: Vec<(String, String)> = vec![
-            ("FS_DSM_ENDPOINT".to_string(), DSM_ENDPOINT.to_string()),
-            ("FS_API_KEY".to_string(), DSM_TEST_API_KEY.to_string()),
-        ];
     }
 
     #[test]
     fn test_connection_to_dsm() {
-        let dsm_client = dsm_create_client(&DSM_ENV_VARS, None);
+        let conn_info = ClientConnectionInfo {
+            fs_api_key: Some(DSM_API_KEY.to_string()),
+            auth_cert: None,
+            dsm_url: DSM_ENDPOINT.to_string(),
+        };
+        let dsm_client = dsm_create_client(conn_info);
         let version = dsm_client
             .expect("Client creation failed")
             .version()
@@ -313,13 +307,22 @@ mod tests {
             key,
         };
 
-        // Note - Do not pass DSM_ENV_VARS here otherwise the API key will be used for auth to DSM
+        // Note - Do not pass api key here otherwise the API key will be used for auth to DSM
         // rather than use the appcert
-        let enc_resp = dsm_enc_with_overlayfs_key(Some(&mut cert_res), &vec![], Blob::from(PLAINTEXT)).unwrap();
+        let conn_info_enc = ClientConnectionInfo {
+            fs_api_key: None,
+            auth_cert: Some(&mut cert_res),
+            dsm_url: DSM_APP_ENDPOINT.to_string(),
+        };
+        let enc_resp = dsm_enc_with_overlayfs_key(conn_info_enc, Blob::from(PLAINTEXT)).unwrap();
 
+        let conn_info_dec = ClientConnectionInfo {
+            fs_api_key: None,
+            auth_cert: Some(&mut cert_res),
+            dsm_url: DSM_APP_ENDPOINT.to_string(),
+        };
         let dec_resp = dsm_dec_with_overlayfs_key(
-            Some(&mut cert_res),
-            &vec![],
+            conn_info_dec,
             enc_resp.cipher,
             enc_resp.iv.unwrap(),
             enc_resp.tag.unwrap(),
@@ -330,11 +333,20 @@ mod tests {
 
     #[test]
     fn test_enc_dec_blob() {
-        let enc_resp = dsm_enc_with_overlayfs_key(None, &DSM_ENV_VARS, Blob::from(PLAINTEXT)).unwrap();
+        let conn_info_enc = ClientConnectionInfo {
+            fs_api_key: Some(DSM_API_KEY.to_string()),
+            auth_cert: None,
+            dsm_url: DSM_ENDPOINT.to_string(),
+        };
+        let enc_resp = dsm_enc_with_overlayfs_key(conn_info_enc, Blob::from(PLAINTEXT)).unwrap();
 
+        let conn_info_dec = ClientConnectionInfo {
+            fs_api_key: Some(DSM_API_KEY.to_string()),
+            auth_cert: None,
+            dsm_url: DSM_ENDPOINT.to_string(),
+        };
         let dec_resp = dsm_dec_with_overlayfs_key(
-            None,
-            &DSM_ENV_VARS,
+            conn_info_dec,
             enc_resp.cipher,
             enc_resp.iv.unwrap(),
             enc_resp.tag.unwrap(),
@@ -345,7 +357,12 @@ mod tests {
 
     #[test]
     fn test_multiple_overlayfs_keys() {
-        match dsm_get_overlayfs_key(None, &DSM_ERR_ENV_VARS) {
+        let conn_info = ClientConnectionInfo {
+            fs_api_key: Some(DSM_TEST_API_KEY.to_string()),
+            auth_cert: None,
+            dsm_url: DSM_ENDPOINT.to_string(),
+        };
+        match dsm_get_overlayfs_key(conn_info) {
             Ok(_) => {
                 assert!(false);
             }
