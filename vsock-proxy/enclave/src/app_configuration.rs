@@ -48,7 +48,7 @@ pub(crate) fn setup_application_configuration<T>(
     ccm_backend_url: &CCMBackendUrl,
     api: T,
     fs_root: &Path,
-    app_config_id: Sha256Hash
+    app_config_id: &Sha256Hash
 ) -> Result<(), String>
 where
     T: ApplicationConfiguration,
@@ -302,7 +302,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
-        expected_hash: Sha256Hash,
+        expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String> {
         em_app::utils::get_runtime_configuration(
             &ccm_backend_url.host,
@@ -321,7 +321,7 @@ pub(crate) trait RuntimeConfiguration {
         &self,
         ccm_backend_url: &CCMBackendUrl,
         credentials: &EmAppCredentials,
-        expected_hash: Sha256Hash,
+        expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String>;
 }
 
@@ -623,9 +623,9 @@ mod tests {
             &self,
             _ccm_backend_url: &CCMBackendUrl,
             _credentials: &EmAppCredentials,
-            expected_hash: Sha256Hash,
+            expected_hash: &Sha256Hash,
         ) -> Result<RuntimeAppConfig, String> {
-            if self.hash != expected_hash {
+            if self.hash != *expected_hash {
                 Err(format!("Expected hash: {:?} doesn't equal saved hash: {:?}", expected_hash, self.hash))
             } else {
                 Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
@@ -680,7 +680,7 @@ mod tests {
         let result = api.get_runtime_configuration(
             &backend_url,
             &credentials,
-            Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
+            &Sha256Hash::try_from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap(),
         );
         assert!(result.is_ok(), "{:?}", result);
 

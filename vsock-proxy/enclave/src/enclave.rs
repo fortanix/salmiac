@@ -222,7 +222,7 @@ fn setup_app_configuration(
             &app_config.ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
-            app_config_id,
+            &app_config_id,
         )
     } else {
         Ok(())
