@@ -551,7 +551,7 @@ dependencies = [
 [[package]]
 name = "em-client"
 version = "4.0.0"
-source = "git+https://github.com/fortanix/em-client-rust#feaae6eab3edc421b22d52edc7bc16097cc50719"
+source = "git+https://github.com/fortanix/em-client-rust#af7d698e603c3f0e728998f3f4612b01af678472"
 dependencies = [
  "base64 0.10.1",
  "bitflags",
