@@ -37,10 +37,10 @@ struct ClientWithKey {
 }
 
 /// Information needed to connect to DSM as a client
-pub struct ClientConnectionInfo<'a> {
-    pub fs_api_key: Option<String>,
-    pub auth_cert: Option<&'a mut CertificateResult>,
-    pub dsm_url: String,
+pub(crate) struct ClientConnectionInfo<'a> {
+    pub(crate) fs_api_key: Option<String>,
+    pub(crate) auth_cert: Option<&'a mut CertificateResult>,
+    pub(crate) dsm_url: String,
 }
 
 fn dsm_create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, String> {

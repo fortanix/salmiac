@@ -109,7 +109,7 @@ impl EnclaveSettings {
             is_debug: converter_options.debug.unwrap_or(false),
             enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false),
             ccm_backend_url: CcmBackendUrl::new(converter_options.ccm_configuration.clone().unwrap_or_default().ccm_url.as_str()).unwrap_or_default(),
-            dsm_configuration: converter_options.dsm_configuration.clone().unwrap_or_default()
+            dsm_configuration: converter_options.dsm_configuration.clone().unwrap_or_default(),
         }
     }
 }

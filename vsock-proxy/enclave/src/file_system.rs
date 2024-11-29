@@ -257,7 +257,7 @@ async fn get_key_file(
                 let dsm_url = conn_info.dsm_url.clone();
                 info!("Accessing DSM to store passkey in luks2 token");
                 let enc_resp = dsm_enc_with_overlayfs_key(conn_info, passkey)?;
-                create_luks2_token_input(TOKEN_IN_FILE, dsm_url, enc_resp)?;
+                create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp)?;
 
                 info!("Adding token object to the RW device");
                 update_luks_token(device_path, TOKEN_IN_FILE, TokenOp::Import).await?;
@@ -270,7 +270,7 @@ async fn get_key_file(
 /// Generate the luks2 token object and write the same to
 /// the json file which will be used to add a luks2 header
 /// to the RW blockfile
-fn create_luks2_token_input(token_path: &str, dsm_url: String, enc_resp: EncryptResponse) -> Result<(), String> {
+fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: EncryptResponse) -> Result<(), String> {
     info!("Creating Luks2 token object");
     let iv = enc_resp
         .iv
@@ -283,7 +283,7 @@ fn create_luks2_token_input(token_path: &str, dsm_url: String, enc_resp: Encrypt
     let token_object = LuksToken {
         token_type: "Fortanix-sealing-key".to_string(),
         key_slots: vec!["0".to_string()],
-        endpoint: dsm_url,
+        endpoint: dsm_url.into(),
         isvsvn: None,
         tag,
         enc_key: enc_resp.cipher,
