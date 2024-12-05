@@ -174,6 +174,12 @@ pub struct ConverterOptions {
     /// filesystem persistance
     #[cfg_attr(feature = "serde", serde(default = "default_to_false"))]
     pub enable_overlay_filesystem_persistence: Option<bool>,
+
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub ccm_configuration: Option<CcmConfiguration>,
+
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub dsm_configuration: Option<DsmConfiguration>
 }
 
 #[cfg(feature = "serde")]
@@ -271,6 +277,36 @@ impl CertificateConfig {
             key_path: None,
             cert_path: None,
             chain_path: None,
+        }
+    }
+}
+
+/// Describes the information required to access CCM
+#[derive(Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct CcmConfiguration {
+    pub ccm_url: String,
+}
+
+impl Default for CcmConfiguration {
+    fn default() -> Self {
+        CcmConfiguration {
+            ccm_url: "ccm.fortanix.com:443".to_string(),
+        }
+    }
+}
+
+/// Describes the information required to access DSM
+#[derive(Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DsmConfiguration {
+    pub dsm_url: String,
+}
+
+impl Default for DsmConfiguration {
+    fn default() -> Self {
+        DsmConfiguration {
+            dsm_url: "https://apps.amer.smartkey.io/".to_string(),
         }
     }
 }

@@ -9,9 +9,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Stdio;
 use std::string::ToString;
-
-use api_model::converter::CertificateConfig;
-use api_model::enclave::EnclaveManifest;
+use api_model::converter::{CertificateConfig};
+use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
 use async_process::{Child, Command};
 use async_trait::async_trait;
 use em_client::Sha256Hash;
@@ -41,6 +40,7 @@ use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
+use crate::dsm_key_config::ClientConnectionInfo;
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
     create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options, get_available_encrypted_space,
@@ -107,7 +107,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
 
-        setup_app_configuration(&setup_result.app_config, first_certificate)?;
+        setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.enclave_manifest.ccm_backend_url)?;
 
         let log_conn_addrs = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
         let exit_status = start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
@@ -174,7 +174,12 @@ async fn startup(
         debug!("Running user program with the args - {:?}", existing_arguments);
     }
 
-    let app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
+    let mut app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
+
+    // Always enable server verification for appconfigs in non-debug enclaves
+    if !enclave_manifest.is_debug {
+        app_config.skip_server_verify = false;
+    }
 
     let networking_setup_result = setup_tap_devices(parent_port).await?;
 
@@ -207,6 +212,7 @@ fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, St
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
+    ccm_backend_url: &CcmBackendUrl,
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(id)) = (certificate_info, &app_config.id) {
         let api = EmAppApplicationConfiguration::new();
@@ -219,7 +225,7 @@ fn setup_app_configuration(
 
         setup_application_configuration(
             &credentials,
-            &app_config.ccm_backend_url,
+            ccm_backend_url,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
             &app_config_id,
@@ -262,8 +268,9 @@ struct FileSystemSetupApiImpl {}
 impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
     async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<usize, String> {
         let enclave_manifest = arg.enclave_manifest;
-        let env_vars = arg.env_vars;
-        let cert_list = arg.cert_list;
+        let auth_cert = arg.cert_list;
+        let dsm_url = (&arg.enclave_manifest.dsm_configuration.dsm_url).to_string();
+        let fs_api_key = get_fs_api_key(arg.env_vars, arg.enclave_manifest.is_debug);
 
         for export in &nbd_config.exports {
             run_nbd_client(nbd_config.address, export.port, &export.name).await?;
@@ -286,7 +293,13 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         mount_read_only_file_system().await?;
         info!("Finished read only file system mount.");
 
-        mount_read_write_file_system(env_vars, cert_list, enclave_manifest.enable_overlay_filesystem_persistence).await?;
+        let conn_info = ClientConnectionInfo {
+            fs_api_key,
+            auth_cert,
+            dsm_url
+        };
+
+        mount_read_write_file_system(enclave_manifest.enable_overlay_filesystem_persistence, conn_info).await?;
         info!("Finished read/write file system mount.");
 
         mount_overlay_fs().await?;
@@ -703,7 +716,7 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(path: &Path, data: &C, enti
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
-    use api_model::enclave::{EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir};
+    use api_model::{converter::{DsmConfiguration}, enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir}};
     use async_trait::async_trait;
     use shared::models::NBDConfiguration;
     use shared::socket::InMemorySocket;
@@ -743,6 +756,13 @@ mod tests {
                 is_debug: false,
                 env_vars: vec![],
                 enable_overlay_filesystem_persistence: false,
+                ccm_backend_url: CcmBackendUrl {
+                    host: "".to_string(),
+                    port: 0,
+                },
+                dsm_configuration: DsmConfiguration {
+                    dsm_url: "".to_string()
+                },
             },
             env_vars: &[],
             cert_list: None,
@@ -766,4 +786,15 @@ mod tests {
             assert!(b_result.is_ok());
         });
     }
+}
+
+/// If it is a debug enclave, search for and return the FS_API_KEY. For a regular,
+/// (non-debug) enclave, do not allow usage of an api key
+fn get_fs_api_key(env_vars: &[(String, String)], is_debug: bool) -> Option<String> {
+    if is_debug {
+        return env_vars
+        .iter()
+        .find_map(|e| if e.0 == "FS_API_KEY" { Some(e.1.clone()) } else { None });
+    }
+    None
 }

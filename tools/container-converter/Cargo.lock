@@ -328,6 +328,7 @@ dependencies = [
  "exitcode",
  "futures",
  "http",
+ "lazy_static",
  "log",
  "nix",
  "rand",
@@ -339,6 +340,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "url",
 ]
 
 [[package]]

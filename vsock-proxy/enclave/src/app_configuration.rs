@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-
+use api_model::enclave::CcmBackendUrl;
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
 };
@@ -18,7 +18,6 @@ use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::x509::Certificate;
 use sdkms::api_model::Blob;
-use shared::models::{CCMBackendUrl};
 
 use crate::certificate::CertificateResult;
 use crate::enclave::write_to_file;
@@ -45,7 +44,7 @@ const LOCATION_FILE: &str = "location.txt";
 
 pub(crate) fn setup_application_configuration<T>(
     em_app_credentials: &EmAppCredentials,
-    ccm_backend_url: &CCMBackendUrl,
+    ccm_backend_url: &CcmBackendUrl,
     api: T,
     fs_root: &Path,
     app_config_id: &Sha256Hash
@@ -300,7 +299,7 @@ pub(crate) struct EmAppRuntimeConfiguration {}
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
-        ccm_backend_url: &CCMBackendUrl,
+        ccm_backend_url: &CcmBackendUrl,
         credentials: &EmAppCredentials,
         expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String> {
@@ -319,7 +318,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
 pub(crate) trait RuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
-        ccm_backend_url: &CCMBackendUrl,
+        ccm_backend_url: &CcmBackendUrl,
         credentials: &EmAppCredentials,
         expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String>;
@@ -447,8 +446,7 @@ mod tests {
         ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
     };
     use sdkms::api_model::Blob;
-    use shared::models::CCMBackendUrl;
-
+    use api_model::enclave::CcmBackendUrl;
     use crate::app_configuration::{
         normalize_path_and_make_relative, setup_app_configs, setup_datasets,
         ApplicationConfiguration, ApplicationFiles, DataSetFiles, EmAppCredentials,
@@ -621,7 +619,7 @@ mod tests {
     impl RuntimeConfiguration for MockDataSet {
         fn get_runtime_configuration(
             &self,
-            _ccm_backend_url: &CCMBackendUrl,
+            _ccm_backend_url: &CcmBackendUrl,
             _credentials: &EmAppCredentials,
             expected_hash: &Sha256Hash,
         ) -> Result<RuntimeAppConfig, String> {
@@ -666,7 +664,7 @@ mod tests {
     }
 
     fn run_setup_runtime_configuration(json_data: &'static str) -> RuntimeAppConfig {
-        let backend_url = CCMBackendUrl {
+        let backend_url = CcmBackendUrl {
             host: String::new(),
             port: 0,
         };
