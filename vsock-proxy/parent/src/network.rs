@@ -175,6 +175,15 @@ pub(crate) enum ChecksumComputationError {
     Err(String),
 }
 
+/// Recomputes the checksum of a network packet provided as a mutable byte slice. It calculates and updates the checksum for:
+/// Layer 3 (L3): IPv4 header checksum.
+/// Layer 4 (L4): Transport layer checksum for TCP or UDP.
+/// # Returns
+/// Ok(()): Indicates the checksums have been successfully recomputed and updated.
+/// Err(ChecksumComputationError): Returns an error if the function encounters issues while:
+/// - Parsing the Ethernet packet.
+/// - Computing the checksum for IPv4, TCP, or UDP headers.
+/// - Encountering an unsupported Layer 4 protocol.
 pub(crate) fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumComputationError> {
     let ethernet_packet = SlicedPacket::from_ethernet(&data)
         .map_err(|err| ChecksumComputationError::Err(format!("Cannot parse ethernet packet. {:?}", err)))?;
