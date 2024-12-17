@@ -76,6 +76,10 @@ async fn read_from_device_async(
     while let Some(pkt) = capture.next().await {
         if let Err(err) = async {
             let mut data = pkt.map_err(|err| format!("error reading from pcap device: {:?}", err))??;
+            // We do packet checksum recomputation to fix the checksum of the packets that come from host’s network device when network-local request (request to a service running on a host) is being made inside the enclave.
+            // If we don’t do that the kernel inside the enclave will just drop packets it deems incorrect (because of the wrong checksum) and no connection would get established.
+            // In a regular case when enclave connects to an external service the incoming packets first hits host’s physical network device that computes the checksum.
+            // In case of a network-local request Salmiac captures the packets before they hit host’s device and the kernel inside the enclave rejects them having bad checksum.
             match recompute_packet_checksum(&mut data) {
                 Err(ChecksumComputationError::UnsupportedProtocol(protocol)) => {
                     if unsupported_protocols.insert(protocol) {
