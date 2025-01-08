@@ -270,6 +270,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         let enclave_manifest = arg.enclave_manifest;
         let auth_cert = arg.cert_list;
         let dsm_url = (&arg.enclave_manifest.dsm_configuration.dsm_url).to_string();
+        info!("IS DEBUG {}.", arg.enclave_manifest.is_debug);
         let fs_api_key = get_fs_api_key(arg.env_vars, arg.enclave_manifest.is_debug);
 
         for export in &nbd_config.exports {
