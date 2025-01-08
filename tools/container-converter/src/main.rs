@@ -30,7 +30,10 @@ async fn main() -> Result<(), String> {
 
     match container_converter::run(request).await {
         Ok(response) => {
-            println!("Successful nitro conversion: {:?}", response);
+            let response_serialized = serde_json::to_string(&response)
+                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
+
+            println!("Successful nitro conversion: {:?}", response_serialized);
             Ok(())
         }
         Err(err) => {
