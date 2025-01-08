@@ -30,7 +30,7 @@ async fn main() -> Result<(), String> {
 
     match container_converter::run(request).await {
         Ok(response) => {
-            println!("{:?}", response);
+            println!("Successful nitro conversion: {:?}", response);
             Ok(())
         }
         Err(err) => {
