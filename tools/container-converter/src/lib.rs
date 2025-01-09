@@ -73,7 +73,7 @@ const PARENT_IMAGE: &str = "parent-base";
 
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
-const ENCLAVE_IMAGE_DEBUG: &str = "enclave-base-debug";
+const ENCLAVE_IMAGE_DEBUG: &str = "enclave-base";
 
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [ 2048, DEFAULT_RSA_SIZE, 4096 ];
