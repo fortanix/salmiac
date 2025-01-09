@@ -370,7 +370,7 @@ async fn start_nitro_enclave() -> Result<(), String> {
         &memsize,
     ];
     if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
-        //args.push("--debug-mode");
+        args.push("--debug-mode");
     }
 
     run_subprocess(command, &args).await
