@@ -73,8 +73,6 @@ const PARENT_IMAGE: &str = "parent-base";
 
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
-const ENCLAVE_IMAGE_DEBUG: &str = "enclave-base";
-
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [ 2048, DEFAULT_RSA_SIZE, 4096 ];
 
@@ -194,21 +192,12 @@ async fn run0(
 
     info!("Building enclave image!");
     let nitro_image_result = {
-        let enclave_base_image_str = if conversion_request.is_debug() {
-            env::var("ENCLAVE_IMAGE_DEBUG").unwrap_or(ENCLAVE_IMAGE_DEBUG.to_string())
-        } else {
-            env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string())
-        };
+        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
         info!("Enclave base image is {}", enclave_base_image_str);
 
         let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
 
         let user_program_config = create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
-        /*let user_program_config = if conversion_request.is_debug() {
-            enclave_base_image.create_user_program_config()?
-        } else {
-            create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?
-        };*/
 
         debug!("User program config is: {:?}", user_program_config);
 
