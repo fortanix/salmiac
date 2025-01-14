@@ -23,9 +23,7 @@ if [ ! -z "$2" ]; then
   features_list="--features "$2
 fi;
 
-rustup target add $enclave_startup_toolchain
-
 pushd tools/container-converter
-cargo build $cargo_build_flag $features_list
+cargo build $cargo_build_flag $features_list --locked
 
 popd
