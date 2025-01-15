@@ -1,4 +1,4 @@
-FROM nshyrei/nitro-parent-base:1.1.5 as nitro-cli
+FROM fortanix/nitro-parent-base:1.1.4 as nitro-cli
 
 ARG PLATFORM
 ARG FLAVOR
