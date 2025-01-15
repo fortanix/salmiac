@@ -208,7 +208,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let result = docker_util
             .create_image_from_archive(result_reference, build_context_archive_file)
             .await
-            .map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))
+            //.map(|e| e.make_temporary(ImageKind::Intermediate, images_to_clean_snd))
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::EnclaveImageCreation,
