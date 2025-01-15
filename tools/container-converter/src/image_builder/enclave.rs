@@ -217,7 +217,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         let nitro_measurements = {
             let nitro_image_path = &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME);
 
-            create_nitro_image(&result.image.reference, &nitro_image_path).await?
+            create_nitro_image(&result.reference, &nitro_image_path).await?
         };
 
         info!("Nitro image has been created!");
