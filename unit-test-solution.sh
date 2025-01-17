@@ -8,17 +8,19 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
       echo "Environment variable FORTANIX_API_KEY is unset. Unable to run dsm_key_config unit tests"
       exit 1
   fi
-  unit_test_dirs="vsock-proxy/enclave
-  vsock-proxy/parent
-  tools/container-converter"
-  for unit_test_dir in $unit_test_dirs
+  unit_test_dirs=(
+      "vsock-proxy/enclave"
+      "vsock-proxy/parent"
+      "tools/container-converter"
+  )
+for unit_test_dir in "${unit_test_dirs[@]}"
   do
-    pushd $unit_test_dir
-    cargo test
+    pushd "$unit_test_dir"
+    cargo test --locked
     popd
   done
 fi
 
 pushd api-model
-  cargo test --features=serde
+  cargo test --features=serde --locked
 popd
