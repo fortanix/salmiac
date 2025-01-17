@@ -24,7 +24,7 @@ rand = "0.8.4"
 serde = { version = "1.0.127", features = ["derive"] }
 serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
 shiplift = { git = "https://github.com/fortanix/shiplift.git" }
-sys-mount = "1.5.1"
+sys-mount = "3.0.0"
 tar = { git = "https://github.com/alexcrichton/tar-rs" }
 tempfile = "3.2.0"
 tokio = { version = "1.0.1", features = ["macros", "rt"] }
