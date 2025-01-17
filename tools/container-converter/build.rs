@@ -43,7 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut result = Command::new("cargo");
 
         result.current_dir(current_dir.join("../../vsock-proxy"))
-            .arg("build");
+            .arg("build")
+            .arg("--locked");
 
         if let Some(build_flag) = cargo_build_flag {
             result.arg(build_flag);
@@ -61,7 +62,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut result = Command::new("cargo");
 
         result.current_dir(current_dir.join("../../enclave-startup"))
-            .arg("build");
+            .arg("build")
+            .arg("--locked");
 
         if let Some(build_flag) = cargo_build_flag {
             result.arg(build_flag);
