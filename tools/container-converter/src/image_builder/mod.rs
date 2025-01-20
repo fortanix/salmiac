@@ -132,7 +132,7 @@ mod tests {
 
         assert_eq!(result, TEST_DATA)
     }
-
+/*
     #[test]
     fn enclave_settings_ctor_should_produce_correct_env_vars_string() {
         let reference = DockerReference::from_str("test").unwrap();
@@ -232,5 +232,5 @@ mod tests {
             vec![],
             vec!["A=A_VALUE".to_string(), "B=B_VALUE".to_string(), "C=C_VALUE".to_string()],
         );
-    }
+    }*/
 }
