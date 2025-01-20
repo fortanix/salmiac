@@ -81,9 +81,9 @@ pub(crate) fn get_image_env(input_image: &ImageWithDetails<'_>, converter_option
     // latest definition of the same variable override previous definition.
     // We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
     // by adding all `conversion_request` variables to the end of `env_vars` vector.
-    for request_env in &converter_options.env_vars {
+    /*for request_env in &converter_options.env_vars {
         result.push(request_env.clone());
-    }
+    }*/
     result
 }
 #[derive(Debug, Eq, PartialEq)]
