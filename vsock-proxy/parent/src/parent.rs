@@ -201,9 +201,9 @@ fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>,
     for line in reader.lines() {
         let env_line = line.map_err(|e| format!("Unable to read line from file {:?} : {:?}", orig_env_path, e))?;
         // Ill formed env variables will be ignored
-        let conversion_time_env_var = env_line.split_once("=").unwrap_or(("", ""));
+        let parent_env_var = env_line.split_once("=").unwrap_or(("", ""));
 
-        filter_runtime_env_vars(&mut runtime_vars, conversion_time_env_var);
+        filter_parent_env_from_runtime_envs(&mut runtime_vars, parent_env_var);
     }
 
     Ok(runtime_vars.into_iter().collect())
@@ -217,11 +217,11 @@ fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>,
 ///    time)
 ///  - Keep environment variables which were present in the parent container but their values
 ///    have now been updated. The exception to this rule is for the PATH variable.
-fn filter_runtime_env_vars(runtime_env_vars: &mut HashMap<String, String>, conversion_time_env_var: (&str, &str)) -> () {
-    let (conv_time_env_key, conv_time_env_val) = conversion_time_env_var;
+fn filter_parent_env_from_runtime_envs(runtime_env_vars: &mut HashMap<String, String>, parent_env: (&str, &str)) -> () {
+    let (conv_time_env_key, conv_time_env_val) = parent_env;
 
     if conv_time_env_key != "HOSTNAME" {
-        info!("Testing if {:?} does not exist or has been updated.", conversion_time_env_var);
+        info!("Testing if {:?} does not exist or has been updated.", parent_env);
 
         match runtime_env_vars.get(conv_time_env_key) {
             Some(value) if value == conv_time_env_val || conv_time_env_key == "PATH" => {
@@ -728,7 +728,7 @@ mod tests {
 
     use tempdir::TempDir;
 
-    use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE, filter_runtime_env_vars};
+    use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE, filter_parent_env_from_runtime_envs};
     use std::collections::HashMap;
 
     // Create a temporary directory. Create a file of specified size in the directory.
@@ -776,50 +776,50 @@ mod tests {
     }
 
     #[test]
-    fn test_hostname_is_ignored() {
+    fn test_runtime_hostname_is_not_removed() {
         let mut runtime_env_vars = HashMap::new();
-        runtime_env_vars.insert("HOSTNAME".to_string(), "my-host".to_string());
+        runtime_env_vars.insert("HOSTNAME".to_string(), "my-new-host".to_string());
 
-        filter_runtime_env_vars(&mut runtime_env_vars, ("HOSTNAME", "my-other-host"));
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("HOSTNAME", "my-old-host"));
 
         // Ensure the entry remains unchanged
         assert_eq!(
             runtime_env_vars.get("HOSTNAME"),
-            Some(&"my-host".to_string())
+            Some(&"my-new-host".to_string())
         );
     }
 
     #[test]
-    fn test_key_removed_for_path_var() {
+    fn test_runtime_path_key_is_removed() {
         let mut runtime_env_vars = HashMap::new();
         runtime_env_vars.insert("PATH".to_string(), "old_value".to_string());
 
-        filter_runtime_env_vars(&mut runtime_env_vars, ("PATH", "new_value"));
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("PATH", "new_value"));
 
         // Ensure the key was removed
         assert!(runtime_env_vars.get("PATH").is_none());
     }
 
     #[test]
-    fn test_key_not_removed_when_values_dont_match() {
+    fn test_runtime_key_not_removed_when_values_dont_match() {
         let mut runtime_env_vars = HashMap::new();
-        runtime_env_vars.insert("MY_VAR".to_string(), "old_value".to_string());
+        runtime_env_vars.insert("MY_VAR".to_string(), "new_value".to_string());
 
-        filter_runtime_env_vars(&mut runtime_env_vars, ("MY_VAR", "new_value"));
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "old_value"));
 
         // Ensure the key was not removed
         assert_eq!(
             runtime_env_vars.get("MY_VAR"),
-            Some(&"old_value".to_string())
+            Some(&"new_value".to_string())
         );
     }
 
     #[test]
-    fn test_key_not_removed_when_not_present() {
+    fn test_runtime_key_not_removed_when_not_present() {
         let mut runtime_env_vars = HashMap::new();
         runtime_env_vars.insert("RUNTIME_VAR".to_string(), "runtime_value".to_string());
 
-        filter_runtime_env_vars(&mut runtime_env_vars, ("MY_VAR", "value"));
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "value"));
 
         // Ensure the key was not removed
         assert!(runtime_env_vars.get("RUNTIME_VAR").is_some());
