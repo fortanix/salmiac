@@ -824,4 +824,15 @@ mod tests {
         // Ensure the key was not removed
         assert!(runtime_env_vars.get("RUNTIME_VAR").is_some());
     }
+
+    #[test]
+    fn test_runtime_key_removed_when_values_are_the_same() {
+        let mut runtime_env_vars = HashMap::new();
+        runtime_env_vars.insert("MY_VAR".to_string(), "value".to_string());
+
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "value"));
+
+        // Ensure the key was removed
+        assert!(runtime_env_vars.get("MY_VAR").is_none());
+    }
 }
