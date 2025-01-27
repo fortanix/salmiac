@@ -36,6 +36,7 @@ use crate::network::{
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
+use std::collections::HashMap;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -186,30 +187,51 @@ async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), St
 }
 
 fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>, String> {
-    let mut runtime_vars: Vec<(String, String)> = env::vars().collect();
-
+    let mut runtime_vars: HashMap<String, String> = env::vars().collect();
     info!("Found the following environment variables in parent : {:?}", runtime_vars);
 
-    // Filter the environment variables sent from the parent. The ORIG_ENV_LIST_PATH file contains
-    // the list of variables which were set in the parent at conversion time. Rules for filtering:
-    //  - Always pass HOSTNAME
-    //  - Keep all environment variables which are new (i.e. not present in the parent at conversion
-    //    time)
-    //  - Keep environment variables which were present in the parent container but their values
-    //    have now been updated. The exception to this rule is for the PATH variable.
+    // "_" is a special var setup by bash that points to the currently executed binary
+    // to not leak the binary path into the enclave we remove this var explicitly.
+    runtime_vars.remove("_");
+
+    // The ORIG_ENV_LIST_PATH file contains the list of variables which were set in the parent at conversion time.
     let file =
         File::open(orig_env_path.as_path()).map_err(|e| format!("Unable to find parent's original env variables : {}", e))?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
         let env_line = line.map_err(|e| format!("Unable to read line from file {:?} : {:?}", orig_env_path, e))?;
         // Ill formed env variables will be ignored
-        let env_key_val = env_line.split_once("=").unwrap_or(("", ""));
-        if env_key_val.0 != "HOSTNAME" {
-            info!("Testing if {} does not exist or has been updated.", env_line);
-            runtime_vars.retain(|o| o.0 != env_key_val.0 || (o.0 != "PATH" && (o.0 == env_key_val.0 && o.1 != env_key_val.1)));
+        let parent_env_var = env_line.split_once("=").unwrap_or(("", ""));
+
+        filter_parent_env_from_runtime_envs(&mut runtime_vars, parent_env_var);
+    }
+
+    Ok(runtime_vars.into_iter().collect())
+}
+
+/// Filter the environment variables sent from the parent at runtime.
+/// This function modifies a mutable `HashMap` of runtime environment variables by removing a specified key-value pair if certain conditions are met.
+/// # Rules for filtering are:
+///  - Always pass HOSTNAME
+///  - Keep all environment variables which are new (i.e. not present in the parent at conversion
+///    time)
+///  - Keep environment variables which were present in the parent container but their values
+///    have now been updated. The exception to this rule is for the PATH variable.
+fn filter_parent_env_from_runtime_envs(runtime_env_vars: &mut HashMap<String, String>, parent_env: (&str, &str)) -> () {
+    let (conv_time_env_key, conv_time_env_val) = parent_env;
+
+    if conv_time_env_key != "HOSTNAME" {
+        info!("Testing if {:?} does not exist or has been updated.", parent_env);
+
+        match runtime_env_vars.get(conv_time_env_key) {
+            Some(value) if value == conv_time_env_val || conv_time_env_key == "PATH" => {
+                runtime_env_vars.remove(conv_time_env_key);
+            }
+            _ => {
+
+            }
         }
     }
-    Ok(runtime_vars)
 }
 
 async fn send_env_variables(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
@@ -706,7 +728,8 @@ mod tests {
 
     use tempdir::TempDir;
 
-    use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE};
+    use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE, filter_parent_env_from_runtime_envs};
+    use std::collections::HashMap;
 
     // Create a temporary directory. Create a file of specified size in the directory.
     // If size is set to 0, skip creation of file.
@@ -750,5 +773,66 @@ mod tests {
             setup_rw_blockfile(testcase.0, testcase.1);
             check_create_rw_block_file_res(testcase.0, testcase.2, testcase.3);
         }
+    }
+
+    #[test]
+    fn test_runtime_hostname_is_not_removed() {
+        let mut runtime_env_vars = HashMap::new();
+        runtime_env_vars.insert("HOSTNAME".to_string(), "my-new-host".to_string());
+
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("HOSTNAME", "my-old-host"));
+
+        // Ensure the entry remains unchanged
+        assert_eq!(
+            runtime_env_vars.get("HOSTNAME"),
+            Some(&"my-new-host".to_string())
+        );
+    }
+
+    #[test]
+    fn test_runtime_path_key_is_removed() {
+        let mut runtime_env_vars = HashMap::new();
+        runtime_env_vars.insert("PATH".to_string(), "old_value".to_string());
+
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("PATH", "new_value"));
+
+        // Ensure the key was removed
+        assert!(runtime_env_vars.get("PATH").is_none());
+    }
+
+    #[test]
+    fn test_runtime_key_not_removed_when_values_dont_match() {
+        let mut runtime_env_vars = HashMap::new();
+        runtime_env_vars.insert("MY_VAR".to_string(), "new_value".to_string());
+
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "old_value"));
+
+        // Ensure the key was not removed
+        assert_eq!(
+            runtime_env_vars.get("MY_VAR"),
+            Some(&"new_value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_runtime_key_not_removed_when_not_present() {
+        let mut runtime_env_vars = HashMap::new();
+        runtime_env_vars.insert("RUNTIME_VAR".to_string(), "runtime_value".to_string());
+
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "value"));
+
+        // Ensure the key was not removed
+        assert!(runtime_env_vars.get("RUNTIME_VAR").is_some());
+    }
+
+    #[test]
+    fn test_runtime_key_removed_when_values_are_the_same() {
+        let mut runtime_env_vars = HashMap::new();
+        runtime_env_vars.insert("MY_VAR".to_string(), "value".to_string());
+
+        filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "value"));
+
+        // Ensure the key was removed
+        assert!(runtime_env_vars.get("MY_VAR").is_none());
     }
 }
