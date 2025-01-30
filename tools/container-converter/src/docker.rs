@@ -275,7 +275,7 @@ impl DockerUtil for DockerDaemon {
         let mut build_params = BuildParams::default();
         build_params.tag(image.to_string());
 
-        env::set_var("DOCKER_BUILDKIT", "1");
+        //env::set_var("DOCKER_BUILDKIT", "1");
 
         info!("Started building image {}", image.to_string());
 
