@@ -4,7 +4,7 @@
 # rust compiler and other build-related tools). The first part of the
 # Dockerfile creates the temporary container.
 
-FROM ubuntu:20.04 as nitro-cli
+FROM ubuntu:24.04 as nitro-cli
 ENV DEBIAN_FRONTEND=noninteractive
 # Install packages for rust toolchain
 RUN apt-get update \
@@ -33,16 +33,18 @@ ENV RUST_VERSION=1.49.0
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
-# Install nitro-cli
+# Install nitro-cli. Use vendored version of openssl since various crates use openssl-sys 0.9 which
+# works only with openssl1. RTE-386
 ENV NITRO_CLI_INSTALL_DIR=./install
 RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git && \
     cd aws-nitro-enclaves-cli && \
     git checkout v1.1.0 && \
-    make nitro-cli-native && make vsock-proxy-native && make install
+    sed -i '/openssl = "0.10"/c\openssl = { version = "0.10" , features = ["vendored"] }' /aws-nitro-enclaves-cli/Cargo.toml && \
+    make nitro-cli-native && make vsock-proxy-native && make install-tools
 
 
 # Final image build.
-FROM ubuntu:20.04 as parent-base
+FROM ubuntu:24.04 as parent-base
 # Minimum amount of utilities to run networking and nitro-cli.
 # We also perform an apt-get upgrade to make sure we get the latest
 # versions of all installed packages at the time the image is built.
@@ -66,8 +68,6 @@ RUN apt-get update \
 
 # Copy nitro-cli files
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/etc/nitro_enclaves /etc/nitro_enclaves
-COPY --from=nitro-cli aws-nitro-enclaves-cli/install/etc/profile.d /etc/profile.d
-COPY --from=nitro-cli aws-nitro-enclaves-cli/install/lib/modules /lib/modules
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/bin /usr/bin
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/lib/systemd/system /usr/lib/systemd/system
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/share /usr/share

@@ -27,55 +27,6 @@ jobs:
 
       - name: Build docker images
         run: |
-          cd docker/enclave-base
-          TAG=$(cat tag)
-          docker build -t fortanix/enclave-base:$TAG .
-          docker save -o /tmp/enclave-base.tar fortanix/enclave-base
-
-          cd ../parent-base
-          TAG=$(cat tag)
-          docker build -t fortanix/parent-base:$TAG .
-          docker save -o /tmp/parent-base.tar fortanix/parent-base
-
-      - name: Upload enclave-base artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: enclave-base
-          path: /tmp/enclave-base.tar
-
-      - name: Upload parent-base artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: parent-base
-          path: /tmp/parent-base.tar
-
-  push-docker-images:
-    runs-on: ubuntu-20.04
-    needs: build-docker-images
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
-    steps:
-      - name: Download enclave-base artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: enclave-base
-          path: /tmp/enclave-base
-
-      - name: Download parent-base artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: parent-base
-          path: /tmp/parent-base
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PAT }}
-
-      - name: Load and push docker images
-        run: |
-          enclave_base_load_output=$(docker load --input /tmp/enclave-base/enclave-base.tar)
-          parent_base_load_output=$(docker load --input /tmp/parent-base/parent-base.tar)
-
-          docker push $(echo $enclave_base_load_output | awk '{print $3}')
-          docker push $(echo $parent_base_load_output | awk '{print $3}')
+          docker build docker/enclave-base -t enclave-base
+          docker build docker/parent-base -t parent-base
+          docker rmi enclave-base parent-base

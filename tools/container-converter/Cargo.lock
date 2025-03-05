@@ -331,6 +331,7 @@ dependencies = [
  "lazy_static",
  "log",
  "nix",
+ "openssl",
  "rand",
  "serde",
  "serde_json 1.0.2",
@@ -1071,6 +1072,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "openssl-src"
+version = "111.25.0+1.1.1t"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3173cd3626c43e3854b1b727422a276e568d9ec5fe8cec197822cf52cfb743d6"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "openssl-sys"
 version = "0.9.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1079,6 +1089,7 @@ dependencies = [
  "autocfg",
  "cc",
  "libc",
+ "openssl-src",
  "pkg-config",
  "vcpkg",
 ]
