@@ -10,8 +10,8 @@ source "$(dirname ${BASH_SOURCE[0]})"/../tools/ci-scripts/build-utils.sh
 
 PRODUCT_BACKEND="nitro-converter"
 PRODUCT_BACKEND_RUNNER="server"
-PARENT_BASE_IMAGE="nitro-parent-base.tar"
-ENCLAVE_BASE_IMAGE="nitro-enclave-base.tar"
+PARENT_BASE_IMAGE="parent-base.tar"
+ENCLAVE_BASE_IMAGE="enclave-base.tar"
 # This is the directory where the dockerfile is stored
 PRODUCT_DOCKER_BUILD_DIR="$(dirname ${BASH_SOURCE[0]})"
 

@@ -21,7 +21,7 @@ RUN mkdir -p /var/log/nitro_enclaves
 
 WORKDIR /app
 
-COPY staging/server staging/nitro-parent-base.tar staging/nitro-enclave-base.tar /app/
+COPY staging/server staging/parent-base.tar staging/enclave-base.tar /app/
 
 # amzn-linux-nbd directory is available in the project root directory
 # when ci.sh is run. ci.sh is responsible for fetching amzn-linux-nbd
