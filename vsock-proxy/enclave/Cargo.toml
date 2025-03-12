@@ -39,6 +39,8 @@ tokio-vsock = "0.3.1"
 tun = {version = "0.5.3" ,features = ["async"] }
 url = "2.3.1"
 uuid = "0.7.4"
+# pin 'which' version to avoid dependency on 'home'
+which = "=4.4.1"
 
 [build-dependencies]
 mbedtls = { version = "0.12.1", features = ["rdrand", "std", "ssl"], default-features = false }
