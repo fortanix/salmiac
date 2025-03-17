@@ -37,9 +37,7 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
 VOLUME /tmp/build
 
 COPY requirements_frozen.txt /tmp/build/requirements_frozen.txt
-RUN pip3 install -r /tmp/build/requirements_frozen.txt && rm -fdr /tmp/build/*
-
-RUN pip3 install --upgrade awscli
+RUN pip3 install --break-system-packages -r /tmp/build/requirements_frozen.txt && rm -fdr /tmp/build/*
 
 # To update requirements_frozen.txt: comment out above 2 commands, and uncomment below 2 commands, then `base64 -d > requirements_frozen.txt`
 #COPY requirements.txt /tmp/build/requirements.txt
