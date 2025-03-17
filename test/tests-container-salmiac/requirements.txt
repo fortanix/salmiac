@@ -1,7 +1,7 @@
 arpy
 boto3
 cryptography
-docker==4.0.2
+docker
 flask
 junit_xml
 kubernetes
