@@ -469,6 +469,7 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
         set_up_private_tap_devices(vsock, parent_address, PRIVATE_TAP_NAME, enclave_address, PRIVATE_TAP_NAME).await?
     };
 
+    // This does a read CSR / write certificate loop, with an explicit end. Will need some changes
     communicate_certificates(vsock, EmAppCertificateApi {}).await?;
 
     Ok(ParentSetupResult {

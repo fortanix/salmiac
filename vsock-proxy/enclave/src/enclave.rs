@@ -81,6 +81,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         .is_some();
 
     let result = with_background_tasks!(background_tasks, {
+        // Logic can change here a bit to request new app certs
         let mut certificate_info = setup_enclave_certification(
             &mut parent_port,
             EmAppCSRApi {},
@@ -98,6 +99,9 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         };
         setup_file_system(&mut parent_port, FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
+        // Need to ensure app certs are not cached in application. Especially since DSMA will
+        // eventually move to EDP/AWS Nitro Enclaves where this logic won't exist anymore
+        // New certs can be requested here
         for certificate in &mut certificate_info {
             write_certificate(
                 certificate,
