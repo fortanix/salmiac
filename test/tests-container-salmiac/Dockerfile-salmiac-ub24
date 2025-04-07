@@ -8,14 +8,14 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y \
-       awscli \
        build-essential \
        cryptsetup-bin \
        curl \
        default-libmysqlclient-dev \
        git \
+       gpg \
        libffi-dev \
-       libmbedtls12 \
+       libmbedtls14 \
        libmysqlclient-dev \
        libnuma-dev \
        musl \
@@ -28,17 +28,29 @@ RUN apt-get update \
        python3-venv \
        sudo \
        tzdata \
+       unzip \
        wget \
     && useradd zircon-tests \
-    && ln -fs /usr/share/zoneinfo/US/Pacific-New /etc/localtime \
-    && dpkg-reconfigure -f noninteractive tzdata
+    && ln -fs /usr/share/zoneinfo/CET /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists
+
+# awscli is no longer available as an apt package in ubuntu 24. Download, verify and install in the below step.
+COPY aws-cli-gpg-pub-key /tmp/aws-cli-gpg-pub-key
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip.sig" -o "awscliv2.sig" && \
+    gpg --import /tmp/aws-cli-gpg-pub-key && \
+    gpg --verify awscliv2.sig awscliv2.zip && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm /tmp/aws-cli-gpg-pub-key && \
+    rm awscliv2.zip awscliv2.sig
 
 VOLUME /tmp/build
 
 COPY requirements_frozen.txt /tmp/build/requirements_frozen.txt
-RUN pip3 install -r /tmp/build/requirements_frozen.txt && rm -fdr /tmp/build/*
-
-RUN pip3 install --upgrade awscli
+RUN pip3 install --break-system-packages --ignore-installed --force-reinstall -r /tmp/build/requirements_frozen.txt && rm -fdr /tmp/build/*
 
 # To update requirements_frozen.txt: comment out above 2 commands, and uncomment below 2 commands, then `base64 -d > requirements_frozen.txt`
 #COPY requirements.txt /tmp/build/requirements.txt

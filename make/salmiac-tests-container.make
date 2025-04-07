@@ -67,6 +67,7 @@ $(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(
 #
 # amzn-linux-nbd contains the updated nitro enclave kernel image
 TESTS-STAGE-CONTENTS := \
+	$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key \
 	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24 \
 	$(TESTS-STAGE-DIR)/requirements.txt \
 	$(TESTS-STAGE-DIR)/requirements_frozen.txt \
@@ -85,6 +86,7 @@ TESTS-STAGE-CONTENTS := \
 # Rules for generating stage directory contents, mostly by copying files
 # from the source or build directories.
 #
+$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/aws-cli-gpg-pub-key,$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements.txt,$(TESTS-STAGE-DIR)/requirements.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements_frozen.txt,$(TESTS-STAGE-DIR)/requirements_frozen.txt))
