@@ -32,7 +32,9 @@ RUN apt-get update \
        wget \
     && useradd zircon-tests \
     && ln -fs /usr/share/zoneinfo/CET /etc/localtime \
-    && dpkg-reconfigure -f noninteractive tzdata
+    && dpkg-reconfigure -f noninteractive tzdata \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists
 
 # awscli is no longer available as an apt package in ubuntu 24. Download, verify and install in the below step.
 COPY aws-cli-gpg-pub-key /tmp/aws-cli-gpg-pub-key
@@ -42,7 +44,8 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     gpg --verify awscliv2.sig awscliv2.zip && \
     unzip awscliv2.zip && \
     ./aws/install && \
-    rm /tmp/aws-cli-gpg-pub-key
+    rm /tmp/aws-cli-gpg-pub-key && \
+    rm awscliv2.zip awscliv2.sig
 
 VOLUME /tmp/build
 
