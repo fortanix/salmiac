@@ -11,6 +11,7 @@ use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
 use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
+use mbedtls::x509::{Certificate, Time};
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
@@ -159,19 +160,28 @@ impl CSRApi for EmAppCSRApi {
     }
 }
 
+// The cert pem string passed to this function is expected to be null terminated
+pub(crate) fn get_certificate_expiry(cert: &str) -> Result<Time, String> {
+    let cert = Certificate::from_pem(cert.as_bytes()).map_err(|e| e.to_string())?;
+    cert.not_after().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::fs::File;
+    use std::io::Read;
+    use std::path::{Path, PathBuf};
     use std::{env, fs};
 
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use mbedtls::pk::Pk;
+    use mbedtls::x509::Time;
     use serde_json::value::Value;
     use parent_lib::{communicate_certificates, CertificateApi};
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
 
-    use crate::certificate::{create_signer_key, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
+    use crate::certificate::{create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
     use crate::enclave::setup_enclave_certification;
 
     struct MockCertApi {}
@@ -288,5 +298,24 @@ mod tests {
             fs::read_to_string(expected_def_cert_path).expect("Unable to read cert file"),
             cert_string
         );
+    }
+
+    #[test]
+    fn check_get_certificate_expiry_valid_cert() {
+        let mut test_resource = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_resource.push("resources/test");
+
+        let mut certpath = PathBuf::from(test_resource.clone());
+        certpath.push("valid_cert.pem");
+        let mut cert_contents: Vec<u8> = Vec::new();
+        let _cert_size = File::open(certpath)
+            .unwrap()
+            .read_to_end(&mut cert_contents)
+            .unwrap();
+        cert_contents.push(0);
+
+        let time = get_certificate_expiry(std::str::from_utf8(&cert_contents).unwrap()).unwrap();
+        let expected_time = Time::new(2026, 5, 2, 13, 33, 36 ).unwrap();
+        assert_eq!(time, expected_time);
     }
 }
