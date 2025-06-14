@@ -6,10 +6,12 @@
 
 use std::convert::{From, TryFrom};
 use std::fs;
+use std::ops::DerefMut;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::string::ToString;
-use api_model::converter::{CertificateConfig};
+use api_model::converter::CertificateConfig;
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
 use async_process::{Child, Command};
 use async_trait::async_trait;
@@ -26,7 +28,7 @@ use shared::models::{
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use shared::socket::{AsyncVsockStream as ParentStream, AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
     cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType, HOSTNAME_FILE, HOSTS_FILE,
@@ -34,8 +36,9 @@ use shared::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
-use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
+use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
@@ -80,9 +83,15 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         .find(|(k, v)| k == "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE" && !v.trim().is_empty())
         .is_some();
 
-    let result = with_background_tasks!(background_tasks, {
+    let environment_setup_completed = Arc::new(Notify::new());
+    let mut parent_stream = ParentStream::new(parent_port);
+
+    let enclave_exit_code = with_background_tasks!(background_tasks, {
+        let parent_stream = parent_stream.clone();
+        let mut parent_guard = parent_stream.lock().await;
+
         let mut certificate_info = setup_enclave_certification(
-            &mut parent_port,
+            parent_guard.deref_mut(),
             EmAppCSRApi {},
             &setup_result.app_config.id,
             &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
@@ -96,7 +105,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             env_vars: &setup_result.env_vars,
             cert_list: certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
         };
-        setup_file_system(&mut parent_port, FileSystemSetupApiImpl {}, fs_setup_config).await?;
+        setup_file_system(parent_guard.deref_mut(), FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
         for certificate in &mut certificate_info {
             write_certificate(
@@ -109,7 +118,13 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.enclave_manifest.ccm_backend_url)?;
 
-        let log_conn_addrs = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        drop(parent_guard);
+
+        // The environment for the user application is ready, signal this to background tasks
+        // indicating that the file system, etc. is ready to be used
+        environment_setup_completed.notify_waiters();
+
         let exit_status = start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
 
         cleanup_fs().await?;
@@ -117,11 +132,9 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         Ok(exit_status)
     });
 
-    send_user_program_exit_status(&mut parent_port, result.clone()).await?;
+    signal_user_program_exit_status(&mut parent_stream, enclave_exit_code.clone()).await?;
 
-    await_enclave_exit(&mut parent_port).await?;
-
-    result
+    enclave_exit_code
 }
 
 fn enable_loopback_network_interface() -> Result<(), String> {
@@ -143,10 +156,6 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     debug!("Loopback network interface is up.");
 
     Ok(())
-}
-
-async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
-    extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExitEnclave => ())
 }
 
 async fn startup(
@@ -336,11 +345,14 @@ async fn cleanup_fs() -> Result<(), String> {
     Ok(())
 }
 
-async fn send_user_program_exit_status(
-    vsock: &mut VsockStream,
+async fn signal_user_program_exit_status(
+    parent: &mut ParentStream,
     exit_status: Result<UserProgramExitStatus, String>,
 ) -> Result<(), String> {
-    vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
+    match parent.exchange_message(&SetupMessages::UserProgramExit(exit_status)).await? {
+        SetupMessages::ExitEnclave => Ok(()),
+        _ => Err(String::from("Expected exit response"))
+    }
 }
 
 fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
