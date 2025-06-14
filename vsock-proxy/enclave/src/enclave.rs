@@ -65,6 +65,11 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::File(NS_SWITCH_FILE),
 ];
 
+async fn auth_cert_renewal(parent: ParentStream, environment_setup_completed: Arc<Notify>) -> Result<(), String> {
+    environment_setup_completed.notified().await;
+    Ok(())
+}
+
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
@@ -85,6 +90,13 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
     let environment_setup_completed = Arc::new(Notify::new());
     let mut parent_stream = ParentStream::new(parent_port);
+
+    // Setup auto cert renewal
+    let parent_stream_cloned = parent_stream.clone();
+    let environment_setup_completed_cloned = environment_setup_completed.clone();
+    background_tasks.push(tokio::spawn(async move {
+        auth_cert_renewal(parent_stream_cloned, environment_setup_completed_cloned).await
+    }));
 
     let enclave_exit_code = with_background_tasks!(background_tasks, {
         let parent_stream = parent_stream.clone();
