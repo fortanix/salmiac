@@ -87,7 +87,7 @@ pub(crate) fn write_certificate(
     if let Some(d) = default_cert_dir {
         let def_key_path = Path::new(d.as_path()).join(DEFAULT_KEY_FILE);
         let def_cert_path = Path::new(d.as_path()).join(DEFAULT_CERT_FILE);
-        if cert_with_path.key_path.cmp(&def_key_path).is_ne() || cert_with_path.certificate_path.cmp(&def_cert_path).is_ne() {
+        if cert_with_path.key_path != def_key_path || cert_with_path.certificate_path != def_cert_path {
             write_to_file(&def_key_path, &key_as_pem, "key")?;
             write_to_file(&def_cert_path, &cert_with_path.certificate_result.certificate, "certificate")?;
         }
