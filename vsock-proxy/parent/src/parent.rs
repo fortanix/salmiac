@@ -67,6 +67,12 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
     loop {
         match enclave.read_lv().await? {
             SetupMessages::UserProgramExit(status) => return status,
+            SetupMessages::CSR(csr) => {
+                match parent_lib::handle_csr_message(enclave, &EmAppCertificateApi {}, csr).await {
+                    Ok(()) => (),
+                    Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
+                }
+            },
             _r => return Err(format!("Unexpected message while executing user application")),
         }
     }

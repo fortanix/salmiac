@@ -44,6 +44,26 @@ fn node_agent_address() -> Option<String> {
     })
 }
 
+pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi>(
+    vsock: &mut Socket,
+    cert_api: &CertApi,
+    csr: String,
+) -> Result<(), String> {
+    let address = node_agent_address()
+        .ok_or(String::from("Failed to read NODE_AGENT"))?;
+
+    match cert_api.request_issue_certificate(&address, csr) {
+        Ok(cert) => vsock.write_lv(&SetupMessages::Certificate(cert)).await,
+        Err(e) => {
+            // Failures may be silently dropped (i.e., when the enclave renews certificate in a
+            // background task periodically. Ensure it can retry after some time and doesn't keep
+            // waiting.
+            let _ = vsock.write_lv_bytes(&[]);
+            Err(e)
+        },
+    }
+}
+
 pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi>(
     vsock: &mut Socket,
     cert_api: CertApi,
@@ -56,13 +76,7 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
 
         match msg {
             SetupMessages::NoMoreCertificates => return Ok(()),
-            SetupMessages::CSR(csr) => {
-                let address = node_agent_address()
-                    .ok_or(String::from("Failed to read NODE_AGENT"))?;
-
-                let certificate = cert_api.request_issue_certificate(&address, csr)?;
-                vsock.write_lv(&SetupMessages::Certificate(certificate)).await?;
-            },
+            SetupMessages::CSR(csr) => handle_csr_message(vsock, &cert_api, csr).await?,
             other => return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
                                         other)),
         };
