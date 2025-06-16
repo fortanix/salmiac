@@ -5,16 +5,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 
 use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+use chrono::NaiveDateTime;
 use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
-use mbedtls::x509::{Certificate, Time};
+use mbedtls::x509::Certificate;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
+use std::ffi::CString;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::enclave::write_to_file;
@@ -160,20 +163,23 @@ impl CSRApi for EmAppCSRApi {
     }
 }
 
-// The cert pem string passed to this function is expected to be null terminated
-pub(crate) fn get_certificate_expiry(cert: &str) -> Result<Time, String> {
-    let cert = Certificate::from_pem(cert.as_bytes()).map_err(|e| e.to_string())?;
-    cert.not_after().map_err(|e| e.to_string())
+pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, String> {
+    let cert_pem = CString::new(cert_pem)
+        .map_err(|e| e.to_string())?
+        .into_bytes_with_nul();
+    let cert = Certificate::from_pem(&cert_pem).map_err(|e| e.to_string())?;
+    let not_after = cert.not_after().map_err(|e| e.to_string())?;
+    NaiveDateTime::try_from(not_after)
+        .map_err(|_e| String::from("Couldn't convert cert expiry date"))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-    use std::io::Read;
     use std::path::{Path, PathBuf};
     use std::{env, fs};
 
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+    use chrono::NaiveDate;
     use mbedtls::pk::Pk;
     use mbedtls::x509::Time;
     use serde_json::value::Value;
@@ -307,15 +313,9 @@ mod tests {
 
         let mut certpath = PathBuf::from(test_resource.clone());
         certpath.push("valid_cert.pem");
-        let mut cert_contents: Vec<u8> = Vec::new();
-        let _cert_size = File::open(certpath)
-            .unwrap()
-            .read_to_end(&mut cert_contents)
-            .unwrap();
-        cert_contents.push(0);
-
-        let time = get_certificate_expiry(std::str::from_utf8(&cert_contents).unwrap()).unwrap();
-        let expected_time = Time::new(2026, 5, 2, 13, 33, 36 ).unwrap();
+        let cert_contents = fs::read_to_string(&certpath).unwrap();
+        let time = get_certificate_expiry(&cert_contents).unwrap();
+        let expected_time = NaiveDate::from_ymd_opt(2026, 5, 2).unwrap().and_hms_opt(13, 33, 36).unwrap();
         assert_eq!(time, expected_time);
     }
 }

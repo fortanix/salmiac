@@ -12,6 +12,7 @@ api-model = { path = "../../api-model", features = ["serde"] }
 async-process = "1.2.0"
 async-trait = "0.1.51"
 base64 = "0.13.0"
+chrono = "0.4"
 clap = "2.33"
 const_format = "0.2.32"
 em-app = { workspace = true }
@@ -22,7 +23,7 @@ hyper = "0.10"
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
-mbedtls = { version = "0.12.1" }
+mbedtls = { version = "0.12.1", features = ["chrono"] }
 nix = "0.15.0"
 openssl = "0.10"
 pkix = "0.1.2"
