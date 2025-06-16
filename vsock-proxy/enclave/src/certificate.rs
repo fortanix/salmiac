@@ -39,6 +39,22 @@ pub struct CertificateResult {
     pub key: Pk,
 }
 
+pub(crate) trait CertificatePaths {
+    fn key_path(&self, fs_root: &Path) -> PathBuf;
+
+    fn certificate_path(&self, fs_root: &Path) -> PathBuf;
+}
+
+impl CertificatePaths for CertificateConfig {
+    fn key_path(&self, fs_root: &Path) -> PathBuf {
+        fs_root.join(get_relative_path(self.key_path_or_default()))
+    }
+
+    fn certificate_path(&self, fs_root: &Path) -> PathBuf {
+        fs_root.join(get_relative_path(self.cert_path_or_default()))
+    }
+}
+
 pub(crate) struct CertificateWithPath {
     pub(crate) certificate_result: CertificateResult,
 
@@ -52,8 +68,8 @@ impl CertificateWithPath {
         // PathBuf.join replaces the path with the second path if its absolute. So always convert
         // the key and cert path to a relative path which is added to the enclave user program's
         // filesystem root
-        let key_path = fs_root.join(get_relative_path(cert_config.key_path_or_default()));
-        let certificate_path = fs_root.join(get_relative_path(cert_config.cert_path_or_default()));
+        let key_path = cert_config.key_path(fs_root);
+        let certificate_path = cert_config.certificate_path(fs_root);
 
         CertificateWithPath {
             certificate_result,
@@ -188,7 +204,7 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use crate::certificate::{create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
-    use crate::enclave::setup_enclave_certification;
+    use crate::enclave::setup_enclave_certifications;
 
     struct MockCertApi {}
     impl CertificateApi for MockCertApi {
@@ -215,9 +231,9 @@ mod tests {
     }
 
     async fn enclave(mut enclave_socket: InMemorySocket, mut cert_configs: Vec<CertificateConfig>) -> () {
-        let result = setup_enclave_certification(
+        let result = setup_enclave_certifications(
             &mut enclave_socket,
-            MockCSRApi {},
+            &MockCSRApi {},
             &None,
             &mut cert_configs,
             Path::new("/"),
@@ -230,7 +246,7 @@ mod tests {
     }
 
     async fn enclave_no_certs(mut enclave_socket: InMemorySocket) -> () {
-        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
+        let result = setup_enclave_certifications(&mut enclave_socket, &MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
             .await
             .expect("Request certificate OK");
 

@@ -4,10 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use chrono::Utc;
 use std::convert::{From, TryFrom};
 use std::fs;
 use std::ops::DerefMut;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::string::ToString;
@@ -36,13 +37,14 @@ use shared::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::Notify;
+use tokio::sync::{MutexGuard, Notify};
 use tokio::task::JoinHandle;
+use tokio::time::{self as tokio_time, Duration};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
+use crate::certificate::{self, CertificatePaths, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
 use crate::dsm_key_config::ClientConnectionInfo;
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
@@ -65,9 +67,64 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::File(NS_SWITCH_FILE),
 ];
 
-async fn auth_cert_renewal(parent: ParentStream, environment_setup_completed: Arc<Notify>) -> Result<(), String> {
+/// The time duration before expiry a cert renewal is attempted
+const CERT_RENEWAL_BEFORE_EXPIRY: Duration = Duration::from_secs(5 * 60 * 60 * 24 /* 5 days */);
+
+/// The interval between certs are checked for renewal
+const CERT_RENEWAL_INTERVAL: Duration = Duration::from_secs(1 * 60 * 60 /* 1 hour */);
+
+fn default_cert_dir() -> PathBuf {
+    PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
+        .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
+}
+
+async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_config_id: &Option<String>, cert_config: &CertificateConfig) -> Result<bool, String> {
+    let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
+    let cert = fs::read_to_string(&cert_path).map_err(|e| e.to_string())?;
+    let expiry_date = certificate::get_certificate_expiry(&cert)?
+        .and_utc();
+    if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
+        let mut cert = setup_enclave_certification(
+            parent.deref_mut(),
+            &EmAppCSRApi{},
+            app_config_id,
+            &cert_config,
+            Path::new(ENCLAVE_FS_OVERLAY_ROOT)).await?;
+
+        write_certificate(&mut cert, Some(default_cert_dir()))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: Arc<Notify>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, skip_def_cert_req: bool) -> Result<(), String> {
     environment_setup_completed.notified().await;
-    Ok(())
+
+    loop {
+        let mut parent_guard = parent.lock().await;
+
+        debug!("Checking if certificates need to be renewed.");
+
+        if !skip_def_cert_req && cert_settings.is_empty() {
+            cert_settings.push(default_certificate());
+        }
+
+        // Zero or more certificate requests.
+        for cert_config in &cert_settings {
+            let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
+            match auto_cert_renewal(&mut parent_guard, app_config_id, &cert_config).await {
+                Ok(true) => debug!("Certificate at {} renewed", cert_path.display()),
+                Ok(false) => debug!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
+                Err(e) => debug!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
+            }
+        }
+
+        drop(parent_guard);
+
+        debug!("End certificate renewal cycle");
+        tokio_time::sleep(CERT_RENEWAL_INTERVAL).await;
+    }
 }
 
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
@@ -94,17 +151,24 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     // Setup auto cert renewal
     let parent_stream_cloned = parent_stream.clone();
     let environment_setup_completed_cloned = environment_setup_completed.clone();
+    let app_config_id = setup_result.app_config.id.clone();
+    let cert_settings = setup_result.enclave_manifest.user_config.certificate_config.clone();
+
     background_tasks.push(tokio::spawn(async move {
-        auth_cert_renewal(parent_stream_cloned, environment_setup_completed_cloned).await
+        auto_cert_renewals(parent_stream_cloned,
+                          environment_setup_completed_cloned,
+                          &app_config_id,
+                          cert_settings,
+                          skip_def_cert_req).await
     }));
 
     let enclave_exit_code = with_background_tasks!(background_tasks, {
         let parent_stream = parent_stream.clone();
         let mut parent_guard = parent_stream.lock().await;
 
-        let mut certificate_info = setup_enclave_certification(
+        let mut certificate_info = setup_enclave_certifications(
             parent_guard.deref_mut(),
-            EmAppCSRApi {},
+            &EmAppCSRApi {},
             &setup_result.app_config.id,
             &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
@@ -122,7 +186,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         for certificate in &mut certificate_info {
             write_certificate(
                 certificate,
-                Some(Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())),
+                Some(default_cert_dir()),
             )?;
         }
 
@@ -677,15 +741,15 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     Ok(tap_device)
 }
 
-pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
     vsock: &mut Socket,
-    csr_api: Api,
+    csr_api: &Api,
     app_config_id: &Option<String>,
     cert_settings: &mut Vec<CertificateConfig>,
     fs_root: &Path,
     skip_def_cert_req: bool,
 ) -> Result<Vec<CertificateWithPath>, String> {
-    let mut result = Vec::new();
+    let mut certs = Vec::new();
 
     if !skip_def_cert_req && cert_settings.is_empty() {
         cert_settings.push(default_certificate());
@@ -693,27 +757,37 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        if let Some(kp) = &cert_config.key_param {
-            let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
-            let mut key = create_signer_key(key_size as u32)?;
-            let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-            let certificate = request_certificate(vsock, csr).await?;
-
-            result.push(CertificateWithPath::new(
-                CertificateResult { certificate, key },
-                cert_config,
-                fs_root,
-            ));
-        } else {
-            return Err(format!("key param not specified for cert config {:?}", cert_config));
-        }
+        certs.push(setup_enclave_certification(vsock, csr_api, app_config_id, cert_config, fs_root).await?);
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
 
-    info!("Finished requesting {} certificates.", result.len());
+    info!("Finished requesting {} certificates.", certs.len());
 
-    Ok(result)
+    Ok(certs)
+}
+
+pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+    vsock: &mut Socket,
+    csr_api: &Api,
+    app_config_id: &Option<String>,
+    cert_config: &CertificateConfig,
+    fs_root: &Path,
+) -> Result<CertificateWithPath, String> {
+    if let Some(kp) = &cert_config.key_param {
+        let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+        let mut key = create_signer_key(key_size as u32)?;
+        let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+        let certificate = request_certificate(vsock, csr).await?;
+
+        Ok(CertificateWithPath::new(
+            CertificateResult { certificate, key },
+            cert_config,
+            fs_root,
+        ))
+    } else {
+        Err(format!("key param not specified for cert config {:?}", cert_config))
+    }
 }
 
 async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {
