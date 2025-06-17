@@ -9,7 +9,7 @@ enclave_startup_bin_folder=""
 # to avoid problems runtime linking errors with libnss SALM-345
 enclave_startup_toolchain="x86_64-unknown-linux-musl"
 
-if [ "$1" = "--release" ]; then
+if [ $FLAVOR == "release" ]; then
   cargo_build_flag="--release"
   vsock_proxy_bin_folder="release"
   enclave_startup_bin_folder="$enclave_startup_toolchain/release"
