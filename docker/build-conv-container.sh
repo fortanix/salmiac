@@ -16,7 +16,7 @@ docker save -o ./staging/parent-base.tar parent-base
 # The Dockerfile used to build the converter uses a prebuilt parent-base
 # image by default which resides in the Fortanix ECR repository. The users
 # of this script can use the parent-base image which was built by them.
-docker tag parent-base fortanix/parent-base:2.0.0
+docker tag parent-base fortanix/parent-base:1.2.0
 
 # Build the converter
 docker build -t converter .
