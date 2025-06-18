@@ -29,14 +29,17 @@ RUN apt-get update \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 # Setup the right rust ver
-ENV RUST_VERSION=1.68.2
+ENV RUST_VERSION=1.49.0
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
+# Install nitro-cli. Use vendored version of openssl since various crates use openssl-sys 0.9 which
+# works only with openssl1. RTE-386
 ENV NITRO_CLI_INSTALL_DIR=./install
 RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git && \
     cd aws-nitro-enclaves-cli && \
-    git checkout v1.3.3 && \
+    git checkout v1.1.0 && \
+    sed -i '/openssl = "0.10"/c\openssl = { version = "0.10" , features = ["vendored"] }' /aws-nitro-enclaves-cli/Cargo.toml && \
     make nitro-cli-native && make vsock-proxy-native && make install-tools
 
 
