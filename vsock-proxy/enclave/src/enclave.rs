@@ -71,7 +71,8 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
 const CERT_RENEWAL_BEFORE_EXPIRY: Duration = Duration::from_secs(5 * 60 * 60 * 24 /* 5 days */);
 
 /// The interval between certs are checked for renewal
-const CERT_RENEWAL_INTERVAL: Duration = Duration::from_secs(1 * 60 * 60 /* 1 hour */);
+const CERT_RENEWAL_INTERVAL_RELEASE: Duration = Duration::from_secs(1 * 60 * 60 /* 1 hour */);
+const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -98,7 +99,7 @@ async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_co
     }
 }
 
-async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: Arc<Notify>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, skip_def_cert_req: bool) -> Result<(), String> {
+async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: Arc<Notify>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, is_debug: bool, skip_def_cert_req: bool) -> Result<(), String> {
     environment_setup_completed.notified().await;
 
     loop {
@@ -122,8 +123,14 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
 
         drop(parent_guard);
 
-        debug!("End certificate renewal cycle");
-        tokio_time::sleep(CERT_RENEWAL_INTERVAL).await;
+        let sleep_duration = if is_debug {
+            CERT_RENEWAL_INTERVAL_DEBUG
+        } else {
+            CERT_RENEWAL_INTERVAL_RELEASE
+        };
+        debug!("End certificate renewal cycle, sleeping for {} seconds", sleep_duration.as_secs());
+
+        tokio_time::sleep(sleep_duration).await;
     }
 }
 
@@ -153,12 +160,14 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let environment_setup_completed_cloned = environment_setup_completed.clone();
     let app_config_id = setup_result.app_config.id.clone();
     let cert_settings = setup_result.enclave_manifest.user_config.certificate_config.clone();
+    let is_debug = setup_result.enclave_manifest.is_debug;
 
     background_tasks.push(tokio::spawn(async move {
         auto_cert_renewals(parent_stream_cloned,
                           environment_setup_completed_cloned,
                           &app_config_id,
                           cert_settings,
+                          is_debug,
                           skip_def_cert_req).await
     }));
 
