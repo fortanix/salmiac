@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use futures::{SinkExt, StreamExt};
 use log::{info, warn};
-use pcap::{Active, Capture, Device, Direction, Packet, PacketCodec};
+use pcap::{Active, Capture, Direction, Packet, PacketCodec};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use tokio::io;
 use tokio::io::{ReadHalf, WriteHalf};
@@ -28,9 +28,9 @@ pub(crate) struct PcapLoopsResult {
 /// Network forwarding tasks never exit during normal parent execution and it is considered an error if they do.
 /// # Returns
 /// Handles to two network forwarding tasks
-pub(crate) fn start_pcap_loops(network_device: Device, vsock: AsyncVsockStream) -> Result<PcapLoopsResult, String> {
-    let read_capture = open_packet_capture(network_device.clone(), Mode::Read)?;
-    let write_capture = open_packet_capture(network_device, Mode::Write)?;
+pub(crate) fn start_pcap_loops(device_name: &str, vsock: AsyncVsockStream) -> Result<PcapLoopsResult, String> {
+    let read_capture = open_packet_capture(device_name, Mode::Read)?;
+    let write_capture = open_packet_capture(device_name, Mode::Write)?;
 
     let (vsock_read, vsock_write) = io::split(vsock);
 
@@ -131,9 +131,8 @@ enum Mode {
     Write,
 }
 
-fn open_packet_capture(device: pcap::Device, mode: Mode) -> Result<Capture<Active>, String> {
-    let device_name = device.name.clone();
-    let capture = Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))?
+fn open_packet_capture(device_name: &str, mode: Mode) -> Result<Capture<Active>, String> {
+    let capture = Capture::from_device(device_name).map_err(|err| format!("Cannot create capture {:?}", err))?
         .immediate_mode(true);
 
     if let Mode::Read = mode {

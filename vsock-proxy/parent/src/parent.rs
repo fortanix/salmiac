@@ -404,7 +404,7 @@ fn start_background_tasks(
     let result = FuturesUnordered::new();
 
     for paired_device in parent_setup_result.network_devices {
-        let res = start_pcap_loops(paired_device.pcap, paired_device.vsock)?;
+        let res = start_pcap_loops(&paired_device.device_name, paired_device.vsock)?;
 
         result.push(res.pcap_to_vsock);
         result.push(res.vsock_to_pcap);
@@ -471,8 +471,8 @@ struct ResolvConfResult {
 async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
-    let (network_devices, settings_list) = list_network_devices().await?;
-    let network_addresses_in_use = settings_list
+    let network_devices = list_network_devices().await?;
+    let network_addresses_in_use = network_devices
         .iter()
         .map(|e| match e.self_l3_address {
             IpNetwork::V4(e) => e,
@@ -480,7 +480,7 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
         })
         .collect();
 
-    let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
+    let paired_network_devices = setup_network_devices(vsock, network_devices).await?;
 
     let (parent_address, enclave_address) = choose_addrs_for_private_taps(network_addresses_in_use)?;
 

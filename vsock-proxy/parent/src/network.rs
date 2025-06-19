@@ -11,10 +11,11 @@ use std::net::{IpAddr, Ipv4Addr};
 use etherparse::InternetSlice::Ipv4;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice::{Tcp, Udp, Unknown};
+use futures::{stream, StreamExt, TryStreamExt};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use log::warn;
 use nix::net::if_::if_nametoindex;
-use pcap::{Address, Device};
+use pcap::Address;
 use rtnetlink::packet::NUD_PERMANENT;
 use shared::models::{NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages};
 use shared::netlink::arp::{ARPEntry, NetlinkARP};
@@ -40,66 +41,60 @@ const IPV4_CHECKSUM_FIELD_INDEX: usize = 10;
 const FS_TAP_NETWORK_PREFIX_SIZE: u8 = 30;
 
 pub(crate) struct PairedPcapDevice {
-    pub(crate) pcap: Device,
-
+    pub(crate) device_name: String,
     pub(crate) vsock: AsyncVsockStream,
 }
 
 pub(crate) async fn setup_network_devices(
     enclave_port: &mut AsyncVsockStream,
-    devices: Vec<Device>,
-    settings_list: Vec<NetworkDeviceSettings>,
+    network_devices: Vec<NetworkDeviceSettings>,
 ) -> Result<Vec<PairedPcapDevice>, String> {
-    let mut device_listeners = Vec::new();
+    // Setup VSOCK listening sockets
+    let device_listeners = network_devices.iter().map(|device_settings| {
+        Ok((
+            device_settings.name.clone(),
+            listen_to_parent(device_settings.vsock_port_number)?,
+        ))
+    }).collect::<Result<Vec<_>, String>>()?;
 
-    for settings in &settings_list {
-        device_listeners.push(listen_to_parent(settings.vsock_port_number)?);
-    }
-
+    // Instruct enclave to open connections to our sockets
     enclave_port
-        .write_lv(&SetupMessages::NetworkDeviceSettings(settings_list))
+        .write_lv(&SetupMessages::NetworkDeviceSettings(network_devices))
         .await?;
 
-    let mut device_streams = Vec::new();
-
-    for mut listener in device_listeners {
-        device_streams.push(accept(&mut listener).await?);
-    }
-
-    let result = devices
-        .into_iter()
-        .zip(device_streams.into_iter())
-        .map(|e| PairedPcapDevice { pcap: e.0, vsock: e.1 })
-        .collect();
-
-    Ok(result)
+    // Accept connections from enclave on listening sockets
+    stream::iter(device_listeners.into_iter())
+        .then(|(device_name, mut listener)| async move {
+            Ok(PairedPcapDevice {
+                device_name,
+                vsock: accept(&mut listener).await?
+            })
+        })
+        .try_collect()
+        .await
 }
 
-pub(crate) async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDeviceSettings>), String> {
-    let netlink = Netlink::new();
+pub(crate) async fn list_network_devices() -> Result<Vec<NetworkDeviceSettings>, String> {
+    let netlink = &Netlink::new();
     let devices = pcap::Device::list().map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
 
-    let mut device_settings: Vec<NetworkDeviceSettings> = Vec::new();
-
-    for device in &devices {
-        let device_name = device.name.clone();
-
-        if device_name != "lo" && device_name != "any" {
-            match get_network_settings_for_device(device, &netlink).await {
-                Ok(settings) => {
-                    device_settings.push(settings);
-                }
-                Err(e) => {
+    Ok(
+        stream::iter(devices.into_iter()
+            .filter(|device| device.name != "lo" && device.name != "any")
+        )
+        .filter_map(|device| async move {
+            get_network_settings_for_device(&device, netlink)
+                .await
+                .map_err(|e| {
                     warn!(
                         "Network settings for device {} could not be obtained, device won't be setup! {}",
-                        device_name, e
+                        device.name, e
                     )
-                }
-            };
-        }
-    }
-
-    Ok((devices, device_settings))
+                })
+                .ok()
+        })
+        .collect()
+        .await)
 }
 
 async fn get_network_settings_for_device<D, N>(device: &D, netlink: &N) -> Result<NetworkDeviceSettings, String>
@@ -143,7 +138,7 @@ where
         vsock_port_number: device_index,
         self_l2_address: mac_address,
         self_l3_address: ip_network,
-        name: device.name().to_string(),
+        name: device_name.to_owned(),
         mtu,
         gateway,
         routes,
