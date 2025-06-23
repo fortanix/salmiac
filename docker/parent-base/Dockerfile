@@ -7,7 +7,7 @@
 FROM ubuntu:24.04 as nitro-cli
 ENV DEBIAN_FRONTEND=noninteractive
 # Install packages for rust toolchain
-RUN apt-get update \
+RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y \
         apt-utils \
         clang \
@@ -29,7 +29,7 @@ RUN apt-get update \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 # Setup the right rust ver
-ENV RUST_VERSION=1.49.0
+ENV RUST_VERSION=1.71.1
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
@@ -38,10 +38,8 @@ RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
 ENV NITRO_CLI_INSTALL_DIR=./install
 RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git && \
     cd aws-nitro-enclaves-cli && \
-    git checkout v1.1.0 && \
-    sed -i '/openssl = "0.10"/c\openssl = { version = "0.10" , features = ["vendored"] }' /aws-nitro-enclaves-cli/Cargo.toml && \
+    git checkout v1.4.2 && \
     make nitro-cli-native && make vsock-proxy-native && make install-tools
-
 
 # Final image build.
 FROM ubuntu:24.04 as parent-base
@@ -71,6 +69,8 @@ COPY --from=nitro-cli aws-nitro-enclaves-cli/install/etc/nitro_enclaves /etc/nit
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/bin /usr/bin
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/lib/systemd/system /usr/lib/systemd/system
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/share /usr/share
+COPY --from=nitro-cli aws-nitro-enclaves-cli/blobs/x86_64 /usr/share/nitro_enclaves/blobs
+
 COPY dnsmasq.d /etc/dnsmasq.d
 # Setup the env for nitro-cli
 RUN mkdir -p /var/log/nitro_enclaves
