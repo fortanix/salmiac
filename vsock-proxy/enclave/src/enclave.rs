@@ -20,7 +20,7 @@ use em_client::Sha256Hash;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
@@ -105,7 +105,7 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
     loop {
         let mut parent_guard = parent.lock().await;
 
-        debug!("Checking if certificates need to be renewed.");
+        info!("Checking if certificates need to be renewed.");
 
         if !skip_def_cert_req && cert_settings.is_empty() {
             cert_settings.push(default_certificate());
@@ -115,9 +115,9 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
         for cert_config in &cert_settings {
             let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
             match auto_cert_renewal(&mut parent_guard, app_config_id, &cert_config).await {
-                Ok(true) => debug!("Certificate at {} renewed", cert_path.display()),
-                Ok(false) => debug!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
-                Err(e) => debug!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
+                Ok(true) => info!("Certificate at {} renewed", cert_path.display()),
+                Ok(false) => info!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
+                Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
             }
         }
 
@@ -128,7 +128,7 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
         } else {
             CERT_RENEWAL_INTERVAL_RELEASE
         };
-        debug!("End certificate renewal cycle, sleeping for {} seconds", sleep_duration.as_secs());
+        info!("End certificate renewal cycle, sleeping for {} seconds", sleep_duration.as_secs());
 
         tokio_time::sleep(sleep_duration).await;
     }
