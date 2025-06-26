@@ -5,16 +5,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 
 use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+use chrono::NaiveDateTime;
 use log::debug;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
-use mbedtls::x509::{Certificate, Time};
+use mbedtls::x509::Certificate;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
+use std::ffi::CString;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::enclave::write_to_file;
@@ -36,6 +39,22 @@ pub struct CertificateResult {
     pub key: Pk,
 }
 
+pub(crate) trait CertificatePaths {
+    fn key_path(&self, fs_root: &Path) -> PathBuf;
+
+    fn certificate_path(&self, fs_root: &Path) -> PathBuf;
+}
+
+impl CertificatePaths for CertificateConfig {
+    fn key_path(&self, fs_root: &Path) -> PathBuf {
+        fs_root.join(get_relative_path(self.key_path_or_default()))
+    }
+
+    fn certificate_path(&self, fs_root: &Path) -> PathBuf {
+        fs_root.join(get_relative_path(self.cert_path_or_default()))
+    }
+}
+
 pub(crate) struct CertificateWithPath {
     pub(crate) certificate_result: CertificateResult,
 
@@ -49,8 +68,8 @@ impl CertificateWithPath {
         // PathBuf.join replaces the path with the second path if its absolute. So always convert
         // the key and cert path to a relative path which is added to the enclave user program's
         // filesystem root
-        let key_path = fs_root.join(get_relative_path(cert_config.key_path_or_default()));
-        let certificate_path = fs_root.join(get_relative_path(cert_config.cert_path_or_default()));
+        let key_path = cert_config.key_path(fs_root);
+        let certificate_path = cert_config.certificate_path(fs_root);
 
         CertificateWithPath {
             certificate_result,
@@ -87,7 +106,7 @@ pub(crate) fn write_certificate(
     if let Some(d) = default_cert_dir {
         let def_key_path = Path::new(d.as_path()).join(DEFAULT_KEY_FILE);
         let def_cert_path = Path::new(d.as_path()).join(DEFAULT_CERT_FILE);
-        if cert_with_path.key_path.cmp(&def_key_path).is_ne() || cert_with_path.certificate_path.cmp(&def_cert_path).is_ne() {
+        if cert_with_path.key_path != def_key_path || cert_with_path.certificate_path != def_cert_path {
             write_to_file(&def_key_path, &key_as_pem, "key")?;
             write_to_file(&def_cert_path, &cert_with_path.certificate_result.certificate, "certificate")?;
         }
@@ -160,20 +179,25 @@ impl CSRApi for EmAppCSRApi {
     }
 }
 
-// The cert pem string passed to this function is expected to be null terminated
-pub(crate) fn get_certificate_expiry(cert: &str) -> Result<Time, String> {
-    let cert = Certificate::from_pem(cert.as_bytes()).map_err(|e| e.to_string())?;
-    cert.not_after().map_err(|e| e.to_string())
+// Returns the expiry of a certificate. `cert_pem` is expected to be pem encoded (without
+// terminating zero byte).
+pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, String> {
+    let cert_pem = CString::new(cert_pem)
+        .map_err(|e| e.to_string())?
+        .into_bytes_with_nul();
+    let cert = Certificate::from_pem(&cert_pem).map_err(|e| e.to_string())?;
+    let not_after = cert.not_after().map_err(|e| e.to_string())?;
+    NaiveDateTime::try_from(not_after)
+        .map_err(|_e| String::from("Couldn't convert cert expiry date"))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-    use std::io::Read;
     use std::path::{Path, PathBuf};
     use std::{env, fs};
 
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+    use chrono::NaiveDate;
     use mbedtls::pk::Pk;
     use mbedtls::x509::Time;
     use serde_json::value::Value;
@@ -182,7 +206,7 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use crate::certificate::{create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
-    use crate::enclave::setup_enclave_certification;
+    use crate::enclave::setup_enclave_certifications;
 
     struct MockCertApi {}
     impl CertificateApi for MockCertApi {
@@ -209,9 +233,9 @@ mod tests {
     }
 
     async fn enclave(mut enclave_socket: InMemorySocket, mut cert_configs: Vec<CertificateConfig>) -> () {
-        let result = setup_enclave_certification(
+        let result = setup_enclave_certifications(
             &mut enclave_socket,
-            MockCSRApi {},
+            &MockCSRApi {},
             &None,
             &mut cert_configs,
             Path::new("/"),
@@ -224,7 +248,7 @@ mod tests {
     }
 
     async fn enclave_no_certs(mut enclave_socket: InMemorySocket) -> () {
-        let result = setup_enclave_certification(&mut enclave_socket, MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
+        let result = setup_enclave_certifications(&mut enclave_socket, &MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
             .await
             .expect("Request certificate OK");
 
@@ -307,15 +331,9 @@ mod tests {
 
         let mut certpath = PathBuf::from(test_resource.clone());
         certpath.push("valid_cert.pem");
-        let mut cert_contents: Vec<u8> = Vec::new();
-        let _cert_size = File::open(certpath)
-            .unwrap()
-            .read_to_end(&mut cert_contents)
-            .unwrap();
-        cert_contents.push(0);
-
-        let time = get_certificate_expiry(std::str::from_utf8(&cert_contents).unwrap()).unwrap();
-        let expected_time = Time::new(2026, 5, 2, 13, 33, 36 ).unwrap();
+        let cert_contents = fs::read_to_string(&certpath).unwrap();
+        let time = get_certificate_expiry(&cert_contents).unwrap();
+        let expected_time = NaiveDate::from_ymd_opt(2026, 5, 2).unwrap().and_hms_opt(13, 33, 36).unwrap();
         assert_eq!(time, expected_time);
     }
 }

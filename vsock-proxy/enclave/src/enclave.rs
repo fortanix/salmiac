@@ -4,12 +4,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use chrono::Utc;
 use std::convert::{From, TryFrom};
 use std::fs;
-use std::path::Path;
+use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::string::ToString;
-use api_model::converter::{CertificateConfig};
+use api_model::converter::CertificateConfig;
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
 use async_process::{Child, Command};
 use async_trait::async_trait;
@@ -17,7 +20,7 @@ use em_client::Sha256Hash;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
@@ -26,7 +29,7 @@ use shared::models::{
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
-use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
+use shared::socket::{AsyncVsockStream as ParentStream, AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
     cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType, HOSTNAME_FILE, HOSTS_FILE,
@@ -34,12 +37,14 @@ use shared::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::{MutexGuard, Notify};
 use tokio::task::JoinHandle;
-use tokio_vsock::{VsockStream as AsyncVsockStream, VsockStream};
+use tokio::time::{self as tokio_time, Duration};
+use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
+use crate::certificate::{self, CertificatePaths, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
 use crate::dsm_key_config::ClientConnectionInfo;
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
@@ -62,6 +67,75 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::File(NS_SWITCH_FILE),
 ];
 
+/// The time duration before expiry a cert renewal is attempted
+const CERT_RENEWAL_BEFORE_EXPIRY: Duration = Duration::from_secs(10 * 60 * 60 * 24 /* 10 days */);
+
+/// The interval between certs are checked for renewal
+const CERT_RENEWAL_INTERVAL_RELEASE: Duration = Duration::from_secs(24 * 60 * 60 /* 24 hours */);
+const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
+
+fn default_cert_dir() -> PathBuf {
+    PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
+        .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
+}
+
+async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_config_id: &Option<String>, cert_config: &CertificateConfig) -> Result<bool, String> {
+    let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
+    let cert = fs::read_to_string(&cert_path).map_err(|e| e.to_string())?;
+    let expiry_date = certificate::get_certificate_expiry(&cert)?
+        .and_utc();
+    if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
+        let mut cert = setup_enclave_certification(
+            parent.deref_mut(),
+            &EmAppCSRApi{},
+            app_config_id,
+            &cert_config,
+            Path::new(ENCLAVE_FS_OVERLAY_ROOT)).await?;
+
+        write_certificate(&mut cert, Some(default_cert_dir()))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: Arc<Notify>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, is_debug: bool, skip_def_cert_req: bool) -> Result<(), String> {
+    // Wait until the user application starts running, at that point the file system and initial
+    // certificates have been set up.
+    environment_setup_completed.notified().await;
+
+    loop {
+        let mut parent_guard = parent.lock().await;
+
+        info!("Checking if certificates need to be renewed.");
+
+        if !skip_def_cert_req && cert_settings.is_empty() {
+            cert_settings.push(default_certificate());
+        }
+
+        // Zero or more certificate requests.
+        for cert_config in &cert_settings {
+            let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
+            match auto_cert_renewal(&mut parent_guard, app_config_id, &cert_config).await {
+                Ok(true) => info!("Certificate at {} renewed", cert_path.display()),
+                Ok(false) => info!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
+                Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
+            }
+        }
+
+        drop(parent_guard);
+
+        let sleep_duration = if is_debug {
+            CERT_RENEWAL_INTERVAL_DEBUG
+        } else {
+            CERT_RENEWAL_INTERVAL_RELEASE
+        };
+        info!("End certificate renewal cycle, sleeping for {} seconds", sleep_duration.as_secs());
+
+        tokio_time::sleep(sleep_duration).await;
+    }
+}
+
 pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
@@ -80,10 +154,32 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         .find(|(k, v)| k == "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE" && !v.trim().is_empty())
         .is_some();
 
-    let result = with_background_tasks!(background_tasks, {
-        let mut certificate_info = setup_enclave_certification(
-            &mut parent_port,
-            EmAppCSRApi {},
+    let environment_setup_completed = Arc::new(Notify::new());
+    let mut parent_stream = ParentStream::new(parent_port);
+
+    // Setup auto cert renewal
+    let parent_stream_cloned = parent_stream.clone();
+    let environment_setup_completed_cloned = environment_setup_completed.clone();
+    let app_config_id = setup_result.app_config.id.clone();
+    let cert_settings = setup_result.enclave_manifest.user_config.certificate_config.clone();
+    let is_debug = setup_result.enclave_manifest.is_debug;
+
+    background_tasks.push(tokio::spawn(async move {
+        auto_cert_renewals(parent_stream_cloned,
+                          environment_setup_completed_cloned,
+                          &app_config_id,
+                          cert_settings,
+                          is_debug,
+                          skip_def_cert_req).await
+    }));
+
+    let enclave_exit_code = with_background_tasks!(background_tasks, {
+        let parent_stream = parent_stream.clone();
+        let mut parent_guard = parent_stream.lock().await;
+
+        let mut certificate_info = setup_enclave_certifications(
+            parent_guard.deref_mut(),
+            &EmAppCSRApi {},
             &setup_result.app_config.id,
             &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
@@ -96,12 +192,12 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             env_vars: &setup_result.env_vars,
             cert_list: certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
         };
-        setup_file_system(&mut parent_port, FileSystemSetupApiImpl {}, fs_setup_config).await?;
+        setup_file_system(parent_guard.deref_mut(), FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
         for certificate in &mut certificate_info {
             write_certificate(
                 certificate,
-                Some(Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())),
+                Some(default_cert_dir()),
             )?;
         }
 
@@ -109,7 +205,13 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.enclave_manifest.ccm_backend_url)?;
 
-        let log_conn_addrs = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        drop(parent_guard);
+
+        // The environment for the user application is ready, signal this to background tasks
+        // indicating that the file system, etc. is ready to be used
+        environment_setup_completed.notify_waiters();
+
         let exit_status = start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
 
         cleanup_fs().await?;
@@ -117,11 +219,9 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         Ok(exit_status)
     });
 
-    send_user_program_exit_status(&mut parent_port, result.clone()).await?;
+    signal_user_program_exit_status(&mut parent_stream, enclave_exit_code.clone()).await?;
 
-    await_enclave_exit(&mut parent_port).await?;
-
-    result
+    enclave_exit_code
 }
 
 fn enable_loopback_network_interface() -> Result<(), String> {
@@ -143,10 +243,6 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     debug!("Loopback network interface is up.");
 
     Ok(())
-}
-
-async fn await_enclave_exit(parent_port: &mut AsyncVsockStream) -> Result<(), String> {
-    extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExitEnclave => ())
 }
 
 async fn startup(
@@ -336,11 +432,14 @@ async fn cleanup_fs() -> Result<(), String> {
     Ok(())
 }
 
-async fn send_user_program_exit_status(
-    vsock: &mut VsockStream,
+async fn signal_user_program_exit_status(
+    parent: &mut ParentStream,
     exit_status: Result<UserProgramExitStatus, String>,
 ) -> Result<(), String> {
-    vsock.write_lv(&SetupMessages::UserProgramExit(exit_status)).await
+    match parent.exchange_message(&SetupMessages::UserProgramExit(exit_status)).await? {
+        SetupMessages::ExitEnclave => Ok(()),
+        _ => Err(String::from("Expected exit response"))
+    }
 }
 
 fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
@@ -653,15 +752,15 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     Ok(tap_device)
 }
 
-pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
     vsock: &mut Socket,
-    csr_api: Api,
+    csr_api: &Api,
     app_config_id: &Option<String>,
     cert_settings: &mut Vec<CertificateConfig>,
     fs_root: &Path,
     skip_def_cert_req: bool,
 ) -> Result<Vec<CertificateWithPath>, String> {
-    let mut result = Vec::new();
+    let mut certs = Vec::new();
 
     if !skip_def_cert_req && cert_settings.is_empty() {
         cert_settings.push(default_certificate());
@@ -669,27 +768,37 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        if let Some(kp) = &cert_config.key_param {
-            let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
-            let mut key = create_signer_key(key_size as u32)?;
-            let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-            let certificate = request_certificate(vsock, csr).await?;
-
-            result.push(CertificateWithPath::new(
-                CertificateResult { certificate, key },
-                cert_config,
-                fs_root,
-            ));
-        } else {
-            return Err(format!("key param not specified for cert config {:?}", cert_config));
-        }
+        certs.push(setup_enclave_certification(vsock, csr_api, app_config_id, cert_config, fs_root).await?);
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
 
-    info!("Finished requesting {} certificates.", result.len());
+    info!("Finished requesting {} certificates.", certs.len());
 
-    Ok(result)
+    Ok(certs)
+}
+
+pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+    vsock: &mut Socket,
+    csr_api: &Api,
+    app_config_id: &Option<String>,
+    cert_config: &CertificateConfig,
+    fs_root: &Path,
+) -> Result<CertificateWithPath, String> {
+    if let Some(kp) = &cert_config.key_param {
+        let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+        let mut key = create_signer_key(key_size as u32)?;
+        let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+        let certificate = request_certificate(vsock, csr).await?;
+
+        Ok(CertificateWithPath::new(
+            CertificateResult { certificate, key },
+            cert_config,
+            fs_root,
+        ))
+    } else {
+        Err(format!("key param not specified for cert config {:?}", cert_config))
+    }
 }
 
 async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> {

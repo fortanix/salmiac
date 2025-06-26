@@ -7,14 +7,44 @@
 use std::io;
 use std::io::Error;
 use std::pin::Pin;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tokio::sync::{Mutex, MutexGuard};
+use tokio_vsock::VsockStream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+
+#[derive(Clone)]
+pub struct AsyncVsockStream(Arc<Mutex<VsockStream>>);
+
+impl AsyncVsockStream {
+    pub fn new(socket: VsockStream) -> Self {
+        AsyncVsockStream(Arc::new(Mutex::new(socket)))
+    }
+
+    /// Exchanges messages with the other side of the VSockStream. Ensures that the returned
+    /// message is a response to the message sent. Currently this is achieved through locking, in
+    /// the future other means can be used.
+    pub async fn exchange_message<S: Serialize + Send + Sync, R: DeserializeOwned>(&mut self, msg: &S) -> Result<R, String> {
+        let mut socket = self.0.lock().await;
+        socket.write_lv(msg).await?;
+        socket.read_lv().await?
+    }
+
+    /// Accessing a VsockStream directly can be dangerous in a multithreaded context as messages
+    /// need to be exchanged in a specific order. This takes a lock on the stream to ensure no
+    /// other threads are able to access it
+    /// The use of this function needs to be avoid when possible as it prevents further performance
+    /// improvements such as sending the next message to the other side when a response hasn't been
+    /// received yet
+    pub async fn lock<'a>(&'a self) -> MutexGuard<'a, VsockStream> {
+        self.0.lock().await
+    }
+}
 
 /// Stream abstraction for length-value framing
 #[async_trait]

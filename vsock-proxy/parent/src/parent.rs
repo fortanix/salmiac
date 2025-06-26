@@ -22,7 +22,7 @@ use shared::models::{
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
-    cleanup_tokio_tasks, extract_enum_value, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
+    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
     AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
     VSOCK_PARENT_CID,
 };
@@ -62,6 +62,21 @@ const DEFAULT_MEMORY_SIZE: u64 = 2048;
 const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
 const CLIENT_LOG_STREAMS: [StreamType; 2] = [StreamType::Stdout, StreamType::Stderr];
+
+async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
+    loop {
+        match enclave.read_lv().await? {
+            SetupMessages::UserProgramExit(status) => return status,
+            SetupMessages::CSR(csr) => {
+                match parent_lib::handle_csr_message(enclave, &EmAppCertificateApi {}, csr).await {
+                    Ok(()) => (),
+                    Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
+                }
+            },
+            _r => return Err(format!("Unexpected message while executing user application")),
+        }
+    }
+}
 
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
     info!("Checking presence of overlayfs parent directory.");
@@ -117,11 +132,10 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
         // Pass the ports which the enclave can connect to for forwarding logs
         enclave_port.write_lv(&SetupMessages::AppLogPort(log_ports)).await?;
 
-        let user_program = tokio::spawn(await_user_program_return(enclave_port));
+        // Start message handler loop, next message can be easily handled in loop
+        let exit_code = message_handler(&mut enclave_port).await?;
 
-        user_program
-            .await
-            .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
+        Ok((exit_code, enclave_port))
     })?;
 
     cleanup_tokio_tasks(background_tasks)?;
@@ -600,12 +614,6 @@ async fn send_global_network_settings(
     debug!("Sent global network settings to the enclave.");
 
     Ok(dns_file.start_dnsmasq)
-}
-
-async fn await_user_program_return(mut vsock: AsyncVsockStream) -> Result<(UserProgramExitStatus, AsyncVsockStream), String> {
-    let result = extract_enum_value!(vsock.read_lv().await?, SetupMessages::UserProgramExit(status) => status)?;
-
-    result.map(|e| (e, vsock))
 }
 
 struct EmAppCertificateApi {}

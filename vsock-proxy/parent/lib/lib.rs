@@ -32,15 +32,42 @@ pub struct NBDExportConfig {
     pub is_read_only: bool,
 }
 
+fn node_agent_address() -> Option<String> {
+    env::vars().find_map(|(k, v)| if k == "NODE_AGENT" {
+        if !v.starts_with("http://") {
+            Some("http://".to_string() + &v)
+        } else {
+            Some(v)
+        }
+    } else {
+        None
+    })
+}
+
+pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi>(
+    vsock: &mut Socket,
+    cert_api: &CertApi,
+    csr: String,
+) -> Result<(), String> {
+    let address = node_agent_address()
+        .ok_or(String::from("Failed to read NODE_AGENT"))?;
+
+    match cert_api.request_issue_certificate(&address, csr) {
+        Ok(cert) => vsock.write_lv(&SetupMessages::Certificate(cert)).await,
+        Err(e) => {
+            // Failures may be silently dropped (i.e., when the enclave renews certificate in a
+            // background task periodically. Ensure it can retry after some time and doesn't keep
+            // waiting.
+            let _ = vsock.write_lv_bytes(&[]);
+            Err(e)
+        },
+    }
+}
+
 pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi>(
     vsock: &mut Socket,
     cert_api: CertApi,
 ) -> Result<(), String> {
-    // Don't bother looking for a node agent address unless there's at least one
-    // certificate configured. This allows us to run with the NODE_AGENT
-    // environment variable being unset, if there are no configured certificates.
-    let mut node_agent_address: Option<String> = None;
-
     // Process certificate requests until we get the SetupSuccessful message
     // indicating that the enclave is done with setup. There can be any number
     // of certificate requests, including 0.
@@ -49,26 +76,7 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
 
         match msg {
             SetupMessages::NoMoreCertificates => return Ok(()),
-            SetupMessages::CSR(csr) => {
-                let addr = match node_agent_address {
-                    Some(ref addr) => addr.clone(),
-                    None => {
-                        let result = env::var("NODE_AGENT")
-                            .map_err(|err| format!("Failed to read NODE_AGENT var. {:?}", err))?;
-
-                        let addr = if !result.starts_with("http://") {
-                            "http://".to_string() + &result
-                        } else {
-                            result
-                        };
-                        node_agent_address = Some(addr.clone());
-                        addr
-                    },
-                };
-                let certificate = cert_api.request_issue_certificate(&addr, csr)?;
-
-                vsock.write_lv(&SetupMessages::Certificate(certificate)).await?;
-            },
+            SetupMessages::CSR(csr) => handle_csr_message(vsock, &cert_api, csr).await?,
             other => return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
                                         other)),
         };
