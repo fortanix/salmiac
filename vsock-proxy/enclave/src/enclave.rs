@@ -68,10 +68,10 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
 ];
 
 /// The time duration before expiry a cert renewal is attempted
-const CERT_RENEWAL_BEFORE_EXPIRY: Duration = Duration::from_secs(5 * 60 * 60 * 24 /* 5 days */);
+const CERT_RENEWAL_BEFORE_EXPIRY: Duration = Duration::from_secs(10 * 60 * 60 * 24 /* 10 days */);
 
 /// The interval between certs are checked for renewal
-const CERT_RENEWAL_INTERVAL_RELEASE: Duration = Duration::from_secs(1 * 60 * 60 /* 1 hour */);
+const CERT_RENEWAL_INTERVAL_RELEASE: Duration = Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
 fn default_cert_dir() -> PathBuf {
@@ -100,6 +100,8 @@ async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_co
 }
 
 async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: Arc<Notify>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, is_debug: bool, skip_def_cert_req: bool) -> Result<(), String> {
+    // Wait until the user application starts running, at that point the file system and initial
+    // certificates have been set up.
     environment_setup_completed.notified().await;
 
     loop {

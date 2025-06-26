@@ -179,6 +179,8 @@ impl CSRApi for EmAppCSRApi {
     }
 }
 
+// Returns the expiry of a certificate. `cert_pem` is expected to be pem encoded (without
+// terminating zero byte).
 pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, String> {
     let cert_pem = CString::new(cert_pem)
         .map_err(|e| e.to_string())?
