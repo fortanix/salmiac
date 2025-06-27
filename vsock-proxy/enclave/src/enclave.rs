@@ -85,6 +85,7 @@ async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_co
     let expiry_date = certificate::get_certificate_expiry(&cert)?
         .and_utc();
     if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
+        debug!("Certificate expired. Requesting new certificate");
         let mut cert = setup_enclave_certification(
             parent.deref_mut(),
             &EmAppCSRApi{},
@@ -105,7 +106,9 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
     environment_setup_completed.notified().await;
 
     loop {
+        debug!("Taking lock");
         let mut parent_guard = parent.lock().await;
+        debug!("Lock received");
 
         info!("Checking if certificates need to be renewed.");
 
@@ -119,10 +122,14 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
             match auto_cert_renewal(&mut parent_guard, app_config_id, &cert_config).await {
                 Ok(true) => info!("Certificate at {} renewed", cert_path.display()),
                 Ok(false) => info!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
-                Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
+                Err(e) => {
+                    error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e);
+                    return Err(e)
+                },
             }
         }
 
+        println!("Lock dropped");
         drop(parent_guard);
 
         let sleep_duration = if is_debug {
@@ -177,6 +184,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         let parent_stream = parent_stream.clone();
         let mut parent_guard = parent_stream.lock().await;
 
+        info!("setup_enclave_certifications 1");
         let mut certificate_info = setup_enclave_certifications(
             parent_guard.deref_mut(),
             &EmAppCSRApi {},
@@ -766,6 +774,8 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
         cert_settings.push(default_certificate());
     }
 
+    info!("Requesting {} certificates.", cert_settings.len());
+
     // Zero or more certificate requests.
     for cert_config in cert_settings {
         certs.push(setup_enclave_certification(vsock, csr_api, app_config_id, cert_config, fs_root).await?);
@@ -789,7 +799,12 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
         let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
         let mut key = create_signer_key(key_size as u32)?;
         let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+        let _certificate = request_certificate(vsock, csr.clone()).await?;
+        info!("Certificate received, sleeping");
+        tokio::time::sleep(core::time::Duration::from_secs(20)).await;
+        info!("awoke again");
         let certificate = request_certificate(vsock, csr).await?;
+        info!("Certificate received, again");
 
         Ok(CertificateWithPath::new(
             CertificateResult { certificate, key },

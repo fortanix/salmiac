@@ -30,6 +30,7 @@ impl AsyncVsockStream {
     /// message is a response to the message sent. Currently this is achieved through locking, in
     /// the future other means can be used.
     pub async fn exchange_message<S: Serialize + Send + Sync, R: DeserializeOwned>(&mut self, msg: &S) -> Result<R, String> {
+        log::debug!("Requesting temp vsock lock");
         let mut socket = self.0.lock().await;
         socket.write_lv(msg).await?;
         socket.read_lv().await?
@@ -42,6 +43,7 @@ impl AsyncVsockStream {
     /// improvements such as sending the next message to the other side when a response hasn't been
     /// received yet
     pub async fn lock<'a>(&'a self) -> MutexGuard<'a, VsockStream> {
+        log::debug!("Requesting vsock lock");
         self.0.lock().await
     }
 }

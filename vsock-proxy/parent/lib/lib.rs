@@ -49,16 +49,26 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
     cert_api: &CertApi,
     csr: String,
 ) -> Result<(), String> {
+    info!("Handle csr message");
     let address = node_agent_address()
         .ok_or(String::from("Failed to read NODE_AGENT"))?;
 
+    info!("Sending csr message");
+    info!("This doesn't return...");
     match cert_api.request_issue_certificate(&address, csr) {
-        Ok(cert) => vsock.write_lv(&SetupMessages::Certificate(cert)).await,
+        Ok(cert) => {
+            info!("Received cert message, sending to enclave");
+            let r = vsock.write_lv(&SetupMessages::Certificate(cert)).await?;
+            info!("cert message sent");
+            Ok(r)
+        },
         Err(e) => {
+            info!("Received error");
             // Failures may be silently dropped (i.e., when the enclave renews certificate in a
             // background task periodically. Ensure it can retry after some time and doesn't keep
             // waiting.
             let _ = vsock.write_lv_bytes(&[]);
+            info!("requesting issue cert error");
             Err(e)
         },
     }
@@ -68,17 +78,31 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
     vsock: &mut Socket,
     cert_api: CertApi,
 ) -> Result<(), String> {
+
+    info!("start communicate_certificates");
     // Process certificate requests until we get the SetupSuccessful message
     // indicating that the enclave is done with setup. There can be any number
     // of certificate requests, including 0.
     loop {
+        info!("reading setup messages");
         let msg: SetupMessages = vsock.read_lv().await?;
+        info!("setup message read");
 
         match msg {
-            SetupMessages::NoMoreCertificates => return Ok(()),
-            SetupMessages::CSR(csr) => handle_csr_message(vsock, &cert_api, csr).await?,
-            other => return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
-                                        other)),
+            SetupMessages::NoMoreCertificates => {
+                info!("No more certificates communicate_certificates");
+                return Ok(())
+            },
+            SetupMessages::CSR(csr) => {
+                info!("communicate_certificates: CSR");
+                handle_csr_message(vsock, &cert_api, csr).await?
+            },
+            other => { 
+
+                info!("Error communicate_certificates");
+                return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
+                                        other))
+            },
         };
     }
 }

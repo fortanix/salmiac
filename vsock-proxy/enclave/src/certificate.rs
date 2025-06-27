@@ -131,9 +131,13 @@ pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin +
     vsock: &mut Socket,
     csr: String,
 ) -> Result<String, String> {
+    debug!("Requesting certificate");
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
-    extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)
+    debug!("Reading certificate");
+    let result = extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s);
+    debug!("Certificate requested");
+    result
 }
 
 pub(crate) fn create_signer_key(key_size: u32) -> Result<Pk, String> {
