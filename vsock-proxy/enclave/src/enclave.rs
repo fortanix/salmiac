@@ -799,12 +799,7 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
         let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
         let mut key = create_signer_key(key_size as u32)?;
         let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-        let _certificate = request_certificate(vsock, csr.clone()).await?;
-        info!("Certificate received, sleeping");
-        tokio::time::sleep(core::time::Duration::from_secs(20)).await;
-        info!("awoke again");
         let certificate = request_certificate(vsock, csr).await?;
-        info!("Certificate received, again");
 
         Ok(CertificateWithPath::new(
             CertificateResult { certificate, key },

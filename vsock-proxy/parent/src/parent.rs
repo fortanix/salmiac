@@ -70,7 +70,7 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
             SetupMessages::UserProgramExit(status) => return status,
             SetupMessages::CSR(csr) => {
                 info!("Message handler: CSR received");
-                match parent_lib::handle_csr_message(enclave, &EmAppCertificateApi {}, csr).await {
+                match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
                     Ok(()) => {
 
                         info!("Message handler: csr message handled");
@@ -88,7 +88,7 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
 }
 
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
-    info!("PING!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 2");
+    info!("PING!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!4");
     info!("Checking presence of overlayfs parent directory.");
     let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
     if !overlayfs_parent_dir.exists() {
@@ -628,6 +628,7 @@ async fn send_global_network_settings(
     Ok(dns_file.start_dnsmasq)
 }
 
+#[derive(Clone)]
 struct EmAppCertificateApi {}
 impl CertificateApi for EmAppCertificateApi {
     fn request_issue_certificate(&self, url: &str, csr_pem: String) -> Result<String, String> {
