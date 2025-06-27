@@ -85,6 +85,7 @@ async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_co
     let expiry_date = certificate::get_certificate_expiry(&cert)?
         .and_utc();
     if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
+        debug!("Certificate expired. Requesting new certificate");
         let mut cert = setup_enclave_certification(
             parent.deref_mut(),
             &EmAppCSRApi{},
@@ -105,7 +106,9 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
     environment_setup_completed.notified().await;
 
     loop {
+        debug!("Taking lock");
         let mut parent_guard = parent.lock().await;
+        debug!("Lock received");
 
         info!("Checking if certificates need to be renewed.");
 
@@ -119,10 +122,14 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
             match auto_cert_renewal(&mut parent_guard, app_config_id, &cert_config).await {
                 Ok(true) => info!("Certificate at {} renewed", cert_path.display()),
                 Ok(false) => info!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
-                Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
+                Err(e) => {
+                    error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e);
+                    return Err(e)
+                },
             }
         }
 
+        println!("Lock dropped");
         drop(parent_guard);
 
         let sleep_duration = if is_debug {
@@ -177,6 +184,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         let parent_stream = parent_stream.clone();
         let mut parent_guard = parent_stream.lock().await;
 
+        info!("setup_enclave_certifications 1");
         let mut certificate_info = setup_enclave_certifications(
             parent_guard.deref_mut(),
             &EmAppCSRApi {},
@@ -765,6 +773,8 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
     if !skip_def_cert_req && cert_settings.is_empty() {
         cert_settings.push(default_certificate());
     }
+
+    info!("Requesting {} certificates.", cert_settings.len());
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {

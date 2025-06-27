@@ -65,6 +65,7 @@ const CLIENT_LOG_STREAMS: [StreamType; 2] = [StreamType::Stdout, StreamType::Std
 
 async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     loop {
+        info!("Message handler: reading...");
         match enclave.read_lv().await? {
             SetupMessages::UserProgramExit(status) => return status,
             SetupMessages::CSR(csr) => {
@@ -73,12 +74,16 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
                     Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
                 }
             },
-            _r => return Err(format!("Unexpected message while executing user application")),
+            _r => {
+                info!("Message handler: {:?}", _r);
+                return Err(format!("Unexpected message while executing user application"))
+            },
         }
     }
 }
 
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
+    info!("PING!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!5");
     info!("Checking presence of overlayfs parent directory.");
     let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
     if !overlayfs_parent_dir.exists() {
@@ -505,7 +510,9 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
         set_up_private_tap_devices(vsock, parent_address, PRIVATE_TAP_NAME, enclave_address, PRIVATE_TAP_NAME).await?
     };
 
+    info!("call communicate_certificates");
     communicate_certificates(vsock, EmAppCertificateApi {}).await?;
+    info!("communicate_certificates returned");
 
     Ok(ParentSetupResult {
         network_devices: paired_network_devices,
@@ -620,6 +627,7 @@ async fn send_global_network_settings(
 struct EmAppCertificateApi {}
 impl CertificateApi for EmAppCertificateApi {
     fn request_issue_certificate(&self, url: &str, csr_pem: String) -> Result<String, String> {
+        debug!("request_issue_certificate...");
         em_app::request_issue_certificate(url, csr_pem)
             .map_err(|err| format!("Failed to receive certificate {:?}", err))
             .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))

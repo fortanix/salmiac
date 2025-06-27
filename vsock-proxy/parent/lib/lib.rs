@@ -53,6 +53,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
     cert_api: CertApi,
     csr: String,
 ) -> Result<(), String> {
+    info!("Handle csr message");
     let address = node_agent_address()
         .ok_or(String::from("Failed to read NODE_AGENT"))?;
 
@@ -79,6 +80,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
             // background task periodically. Ensure it can retry after some time and doesn't keep
             // waiting.
             let _ = vsock.write_lv_bytes(&[]);
+            info!("requesting issue cert error");
             Err(e)
         },
     }
@@ -88,12 +90,14 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
     vsock: &mut Socket,
     cert_api: CertApi,
 ) -> Result<(), String> {
+
     // Process certificate requests. There can be any number
     // of certificate requests, including 0.
     loop {
         let cert_api = cert_api.clone();
 
         let msg: SetupMessages = vsock.read_lv().await?;
+        info!("setup message read");
 
         match msg {
             SetupMessages::NoMoreCertificates => {
