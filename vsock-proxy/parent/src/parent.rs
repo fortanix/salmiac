@@ -68,7 +68,7 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
         match enclave.read_lv().await? {
             SetupMessages::UserProgramExit(status) => return status,
             SetupMessages::CSR(csr) => {
-                match parent_lib::handle_csr_message(enclave, &EmAppCertificateApi {}, csr).await {
+                match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
                     Ok(()) => (),
                     Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
                 }
@@ -616,6 +616,7 @@ async fn send_global_network_settings(
     Ok(dns_file.start_dnsmasq)
 }
 
+#[derive(Clone)]
 struct EmAppCertificateApi {}
 impl CertificateApi for EmAppCertificateApi {
     fn request_issue_certificate(&self, url: &str, csr_pem: String) -> Result<String, String> {
