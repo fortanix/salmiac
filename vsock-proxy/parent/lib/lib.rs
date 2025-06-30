@@ -88,8 +88,7 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
     vsock: &mut Socket,
     cert_api: CertApi,
 ) -> Result<(), String> {
-    // Process certificate requests until we get the SetupSuccessful message
-    // indicating that the enclave is done with setup. There can be any number
+    // Process certificate requests. There can be any number
     // of certificate requests, including 0.
     loop {
         let cert_api = cert_api.clone();
@@ -104,8 +103,9 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
                 handle_csr_message(vsock, cert_api, csr).await?
             },
             other => {
-                return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
-                                        other))
+                return Err(format!("While processing certificate requests, expected \
+                           SetupMessages::CSR(csr) or SetupMessages::NoMoreCertificates, \
+                           but got {:?}", other))
             },
         };
     }
