@@ -159,16 +159,8 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let mut parent_stream = ParentStream::new(parent_port);
 
     // Setup auto cert renewal
-    let node_agent = setup_result.env_vars
-        .iter()
-        .find_map(|(key, value)| if key == "NODE_AGENT" {
-                Some(value)
-            } else {
-                None
-            }
-        )
-        .cloned();
     let environment_setup_completed_cloned = environment_setup_completed.clone();
+    let node_agent = setup_result.node_agent_address.clone();
     let app_config_id = setup_result.app_config.id.clone();
     let cert_settings = setup_result.enclave_manifest.user_config.certificate_config.clone();
     let is_debug = setup_result.enclave_manifest.is_debug;
@@ -189,6 +181,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         let mut certificate_info = setup_enclave_certifications(
             parent_guard.deref_mut(),
+            setup_result.node_agent_address.clone(),
             &EmAppCSRApi {},
             &setup_result.app_config.id,
             &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
@@ -264,6 +257,7 @@ async fn startup(
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
     let mut runtime_env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
+    let node_agent_address = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
     let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
     // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
     // configuration must be set at conversion time.
@@ -294,6 +288,7 @@ async fn startup(
             app_config,
             enclave_manifest,
             env_vars,
+            node_agent_address,
         },
         networking_setup_result,
     ))
@@ -656,6 +651,8 @@ struct EnclaveSetupResult {
     enclave_manifest: EnclaveManifest,
 
     env_vars: Vec<(String, String)>,
+
+    node_agent_address: Option<String>,
 }
 
 struct TapDeviceInfo {
@@ -763,6 +760,7 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
 
 pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
     vsock: &mut Socket,
+    node_agent: Option<String>,
     csr_api: &Api,
     app_config_id: &Option<String>,
     cert_settings: &mut Vec<CertificateConfig>,
@@ -777,7 +775,7 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        certs.push(setup_enclave_certification(Some(vsock), None, csr_api, app_config_id, cert_config, fs_root).await?);
+        certs.push(setup_enclave_certification(Some(vsock), node_agent.clone(), csr_api, app_config_id, cert_config, fs_root).await?);
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
@@ -836,11 +834,8 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
                 em_request_issue_certificate(node_agent.unwrap_or("localhost".into()), csr).await
             }
             Some(vsock) => {
-                //request_certificate(vsock, csr).await,
                 debug!("request_issue_certificate...");
-                debug!("csr = {}", csr);
-                debug!("node agent = {:?}", node_agent);
-                em_request_issue_certificate(node_agent.unwrap_or("http://10.199.0.222:9092/v1".into()), csr).await
+                request_certificate(vsock, csr).await
             }
         }?;
 

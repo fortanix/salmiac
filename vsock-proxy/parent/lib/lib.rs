@@ -36,7 +36,7 @@ pub struct NBDExportConfig {
     pub is_read_only: bool,
 }
 
-fn node_agent_address() -> Option<String> {
+pub fn node_agent_address() -> Option<String> {
     env::vars().find_map(|(k, v)| if k == "NODE_AGENT" {
         if !v.starts_with("http://") {
             Some("http://".to_string() + &v)
