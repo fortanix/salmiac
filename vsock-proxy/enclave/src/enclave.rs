@@ -106,8 +106,6 @@ async fn auto_cert_renewals(environment_setup_completed: Arc<Notify>, node_agent
     environment_setup_completed.notified().await;
 
     loop {
-        let mut parent_guard = parent.lock().await;
-
         info!("Checking if certificates need to be renewed.");
 
         if !skip_def_cert_req && cert_settings.is_empty() {
@@ -123,8 +121,6 @@ async fn auto_cert_renewals(environment_setup_completed: Arc<Notify>, node_agent
                 Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
             }
         }
-
-        drop(parent_guard);
 
         let sleep_duration = if is_debug {
             CERT_RENEWAL_INTERVAL_DEBUG
@@ -826,15 +822,18 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
         let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
         let mut key = create_signer_key(key_size as u32)?;
         let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+        // This needs some cleanup: initially the certificates need to be fetched by connecting to
+        // the node agent through the parent (i.e., a vsock connection). For auto cert renewal the
+        // node agent need to be contacted directly on the host (i.e., a tcp connection). Refactoring
+        // of the startup/parent code is required to always use a tcp connection directly to the node
+        // agent
         let certificate = match vsock {
             None => {
-                debug!("request_issue_certificate...");
-                debug!("csr = {}", csr);
-                debug!("node agent = {:?}", node_agent);
+                debug!("Requesting certificate by contacting the node agent on the host");
                 em_request_issue_certificate(node_agent.unwrap_or("localhost".into()), csr).await
             }
             Some(vsock) => {
-                debug!("request_issue_certificate...");
+                debug!("Requesting certificate by contacting the node agent via the parent");
                 request_certificate(vsock, csr).await
             }
         }?;
