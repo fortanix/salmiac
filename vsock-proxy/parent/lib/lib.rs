@@ -6,6 +6,8 @@ use shared::extract_enum_value;
 use shared::models::{NBDConfiguration, NBDExport, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::task;
+use tokio::time::Duration;
 
 pub const NBD_EXPORTS: &'static [NBDExportConfig] = &[
     NBDExportConfig {
@@ -21,6 +23,8 @@ pub const NBD_EXPORTS: &'static [NBDExportConfig] = &[
         is_read_only: false,
     },
 ];
+
+const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct NBDExportConfig {
     pub name: &'static str,
@@ -44,41 +48,65 @@ fn node_agent_address() -> Option<String> {
     })
 }
 
-pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi>(
+pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi + Send + 'static>(
     vsock: &mut Socket,
-    cert_api: &CertApi,
+    cert_api: CertApi,
     csr: String,
 ) -> Result<(), String> {
     let address = node_agent_address()
         .ok_or(String::from("Failed to read NODE_AGENT"))?;
 
-    match cert_api.request_issue_certificate(&address, csr) {
-        Ok(cert) => vsock.write_lv(&SetupMessages::Certificate(cert)).await,
-        Err(e) => {
+    info!("Requesting CCM for App Certificate, timing out after 60 sec...");
+    let request = tokio::time::timeout(
+        CSR_REQUEST_TIMEOUT,
+        task::spawn_blocking(move || -> Result<String, String> {
+            cert_api.request_issue_certificate(&address, csr)
+        }))
+            .await
+            .map(|r| r.map_err(|_| String::from("Join error")))
+            .map_err(|_| String::from("Timeout: Failed to request certificates"));
+
+    match request {
+        Ok(Ok(Ok(cert))) => {
+            info!("Received cert message, sending to enclave");
+            let r = vsock.write_lv(&SetupMessages::Certificate(cert)).await?;
+            info!("cert message sent");
+            Ok(r)
+        },
+        Err(e) | Ok(Err(e)) | Ok(Ok(Err(e))) => {
+            info!("Error requesting App Certificate: {}", e);
             // Failures may be silently dropped (i.e., when the enclave renews certificate in a
             // background task periodically. Ensure it can retry after some time and doesn't keep
             // waiting.
-            let _ = vsock.write_lv_bytes(&[]);
+            vsock.write_lv_bytes(&[]).await?;
             Err(e)
         },
     }
 }
 
-pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi>(
+pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi + Sync + Send + Clone + 'static>(
     vsock: &mut Socket,
     cert_api: CertApi,
 ) -> Result<(), String> {
-    // Process certificate requests until we get the SetupSuccessful message
-    // indicating that the enclave is done with setup. There can be any number
+    // Process certificate requests. There can be any number
     // of certificate requests, including 0.
     loop {
+        let cert_api = cert_api.clone();
+
         let msg: SetupMessages = vsock.read_lv().await?;
 
         match msg {
-            SetupMessages::NoMoreCertificates => return Ok(()),
-            SetupMessages::CSR(csr) => handle_csr_message(vsock, &cert_api, csr).await?,
-            other => return Err(format!("While processing certificate requests, expected SetupMessages::CSR(csr) or SetupMessages:SetupSuccessful, but got {:?}",
-                                        other)),
+            SetupMessages::NoMoreCertificates => {
+                return Ok(())
+            },
+            SetupMessages::CSR(csr) => {
+                handle_csr_message(vsock, cert_api, csr).await?
+            },
+            other => {
+                return Err(format!("While processing certificate requests, expected \
+                           SetupMessages::CSR(csr) or SetupMessages::NoMoreCertificates, \
+                           but got {:?}", other))
+            },
         };
     }
 }
