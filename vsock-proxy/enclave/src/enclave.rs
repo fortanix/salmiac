@@ -835,7 +835,13 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
                 debug!("node agent = {:?}", node_agent);
                 em_request_issue_certificate(node_agent.unwrap_or("localhost".into()), csr).await
             }
-            Some(vsock) => request_certificate(vsock, csr).await,
+            Some(vsock) => {
+                //request_certificate(vsock, csr).await,
+                debug!("request_issue_certificate...");
+                debug!("csr = {}", csr);
+                debug!("node agent = {:?}", node_agent);
+                em_request_issue_certificate(node_agent.unwrap_or("http://10.199.0.222:9092/v1".into()), csr).await
+            }
         }?;
 
         Ok(CertificateWithPath::new(
