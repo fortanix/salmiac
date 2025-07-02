@@ -14,7 +14,7 @@ use std::{env, fs};
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use parent_lib::{communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS};
 use shared::models::{
     ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus,

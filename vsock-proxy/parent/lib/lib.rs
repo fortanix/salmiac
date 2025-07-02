@@ -60,6 +60,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
     let request = tokio::time::timeout(
         CSR_REQUEST_TIMEOUT,
         task::spawn_blocking(move || -> Result<String, String> {
+            info!("Requesting CCM for App Certificate...");
             cert_api.request_issue_certificate(&address, csr)
         }))
             .await
