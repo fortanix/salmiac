@@ -78,7 +78,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
             // Failures may be silently dropped (i.e., when the enclave renews certificate in a
             // background task periodically. Ensure it can retry after some time and doesn't keep
             // waiting.
-            let _ = vsock.write_lv_bytes(&[]).await;
+            vsock.write_lv_bytes(&[]).await?;
             Err(e)
         },
     }
