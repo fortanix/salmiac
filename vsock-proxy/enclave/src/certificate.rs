@@ -199,7 +199,6 @@ mod tests {
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use chrono::NaiveDate;
     use mbedtls::pk::Pk;
-    use mbedtls::x509::Time;
     use serde_json::value::Value;
     use parent_lib::{communicate_certificates, CertificateApi};
     use shared::socket::InMemorySocket;
@@ -208,6 +207,7 @@ mod tests {
     use crate::certificate::{create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
     use crate::enclave::setup_enclave_certifications;
 
+    #[derive(Clone)]
     struct MockCertApi {}
     impl CertificateApi for MockCertApi {
         fn request_issue_certificate(&self, _url: &str, _csr_pem: String) -> Result<String, String> {
@@ -235,6 +235,7 @@ mod tests {
     async fn enclave(mut enclave_socket: InMemorySocket, mut cert_configs: Vec<CertificateConfig>) -> () {
         let result = setup_enclave_certifications(
             &mut enclave_socket,
+            None,
             &MockCSRApi {},
             &None,
             &mut cert_configs,
@@ -248,7 +249,7 @@ mod tests {
     }
 
     async fn enclave_no_certs(mut enclave_socket: InMemorySocket) -> () {
-        let result = setup_enclave_certifications(&mut enclave_socket, &MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
+        let result = setup_enclave_certifications(&mut enclave_socket, None, &MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
             .await
             .expect("Request certificate OK");
 
