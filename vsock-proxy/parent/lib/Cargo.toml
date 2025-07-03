@@ -14,5 +14,5 @@ path = "lib.rs"
 
 [dependencies]
 shared = { path = "../../shared" }
-tokio = { version = "1.21.1", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1.21.1", features = ["macros", "rt", "rt-multi-thread", "time"] }
 log = "0.4"
