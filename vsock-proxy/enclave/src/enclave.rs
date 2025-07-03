@@ -37,8 +37,8 @@ use shared::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{MutexGuard, Notify};
-use tokio::task::JoinHandle;
+use tokio::sync::Notify;
+use tokio::task::{self, JoinHandle};
 use tokio::time::{self as tokio_time, Duration};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
@@ -79,14 +79,15 @@ fn default_cert_dir() -> PathBuf {
         .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
 }
 
-async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_config_id: &Option<String>, cert_config: &CertificateConfig) -> Result<bool, String> {
+async fn auto_cert_renewal(node_agent: Option<String>, app_config_id: &Option<String>, cert_config: &CertificateConfig) -> Result<bool, String> {
     let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
     let cert = fs::read_to_string(&cert_path).map_err(|e| e.to_string())?;
     let expiry_date = certificate::get_certificate_expiry(&cert)?
         .and_utc();
     if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
         let mut cert = setup_enclave_certification(
-            parent.deref_mut(),
+            None::<&mut AsyncVsockStream>,
+            node_agent,
             &EmAppCSRApi{},
             app_config_id,
             &cert_config,
@@ -99,14 +100,12 @@ async fn auto_cert_renewal(parent: &mut MutexGuard<'_, AsyncVsockStream>, app_co
     }
 }
 
-async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: Arc<Notify>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, is_debug: bool, skip_def_cert_req: bool) -> Result<(), String> {
+async fn auto_cert_renewals(environment_setup_completed: Arc<Notify>, node_agent: Option<String>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, is_debug: bool, skip_def_cert_req: bool) -> Result<(), String> {
     // Wait until the user application starts running, at that point the file system and initial
     // certificates have been set up.
     environment_setup_completed.notified().await;
 
     loop {
-        let mut parent_guard = parent.lock().await;
-
         info!("Checking if certificates need to be renewed.");
 
         if !skip_def_cert_req && cert_settings.is_empty() {
@@ -116,14 +115,12 @@ async fn auto_cert_renewals(parent: ParentStream, environment_setup_completed: A
         // Zero or more certificate requests.
         for cert_config in &cert_settings {
             let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
-            match auto_cert_renewal(&mut parent_guard, app_config_id, &cert_config).await {
+            match auto_cert_renewal(node_agent.clone(), app_config_id, &cert_config).await {
                 Ok(true) => info!("Certificate at {} renewed", cert_path.display()),
                 Ok(false) => info!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
                 Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
             }
         }
-
-        drop(parent_guard);
 
         let sleep_duration = if is_debug {
             CERT_RENEWAL_INTERVAL_DEBUG
@@ -158,19 +155,20 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let mut parent_stream = ParentStream::new(parent_port);
 
     // Setup auto cert renewal
-    let parent_stream_cloned = parent_stream.clone();
     let environment_setup_completed_cloned = environment_setup_completed.clone();
+    let node_agent = setup_result.node_agent_address.clone();
     let app_config_id = setup_result.app_config.id.clone();
     let cert_settings = setup_result.enclave_manifest.user_config.certificate_config.clone();
     let is_debug = setup_result.enclave_manifest.is_debug;
 
     background_tasks.push(tokio::spawn(async move {
-        auto_cert_renewals(parent_stream_cloned,
-                          environment_setup_completed_cloned,
-                          &app_config_id,
-                          cert_settings,
-                          is_debug,
-                          skip_def_cert_req).await
+        auto_cert_renewals(environment_setup_completed_cloned,
+                           node_agent,
+                           &app_config_id,
+                           cert_settings,
+                           is_debug,
+                           skip_def_cert_req,
+                           ).await
     }));
 
     let enclave_exit_code = with_background_tasks!(background_tasks, {
@@ -179,6 +177,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         let mut certificate_info = setup_enclave_certifications(
             parent_guard.deref_mut(),
+            setup_result.node_agent_address.clone(),
             &EmAppCSRApi {},
             &setup_result.app_config.id,
             &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
@@ -254,6 +253,7 @@ async fn startup(
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
     let mut runtime_env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
+    let node_agent_address = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
     let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
     // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
     // configuration must be set at conversion time.
@@ -284,6 +284,7 @@ async fn startup(
             app_config,
             enclave_manifest,
             env_vars,
+            node_agent_address,
         },
         networking_setup_result,
     ))
@@ -543,7 +544,6 @@ async fn start_user_program(
     let is_debug_shell = enclave_setup_result
         .env_vars
         .contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
-
     let enable_log_forwarding = !log_conn_addrs.is_empty();
 
     let mut client_command = if !is_debug_shell {
@@ -647,6 +647,8 @@ struct EnclaveSetupResult {
     enclave_manifest: EnclaveManifest,
 
     env_vars: Vec<(String, String)>,
+
+    node_agent_address: Option<String>,
 }
 
 struct TapDeviceInfo {
@@ -754,6 +756,7 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
 
 pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
     vsock: &mut Socket,
+    node_agent: Option<String>,
     csr_api: &Api,
     app_config_id: &Option<String>,
     cert_settings: &mut Vec<CertificateConfig>,
@@ -768,7 +771,7 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        certs.push(setup_enclave_certification(vsock, csr_api, app_config_id, cert_config, fs_root).await?);
+        certs.push(setup_enclave_certification(Some(vsock), node_agent.clone(), csr_api, app_config_id, cert_config, fs_root).await?);
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
@@ -778,8 +781,38 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
     Ok(certs)
 }
 
+
+const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result<String, String> {
+    info!("Requesting CCM for App Certificate, timing out after 60 sec...");
+    let request = tokio::time::timeout(
+        CSR_REQUEST_TIMEOUT,
+        task::spawn_blocking(move || -> Result<String, String> {
+            em_app::request_issue_certificate(&node_agent, csr)
+                .map_err(|e| e.to_string())
+                .and_then(|r| r.certificate.ok_or("No certificate returned".to_string()))
+        }))
+            .await
+            .map(|r| r.map_err(|_| String::from("Join error")))
+            .map_err(|_| String::from("Timeout: Failed to request certificates"));
+
+    match request {
+        Ok(Ok(Ok(cert))) => {
+            info!("Received cert message, sending to enclave");
+            info!("cert message sent");
+            Ok(cert)
+        },
+        Err(e) | Ok(Err(e)) | Ok(Ok(Err(e))) => {
+            info!("Error requesting App Certificate: {}", e);
+            Err(e)
+        },
+    }
+}
+
 pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
-    vsock: &mut Socket,
+    vsock: Option<&mut Socket>,
+    node_agent: Option<String>,
     csr_api: &Api,
     app_config_id: &Option<String>,
     cert_config: &CertificateConfig,
@@ -789,7 +822,21 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
         let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
         let mut key = create_signer_key(key_size as u32)?;
         let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-        let certificate = request_certificate(vsock, csr).await?;
+        // This needs some cleanup: initially the certificates need to be fetched by connecting to
+        // the node agent through the parent (i.e., a vsock connection). For auto cert renewal the
+        // node agent need to be contacted directly on the host (i.e., a tcp connection). Refactoring
+        // of the startup/parent code is required to always use a tcp connection directly to the node
+        // agent
+        let certificate = match vsock {
+            None => {
+                debug!("Requesting certificate by contacting the node agent on the host");
+                em_request_issue_certificate(node_agent.unwrap_or("localhost".into()), csr).await
+            }
+            Some(vsock) => {
+                debug!("Requesting certificate by contacting the node agent via the parent");
+                request_certificate(vsock, csr).await
+            }
+        }?;
 
         Ok(CertificateWithPath::new(
             CertificateResult { certificate, key },

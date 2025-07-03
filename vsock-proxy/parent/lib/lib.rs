@@ -36,7 +36,7 @@ pub struct NBDExportConfig {
     pub is_read_only: bool,
 }
 
-fn node_agent_address() -> Option<String> {
+pub fn node_agent_address() -> Option<String> {
     env::vars().find_map(|(k, v)| if k == "NODE_AGENT" {
         if !v.starts_with("http://") {
             Some("http://".to_string() + &v)
@@ -60,6 +60,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
     let request = tokio::time::timeout(
         CSR_REQUEST_TIMEOUT,
         task::spawn_blocking(move || -> Result<String, String> {
+            info!("Requesting CCM for App Certificate...");
             cert_api.request_issue_certificate(&address, csr)
         }))
             .await

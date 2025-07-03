@@ -14,7 +14,7 @@ use std::{env, fs};
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use parent_lib::{communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS};
 use shared::models::{
     ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus,
@@ -104,6 +104,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     });
 
     send_env_variables(&mut enclave_port).await?;
+    send_node_agent_address(&mut enclave_port).await?;
     send_enclave_extra_console_args(&mut enclave_port, args.enclave_extra_args).await?;
 
     let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
@@ -252,6 +253,12 @@ async fn send_env_variables(enclave_port: &mut AsyncVsockStream) -> Result<(), S
     let filtered_env_vars = filter_env_variables(Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH))?;
     info!("Passing these variables to the enclave : {:?}", filtered_env_vars);
     enclave_port.write_lv(&SetupMessages::EnvVariables(filtered_env_vars)).await
+}
+
+async fn send_node_agent_address(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
+    let address = parent_lib::node_agent_address();
+    info!("Returning node agent: {:?}", address);
+    enclave_port.write_lv(&SetupMessages::NodeAgentUrl(address)).await
 }
 
 async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, arguments: Vec<String>) -> Result<(), String> {

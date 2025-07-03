@@ -29,6 +29,7 @@ pub enum SetupMessages {
     ExitEnclave,
     EncryptedSpaceAvailable(usize),
     AppLogPort(Vec<AppLogPortInfo>),
+    NodeAgentUrl(Option<String>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
