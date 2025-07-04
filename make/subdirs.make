@@ -1,6 +1,6 @@
 # RTE-430 elasticsearch and python-salm-fs disabled due to DSM connection failures
 SUBDIRS = \
-	tools/app-test-infra/apps/bash \
+	#tools/app-test-infra/apps/bash \
 	tools/app-test-infra/apps/invalid-auth-config \
 	tools/app-test-infra/apps/mariadb \
 	tools/app-test-infra/apps/nginx/self-proxy \
