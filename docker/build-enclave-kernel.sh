@@ -4,7 +4,7 @@ set -exo pipefail
 
 # SALM-352 - Update kernel to not display developer's name and machine
 # information
-ARTIFACT_NAME="amzn-linux-nbd-v1.tar"
+ARTIFACT_NAME="amzn-linux-nbd-v2.tar"
 ARTIFACT_DIR="amzn-linux-nbd"
 fetchartifacts() {
   aws s3 cp s3://downloads.fortanix.com/salmiac/$ARTIFACT_NAME .
