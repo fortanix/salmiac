@@ -18,7 +18,7 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Pull main repository
@@ -35,10 +35,19 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpcap-dev
+          sudo apt-get install -y libpcap-dev cmake
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "12.0"
 
       - name: Build Rust code
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: 3.2
         run: |
+          printenv
+          cmake --version
           ./build-converter.sh
 
       - name: Run Rust unit tests
