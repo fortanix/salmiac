@@ -18,7 +18,7 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Pull main repository
@@ -36,6 +36,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libpcap-dev
+
+      # The 3 steps below to install clang, cmake and set LD_LIBRARY_PATH
+      # are needed to ensure our code compiles and works on ubuntu 24.
+      # These steps can be replaced with apt package installs once bindgen
+      # crate is updated in salmiac
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "12.0"
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: "3.28"
+
+      - name: Set LIBCLANG_PATH correctly
+        run: |
+          echo "Original LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+          export LIBCLANG_PATH=$(echo "$LD_LIBRARY_PATH" | tr -d ':')
+          echo "LIBCLANG_PATH=$LIBCLANG_PATH" >> $GITHUB_ENV
 
       - name: Build Rust code
         run: |
