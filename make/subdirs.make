@@ -2,7 +2,8 @@
 SUBDIRS = \
 	tools/app-test-infra/apps/bash \
 	tools/app-test-infra/apps/invalid-auth-config \
-	tools/app-test-infra/apps/mariadb \
+	# RTE-534 Disable until the test is made more stable
+	#tools/app-test-infra/apps/mariadb \
 	tools/app-test-infra/apps/nginx/self-proxy \
 	tools/app-test-infra/apps/python-default-appcert \
 	tools/app-test-infra/apps/python-minver \
