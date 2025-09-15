@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::{env, fs};
+use std::fs;
 
 use api_model::converter::AuthConfig;
 use async_trait::async_trait;
