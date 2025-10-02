@@ -7,14 +7,14 @@
 pub mod converter;
 pub mod enclave;
 
+use std::convert::TryFrom;
+use std::fmt;
+use std::ops::Deref;
+
 #[cfg(feature = "serde")]
-use serde::de::{Error};
+use serde::de::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use std::ops::Deref;
-use std::fmt;
-use std::convert::TryFrom;
 
 /// Contains raw bytes of a hex decoded string
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,7 +111,6 @@ impl From<HexString> for Vec<u8> {
 pub struct ByteUnit(u64);
 
 impl ByteUnit {
-
     /// Creates a new instance of `ByteUnit` from raw value
     pub fn new<T: Into<u64>>(value: T) -> ByteUnit {
         ByteUnit(value.into())
@@ -138,14 +137,14 @@ impl ByteUnit {
                         other => Err(format!("unrecognized unit '{}'", other)),
                     }?
                 } else {
-                    return Ok(0)
+                    return Ok(0);
                 }
             };
 
             let value_str = if multiplier == 1 {
                 value
             } else if value.len() < 2 {
-                return Err("no value specified".to_owned())
+                return Err("no value specified".to_owned());
             } else {
                 &value[..value.len() - 1] // remove size suffix
             };
@@ -168,19 +167,18 @@ impl ByteUnit {
     }
 }
 
-
 impl fmt::Display for ByteUnit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 #[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for ByteUnit {
-
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<ByteUnit, D::Error> {
         struct Visitor;
 
         impl<'a> serde::de::Visitor<'a> for Visitor {
-
             type Value = ByteUnit;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -191,7 +189,6 @@ impl<'de> Deserialize<'de> for ByteUnit {
                 ByteUnit::from_str(string)
                     .map_err(|_| Error::invalid_value(serde::de::Unexpected::Str(string), &"number of bytes"))
             }
-
         }
 
         deserializer.deserialize_string(Visitor)
@@ -220,7 +217,9 @@ impl From<u64> for ByteUnit {
 }
 
 impl From<ByteUnit> for u64 {
-    fn from(h: ByteUnit) -> u64 { h.to_inner() }
+    fn from(h: ByteUnit) -> u64 {
+        h.to_inner()
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +266,7 @@ pub mod tests {
 
         assert_eq!(reference, result.into_inner());
     }
-    
+
     #[cfg(feature = "serde")]
     #[test]
     pub fn test_byte_unit_serialization() {
@@ -282,7 +281,16 @@ pub mod tests {
     #[test]
     pub fn test_byte_unit_deserialization_correct_pass() {
         let test_cases = ["\"\"", "\"123\"", "\"1K\"", "\"1k\"", "\"1M\"", "\"1m\"", "\"1G\"", "\"1g\""];
-        let references: [u64; 8] = [0, 123, 1 * 1024, 1 * 1024, 1 * 1024 * 1024, 1 * 1024 * 1024, 1 * 1024 * 1024 * 1024, 1 * 1024 * 1024 * 1024];
+        let references: [u64; 8] = [
+            0,
+            123,
+            1 * 1024,
+            1 * 1024,
+            1 * 1024 * 1024,
+            1 * 1024 * 1024,
+            1 * 1024 * 1024 * 1024,
+            1 * 1024 * 1024 * 1024,
+        ];
 
         for i in 0..test_cases.len() {
             let test_case = &test_cases[i];
@@ -295,7 +303,7 @@ pub mod tests {
     #[cfg(feature = "serde")]
     #[test]
     pub fn test_byte_unit_deserialization_incorrect_pass() {
-        let test_cases = ["\"1D\"", "\"1Kd\"", "\"1M1\"",];
+        let test_cases = ["\"1D\"", "\"1Kd\"", "\"1M1\""];
         for i in 0..test_cases.len() {
             let test_case = &test_cases[i];
 
@@ -312,7 +320,6 @@ pub mod tests {
         let hex_string = HexString::from_str(test_case).unwrap();
 
         let result = serde_json::to_string(&hex_string).expect("Serialize ok");
-
 
         assert_eq!(result, reference.to_lowercase());
     }

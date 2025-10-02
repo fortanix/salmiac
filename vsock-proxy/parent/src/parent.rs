@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, SocketAddr};
@@ -16,15 +17,12 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, error, info, warn};
 use parent_lib::{communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS};
-use shared::models::{
-    ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus,
-};
+use shared::models::{ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
-    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
-    AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE,
-    VSOCK_PARENT_CID,
+    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks, AppLogPortInfo,
+    CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -36,7 +34,6 @@ use crate::network::{
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
-use std::collections::HashMap;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
 
@@ -67,11 +64,9 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
     loop {
         match enclave.read_lv().await? {
             SetupMessages::UserProgramExit(status) => return status,
-            SetupMessages::CSR(csr) => {
-                match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
-                    Ok(()) => (),
-                    Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
-                }
+            SetupMessages::CSR(csr) => match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
+                Ok(()) => (),
+                Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
             },
             _r => return Err(format!("Unexpected message while executing user application")),
         }
@@ -242,9 +237,7 @@ fn filter_parent_env_from_runtime_envs(runtime_env_vars: &mut HashMap<String, St
             Some(value) if value == conv_time_env_val || conv_time_env_key == "PATH" => {
                 runtime_env_vars.remove(conv_time_env_key);
             }
-            _ => {
-
-            }
+            _ => {}
         }
     }
 }
@@ -640,10 +633,7 @@ async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<
         .map_or(Ok(false), |e| bool::from_str(&e))
         .map_err(|err| format!("Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}", err))?;
 
-    let application_configuration = ApplicationConfiguration {
-        id,
-        skip_server_verify,
-    };
+    let application_configuration = ApplicationConfiguration { id, skip_server_verify };
 
     vsock
         .write_lv(&SetupMessages::ApplicationConfig(application_configuration))
@@ -739,13 +729,13 @@ fn create_rw_block_file(size: u64, path: PathBuf) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::fs::File;
     use std::path::PathBuf;
 
     use tempdir::TempDir;
 
-    use crate::parent::{create_rw_block_file, MIN_RW_BLOCKFILE_SIZE, filter_parent_env_from_runtime_envs};
-    use std::collections::HashMap;
+    use crate::parent::{create_rw_block_file, filter_parent_env_from_runtime_envs, MIN_RW_BLOCKFILE_SIZE};
 
     // Create a temporary directory. Create a file of specified size in the directory.
     // If size is set to 0, skip creation of file.
@@ -799,10 +789,7 @@ mod tests {
         filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("HOSTNAME", "my-old-host"));
 
         // Ensure the entry remains unchanged
-        assert_eq!(
-            runtime_env_vars.get("HOSTNAME"),
-            Some(&"my-new-host".to_string())
-        );
+        assert_eq!(runtime_env_vars.get("HOSTNAME"), Some(&"my-new-host".to_string()));
     }
 
     #[test]
@@ -824,10 +811,7 @@ mod tests {
         filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "old_value"));
 
         // Ensure the key was not removed
-        assert_eq!(
-            runtime_env_vars.get("MY_VAR"),
-            Some(&"new_value".to_string())
-        );
+        assert_eq!(runtime_env_vars.get("MY_VAR"), Some(&"new_value".to_string()));
     }
 
     #[test]

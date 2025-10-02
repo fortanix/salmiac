@@ -4,13 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::HashMap;
+use std::path::Path;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{HexString, ByteUnit};
-
-use std::collections::HashMap;
-use std::path::Path;
+use crate::{ByteUnit, HexString};
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -179,7 +179,7 @@ pub struct ConverterOptions {
     pub ccm_configuration: Option<CcmConfiguration>,
 
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
-    pub dsm_configuration: Option<DsmConfiguration>
+    pub dsm_configuration: Option<DsmConfiguration>,
 }
 
 #[cfg(feature = "serde")]

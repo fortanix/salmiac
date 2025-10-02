@@ -5,9 +5,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashSet;
+use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::fs;
 
 use api_model::converter::AuthConfig;
 use async_trait::async_trait;

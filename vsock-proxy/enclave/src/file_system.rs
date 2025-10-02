@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
 
-use crate::certificate::{DEFAULT_CERT_DIR};
+use crate::certificate::DEFAULT_CERT_DIR;
 use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, ClientConnectionInfo};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
@@ -196,12 +196,7 @@ async fn get_key_from_out_token(conn_info: ClientConnectionInfo<'_>) -> Result<(
         .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
 
     // Fetch the decrypted volume passkey
-    let dec_resp = dsm_dec_with_overlayfs_key(
-        conn_info,
-        token_json_obj.enc_key,
-        token_json_obj.iv,
-        token_json_obj.tag,
-    )?;
+    let dec_resp = dsm_dec_with_overlayfs_key(conn_info, token_json_obj.enc_key, token_json_obj.iv, token_json_obj.tag)?;
 
     // Create the key file
     let key_file = fs::File::create(CRYPT_KEYFILE).map_err(|err| format!("Unable to create key file : {:?}", err));
@@ -221,10 +216,7 @@ async fn get_key_from_out_token(conn_info: ClientConnectionInfo<'_>) -> Result<(
 /// of the app or not. When it is the first run of the app, the caller
 /// of this function creates a ext4 filesystem on it after opening
 /// the device
-async fn get_key_file(
-    conn_info: ClientConnectionInfo<'_>,
-    conv_use_dsm_key: bool,
-) -> Result<bool, String> {
+async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: bool) -> Result<bool, String> {
     let device_path = NBD_RW_DEVICE;
     let key_path = Path::new(CRYPT_KEYFILE);
 
@@ -304,7 +296,7 @@ fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: Encryp
 
 pub(crate) async fn mount_read_write_file_system(
     enable_overlayfs_persistence: bool,
-    conn_info: ClientConnectionInfo<'_>
+    conn_info: ClientConnectionInfo<'_>,
 ) -> Result<(), String> {
     // Create dir to get rid of the warning that is printed to the console by cryptsetup
     fs::create_dir_all(DM_CRYPT_FOLDER)

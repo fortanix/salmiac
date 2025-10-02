@@ -61,8 +61,7 @@ async fn read_from_device_async(
                     "Dropped PCAP captured packet! \
                         Reason: captured packet length ({} bytes) \
                         is different than the inbound packet length ({} bytes).",
-                    packet.header.caplen,
-                    packet.header.len
+                    packet.header.caplen, packet.header.len
                 ))
             }
         }
@@ -70,7 +69,8 @@ async fn read_from_device_async(
 
     let mut unsupported_protocols = HashSet::<u8>::new();
 
-    let mut capture = capture.stream(Raw)
+    let mut capture = capture
+        .stream(Raw)
         .map_err(|err| format!("Failed to convert capture to stream: {:?}", err))?;
 
     while let Some(pkt) = capture.next().await {
@@ -95,21 +95,23 @@ async fn read_from_device_async(
                 Ok(_) => {}
             }
 
-            enclave_stream.write_lv_bytes(&data).await
+            enclave_stream
+                .write_lv_bytes(&data)
+                .await
                 .map_err(|err| format!("error writing to vsock {:?}", err))
-        }.await {
+        }
+        .await
+        {
             warn!("Failed to process packet towards enclave: {}", err);
         }
-    };
+    }
 
     Ok(())
 }
 
-async fn write_to_device_async(
-    capture: Capture<Active>,
-    mut from_enclave: ReadHalf<AsyncVsockStream>,
-) -> Result<(), String> {
-    let mut capture = capture.sink()
+async fn write_to_device_async(capture: Capture<Active>, mut from_enclave: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+    let mut capture = capture
+        .sink()
         .map_err(|err| format!("Failed to convert capture to sink: {:?}", err))?;
     loop {
         if let Err(err) = async {
@@ -118,9 +120,13 @@ async fn write_to_device_async(
                 .await
                 .map_err(|err| format!("error reading from vsock: {:?}", err))?;
 
-            capture.send(packet).await
+            capture
+                .send(packet)
+                .await
                 .map_err(|err| format!("error writing to pcap device: {:?}", err))
-        }.await {
+        }
+        .await
+        {
             warn!("Failed to process packet from enclave: {}", err);
         }
     }
@@ -133,7 +139,8 @@ enum Mode {
 
 fn open_packet_capture(device: pcap::Device, mode: Mode) -> Result<Capture<Active>, String> {
     let device_name = device.name.clone();
-    let capture = Capture::from_device(device).map_err(|err| format!("Cannot create capture {:?}", err))?
+    let capture = Capture::from_device(device)
+        .map_err(|err| format!("Cannot create capture {:?}", err))?
         .immediate_mode(true);
 
     if let Mode::Read = mode {
@@ -141,7 +148,9 @@ fn open_packet_capture(device: pcap::Device, mode: Mode) -> Result<Capture<Activ
     }
 
     let mut capture = capture.open().map_err(|err| format!("Cannot open capture {:?}", err))?;
-    capture = capture.setnonblock().map_err(|err| format!("Failed to configure pcap non-blocking mode {:?}", err))?;
+    capture = capture
+        .setnonblock()
+        .map_err(|err| format!("Failed to configure pcap non-blocking mode {:?}", err))?;
 
     if let Mode::Read = mode {
         // We capture only incoming packets inside the parent, however by default pcap
@@ -152,7 +161,9 @@ fn open_packet_capture(device: pcap::Device, mode: Mode) -> Result<Capture<Activ
         // This doesn't break the networking as incorrect packets will get dropped by
         // the enclave, but that way it generates unnecessary traffic that we don't
         // need.
-        capture.direction(Direction::In).map_err(|err| format!("Failed to set pcap capture directoin {:?}", err))?;
+        capture
+            .direction(Direction::In)
+            .map_err(|err| format!("Failed to set pcap capture directoin {:?}", err))?;
     }
 
     Ok(capture)
