@@ -5,7 +5,6 @@ authors = ["Fortanix, Inc."]
 edition = "2018"
 license = "MPL-2.0"
 repository = "https://github.com/fortanix/salmiac"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -22,4 +21,4 @@ serde_cbor = "0.11.2"
 threadpool = "1.7.1"
 tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "net"] }
 tokio-vsock = "0.3.1"
-tun = {version = "0.5.3" ,features = ["async"] }
+tun = { version = "0.5.3", features = ["async"] }

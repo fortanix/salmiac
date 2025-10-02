@@ -37,14 +37,16 @@ pub struct NBDExportConfig {
 }
 
 pub fn node_agent_address() -> Option<String> {
-    env::vars().find_map(|(k, v)| if k == "NODE_AGENT" {
-        if !v.starts_with("http://") {
-            Some("http://".to_string() + &v)
+    env::vars().find_map(|(k, v)| {
+        if k == "NODE_AGENT" {
+            if !v.starts_with("http://") {
+                Some("http://".to_string() + &v)
+            } else {
+                Some(v)
+            }
         } else {
-            Some(v)
+            None
         }
-    } else {
-        None
     })
 }
 
@@ -53,8 +55,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
     cert_api: CertApi,
     csr: String,
 ) -> Result<(), String> {
-    let address = node_agent_address()
-        .ok_or(String::from("Failed to read NODE_AGENT"))?;
+    let address = node_agent_address().ok_or(String::from("Failed to read NODE_AGENT"))?;
 
     info!("Requesting CCM for App Certificate, timing out after 60 sec...");
     let request = tokio::time::timeout(
@@ -62,10 +63,11 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
         task::spawn_blocking(move || -> Result<String, String> {
             info!("Requesting CCM for App Certificate...");
             cert_api.request_issue_certificate(&address, csr)
-        }))
-            .await
-            .map(|r| r.map_err(|_| String::from("Join error")))
-            .map_err(|_| String::from("Timeout: Failed to request certificates"));
+        }),
+    )
+    .await
+    .map(|r| r.map_err(|_| String::from("Join error")))
+    .map_err(|_| String::from("Timeout: Failed to request certificates"));
 
     match request {
         Ok(Ok(Ok(cert))) => {
@@ -73,7 +75,7 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
             let r = vsock.write_lv(&SetupMessages::Certificate(cert)).await?;
             info!("cert message sent");
             Ok(r)
-        },
+        }
         Err(e) | Ok(Err(e)) | Ok(Ok(Err(e))) => {
             info!("Error requesting App Certificate: {}", e);
             // Failures may be silently dropped (i.e., when the enclave renews certificate in a
@@ -81,11 +83,14 @@ pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, C
             // waiting.
             vsock.write_lv_bytes(&[]).await?;
             Err(e)
-        },
+        }
     }
 }
 
-pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi + Sync + Send + Clone + 'static>(
+pub async fn communicate_certificates<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    CertApi: CertificateApi + Sync + Send + Clone + 'static,
+>(
     vsock: &mut Socket,
     cert_api: CertApi,
 ) -> Result<(), String> {
@@ -97,17 +102,16 @@ pub async fn communicate_certificates<Socket: AsyncWrite + AsyncRead + Unpin + S
         let msg: SetupMessages = vsock.read_lv().await?;
 
         match msg {
-            SetupMessages::NoMoreCertificates => {
-                return Ok(())
-            },
-            SetupMessages::CSR(csr) => {
-                handle_csr_message(vsock, cert_api, csr).await?
-            },
+            SetupMessages::NoMoreCertificates => return Ok(()),
+            SetupMessages::CSR(csr) => handle_csr_message(vsock, cert_api, csr).await?,
             other => {
-                return Err(format!("While processing certificate requests, expected \
+                return Err(format!(
+                    "While processing certificate requests, expected \
                            SetupMessages::CSR(csr) or SetupMessages::NoMoreCertificates, \
-                           but got {:?}", other))
-            },
+                           but got {:?}",
+                    other
+                ))
+            }
         };
     }
 }
