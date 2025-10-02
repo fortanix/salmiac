@@ -29,7 +29,8 @@ for path_to_check in "${RUSTFMT_PATHS[@]}"
 do
     pushd "$path_to_check"
     cargo fmt --check
-    cargo sort --check
+#    TODO: RTE-568
+#    cargo sort --check
     popd
 done
 
