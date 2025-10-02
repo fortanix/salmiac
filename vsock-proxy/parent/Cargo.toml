@@ -5,7 +5,6 @@ authors = ["Fortanix, Inc."]
 edition = "2018"
 license = "MPL-2.0"
 repository = "https://github.com/fortanix/salmiac"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -19,11 +18,11 @@ futures = "0.3"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
 nix = { version = "0.26.1", features = ["hostname"] }
+parent_lib = { path = "lib" }
 pcap = { version = "2.2.0", git = "https://github.com/fortanix/pcap.git", branch = "main", features = ["capture-stream"] }
 rtnetlink = "0.8.0"
 shared = { path = "../shared" }
 tempdir = "0.3.7"
 tokio = { version = "1.21.1", features = ["macros", "rt", "rt-multi-thread", "io-std", "io-util"] }
 tokio-vsock = "0.3.1"
-tun = {version = "0.5.3" ,features = ["async"] }
-parent_lib = { path = "lib" }
+tun = { version = "0.5.3", features = ["async"] }
