@@ -5,7 +5,7 @@
 set -exo pipefail
 
 if [ -z "$repo_root" ] ; then
-    repo_root="$(readlink -f $(dirname "${BASH_SOURCE[0]}"))"
+    repo_root=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")")
 fi
 
 RUSTFMT_PATHS=(
