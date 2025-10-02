@@ -196,12 +196,12 @@ pub(crate) fn output_docker_reference(image: &str) -> Result<DockerReference> {
 
 #[cfg(test)]
 mod tests {
+    use api_model::enclave::User;
     use chrono::{DateTime, Utc};
     use shiplift::image::{ContainerConfig, ImageDetails};
 
     use crate::image::ImageWithDetails;
     use crate::DockerReference;
-    use api_model::enclave::User;
 
     #[test]
     fn extract_user_and_group_correct_pass() {

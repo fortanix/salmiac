@@ -8,10 +8,10 @@ use std::net::IpAddr;
 
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
-use crate::AppLogPortInfo;
 
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
+use crate::AppLogPortInfo;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {

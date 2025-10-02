@@ -4,14 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::env;
+use std::os::unix::process::CommandExt;
+use std::process::Command;
+
 use env_logger;
 use log::{info, warn};
 use nix::unistd::{chown, Gid, Uid};
 use users::{get_group_by_name, get_user_by_name, gid_t, uid_t, User};
-
-use std::env;
-use std::os::unix::process::CommandExt;
-use std::process::Command;
 
 /// A program that sets environment for a client application in the chroot environment (https://man7.org/linux/man-pages/man2/chroot.2.html).
 /// It performs the following:

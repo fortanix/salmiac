@@ -4,13 +4,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api_model::enclave::{EnclaveManifest, FileSystemConfig, UserConfig, CcmBackendUrl};
-use api_model::converter::{ConverterOptions, CertificateConfig, DsmConfiguration};
+use std::ffi::OsStr;
+use std::fmt::Debug;
+use std::fs;
+use std::fs::File;
+use std::io::{Read, Seek};
+use std::ops::Add;
+use std::path::Path;
+use std::sync::mpsc::Sender;
+
+use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
+use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
 use docker_image_reference::Reference as DockerReference;
-use log::{info, debug, warn};
-use nix::unistd::chown;
-use nix::unistd::Uid;
+use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
+use nix::unistd::{chown, Uid};
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use sys_mount::{Mount, Unmount, UnmountFlags};
@@ -22,15 +30,6 @@ use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
 use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
 use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
-
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::fs;
-use std::fs::File;
-use std::io::{Seek, Read};
-use std::path::Path;
-use std::sync::mpsc::Sender;
-use std::ops::Add;
 
 #[derive(Deserialize)]
 pub(crate) struct NitroEnclaveMeasurements {
@@ -98,7 +97,7 @@ pub(crate) struct EnclaveSettings {
 
     ccm_backend_url: CcmBackendUrl,
 
-    dsm_configuration: DsmConfiguration
+    dsm_configuration: DsmConfiguration,
 }
 
 impl EnclaveSettings {
@@ -108,7 +107,15 @@ impl EnclaveSettings {
             env_vars: vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
             enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false),
-            ccm_backend_url: CcmBackendUrl::new(converter_options.ccm_configuration.clone().unwrap_or_default().ccm_url.as_str()).unwrap_or_default(),
+            ccm_backend_url: CcmBackendUrl::new(
+                converter_options
+                    .ccm_configuration
+                    .clone()
+                    .unwrap_or_default()
+                    .ccm_url
+                    .as_str(),
+            )
+            .unwrap_or_default(),
             dsm_configuration: converter_options.dsm_configuration.clone().unwrap_or_default(),
         }
     }
@@ -391,7 +398,12 @@ impl<'a> EnclaveImageBuilder<'a> {
             statfs(block_file_dir)
                 .map(|e| e.block_size() as u64 * e.blocks_available())
                 .map_err(|err| ConverterError {
-                    message: format!("Failure retrieving available disc space using `statfs` for path {}. {:?}", block_file_dir.display(), err).to_string(),
+                    message: format!(
+                        "Failure retrieving available disc space using `statfs` for path {}. {:?}",
+                        block_file_dir.display(),
+                        err
+                    )
+                    .to_string(),
                     kind: ConverterErrorKind::BlockFileCreation,
                 })
         }
@@ -405,7 +417,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                         "Available disk space: {} Required disk space: {}",
                         available_disc_space, size_mb
                     )
-                        .to_string(),
+                    .to_string(),
                     kind: ConverterErrorKind::BlockFileCreation,
                 });
             }
@@ -416,18 +428,16 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
 
-            block_file
-                .set_len(size_mb * MEGA_BYTE)
-                .map_err(|err| ConverterError {
-                    message: format!(
-                        "Failed truncating block file {} to size {}. {:?}",
-                        block_file_out_path.display(),
-                        size_mb,
-                        err
-                    )
-                    .to_string(),
-                    kind: ConverterErrorKind::BlockFileCreation,
-                })
+            block_file.set_len(size_mb * MEGA_BYTE).map_err(|err| ConverterError {
+                message: format!(
+                    "Failed truncating block file {} to size {}. {:?}",
+                    block_file_out_path.display(),
+                    size_mb,
+                    err
+                )
+                .to_string(),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })
         }
 
         async fn populate_block_file(
@@ -509,15 +519,12 @@ impl<'a> EnclaveImageBuilder<'a> {
             create_block_file(self.dir.path(), block_file_out_path, size_mb_up).await?;
 
             match populate_block_file(&mut archive, user_config, block_file_out_path, mount_dir).await {
-                Err(ConverterError { kind: ConverterErrorKind::BlockFileFull, .. }) => {
-
-                }
-                Err(err) => {
-                    return Err(err)
-                }
-                _ => {
-                    break
-                }
+                Err(ConverterError {
+                    kind: ConverterErrorKind::BlockFileFull,
+                    ..
+                }) => {}
+                Err(err) => return Err(err),
+                _ => break,
             }
         }
 
@@ -558,41 +565,44 @@ impl<'a> EnclaveImageBuilder<'a> {
                 // This match arm describes a path that contains a valid directory prefix
                 // Paths that consist of a single file name like "key.pem" will also end up here with path = "" (empty string),
                 // which describes a file inside a folder specified by block_file_out_path
-                Some(path) if !block_file_out_path.join(path).exists() => {
-                    Err(ConverterError {
-                        message: format!("{} path: {} doesn't exist inside client image.", object_name, path.display()).to_string(),
-                        kind: ConverterErrorKind::BadRequest,
-                    })
-                }
+                Some(path) if !block_file_out_path.join(path).exists() => Err(ConverterError {
+                    message: format!("{} path: {} doesn't exist inside client image.", object_name, path.display()).to_string(),
+                    kind: ConverterErrorKind::BadRequest,
+                }),
                 // If a path doesn't have any parent() it means that it doesn't have any directory prefix and is invalid.
                 // A simple example of said path would be just a "/" symbol or an empty string.
-                None => {
-                    Err(ConverterError {
-                        message: format!("{} path: {} parent directory doesn't exist inside client image.", object_name, path.display()).to_string(),
-                        kind: ConverterErrorKind::BadRequest,
-                    })
-                }
+                None => Err(ConverterError {
+                    message: format!(
+                        "{} path: {} parent directory doesn't exist inside client image.",
+                        object_name,
+                        path.display()
+                    )
+                    .to_string(),
+                    kind: ConverterErrorKind::BadRequest,
+                }),
                 // If path contains a valid directory prefix that exists within block_file_out_path we return Ok
-                _ => {
-                    Ok(())
-                }
+                _ => Ok(()),
             }
         }
 
         match user_config.certificate_config.first() {
-            Some(CertificateConfig { key_path: Some(key_path), cert_path: Some(cert_path), ..}) => {
+            Some(CertificateConfig {
+                key_path: Some(key_path),
+                cert_path: Some(cert_path),
+                ..
+            }) => {
                 check_path_exists0(Path::new(&key_path), block_file_out_path, "key")?;
                 check_path_exists0(Path::new(&cert_path), block_file_out_path, "certificate")
             }
-            Some(CertificateConfig { key_path: Some(key_path), ..}) => {
-                check_path_exists0(Path::new(&key_path), block_file_out_path, "key")
-            }
-            Some(CertificateConfig { cert_path: Some(cert_path), ..}) => {
-                check_path_exists0(Path::new(&cert_path), block_file_out_path, "certificate")
-            }
-            _ => {
-                Ok(())
-            }
+            Some(CertificateConfig {
+                key_path: Some(key_path),
+                ..
+            }) => check_path_exists0(Path::new(&key_path), block_file_out_path, "key"),
+            Some(CertificateConfig {
+                cert_path: Some(cert_path),
+                ..
+            }) => check_path_exists0(Path::new(&cert_path), block_file_out_path, "certificate"),
+            _ => Ok(()),
         }
     }
 }
@@ -626,14 +636,14 @@ struct ArchiveSize {
 
     pub dir_count: u64,
 
-    pub file_count: u64
+    pub file_count: u64,
 }
 
 impl ArchiveSize {
     /// Set to a common choice for disk block size; just an estimate:
     const DIR_ENTRY_SIZE: u64 = 4096;
     /// Set to 1/4 a block size; just an estimate:
-    const PER_FILE_METADATA: u64 = 4096/4;
+    const PER_FILE_METADATA: u64 = 4096 / 4;
 
     fn size_bytes(self) -> u64 {
         ArchiveSize::PER_FILE_METADATA * self.file_count + self.total_file_size + ArchiveSize::DIR_ENTRY_SIZE * self.dir_count
@@ -647,7 +657,7 @@ impl Add for ArchiveSize {
         ArchiveSize {
             total_file_size: self.total_file_size + other.total_file_size,
             dir_count: self.dir_count + other.dir_count,
-            file_count: self.file_count + other.file_count
+            file_count: self.file_count + other.file_count,
         }
     }
 }
@@ -661,7 +671,7 @@ impl<'a, R: 'a + Read> From<tar::Entry<'a, R>> for ArchiveSize {
         ArchiveSize {
             total_file_size: entry.size(),
             dir_count,
-            file_count
+            file_count,
         }
     }
 }
@@ -669,24 +679,28 @@ impl<'a, R: 'a + Read> From<tar::Entry<'a, R>> for ArchiveSize {
 impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Error>> for ArchiveSize {
     fn from(entry: std::result::Result<tar::Entry<'a, R>, std::io::Error>) -> Self {
         match entry {
-            Ok(entry) => {
-                ArchiveSize::from(entry)
-            },
+            Ok(entry) => ArchiveSize::from(entry),
             Err(e) => {
-                warn!("Error reading archive entry while computing size of the client image: {:?}, ignoring.", e);
+                warn!(
+                    "Error reading archive entry while computing size of the client image: {:?}, ignoring.",
+                    e
+                );
                 ArchiveSize::default()
             }
         }
     }
 }
 
-impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
+impl<T> ArchiveExtensions for Archive<T>
+where
+    T: Read + Seek,
+{
     fn size(&mut self) -> std::result::Result<u64, String> {
         let entries = self
             .entries_with_seek()
             .map_err(|err| format!("Cannot read exported file system archive. {:?}", err))?;
 
-        let result = entries.fold(ArchiveSize::default(), |accm,  e| accm + ArchiveSize::from(e));
+        let result = entries.fold(ArchiveSize::default(), |accm, e| accm + ArchiveSize::from(e));
 
         debug!("Archive size measurements are: {:?}", result);
 
@@ -714,22 +728,23 @@ impl<T> ArchiveExtensions for Archive<T> where T: Read + Seek  {
 
 #[cfg(test)]
 mod tests {
-    use crate::image_builder::enclave::{ArchiveSize, ArchiveExtensions};
+    use std::io::{Seek, Write};
+    use std::path::{Path, PathBuf};
+
+    use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+    use api_model::enclave::{User, UserConfig, UserProgramConfig, WorkingDir};
+    use rand::RngCore;
     use tar::{Archive, Builder};
     use tempfile::{NamedTempFile, TempDir};
-    use std::path::{Path, PathBuf};
-    use std::io::{Write, Seek};
-    use crate::image_builder::enclave::EnclaveImageBuilder;
-    use api_model::enclave::{UserConfig, UserProgramConfig, WorkingDir, User};
-    use rand::RngCore;
-    use api_model::converter::{CertificateConfig, CertIssuer, KeyType};
+
+    use crate::image_builder::enclave::{ArchiveExtensions, ArchiveSize, EnclaveImageBuilder};
 
     #[test]
     fn archive_size_add_zero_correct_pass() {
         let a = ArchiveSize {
             total_file_size: 1,
             dir_count: 2,
-            file_count: 3
+            file_count: 3,
         };
 
         let b = ArchiveSize::default();
@@ -745,13 +760,13 @@ mod tests {
         let a = ArchiveSize {
             total_file_size: 1,
             dir_count: 1,
-            file_count: 1
+            file_count: 1,
         };
 
         let b = ArchiveSize {
             total_file_size: 1,
             dir_count: 2,
-            file_count: 3
+            file_count: 3,
         };
 
         let result = a + b;
@@ -790,8 +805,12 @@ mod tests {
         data_file_a.rewind().expect("Failed rewinding file");
 
         let mut builder = Builder::new(archive_file);
-        builder.append_dir("test-dir-a", "/").expect("Failed appending dir to archive");
-        builder.append_file("test-dir-a/file_a.txt", data_file_a.as_file_mut()).expect("Failed appending path to archive");
+        builder
+            .append_dir("test-dir-a", "/")
+            .expect("Failed appending dir to archive");
+        builder
+            .append_file("test-dir-a/file_a.txt", data_file_a.as_file_mut())
+            .expect("Failed appending path to archive");
 
         let mut file = builder.into_inner().expect("Failed unwrapping builder");
         file.rewind().expect("Failed rewinding file");
@@ -802,7 +821,7 @@ mod tests {
         let reference = ArchiveSize {
             total_file_size: test_data.as_bytes().len() as u64,
             dir_count: 1,
-            file_count: 1
+            file_count: 1,
         };
 
         assert_eq!(result, reference.size_bytes())
@@ -864,9 +883,7 @@ mod tests {
     }
 
     fn path_to_str(path: &Path) -> String {
-        path.to_str()
-            .expect("path to str fail")
-            .to_string()
+        path.to_str().expect("path to str fail").to_string()
     }
 
     #[test]
@@ -890,28 +907,33 @@ mod tests {
             user_config(None, Some(path_to_str(&relative_cert_path))),
             user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path))),
             user_config(Some(path_to_str(&no_file_path)), Some(path_to_str(&no_file_path))),
-            user_config(Some(String::new()), Some(String::new()))
+            user_config(Some(String::new()), Some(String::new())),
         ];
 
         let block_file_valid_path = Path::new("/tmp");
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_err(), "Config used: {:?}", config)
+            assert!(
+                EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_err(),
+                "Config used: {:?}",
+                config
+            )
         }
 
         let block_file_invalid_path = abs_non_existent_path();
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path)).is_err(), "Config used: {:?}", config)
+            assert!(
+                EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path)).is_err(),
+                "Config used: {:?}",
+                config
+            )
         }
     }
 
     #[test]
     fn check_path_empty_config_correct_path() {
-        let configs = vec![
-            user_config(None, None),
-            no_certs_user_config()
-        ];
+        let configs = vec![user_config(None, None), no_certs_user_config()];
 
         for config in &configs {
             assert!(EnclaveImageBuilder::check_path_exists(config, Path::new("/tmp")).is_ok())
@@ -948,11 +970,15 @@ mod tests {
             user_config(Some(path_to_str(&abs_key_path)), Some(path_to_str(&abs_cert_path))),
             user_config(Some(path_to_str(&relative_key_path)), None),
             user_config(None, Some(path_to_str(&relative_cert_path))),
-            user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path)))
+            user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path))),
         ];
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_ok(), "Config used: {:?}", config)
+            assert!(
+                EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_ok(),
+                "Config used: {:?}",
+                config
+            )
         }
     }
 }

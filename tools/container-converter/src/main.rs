@@ -4,13 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::fs;
+
+use api_model::converter::NitroEnclavesConversionRequest;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
 use log::error;
-
-use api_model::converter::NitroEnclavesConversionRequest;
-
-use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -30,8 +29,8 @@ async fn main() -> Result<(), String> {
 
     match container_converter::run(request).await {
         Ok(response) => {
-            let response_serialized = serde_json::to_string(&response)
-                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
+            let response_serialized =
+                serde_json::to_string(&response).map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
 
             println!("Successful nitro conversion: {:?}", response_serialized);
             Ok(())

@@ -4,13 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use log::{debug, info};
-
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+use log::{debug, info};
 use tempfile::TempDir;
 
 /// Describes a directory containing all dependencies needed to build a Docker image

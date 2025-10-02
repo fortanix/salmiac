@@ -7,16 +7,16 @@
 use std::io;
 use std::io::Error;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{Mutex, MutexGuard};
 use tokio_vsock::VsockStream;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 #[derive(Clone)]
 pub struct AsyncVsockStream(Arc<Mutex<VsockStream>>);

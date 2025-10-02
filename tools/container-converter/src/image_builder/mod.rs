@@ -4,8 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::{ConverterError, ConverterErrorKind};
 use std::path::Path;
+
+use crate::{ConverterError, ConverterErrorKind};
 
 pub mod enclave;
 pub mod parent;
@@ -34,7 +35,8 @@ mod tests {
     use std::fs;
     use std::fs::File;
     use std::io::Read;
-    
+
+    use api_model::converter::ConverterOptions;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
     use docker_image_reference::{Reference, Reference as DockerReference};
@@ -45,8 +47,7 @@ mod tests {
 
     use crate::docker::DockerUtil;
     use crate::image::ImageWithDetails;
-    use crate::image_builder::enclave::{EnclaveImageBuilder, get_image_env};
-    use api_model::converter::ConverterOptions;
+    use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder};
 
     struct TestDockerDaemon {}
 

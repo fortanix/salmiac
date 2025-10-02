@@ -9,14 +9,15 @@ pub mod netlink;
 pub mod socket;
 pub mod tap;
 
-use async_process::{Command, Stdio};
-use clap::ArgMatches;
-use log::{debug, info};
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::ParseIntError;
+
+use async_process::{Command, Stdio};
+use clap::ArgMatches;
 use futures::stream::FuturesUnordered;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -49,7 +50,7 @@ pub const NS_SWITCH_FILE: &'static str = "/etc/nsswitch.conf";
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 pub enum StreamType {
     Stdout,
-    Stderr
+    Stderr,
 }
 
 // The data shared between the parent and enclave to
@@ -57,7 +58,7 @@ pub enum StreamType {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AppLogPortInfo {
     pub sock_addr: SocketAddr,
-    pub stream_type: StreamType
+    pub stream_type: StreamType,
 }
 
 /// Converts array slice into a `Ipv4Addr`
