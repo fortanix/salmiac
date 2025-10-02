@@ -4,12 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::ops::Deref;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::converter::{CertificateConfig, DsmConfiguration};
-
-use std::ops::Deref;
 
 /// Required information needed to start an enclave
 /// Created by the container-converter and consumed by

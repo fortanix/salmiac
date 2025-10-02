@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+
 use api_model::enclave::CcmBackendUrl;
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
@@ -47,7 +48,7 @@ pub(crate) fn setup_application_configuration<T>(
     ccm_backend_url: &CcmBackendUrl,
     api: T,
     fs_root: &Path,
-    app_config_id: &Sha256Hash
+    app_config_id: &Sha256Hash,
 ) -> Result<(), String>
 where
     T: ApplicationConfiguration,
@@ -310,7 +311,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
             credentials.key.clone(),
             credentials.root_certificate.clone(),
             None,
-            &expected_hash
+            &expected_hash,
         )
     }
 }
@@ -436,21 +437,20 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::convert::TryFrom;
     use std::fs;
     use std::path::Path;
-    use std::convert::TryFrom;
-    use crate::app_configuration::Sha256Hash;
 
+    use api_model::enclave::CcmBackendUrl;
     use em_app::utils::models::{
         ApplicationConfigConnection, ApplicationConfigConnectionApplication, ApplicationConfigConnectionDataset,
         ApplicationConfigDatasetCredentials, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
     };
     use sdkms::api_model::Blob;
-    use api_model::enclave::CcmBackendUrl;
+
     use crate::app_configuration::{
-        normalize_path_and_make_relative, setup_app_configs, setup_datasets,
-        ApplicationConfiguration, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset,
+        normalize_path_and_make_relative, setup_app_configs, setup_datasets, ApplicationConfiguration, ApplicationFiles,
+        DataSetFiles, EmAppCredentials, RuntimeConfiguration, SdkmsDataset, Sha256Hash,
     };
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
@@ -624,7 +624,10 @@ mod tests {
             expected_hash: &Sha256Hash,
         ) -> Result<RuntimeAppConfig, String> {
             if self.hash != *expected_hash {
-                Err(format!("Expected hash: {:?} doesn't equal saved hash: {:?}", expected_hash, self.hash))
+                Err(format!(
+                    "Expected hash: {:?} doesn't equal saved hash: {:?}",
+                    expected_hash, self.hash
+                ))
             } else {
                 Ok(serde_json::from_str(self.json_data).expect("Failed serializing test json"))
             }
