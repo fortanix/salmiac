@@ -13,13 +13,16 @@ use std::path::Path;
 use log::{error, info};
 use nix::sys::statvfs::FsFlags;
 use rand::{thread_rng, Rng};
-use sdkms::api_model::{Blob, EncryptResponse};
+use sdkms::api_model::Blob;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
 
 use crate::certificate::DEFAULT_CERT_DIR;
-use crate::dsm_key_config::{dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, ClientConnectionInfo};
+use crate::dsm_key_config::{
+    dsm_create_client, dsm_decrypt_passphrase, dsm_encrypt_passphrase, dsm_mac_header, dsm_mac_verify_header,
+    ClientConnectionInfo, EncryptedPassphrase,
+};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -195,12 +198,18 @@ async fn get_key_from_out_token(conn_info: ClientConnectionInfo<'_>) -> Result<(
     let token_json_obj: LuksToken = serde_json::from_slice(token_contents.split_at(token_size).0)
         .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
 
+    let enc_key = EncryptedPassphrase {
+        key: token_json_obj.enc_key,
+        iv: token_json_obj.iv,
+        tag: token_json_obj.tag,
+    };
+
     // Fetch the decrypted volume passkey
-    let dec_resp = dsm_dec_with_overlayfs_key(conn_info, token_json_obj.enc_key, token_json_obj.iv, token_json_obj.tag)?;
+    let dsm_client = dsm_create_client(conn_info)?;
+    let key_contents = dsm_decrypt_passphrase(&dsm_client, enc_key)?;
 
     // Create the key file
     let key_file = fs::File::create(CRYPT_KEYFILE).map_err(|err| format!("Unable to create key file : {:?}", err));
-    let key_contents = dec_resp.plain;
 
     key_file?
         .write(&*key_contents)
@@ -248,7 +257,8 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
             if conv_use_dsm_key {
                 let dsm_url = conn_info.dsm_url.clone();
                 info!("Accessing DSM to store passkey in luks2 token");
-                let enc_resp = dsm_enc_with_overlayfs_key(conn_info, passkey)?;
+                let dsm_client = dsm_create_client(conn_info)?;
+                let enc_resp = dsm_encrypt_passphrase(&dsm_client, passkey)?;
                 create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp)?;
 
                 info!("Adding token object to the RW device");
@@ -262,24 +272,17 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
 /// Generate the luks2 token object and write the same to
 /// the json file which will be used to add a luks2 header
 /// to the RW blockfile
-fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: EncryptResponse) -> Result<(), String> {
+fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: EncryptedPassphrase) -> Result<(), String> {
     info!("Creating Luks2 token object");
-    let iv = enc_resp
-        .iv
-        .ok_or_else(|| format!("Unable to find IV from encrypt response"))?;
-
-    let tag = enc_resp
-        .tag
-        .ok_or_else(|| format!("Unable to find tag from encrypt response"))?;
 
     let token_object = LuksToken {
         token_type: "Fortanix-sealing-key".to_string(),
         key_slots: vec!["0".to_string()],
         endpoint: dsm_url.into(),
         isvsvn: None,
-        tag,
-        enc_key: enc_resp.cipher,
-        iv,
+        tag: enc_resp.tag,
+        enc_key: enc_resp.key,
+        iv: enc_resp.iv,
     };
 
     let token_string =
