@@ -19,6 +19,7 @@ em-app = { workspace = true }
 em-client = { workspace = true }
 env_logger = "0.7"
 futures = "0.3"
+hmac = "0.12.1"
 hyper = "0.10"
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
@@ -33,6 +34,7 @@ sdkms = { version = "0.3", default-features = false, features = ["hyper-native-t
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
 serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+sha2 = "0.10.9"
 shared = { path = "../shared" }
 sysinfo = "0.29.8"
 tokio = { version = "1.0.1", features = ["macros", "rt", "fs", "rt-multi-thread", "time", "io-util"] }

@@ -220,7 +220,7 @@ fn dsm_derive_mac_key(client: &SdkmsClient) -> Result<Blob, String> {
     let transient_sobject = client
         .derive(&derive_key_req)
         .map_err(|e| format!("Unable to derive key : {:?}", e))?;
-    info!("derived mac key {:?}", transient_sobject);
+
     transient_sobject
         .transient_key
         .ok_or_else(|| format!("Transient key blob not found in sobject"))
@@ -250,7 +250,6 @@ fn dsm_derive_enc_dec_key(client: &SdkmsClient) -> Result<Blob, String> {
 
 pub(crate) fn dsm_mac_header(client: &SdkmsClient, header: Blob) -> Result<Blob, String> {
     let transient_key = dsm_derive_mac_key(client)?;
-    info!("MAC >> size of data >> {:?}", header.len());
 
     // Generate MAC with transient key
     let mac_request = MacRequest {
