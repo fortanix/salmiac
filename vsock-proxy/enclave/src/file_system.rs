@@ -7,13 +7,11 @@ use std::convert::TryInto;
 use std::mem;
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 use log::info;
 use nix::sys::statvfs::FsFlags;
 use rand::{thread_rng, Rng};
 use sdkms::api_model::Blob;
-use sdkms::SdkmsClient;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256};
@@ -23,10 +21,7 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 
 use crate::certificate::DEFAULT_CERT_DIR;
-use crate::dsm_key_config::{
-    dsm_create_client, dsm_decrypt_passphrase, dsm_encrypt_passphrase, dsm_mac_header, dsm_mac_verify_header,
-    ClientConnectionInfo, EncryptedPassphrase,
-};
+use crate::dsm_key_config::{ClientConnectionInfo, DsmFsOps, EncryptedPassphrase};
 
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
@@ -169,8 +164,8 @@ impl HeaderComponents {
     }
 
     // For a given HeaderComponents data, verify if the HMAC of the header checks out
-    async fn verify_header(self, dsm_client: &Arc<Mutex<SdkmsClient>>) -> Result<(), String> {
-        mac_verify_luks2_header(&self.luks2_header, &Blob::from(self.salm_header.luks_mac), dsm_client).await
+    async fn verify_header(self, dsm_fs: &DsmFsOps) -> Result<(), String> {
+        mac_verify_luks2_header(&self.luks2_header, &Blob::from(self.salm_header.luks_mac), dsm_fs).await
     }
 
     // Write a given HeaderComponents data into the device keeping the above described
@@ -193,10 +188,7 @@ impl HeaderComponents {
     }
 
     // Given the path of a detached luks2 header, obtain the HeaderComponents data
-    async fn create_hdr_comp(
-        luks_hdr_path: &str,
-        dsm_client: Option<&Arc<Mutex<SdkmsClient>>>,
-    ) -> Result<HeaderComponents, String> {
+    async fn create_hdr_comp(luks_hdr_path: &str, dsm_fs: Option<&DsmFsOps>) -> Result<HeaderComponents, String> {
         // Read the luks2 header from the detached header path
         let luks2_header = fs::read(luks_hdr_path)
             .await
@@ -204,10 +196,10 @@ impl HeaderComponents {
         let luks_header_size = luks2_header.len();
 
         // If a dsm client is provided, obtain the HMAC of the header
-        let luks_mac = match dsm_client {
+        let luks_mac = match dsm_fs {
             None => vec![0; HMAC_DIGEST_SIZE],
-            Some(dsm_cli) => {
-                let mac = mac_luks2_header(&luks2_header, &dsm_cli).await?;
+            Some(dsm_fs_local) => {
+                let mac = mac_luks2_header(&luks2_header, &dsm_fs_local).await?;
                 mac.into()
             }
         };
@@ -396,7 +388,7 @@ async fn update_luks_token(header_path: &str, token_path: &str, op: TokenOp) -> 
 /// Opens the output token file. Parses it into a luks2 token object.
 /// After parsing the token to obtain parameters needed to access DSM,
 /// fetch the overlay fs key used to wrap the RW volume passkey.
-async fn get_key_from_out_token(dsm_client: &Arc<Mutex<SdkmsClient>>) -> Result<(), String> {
+async fn get_key_from_out_token(dsm_fs: &DsmFsOps) -> Result<(), String> {
     // Open and parse the dmcrypt volume token file
     let token_contents = fs::read(TOKEN_OUT_FILE)
         .await
@@ -418,17 +410,10 @@ async fn get_key_from_out_token(dsm_client: &Arc<Mutex<SdkmsClient>>) -> Result<
     };
 
     // Fetch the decrypted volume passkey
-    let dsm_client_clone = Arc::clone(dsm_client);
-    let enc_key_clone = enc_key.clone();
-    let dec_resp = tokio::task::spawn_blocking(move || {
-        let dsm_cli = dsm_client_clone.lock().unwrap();
-        dsm_decrypt_passphrase(&dsm_cli, enc_key_clone)
-    })
-    .await
-    .map_err(|e| format!("Unable to decrypt passphrase : {:?}", e))?;
+    let dec_resp = dsm_fs.dsm_decrypt_passphrase(enc_key).await?;
 
     // Create the key file
-    let key_contents: Vec<u8> = dec_resp?.into();
+    let key_contents: Vec<u8> = dec_resp.into();
     let _key_file = fs::write(CRYPT_KEYFILE, &key_contents)
         .await
         .map_err(|err| format!("Unable to write to key file : {:?}", err));
@@ -438,45 +423,26 @@ async fn get_key_from_out_token(dsm_client: &Arc<Mutex<SdkmsClient>>) -> Result<
     Ok(())
 }
 
-async fn mac_luks2_header(header: &[u8], dsm_client: &Arc<Mutex<SdkmsClient>>) -> Result<Blob, String> {
+async fn mac_luks2_header(header: &[u8], dsm_fs: &DsmFsOps) -> Result<Blob, String> {
     // Generate a sha256 hash of the luks2 header
     let mut hasher = Sha256::new();
     hasher.update(header);
     let header_hash = hasher.finalize();
 
     // Get the HMAC of the header hash
-    let dsm_client_clone = Arc::clone(dsm_client);
-    let dsm_mac_task_res = tokio::task::spawn_blocking(move || {
-        let dsm_cli = dsm_client_clone.lock().unwrap();
-        dsm_mac_header(&dsm_cli, Blob::from(header_hash.to_vec()))
-    })
-    .await
-    .map_err(|e| format!("Unable to run task to hmac header : {:?}", e))?;
-
-    dsm_mac_task_res.map_err(|e| format!("Unable to get header hmac : {:?}", e))
+    dsm_fs.dsm_mac_header(Blob::from(header_hash.to_vec())).await
 }
 
-async fn mac_verify_luks2_header(
-    header: &[u8],
-    expected_mac: &Blob,
-    dsm_client: &Arc<Mutex<SdkmsClient>>,
-) -> Result<(), String> {
+async fn mac_verify_luks2_header(header: &[u8], expected_mac: &Blob, dsm_fs: &DsmFsOps) -> Result<(), String> {
     // Generate a sha256 hash of the luks2 header
     let mut hasher = Sha256::new();
     hasher.update(header);
     let header_hash = hasher.finalize();
 
     // Verify the HMAC of the header hash
-    let dsm_client_clone = Arc::clone(dsm_client);
-    let expected_mac_clone = expected_mac.clone();
-    let dsm_mac_task_res = tokio::task::spawn_blocking(move || {
-        let dsm_cli = dsm_client_clone.lock().unwrap();
-        dsm_mac_verify_header(&dsm_cli, Blob::from(header_hash.to_vec()), expected_mac_clone)
-    })
-    .await
-    .map_err(|e| format!("Unable to run task to verify hmac header : {:?}", e))?;
-
-    dsm_mac_task_res.map_err(|e| format!("Unable to verify header hmac : {:?}", e))
+    dsm_fs
+        .dsm_mac_verify_header(Blob::from(header_hash.to_vec()), expected_mac.clone())
+        .await
 }
 
 /// Generates the passkey file used to encrypt the RW block device
@@ -488,11 +454,11 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
     let device_path = NBD_RW_DEVICE;
     let key_path = Path::new(CRYPT_KEYFILE);
     let mut dsm_url_op = None;
-    let mut dsm_client_op = None;
+    let mut dsm_fs_op = None;
     if conv_use_dsm_key {
         dsm_url_op = Some(conn_info.dsm_url.clone());
-        let dsm_client = Arc::new(Mutex::new(dsm_create_client(conn_info)?));
-        dsm_client_op = Some(dsm_client);
+        let dsm_fs = DsmFsOps::new(conn_info)?;
+        dsm_fs_op = Some(dsm_fs);
     }
 
     match is_luks_device(device_path).await {
@@ -500,16 +466,16 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
             info!("Luks2 device found. Attempting to fetch luks2 header and token.");
 
             if conv_use_dsm_key {
-                let dsm_client = dsm_client_op.ok_or("dsm_client not created")?;
+                let dsm_fs = dsm_fs_op.ok_or("dsm_client not created")?;
 
                 let hdr_comp = HeaderComponents::parse_from(NBD_RW_DEVICE).await?;
-                hdr_comp.clone().verify_header(&dsm_client).await?;
+                hdr_comp.clone().verify_header(&dsm_fs).await?;
 
                 hdr_comp.create_detached_header(DETACHED_HEADER_PATH).await?;
 
                 if let Ok(_) = update_luks_token(DETACHED_HEADER_PATH, TOKEN_OUT_FILE, TokenOp::Export).await {
                     info!("Fetching key file by using token object.");
-                    get_key_from_out_token(&dsm_client).await?;
+                    get_key_from_out_token(&dsm_fs).await?;
                 } else {
                     return Err(format!("Can't re-run apps which are converted without filesystem persistence enabled. Filesystem persistence is set to {}", conv_use_dsm_key));
                 }
@@ -528,26 +494,16 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
             // Use DSM for overlayfs persistance blockfile encryption.
             if conv_use_dsm_key {
                 info!("Accessing DSM to store passkey in luks2 token");
-                let dsm_client = dsm_client_op.ok_or("dsm_client not created")?;
+                let dsm_fs = dsm_fs_op.ok_or("dsm_client not created")?;
                 let dsm_url = dsm_url_op.ok_or("dsm_url not initialized")?;
 
-                let dsm_client_clone = Arc::clone(&dsm_client);
-                let passkey_clone = passkey.clone();
-
-                let enc_resp_res = tokio::task::spawn_blocking(move || {
-                    let dsm_cli = dsm_client_clone.lock().unwrap();
-                    dsm_encrypt_passphrase(&dsm_cli, passkey_clone)
-                })
-                .await
-                .map_err(|e| format!("Enc passphrase failed : {:?}", e))?;
-
-                let enc_resp = enc_resp_res?;
+                let enc_resp = dsm_fs.dsm_encrypt_passphrase(passkey.clone()).await?;
                 create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp).await?;
 
                 info!("Adding token object to the RW device");
                 update_luks_token(DETACHED_HEADER_PATH, TOKEN_IN_FILE, TokenOp::Import).await?;
 
-                let hdr_comp = HeaderComponents::create_hdr_comp(DETACHED_HEADER_PATH, Some(&dsm_client)).await?;
+                let hdr_comp = HeaderComponents::create_hdr_comp(DETACHED_HEADER_PATH, Some(&dsm_fs)).await?;
                 hdr_comp.write_to(NBD_RW_DEVICE).await?;
             } else {
                 info!("Skipping the step to create and write the luks and salmiac header to device - Filesystem persistence is set to {}", conv_use_dsm_key);
