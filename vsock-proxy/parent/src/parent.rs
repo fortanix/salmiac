@@ -193,7 +193,8 @@ fn get_tcp_local_addr(tcp_listener: &TcpListener) -> Option<SocketAddr> {
 }
 
 async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
-    enclave_port.write_lv(&SetupMessages::ExitEnclave).await
+    let message: Result<SetupMessages, String> = Ok(SetupMessages::ExitEnclave);
+    enclave_port.write_lv(&message).await
 }
 
 fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>, String> {
