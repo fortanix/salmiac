@@ -418,7 +418,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         setup_dm_verity(&verity_config).await?;
         info!("Finished setup dm-verity.");
 
-        create_overlay_dirs()?;
+        create_overlay_dirs().await?;
         info!("Created directories needed for overlay fs mount.");
 
         mount_read_only_file_system().await?;
@@ -439,10 +439,10 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         let fs_mount_opts = fetch_fs_mount_options()?;
         mount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
 
-        copy_dns_file_to_mount()?;
-        copy_startup_binary_to_mount(STARTUP_BINARY)?;
+        copy_dns_file_to_mount().await?;
+        copy_startup_binary_to_mount(STARTUP_BINARY).await?;
 
-        create_fortanix_directories()?;
+        create_fortanix_directories().await?;
 
         info!("Finished file system mount.");
 
