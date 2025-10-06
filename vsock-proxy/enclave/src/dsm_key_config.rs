@@ -18,8 +18,8 @@ use mbedtls::ssl::config::{AuthMode, Endpoint, Preset, Transport};
 use mbedtls::ssl::{Config, Version};
 use mbedtls::x509::Certificate;
 use sdkms::api_model::{
-    Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DecryptResponse, EncryptRequest, EncryptResponse,
-    ListSobjectsParams, Sobject, SobjectDescriptor,
+    Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DeriveKeyMechanism, DeriveKeyRequest, DigestAlgorithm,
+    EncryptRequest, KeyOperations, ListSobjectsParams, MacRequest, ObjectType, Sobject, SobjectDescriptor, VerifyMacRequest,
 };
 use sdkms::SdkmsClient;
 use url;
@@ -31,9 +31,16 @@ const SOBJECT_LIST_LIMIT: usize = 10;
 const OVERLAY_FS_SECURITY_OBJECT_PREFIX: &str = "fortanix-overlayfs-security-object-build-";
 const TLS_MIN_VERSION: Version = Version::Tls1_2;
 
-struct ClientWithKey {
-    overlayfs_key: Sobject,
-    dsm_client: SdkmsClient,
+const DERIVED_KEY_SIZE: u32 = 256;
+const DERIVATION_DATA_PASSPHRASE: &str = "nt-storage-key00";
+const DERIVATION_DATA_HEADER_HMAC: &str = "nt-storage-key01";
+const DERIVATION_DATA_IV: &str = "salmiac-persiste";
+
+#[derive(Debug, Clone)]
+pub(crate) struct EncryptedPassphrase {
+    pub(crate) key: Blob,
+    pub(crate) iv: Blob,
+    pub(crate) tag: Blob,
 }
 
 /// Information needed to connect to DSM as a client
@@ -43,7 +50,7 @@ pub(crate) struct ClientConnectionInfo<'a> {
     pub(crate) dsm_url: String,
 }
 
-fn dsm_create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, String> {
+pub(crate) fn dsm_create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, String> {
     info!("Looking for API key needed to create DSM client.");
     let api_key = conn_info.fs_api_key.unwrap_or_default();
 
@@ -169,74 +176,157 @@ fn dsm_get_key_by_prefix(client: &SdkmsClient, prefix: &str) -> Result<Sobject, 
     }
 }
 
-fn dsm_generate_enc_req(key: &Sobject, plaintext: Blob) -> Result<EncryptRequest, String> {
-    let kid = key
-        .kid
-        .ok_or_else(|| format!("Unable to find kid in overlay FS key object for encryption"))?;
+fn dsm_generate_derive_key_req(kid: SobjectDescriptor, key_ops: KeyOperations, derivation_data: &str) -> DeriveKeyRequest {
+    DeriveKeyRequest {
+        activation_date: None,
+        deactivation_date: None,
+        key: Some(kid.clone()),
+        name: None,
+        group_id: None,
+        key_type: ObjectType::Aes,
+        key_size: DERIVED_KEY_SIZE,
+        mechanism: DeriveKeyMechanism::EncryptData(EncryptRequest {
+            key: Some(kid),
+            alg: Algorithm::Aes,
+            plain: Blob::from(derivation_data),
+            mode: Some(CryptMode::Symmetric(CipherMode::Cbc)),
+            iv: Some(DERIVATION_DATA_IV.into()),
+            ad: None,
+            tag_len: None,
+        }),
+        enabled: None,
+        description: None,
+        custom_metadata: None,
+        key_ops: Some(key_ops),
+        state: None,
+        transient: Some(true),
+    }
+}
 
-    Ok(EncryptRequest {
-        key: Some(SobjectDescriptor::Kid(kid)),
+fn dsm_derive_mac_key(client: &SdkmsClient) -> Result<Blob, String> {
+    // Find the parent key by prefix name search
+    let parent_key = dsm_get_key_by_prefix(client, OVERLAY_FS_SECURITY_OBJECT_PREFIX)?;
+    let parent_kid = parent_key
+        .kid
+        .ok_or_else(|| format!("Unable to obtain parent key's ID for wrapping passphrase"))?;
+
+    // Derive transient key
+    let derive_key_req = dsm_generate_derive_key_req(
+        SobjectDescriptor::Kid(parent_kid),
+        KeyOperations::MACGENERATE | KeyOperations::MACVERIFY,
+        DERIVATION_DATA_HEADER_HMAC,
+    );
+
+    let transient_sobject = client
+        .derive(&derive_key_req)
+        .map_err(|e| format!("Unable to derive key : {:?}", e))?;
+    info!("derived mac key {:?}", transient_sobject);
+    transient_sobject
+        .transient_key
+        .ok_or_else(|| format!("Transient key blob not found in sobject"))
+}
+
+fn dsm_derive_enc_dec_key(client: &SdkmsClient) -> Result<Blob, String> {
+    // Find the parent key by prefix name search
+    let parent_key = dsm_get_key_by_prefix(client, OVERLAY_FS_SECURITY_OBJECT_PREFIX)?;
+    let parent_kid = parent_key
+        .kid
+        .ok_or_else(|| format!("Unable to obtain parent key's ID for wrapping passphrase"))?;
+
+    // Derive transient key
+    let derive_key_req = dsm_generate_derive_key_req(
+        SobjectDescriptor::Kid(parent_kid),
+        KeyOperations::ENCRYPT | KeyOperations::DECRYPT,
+        DERIVATION_DATA_PASSPHRASE,
+    );
+
+    let transient_sobject = client
+        .derive(&derive_key_req)
+        .map_err(|e| format!("Unable to derive key : {:?}", e))?;
+    transient_sobject
+        .transient_key
+        .ok_or_else(|| format!("Transient key blob not found in sobject"))
+}
+
+pub(crate) fn dsm_mac_header(client: &SdkmsClient, header: Blob) -> Result<Blob, String> {
+    let transient_key = dsm_derive_mac_key(client)?;
+    info!("MAC >> size of data >> {:?}", header.len());
+
+    // Generate MAC with transient key
+    let mac_request = MacRequest {
+        key: Some(SobjectDescriptor::TransientKey(transient_key)),
+        alg: Some(DigestAlgorithm::Sha256),
+        data: header,
+    };
+
+    let mac_response = client
+        .mac(&mac_request)
+        .map_err(|e| format!("Unable to request MAC : {:?}", e))?;
+    Ok(mac_response.mac)
+}
+
+pub(crate) fn dsm_mac_verify_header(client: &SdkmsClient, header: Blob, mac: Blob) -> Result<(), String> {
+    let transient_key = dsm_derive_mac_key(client)?;
+
+    // MAC verify the header with transient key
+    let macv_request = VerifyMacRequest {
+        key: Some(SobjectDescriptor::TransientKey(transient_key)),
+        alg: Some(DigestAlgorithm::Sha256),
+        data: header,
+        digest: None,
+        mac: Some(mac),
+    };
+    let macv_response = client
+        .mac_verify(&macv_request)
+        .map_err(|e| format!("Unable to verify MAC : {:?}", e))?;
+    macv_response.result.then(|| ()).ok_or("MAC verification failed".to_string())
+}
+
+pub(crate) fn dsm_encrypt_passphrase(client: &SdkmsClient, passphrase: Blob) -> Result<EncryptedPassphrase, String> {
+    let transient_key = dsm_derive_enc_dec_key(client)?;
+
+    // Encrypt passphrase with transient key
+    let encrypt_passphrase_req = EncryptRequest {
+        key: Some(SobjectDescriptor::TransientKey(transient_key)),
         alg: Algorithm::Aes,
-        plain: plaintext,
+        plain: passphrase,
         mode: Some(CryptMode::Symmetric(CipherMode::Gcm)),
         iv: None,
         ad: None,
         tag_len: Some(GCM_TAG_LEN_BITS),
+    };
+    let encrypt_passphrase_resp = client
+        .encrypt(&encrypt_passphrase_req)
+        .map_err(|e| format!("Unable to encrypt : {:?}", e))?;
+
+    // Return data that will be stored in the token
+    Ok(EncryptedPassphrase {
+        key: encrypt_passphrase_resp.cipher,
+        iv: encrypt_passphrase_resp
+            .iv
+            .ok_or_else(|| format!("Unable to find IV from encrypt response"))?,
+        tag: encrypt_passphrase_resp
+            .tag
+            .ok_or_else(|| format!("Unable to find tag from encrypt response"))?,
     })
 }
-
-fn dsm_encrypt_blob(enc_req: &EncryptRequest, client: &SdkmsClient) -> Result<EncryptResponse, String> {
-    client
-        .encrypt(&enc_req)
-        .map_err(|_| format!("Unable to encrypt using DSM client"))
-}
-
-fn dsm_generate_dec_req(key: &Sobject, ciphertext: Blob, iv: Blob, tag: Blob) -> Result<DecryptRequest, String> {
-    let kid = key
-        .kid
-        .ok_or_else(|| format!("Unable to find kid in overlay FS key object for decryption"))?;
-
-    Ok(DecryptRequest {
-        key: Some(SobjectDescriptor::Kid(kid)),
+pub(crate) fn dsm_decrypt_passphrase(client: &SdkmsClient, wrapped_key: EncryptedPassphrase) -> Result<Blob, String> {
+    let transient_key = dsm_derive_enc_dec_key(client)?;
+    // Decrypt passphrase with transient key
+    let decrypt_passphrase_req = DecryptRequest {
+        key: Some(SobjectDescriptor::TransientKey(transient_key)),
         alg: Some(Algorithm::Aes),
-        cipher: ciphertext,
+        cipher: wrapped_key.key,
         mode: Some(CryptMode::Symmetric(CipherMode::Gcm)),
-        iv: Some(iv),
+        iv: Some(wrapped_key.iv),
         ad: None,
-        tag: Some(tag),
-    })
-}
-
-fn dsm_decrypt_blob(dec_req: &DecryptRequest, client: &SdkmsClient) -> Result<DecryptResponse, String> {
-    client
-        .decrypt(&dec_req)
-        .map_err(|_| format!("Unable to decrypt using DSM client"))
-}
-
-fn dsm_get_overlayfs_key(conn_info: ClientConnectionInfo) -> Result<ClientWithKey, String> {
-    let client = dsm_create_client(conn_info)?;
-    let overlay_fs_key = dsm_get_key_by_prefix(&client, OVERLAY_FS_SECURITY_OBJECT_PREFIX)?;
-    Ok(ClientWithKey {
-        overlayfs_key: overlay_fs_key,
-        dsm_client: client,
-    })
-}
-
-pub(crate) fn dsm_enc_with_overlayfs_key(conn_info: ClientConnectionInfo, plaintext: Blob) -> Result<EncryptResponse, String> {
-    let client_key_pair = dsm_get_overlayfs_key(conn_info)?;
-    let enc_req = dsm_generate_enc_req(&client_key_pair.overlayfs_key, plaintext)?;
-    dsm_encrypt_blob(&enc_req, &client_key_pair.dsm_client)
-}
-
-pub(crate) fn dsm_dec_with_overlayfs_key(
-    conn_info: ClientConnectionInfo,
-    ciphertext: Blob,
-    iv: Blob,
-    tag: Blob,
-) -> Result<DecryptResponse, String> {
-    let client_key_pair = dsm_get_overlayfs_key(conn_info)?;
-    let dec_req = dsm_generate_dec_req(&client_key_pair.overlayfs_key, ciphertext, iv, tag)?;
-    dsm_decrypt_blob(&dec_req, &client_key_pair.dsm_client)
+        tag: Some(wrapped_key.tag),
+    };
+    let decrypt_passphrase_resp = client
+        .decrypt(&decrypt_passphrase_req)
+        .map_err(|e| format!("Unable to decrypt : {:?}", e))?;
+    // Return unwrapped passphrase
+    Ok(decrypt_passphrase_resp.plain)
 }
 
 #[cfg(test)]
@@ -253,8 +343,8 @@ mod tests {
 
     use crate::certificate::CertificateResult;
     use crate::dsm_key_config::{
-        dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key, ClientConnectionInfo,
-        OVERLAY_FS_SECURITY_OBJECT_PREFIX,
+        dsm_create_client, dsm_decrypt_passphrase, dsm_encrypt_passphrase, dsm_get_key_by_prefix, dsm_mac_header,
+        dsm_mac_verify_header, ClientConnectionInfo, OVERLAY_FS_SECURITY_OBJECT_PREFIX,
     };
 
     const PLAINTEXT: &str = "hello world. This is a test string.";
@@ -316,35 +406,57 @@ mod tests {
             auth_cert: Some(&mut cert_res),
             dsm_url: DSM_APP_ENDPOINT.to_string(),
         };
-        let enc_resp = dsm_enc_with_overlayfs_key(conn_info_enc, Blob::from(PLAINTEXT)).unwrap();
+        let client_enc = dsm_create_client(conn_info_enc).unwrap();
+        let resp = dsm_encrypt_passphrase(&client_enc, Blob::from(PLAINTEXT)).unwrap();
 
         let conn_info_dec = ClientConnectionInfo {
             fs_api_key: None,
             auth_cert: Some(&mut cert_res),
             dsm_url: DSM_APP_ENDPOINT.to_string(),
         };
-        let dec_resp =
-            dsm_dec_with_overlayfs_key(conn_info_dec, enc_resp.cipher, enc_resp.iv.unwrap(), enc_resp.tag.unwrap()).unwrap();
-        assert_eq!(Blob::from(PLAINTEXT), dec_resp.plain);
+        let client_dec = dsm_create_client(conn_info_dec).unwrap();
+        let dec_resp = dsm_decrypt_passphrase(&client_dec, resp).unwrap();
+        assert_eq!(Blob::from(PLAINTEXT), dec_resp);
     }
 
     #[test]
-    fn test_enc_dec_blob() {
+    fn test_dsm_enc_dec_passphrase() {
         let conn_info_enc = ClientConnectionInfo {
             fs_api_key: Some(DSM_API_KEY.to_string()),
             auth_cert: None,
             dsm_url: DSM_ENDPOINT.to_string(),
         };
-        let enc_resp = dsm_enc_with_overlayfs_key(conn_info_enc, Blob::from(PLAINTEXT)).unwrap();
+        let client_enc = dsm_create_client(conn_info_enc).unwrap();
+        let wrapped_passhrase = dsm_encrypt_passphrase(&client_enc, Blob::from(PLAINTEXT)).unwrap();
 
         let conn_info_dec = ClientConnectionInfo {
             fs_api_key: Some(DSM_API_KEY.to_string()),
             auth_cert: None,
             dsm_url: DSM_ENDPOINT.to_string(),
         };
-        let dec_resp =
-            dsm_dec_with_overlayfs_key(conn_info_dec, enc_resp.cipher, enc_resp.iv.unwrap(), enc_resp.tag.unwrap()).unwrap();
-        assert_eq!(Blob::from(PLAINTEXT), dec_resp.plain);
+        let client_dec = dsm_create_client(conn_info_dec).unwrap();
+        let unwrapped_passphrase = dsm_decrypt_passphrase(&client_dec, wrapped_passhrase).unwrap();
+
+        assert_eq!(Blob::from(PLAINTEXT), unwrapped_passphrase);
+    }
+
+    #[test]
+    fn test_dsm_mac_macverify_verify() {
+        let conn_info_mac = ClientConnectionInfo {
+            fs_api_key: Some(DSM_API_KEY.to_string()),
+            auth_cert: None,
+            dsm_url: DSM_ENDPOINT.to_string(),
+        };
+        let client_mac = dsm_create_client(conn_info_mac).unwrap();
+        let mac = dsm_mac_header(&client_mac, Blob::from(PLAINTEXT)).unwrap();
+
+        let conn_info_macv = ClientConnectionInfo {
+            fs_api_key: Some(DSM_API_KEY.to_string()),
+            auth_cert: None,
+            dsm_url: DSM_ENDPOINT.to_string(),
+        };
+        let client_macv = dsm_create_client(conn_info_macv).unwrap();
+        dsm_mac_verify_header(&client_macv, Blob::from(PLAINTEXT), mac).unwrap();
     }
 
     #[test]
@@ -354,7 +466,8 @@ mod tests {
             auth_cert: None,
             dsm_url: DSM_ENDPOINT.to_string(),
         };
-        match dsm_get_overlayfs_key(conn_info) {
+        let client = dsm_create_client(conn_info).unwrap();
+        match dsm_get_key_by_prefix(&client, OVERLAY_FS_SECURITY_OBJECT_PREFIX) {
             Ok(_) => {
                 assert!(false);
             }
