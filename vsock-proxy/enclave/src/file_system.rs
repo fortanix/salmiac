@@ -4,9 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::fs;
-use std::fs::File;
-use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::Path;
 
@@ -17,6 +14,9 @@ use sdkms::api_model::Blob;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use shared::{run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
+use tokio::fs;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 
 use crate::certificate::DEFAULT_CERT_DIR;
 use crate::dsm_key_config::{
@@ -123,7 +123,7 @@ pub(crate) fn fetch_fs_mount_options() -> Result<FsMountOptions, String> {
     })
 }
 
-pub(crate) fn generate_keyfile() -> Result<Vec<u8>, String> {
+pub(crate) async fn generate_keyfile() -> Result<Vec<u8>, String> {
     // Generate key material from random data generator
     let mut arr = vec![0u8; CRYPT_KEYSIZE];
     thread_rng()
@@ -131,10 +131,9 @@ pub(crate) fn generate_keyfile() -> Result<Vec<u8>, String> {
         .map_err(|err| format!("Unable to fill key buffer with random data : {:?}", err))?;
 
     // Write the key contents to the keyfile
-    let mut key_file = fs::File::create(CRYPT_KEYFILE).map_err(|err| format!("Unable to create key file : {:?}", err))?;
-    key_file
-        .write(&*arr.clone())
-        .map_err(|err| format!("Unable to write to key file: {:?}", err))?;
+    let _key_file = fs::write(CRYPT_KEYFILE, &*arr.clone())
+        .await
+        .map_err(|err| format!("Unable to write to key file : {:?}", err))?;
 
     // Also return the key material. This may be used by the caller if the
     // encrypted key needs to be stored in the luks header
@@ -183,10 +182,13 @@ async fn update_luks_token(device_path: &str, token_path: &str, op: TokenOp) -> 
 /// fetch the overlay fs key used to wrap the RW volume passkey.
 async fn get_key_from_out_token(conn_info: ClientConnectionInfo<'_>) -> Result<(), String> {
     // Open and parse the dmcrypt volume token file
-    let mut token_file = fs::File::open(TOKEN_OUT_FILE).map_err(|err| format!("Unable to open token out file : {:?}", err))?;
+    let mut token_file = fs::File::open(TOKEN_OUT_FILE)
+        .await
+        .map_err(|err| format!("Unable to open token out file : {:?}", err))?;
     let mut token_contents = [0; MAX_TOKEN_SIZE];
     let token_size = token_file
         .read(&mut token_contents)
+        .await
         .map_err(|err| format!("Unable to read from token out file : {:?}", err))?;
 
     info!(
@@ -209,10 +211,13 @@ async fn get_key_from_out_token(conn_info: ClientConnectionInfo<'_>) -> Result<(
     let key_contents = dsm_decrypt_passphrase(&dsm_client, enc_key)?;
 
     // Create the key file
-    let key_file = fs::File::create(CRYPT_KEYFILE).map_err(|err| format!("Unable to create key file : {:?}", err));
+    let key_file = fs::File::create(CRYPT_KEYFILE)
+        .await
+        .map_err(|err| format!("Unable to create key file : {:?}", err));
 
     key_file?
         .write(&*key_contents)
+        .await
         .map_err(|err| format!("Unable to write to key file: {:?}", err))?;
 
     info!("Key file created.");
@@ -259,7 +264,7 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
                 info!("Accessing DSM to store passkey in luks2 token");
                 let dsm_client = dsm_create_client(conn_info)?;
                 let enc_resp = dsm_encrypt_passphrase(&dsm_client, passkey)?;
-                create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp)?;
+                create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp).await?;
 
                 info!("Adding token object to the RW device");
                 update_luks_token(device_path, TOKEN_IN_FILE, TokenOp::Import).await?;
@@ -272,7 +277,7 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
 /// Generate the luks2 token object and write the same to
 /// the json file which will be used to add a luks2 header
 /// to the RW blockfile
-fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: EncryptedPassphrase) -> Result<(), String> {
+async fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: EncryptedPassphrase) -> Result<(), String> {
     info!("Creating Luks2 token object");
 
     let token_object = LuksToken {
@@ -289,10 +294,9 @@ fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: Encryp
         serde_json::to_string(&token_object).map_err(|err| format!("Unable to convert token object to string : {:?}", err))?;
 
     info!("Writing luks2 token to file >> {:?}", token_string);
-    let mut token_file = File::create(token_path).map_err(|err| format!("Unable to create token input file : {:?}", err))?;
-    token_file
-        .write_all(&*token_string.into_bytes())
-        .map_err(|err| format!("Unable to write to token object: {:?}", err))?;
+    let _token_file = fs::write(token_path, &*token_string.into_bytes())
+        .await
+        .map_err(|err| format!("Unable to write token input file : {:?}", err))?;
 
     Ok(())
 }
@@ -303,6 +307,7 @@ pub(crate) async fn mount_read_write_file_system(
 ) -> Result<(), String> {
     // Create dir to get rid of the warning that is printed to the console by cryptsetup
     fs::create_dir_all(DM_CRYPT_FOLDER)
+        .await
         .map_err(|err| format!("Failed to create folder {} for cryptsetup path. {:?}", DM_CRYPT_FOLDER, err))?;
 
     let create_ext4 = get_key_file(conn_info, enable_overlayfs_persistence).await?;
@@ -329,7 +334,7 @@ pub(crate) async fn mount_read_write_file_system(
     run_mount(&[&dm_crypt_mapped_device, ENCLAVE_FS_RW_ROOT]).await?;
 
     if create_ext4 {
-        create_overlay_rw_dirs()?;
+        create_overlay_rw_dirs().await?;
     }
     Ok(())
 }
@@ -362,19 +367,28 @@ pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
     run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT]).await
 }
 
-pub(crate) fn create_overlay_dirs() -> Result<(), String> {
-    fs::create_dir(ENCLAVE_FS_LOWER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
-    fs::create_dir(ENCLAVE_FS_RW_ROOT).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
+pub(crate) async fn create_overlay_dirs() -> Result<(), String> {
+    fs::create_dir(ENCLAVE_FS_LOWER)
+        .await
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_LOWER, err))?;
+    fs::create_dir(ENCLAVE_FS_RW_ROOT)
+        .await
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
     fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT)
+        .await
         .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
 
     Ok(())
 }
 
-pub(crate) fn create_overlay_rw_dirs() -> Result<(), String> {
+pub(crate) async fn create_overlay_rw_dirs() -> Result<(), String> {
     info!("Creating work and upper layers....");
-    fs::create_dir(ENCLAVE_FS_WORK).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
-    fs::create_dir(ENCLAVE_FS_UPPER).map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
+    fs::create_dir(ENCLAVE_FS_WORK)
+        .await
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_WORK, err))?;
+    fs::create_dir(ENCLAVE_FS_UPPER)
+        .await
+        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
 
     Ok(())
 }
@@ -422,23 +436,27 @@ pub(crate) async fn run_nbd_client(server_address: IpAddr, block_file_port: u16,
     run_subprocess("nbd-client", &args).await
 }
 
-pub(crate) fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), String> {
+pub(crate) async fn copy_startup_binary_to_mount(startup_binary: &str) -> Result<(), String> {
     const STARTUP_PATH: &str = "/opt/fortanix/enclave-os";
 
     let from = STARTUP_PATH.to_string() + startup_binary;
     let to = ENCLAVE_FS_OVERLAY_ROOT.to_string() + startup_binary;
 
-    fs::copy(&from, &to).map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
+    fs::copy(&from, &to)
+        .await
+        .map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
 
     Ok(())
 }
 
-pub(crate) fn create_fortanix_directories() -> Result<(), String> {
+pub(crate) async fn create_fortanix_directories() -> Result<(), String> {
     let dir = Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default());
-    fs::create_dir_all(dir.clone()).map_err(|e| format!("Failed to create fortanix directory {:?} : {:?}", dir, e))
+    fs::create_dir_all(dir.clone())
+        .await
+        .map_err(|e| format!("Failed to create fortanix directory {:?} : {:?}", dir, e))
 }
 
-pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
+pub(crate) async fn copy_dns_file_to_mount() -> Result<(), String> {
     const ENCLAVE_RUN_RESOLV_FILE: &str = "/run/resolvconf/resolv.conf";
 
     let nbd_run_resolv_dir: &str = &format!("{}/run/resolvconf", ENCLAVE_FS_OVERLAY_ROOT);
@@ -449,19 +467,23 @@ pub(crate) fn copy_dns_file_to_mount() -> Result<(), String> {
 
     let nbd_etc_resolv_file: &str = &format!("{}/etc/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
-    fs::create_dir_all(nbd_run_resolv_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
-    fs::create_dir_all(nbd_etc_dir).map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
+    fs::create_dir_all(nbd_run_resolv_dir)
+        .await
+        .map_err(|err| format!("Failed creating {} dir. {:?}", nbd_run_resolv_dir, err))?;
+    fs::create_dir_all(nbd_etc_dir)
+        .await
+        .map_err(|err| format!("Failed creating {} dir. {:?}", nbd_etc_dir, err))?;
 
     // We copy resolv.conf from the enclave kernel into the block file mount point
     // so that DNS will work correctly after we do a `chroot`.
     // Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file).map_err(|err| {
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file).await.map_err(|err| {
         format!(
             "Failed copying resolv file from {} to {}. {:?}",
             ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file, err
         )
     })?;
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file).map_err(|err| {
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file).await.map_err(|err| {
         format!(
             "Failed copying resolv file from {} to {}. {:?}",
             ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file, err
@@ -517,7 +539,7 @@ async fn run_mount(args: &[&str]) -> Result<(), String> {
 
 async fn generate_volume_passkey() -> Result<Blob, String> {
     // Create keyfile
-    let key_blob = generate_keyfile()?;
+    let key_blob = generate_keyfile().await?;
 
     // Return key material as a blob
     Ok(Blob::from(key_blob))
