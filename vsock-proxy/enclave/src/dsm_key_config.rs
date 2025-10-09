@@ -63,7 +63,7 @@ impl DsmFsOps {
     }
 
     pub(crate) async fn dsm_mac_verify_header(&self, header: Blob, mac: Blob) -> Result<(), String> {
-        let client_clone = Arc::clone(&self.client);
+        let client_clone = self.client.clone();
         let mac_clone = mac.clone();
         let header_clone = header.clone();
         let dsm_mac_task_res = tokio::task::spawn_blocking(move || {
