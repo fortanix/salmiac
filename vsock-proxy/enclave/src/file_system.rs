@@ -86,22 +86,6 @@ pub(crate) enum FileSystemNode {
     File(&'static str),
 }
 
-/*
- * This describes the format of the encrypted file that is managed by Salmiac to provide the read-write overlay of the guest filesystem.
- * The LUKS 2 header format can be referred to here - https://gitlab.com/cryptsetup/LUKS2-docs/blob/main/luks2_doc_wip.pdf
- * Metadata for obtaining the passphrase of the encrypted file is stored in the form of a 'LuksToken' in the LUKS2 header.
- *
- * To protect against certain attacks (as described in RTE-537), the salmiac header is introduced.
- * The salmiac header contains a version number, the size and HMAC of the LUKS2 header.
- * -----------------------------------------------------------------------------------------------------------------------------------------------------------
- * |                  LUKS2 header                 |              |                     Salmiac header                                   |                   |
- * |                                               | -->       <--|                                                                      |   Encrypted data  |
- * |  binary header  |  metadata  |  keyslot area  |              |  luks2 header HMAC  |  luks2 header size  |  salmiac header version  |                   |
- * -----------------------------------------------------------------------------------------------------------------------------------------------------------
- * <-----------------------------------------------ENCRYPTED_DATA_OFFSET----------------------------------------------------------------->
- *                                                                  <------------------------SALM_HDR_SIZE------------------------------->
- */
-
 #[derive(Clone)]
 struct HeaderComponents {
     luks2_header: Blob,
@@ -116,10 +100,26 @@ struct SalmiacHeader {
 }
 
 impl HeaderComponents {
+    /*
+     * This describes the format of the encrypted file that is managed by Salmiac to provide the read-write overlay of the guest filesystem.
+     * The LUKS 2 header format can be referred to here - https://gitlab.com/cryptsetup/LUKS2-docs/blob/main/luks2_doc_wip.pdf
+     * Metadata for obtaining the passphrase of the encrypted file is stored in the form of a 'LuksToken' in the LUKS2 header.
+     *
+     * To protect against certain attacks (as described in RTE-537), the salmiac header is introduced.
+     * The salmiac header contains a version number, the size and HMAC of the LUKS2 header.
+     * -----------------------------------------------------------------------------------------------------------------------------------------------------------
+     * |                  LUKS2 header                 |              |                     Salmiac header                                   |                   |
+     * |                                               | -->       <--|                                                                      |   Encrypted data  |
+     * |  binary header  |  metadata  |  keyslot area  |              |  luks2 header HMAC  |  luks2 header size  |  salmiac header version  |                   |
+     * -----------------------------------------------------------------------------------------------------------------------------------------------------------
+     * <-----------------------------------------------ENCRYPTED_DATA_OFFSET----------------------------------------------------------------->
+     *                                                                  <------------------------SALM_HDR_SIZE------------------------------->
+     */
+
     // Given the path to a device, read HeaderComponents from the start of the device
-    async fn parse_from(device_path: &str) -> Result<HeaderComponents, String> {
+    pub async fn parse_from(device_path: &str) -> Result<Self, String> {
         // Read the whole offset area into a buffer - this includes the luks header, salmiac header and the empty space between them
-        let hdr_comp_buf = copy_data_out_of_device(device_path, 0, ENCRYPTED_DATA_OFFSET).await?;
+        let hdr_comp_buf = Self::copy_data_out_of_device(device_path, 0, ENCRYPTED_DATA_OFFSET).await?;
         if hdr_comp_buf.len() < ENCRYPTED_DATA_OFFSET {
             return Err(format!(
                 "The file buffer obtained is too small to obtain HeaderComponents from : {:?}",
@@ -164,16 +164,24 @@ impl HeaderComponents {
     }
 
     // For a given HeaderComponents data, verify if the HMAC of the header checks out
-    async fn verify_header(self, dsm_fs: &DsmFsOps) -> Result<(), String> {
-        mac_verify_luks2_header(&self.luks2_header, &Blob::from(self.salm_header.luks_mac), dsm_fs).await
+    pub async fn verify_header(&self, dsm_fs: &DsmFsOps) -> Result<(), String> {
+        // Generate a sha256 hash of the luks2 header
+        let mut hasher = Sha256::new();
+        hasher.update(&self.luks2_header);
+        let header_hash = hasher.finalize();
+
+        // Verify the HMAC of the header hash
+        dsm_fs
+            .dsm_mac_verify_header(Blob::from(header_hash.to_vec()), self.salm_header.luks_mac.clone().into())
+            .await
     }
 
     // Write a given HeaderComponents data into the device keeping the above described
     // format in mind. It is upto the caller to ensure that the luks2 header mac is
     // computed/verified before calling this function.
-    async fn write_to(self, dst_device_path: &str) -> Result<(), String> {
+    pub async fn write_to(self, dst_device_path: &str) -> Result<(), String> {
         // Write the luks2 header first
-        copy_data_to_device_offset(dst_device_path, 0, &self.luks2_header.to_vec()).await?;
+        Self::copy_data_to_device_offset(dst_device_path, 0, &self.luks2_header.to_vec()).await?;
 
         // Construct the salmiac header in a buffer
         let mut salm_hdr_buf = [0; SALM_HDR_SIZE];
@@ -183,12 +191,12 @@ impl HeaderComponents {
         salm_hdr_buf[HMAC_DIGEST_SIZE + SIZEOF_USIZE..].copy_from_slice(&self.salm_header.version.to_ne_bytes());
 
         // Copy the salmiac header at its specific offset
-        copy_data_to_device_offset(dst_device_path, SALM_HDR_OFFSET, &salm_hdr_buf.to_vec()).await?;
+        Self::copy_data_to_device_offset(dst_device_path, SALM_HDR_OFFSET, &salm_hdr_buf.to_vec()).await?;
         Ok(())
     }
 
     // Given the path of a detached luks2 header, obtain the HeaderComponents data
-    async fn create_hdr_comp(luks_hdr_path: &str, dsm_fs: Option<&DsmFsOps>) -> Result<HeaderComponents, String> {
+    pub async fn create_hdr_comp(luks_hdr_path: &str, dsm_fs: Option<&DsmFsOps>) -> Result<HeaderComponents, String> {
         // Read the luks2 header from the detached header path
         let luks2_header = fs::read(luks_hdr_path)
             .await
@@ -199,7 +207,13 @@ impl HeaderComponents {
         let luks_mac = match dsm_fs {
             None => vec![0; HMAC_DIGEST_SIZE],
             Some(dsm_fs_local) => {
-                let mac = mac_luks2_header(&luks2_header, &dsm_fs_local).await?;
+                // Generate a sha256 hash of the luks2 header
+                let mut hasher = Sha256::new();
+                hasher.update(&luks2_header);
+                let header_hash = hasher.finalize();
+
+                // Get the HMAC of the header hash
+                let mac = dsm_fs_local.dsm_mac_header(Blob::from(header_hash.to_vec())).await?;
                 mac.into()
             }
         };
@@ -217,53 +231,52 @@ impl HeaderComponents {
     }
 
     // Create a LUKS2 detached header for a given HeaderComponents data
-    async fn create_detached_header(self, header_path: &str) -> Result<(), String> {
+    pub async fn create_detached_header(self, header_path: &str) -> Result<(), String> {
         fs::write(header_path, &self.luks2_header)
             .await
             .map_err(|e| format!("Failed to write to header at {:?} : {:?}", header_path, e))?;
         Ok(())
     }
-}
+    async fn copy_data_to_device_offset(device_path: &str, offset: usize, source: &Vec<u8>) -> Result<(), String> {
+        let mut device_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(device_path)
+            .await
+            .map_err(|e| format!("Unable to open device path : {:?}", e))?;
 
-async fn copy_data_to_device_offset(device_path: &str, offset: usize, source: &Vec<u8>) -> Result<(), String> {
-    let mut device_file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(device_path)
-        .await
-        .map_err(|e| format!("Unable to open device path : {:?}", e))?;
+        device_file
+            .seek(SeekFrom::Start(offset as u64))
+            .await
+            .map_err(|e| e.to_string())?;
 
-    device_file
-        .seek(SeekFrom::Start(offset as u64))
-        .await
-        .map_err(|e| e.to_string())?;
+        device_file.write_all(&source).await.map_err(|e| e.to_string())?;
+        device_file
+            .shutdown()
+            .await
+            .map_err(|e| format!("Error while flushing device file write : {:?}", e))?;
 
-    device_file.write_all(&source).await.map_err(|e| e.to_string())?;
-    device_file
-        .shutdown()
-        .await
-        .map_err(|e| format!("Error while flushing device file write : {:?}", e))?;
+        Ok(())
+    }
 
-    Ok(())
-}
+    async fn copy_data_out_of_device(device_path: &str, offset: usize, size: usize) -> Result<Vec<u8>, String> {
+        let mut device_file = File::open(device_path)
+            .await
+            .map_err(|e| format!("Unable to open device file {:?} to copy data out : {:?}", device_path, e))?;
 
-async fn copy_data_out_of_device(device_path: &str, offset: usize, size: usize) -> Result<Vec<u8>, String> {
-    let mut device_file = File::open(device_path)
-        .await
-        .map_err(|e| format!("Unable to open device file {:?} to copy data out : {:?}", device_path, e))?;
+        device_file
+            .seek(SeekFrom::Start(offset as u64))
+            .await
+            .map_err(|e| format!("Seek to offset {:?} failed for {:?} : {:?}", offset, device_path, e))?;
 
-    device_file
-        .seek(SeekFrom::Start(offset as u64))
-        .await
-        .map_err(|e| format!("Seek to offset {:?} failed for {:?} : {:?}", offset, device_path, e))?;
+        let mut temp_buf = vec![0u8; size];
+        device_file
+            .read_exact(&mut temp_buf)
+            .await
+            .map_err(|e| format!("Read exact {:?} bytes from {:?} failed : {:?}", size, device_path, e))?;
 
-    let mut temp_buf = vec![0u8; size];
-    device_file
-        .read_exact(&mut temp_buf)
-        .await
-        .map_err(|e| format!("Read exact {:?} bytes from {:?} failed : {:?}", size, device_path, e))?;
-
-    Ok(temp_buf)
+        Ok(temp_buf)
+    }
 }
 
 pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_options: FsMountOptions) -> Result<(), String> {
@@ -416,33 +429,11 @@ async fn get_key_from_out_token(dsm_fs: &DsmFsOps) -> Result<(), String> {
     let key_contents: Vec<u8> = dec_resp.into();
     let _key_file = fs::write(CRYPT_KEYFILE, &key_contents)
         .await
-        .map_err(|err| format!("Unable to write to key file : {:?}", err));
+        .map_err(|err| format!("Unable to write to key file : {:?}", err))?;
 
     info!("Key file created.");
 
     Ok(())
-}
-
-async fn mac_luks2_header(header: &[u8], dsm_fs: &DsmFsOps) -> Result<Blob, String> {
-    // Generate a sha256 hash of the luks2 header
-    let mut hasher = Sha256::new();
-    hasher.update(header);
-    let header_hash = hasher.finalize();
-
-    // Get the HMAC of the header hash
-    dsm_fs.dsm_mac_header(Blob::from(header_hash.to_vec())).await
-}
-
-async fn mac_verify_luks2_header(header: &[u8], expected_mac: &Blob, dsm_fs: &DsmFsOps) -> Result<(), String> {
-    // Generate a sha256 hash of the luks2 header
-    let mut hasher = Sha256::new();
-    hasher.update(header);
-    let header_hash = hasher.finalize();
-
-    // Verify the HMAC of the header hash
-    dsm_fs
-        .dsm_mac_verify_header(Blob::from(header_hash.to_vec()), expected_mac.clone())
-        .await
 }
 
 /// Generates the passkey file used to encrypt the RW block device
@@ -450,15 +441,13 @@ async fn mac_verify_luks2_header(header: &[u8], expected_mac: &Blob, dsm_fs: &Ds
 /// of the app or not. When it is the first run of the app, the caller
 /// of this function creates a ext4 filesystem on it after opening
 /// the device
-async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: bool) -> Result<bool, String> {
+async fn get_key_file(conn_info: Option<ClientConnectionInfo<'_>>) -> Result<bool, String> {
     let device_path = NBD_RW_DEVICE;
     let key_path = Path::new(CRYPT_KEYFILE);
-    let mut dsm_url_op = None;
-    let mut dsm_fs_op = None;
-    if conv_use_dsm_key {
-        dsm_url_op = Some(conn_info.dsm_url.clone());
-        let dsm_fs = DsmFsOps::new(conn_info)?;
-        dsm_fs_op = Some(dsm_fs);
+    let mut conv_use_dsm_key = false;
+
+    if conn_info.is_some() {
+        conv_use_dsm_key = true;
     }
 
     match is_luks_device(device_path).await {
@@ -466,10 +455,11 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
             info!("Luks2 device found. Attempting to fetch luks2 header and token.");
 
             if conv_use_dsm_key {
-                let dsm_fs = dsm_fs_op.ok_or("dsm_client not created")?;
+                let conn_info_l = conn_info.ok_or("expected connection info to obtain metadata")?;
+                let dsm_fs = DsmFsOps::new(conn_info_l)?;
 
                 let hdr_comp = HeaderComponents::parse_from(NBD_RW_DEVICE).await?;
-                hdr_comp.clone().verify_header(&dsm_fs).await?;
+                hdr_comp.verify_header(&dsm_fs).await?;
 
                 hdr_comp.create_detached_header(DETACHED_HEADER_PATH).await?;
 
@@ -494,8 +484,9 @@ async fn get_key_file(conn_info: ClientConnectionInfo<'_>, conv_use_dsm_key: boo
             // Use DSM for overlayfs persistance blockfile encryption.
             if conv_use_dsm_key {
                 info!("Accessing DSM to store passkey in luks2 token");
-                let dsm_fs = dsm_fs_op.ok_or("dsm_client not created")?;
-                let dsm_url = dsm_url_op.ok_or("dsm_url not initialized")?;
+                let conn_info_l = conn_info.ok_or("expected connection info to save metadata")?;
+                let dsm_url = conn_info_l.dsm_url.clone();
+                let dsm_fs = DsmFsOps::new(conn_info_l)?;
 
                 let enc_resp = dsm_fs.dsm_encrypt_passphrase(passkey.clone()).await?;
                 create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp).await?;
@@ -540,16 +531,13 @@ async fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: 
     Ok(())
 }
 
-pub(crate) async fn mount_read_write_file_system(
-    enable_overlayfs_persistence: bool,
-    conn_info: ClientConnectionInfo<'_>,
-) -> Result<(), String> {
+pub(crate) async fn mount_read_write_file_system(conn_info: Option<ClientConnectionInfo<'_>>) -> Result<(), String> {
     // Create dir to get rid of the warning that is printed to the console by cryptsetup
     fs::create_dir_all(DM_CRYPT_FOLDER)
         .await
         .map_err(|err| format!("Failed to create folder {} for cryptsetup path. {:?}", DM_CRYPT_FOLDER, err))?;
 
-    let create_ext4 = get_key_file(conn_info, enable_overlayfs_persistence).await?;
+    let create_ext4 = get_key_file(conn_info).await?;
 
     let crypt_setup_args: [&str; 9] = [
         "open",

@@ -424,13 +424,16 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         mount_read_only_file_system().await?;
         info!("Finished read only file system mount.");
 
-        let conn_info = ClientConnectionInfo {
-            fs_api_key,
-            auth_cert,
-            dsm_url,
-        };
+        let mut conn_info = None;
+        if enclave_manifest.enable_overlay_filesystem_persistence {
+            conn_info = Some(ClientConnectionInfo {
+                fs_api_key,
+                auth_cert,
+                dsm_url,
+            });
+        }
 
-        mount_read_write_file_system(enclave_manifest.enable_overlay_filesystem_persistence, conn_info).await?;
+        mount_read_write_file_system(conn_info).await?;
         info!("Finished read/write file system mount.");
 
         mount_overlay_fs().await?;
