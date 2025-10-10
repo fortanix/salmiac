@@ -418,19 +418,22 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         setup_dm_verity(&verity_config).await?;
         info!("Finished setup dm-verity.");
 
-        create_overlay_dirs()?;
+        create_overlay_dirs().await?;
         info!("Created directories needed for overlay fs mount.");
 
         mount_read_only_file_system().await?;
         info!("Finished read only file system mount.");
 
-        let conn_info = ClientConnectionInfo {
-            fs_api_key,
-            auth_cert,
-            dsm_url,
-        };
+        let mut conn_info = None;
+        if enclave_manifest.enable_overlay_filesystem_persistence {
+            conn_info = Some(ClientConnectionInfo {
+                fs_api_key,
+                auth_cert,
+                dsm_url,
+            });
+        }
 
-        mount_read_write_file_system(enclave_manifest.enable_overlay_filesystem_persistence, conn_info).await?;
+        mount_read_write_file_system(conn_info).await?;
         info!("Finished read/write file system mount.");
 
         mount_overlay_fs().await?;
@@ -439,10 +442,10 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         let fs_mount_opts = fetch_fs_mount_options()?;
         mount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
 
-        copy_dns_file_to_mount()?;
-        copy_startup_binary_to_mount(STARTUP_BINARY)?;
+        copy_dns_file_to_mount().await?;
+        copy_startup_binary_to_mount(STARTUP_BINARY).await?;
 
-        create_fortanix_directories()?;
+        create_fortanix_directories().await?;
 
         info!("Finished file system mount.");
 
