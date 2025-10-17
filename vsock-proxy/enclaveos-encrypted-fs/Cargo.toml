@@ -1,0 +1,32 @@
+[package]
+name = "enclaveos-encrypted-fs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0"
+async-process = "1.2.0"
+log = "0.4"
+rand = "0.8.5"
+hyper = { version = "0.10", optional = true }
+sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"], optional = true }
+em-app = { version = "0.4.0", optional = true }
+serde = { version = "1.0.127", features = ["derive"] }
+serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+sha2 = "0.10.9"
+tokio = { version = "1.0.1", features = ["macros", "rt", "fs", "rt-multi-thread", "time", "io-util"] }
+mbedtls = { version = "0.12.1" }
+sysinfo = "0.29.8"
+url = "2.3.1"
+uuid = "0.7.4"
+#roche_sdkms = { path = "../../../product-packages/services/roche/client/sdkms-rust-client", default-features = false, features = [
+#    "async",
+#    "native-tls",
+#], optional = true }
+
+[features]
+opensource_sdkms_cli = ["sdkms", "em-app", "hyper"]
+#closedsource_sdkms_cli = ["roche_sdkms"]
+default = ["opensource_sdkms_cli"]
+
+[workspace]

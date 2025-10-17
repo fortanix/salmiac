@@ -24,24 +24,29 @@ use sdkms::api_model::{
 use sdkms::SdkmsClient;
 use url;
 
-use crate::certificate::CertificateResult;
+//todo:: how to share with external crate?
+pub struct CertificateResult {
+    pub certificate: String,
+
+    pub key: Pk,
+}
 
 #[derive(Debug, Clone)]
-pub(crate) struct EncryptedPassphrase {
+pub struct EncryptedPassphrase {
     pub(crate) key: Blob,
     pub(crate) iv: Blob,
     pub(crate) tag: Blob,
 }
 
 /// Information needed to connect to DSM as a client
-pub(crate) struct ClientConnectionInfo<'a> {
-    pub(crate) fs_api_key: Option<String>,
-    pub(crate) auth_cert: Option<&'a mut CertificateResult>,
-    pub(crate) dsm_url: String,
+pub struct ClientConnectionInfo<'a> {
+    pub fs_api_key: Option<String>,
+    pub auth_cert: Option<&'a mut CertificateResult>,
+    pub dsm_url: String,
 }
 
 #[derive(Clone)]
-pub(crate) struct DsmFsOps {
+pub struct DsmFsOps {
     client: Arc<Mutex<SdkmsClient>>,
 }
 
