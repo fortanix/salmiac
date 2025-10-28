@@ -6,7 +6,6 @@
 
 mod app_configuration;
 mod certificate;
-mod dsm_key_config;
 mod enclave;
 mod file_system;
 
