@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash
 # This script is meant to be sourced by other shell scripts to provide
 # CI sanity checks.
 
