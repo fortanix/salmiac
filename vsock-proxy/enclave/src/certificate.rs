@@ -6,6 +6,7 @@
 
 use std::borrow::Cow;
 use std::convert::TryFrom;
+use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
@@ -17,7 +18,6 @@ use mbedtls::x509::Certificate;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::{extract_enum_value, get_relative_path};
-use std::ffi::CString;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::enclave::write_to_file;
@@ -182,13 +182,10 @@ impl CSRApi for EmAppCSRApi {
 // Returns the expiry of a certificate. `cert_pem` is expected to be pem encoded (without
 // terminating zero byte).
 pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, String> {
-    let cert_pem = CString::new(cert_pem)
-        .map_err(|e| e.to_string())?
-        .into_bytes_with_nul();
+    let cert_pem = CString::new(cert_pem).map_err(|e| e.to_string())?.into_bytes_with_nul();
     let cert = Certificate::from_pem(&cert_pem).map_err(|e| e.to_string())?;
     let not_after = cert.not_after().map_err(|e| e.to_string())?;
-    NaiveDateTime::try_from(not_after)
-        .map_err(|_e| String::from("Couldn't convert cert expiry date"))
+    NaiveDateTime::try_from(not_after).map_err(|_e| String::from("Couldn't convert cert expiry date"))
 }
 
 #[cfg(test)]
@@ -199,12 +196,15 @@ mod tests {
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use chrono::NaiveDate;
     use mbedtls::pk::Pk;
-    use serde_json::value::Value;
     use parent_lib::{communicate_certificates, CertificateApi};
+    use serde_json::value::Value;
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
 
-    use crate::certificate::{create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, DEFAULT_CERT_RSA_KEY_SIZE};
+    use crate::certificate::{
+        create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath,
+        DEFAULT_CERT_FILE, DEFAULT_CERT_RSA_KEY_SIZE, DEFAULT_KEY_FILE,
+    };
     use crate::enclave::setup_enclave_certifications;
 
     #[derive(Clone)]
@@ -249,9 +249,17 @@ mod tests {
     }
 
     async fn enclave_no_certs(mut enclave_socket: InMemorySocket) -> () {
-        let result = setup_enclave_certifications(&mut enclave_socket, None, &MockCSRApi {}, &None, &mut vec![], Path::new("/"), true)
-            .await
-            .expect("Request certificate OK");
+        let result = setup_enclave_certifications(
+            &mut enclave_socket,
+            None,
+            &MockCSRApi {},
+            &None,
+            &mut vec![],
+            Path::new("/"),
+            true,
+        )
+        .await
+        .expect("Request certificate OK");
 
         assert!(result.is_empty())
     }

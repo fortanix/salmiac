@@ -4,18 +4,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use chrono::Utc;
 use std::convert::{From, TryFrom};
 use std::fs;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use std::string::ToString;
+use std::sync::Arc;
+
 use api_model::converter::CertificateConfig;
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
 use async_process::{Child, Command};
 use async_trait::async_trait;
+use chrono::Utc;
 use em_client::Sha256Hash;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
@@ -29,7 +30,7 @@ use shared::models::{
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
 use shared::netlink::{Netlink, NetlinkCommon};
-use shared::socket::{AsyncVsockStream as ParentStream, AsyncReadLvStream, AsyncWriteLvStream};
+use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
     cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType, HOSTNAME_FILE, HOSTS_FILE,
@@ -44,7 +45,10 @@ use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
 
 use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
-use crate::certificate::{self, CertificatePaths, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE};
+use crate::certificate::{
+    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificatePaths,
+    CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE,
+};
 use crate::dsm_key_config::ClientConnectionInfo;
 use crate::file_system::{
     close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
@@ -75,23 +79,27 @@ const CERT_RENEWAL_INTERVAL_RELEASE: Duration = Duration::from_secs(24 * 60 * 60
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
 fn default_cert_dir() -> PathBuf {
-    PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
-        .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
+    PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
 }
 
-async fn auto_cert_renewal(node_agent: Option<String>, app_config_id: &Option<String>, cert_config: &CertificateConfig) -> Result<bool, String> {
+async fn auto_cert_renewal(
+    node_agent: Option<String>,
+    app_config_id: &Option<String>,
+    cert_config: &CertificateConfig,
+) -> Result<bool, String> {
     let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
     let cert = fs::read_to_string(&cert_path).map_err(|e| e.to_string())?;
-    let expiry_date = certificate::get_certificate_expiry(&cert)?
-        .and_utc();
+    let expiry_date = certificate::get_certificate_expiry(&cert)?.and_utc();
     if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
         let mut cert = setup_enclave_certification(
             None::<&mut AsyncVsockStream>,
             node_agent,
-            &EmAppCSRApi{},
+            &EmAppCSRApi {},
             app_config_id,
             &cert_config,
-            Path::new(ENCLAVE_FS_OVERLAY_ROOT)).await?;
+            Path::new(ENCLAVE_FS_OVERLAY_ROOT),
+        )
+        .await?;
 
         write_certificate(&mut cert, Some(default_cert_dir()))?;
         Ok(true)
@@ -100,7 +108,14 @@ async fn auto_cert_renewal(node_agent: Option<String>, app_config_id: &Option<St
     }
 }
 
-async fn auto_cert_renewals(environment_setup_completed: Arc<Notify>, node_agent: Option<String>, app_config_id: &Option<String>, mut cert_settings: Vec<CertificateConfig>, is_debug: bool, skip_def_cert_req: bool) -> Result<(), String> {
+async fn auto_cert_renewals(
+    environment_setup_completed: Arc<Notify>,
+    node_agent: Option<String>,
+    app_config_id: &Option<String>,
+    mut cert_settings: Vec<CertificateConfig>,
+    is_debug: bool,
+    skip_def_cert_req: bool,
+) -> Result<(), String> {
     // Wait until the user application starts running, at that point the file system and initial
     // certificates have been set up.
     environment_setup_completed.notified().await;
@@ -117,8 +132,16 @@ async fn auto_cert_renewals(environment_setup_completed: Arc<Notify>, node_agent
             let cert_path = cert_config.certificate_path(Path::new(ENCLAVE_FS_OVERLAY_ROOT));
             match auto_cert_renewal(node_agent.clone(), app_config_id, &cert_config).await {
                 Ok(true) => info!("Certificate at {} renewed", cert_path.display()),
-                Ok(false) => info!("Certificate at {} is still valid for longer than {} hours", cert_path.display(), CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60),
-                Err(e) => error!("Error encountered considering {} cert for renewal (error: {}), continuing", cert_path.display(), e),
+                Ok(false) => info!(
+                    "Certificate at {} is still valid for longer than {} hours",
+                    cert_path.display(),
+                    CERT_RENEWAL_BEFORE_EXPIRY.as_secs() / 60 / 60
+                ),
+                Err(e) => error!(
+                    "Error encountered considering {} cert for renewal (error: {}), continuing",
+                    cert_path.display(),
+                    e
+                ),
             }
         }
 
@@ -127,7 +150,10 @@ async fn auto_cert_renewals(environment_setup_completed: Arc<Notify>, node_agent
         } else {
             CERT_RENEWAL_INTERVAL_RELEASE
         };
-        info!("End certificate renewal cycle, sleeping for {} seconds", sleep_duration.as_secs());
+        info!(
+            "End certificate renewal cycle, sleeping for {} seconds",
+            sleep_duration.as_secs()
+        );
 
         tokio_time::sleep(sleep_duration).await;
     }
@@ -162,13 +188,15 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let is_debug = setup_result.enclave_manifest.is_debug;
 
     background_tasks.push(tokio::spawn(async move {
-        auto_cert_renewals(environment_setup_completed_cloned,
-                           node_agent,
-                           &app_config_id,
-                           cert_settings,
-                           is_debug,
-                           skip_def_cert_req,
-                           ).await
+        auto_cert_renewals(
+            environment_setup_completed_cloned,
+            node_agent,
+            &app_config_id,
+            cert_settings,
+            is_debug,
+            skip_def_cert_req,
+        )
+        .await
     }));
 
     let enclave_exit_code = with_background_tasks!(background_tasks, {
@@ -194,17 +222,19 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         setup_file_system(parent_guard.deref_mut(), FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
         for certificate in &mut certificate_info {
-            write_certificate(
-                certificate,
-                Some(default_cert_dir()),
-            )?;
+            write_certificate(certificate, Some(default_cert_dir()))?;
         }
 
         let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
 
-        setup_app_configuration(&setup_result.app_config, first_certificate, &setup_result.enclave_manifest.ccm_backend_url)?;
+        setup_app_configuration(
+            &setup_result.app_config,
+            first_certificate,
+            &setup_result.enclave_manifest.ccm_backend_url,
+        )?;
 
-        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        let log_conn_addrs =
+            extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
         drop(parent_guard);
 
         // The environment for the user application is ready, signal this to background tasks
@@ -317,8 +347,12 @@ fn setup_app_configuration(
 
         info!("Setting up application configuration.");
 
-        let app_config_id = Sha256Hash::try_from(id.as_str())
-            .map_err(|err| format!("App config id is not a valid SHA-256 string. App config id is {}. Error {:?}", &id, err))?;
+        let app_config_id = Sha256Hash::try_from(id.as_str()).map_err(|err| {
+            format!(
+                "App config id is not a valid SHA-256 string. App config id is {}. Error {:?}",
+                &id, err
+            )
+        })?;
 
         setup_application_configuration(
             &credentials,
@@ -393,7 +427,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         let conn_info = ClientConnectionInfo {
             fs_api_key,
             auth_cert,
-            dsm_url
+            dsm_url,
         };
 
         mount_read_write_file_system(enclave_manifest.enable_overlay_filesystem_persistence, conn_info).await?;
@@ -439,7 +473,7 @@ async fn signal_user_program_exit_status(
 ) -> Result<(), String> {
     match parent.exchange_message(&SetupMessages::UserProgramExit(exit_status)).await? {
         SetupMessages::ExitEnclave => Ok(()),
-        _ => Err(String::from("Expected exit response"))
+        _ => Err(String::from("Expected exit response")),
     }
 }
 
@@ -771,7 +805,9 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
-        certs.push(setup_enclave_certification(Some(vsock), node_agent.clone(), csr_api, app_config_id, cert_config, fs_root).await?);
+        certs.push(
+            setup_enclave_certification(Some(vsock), node_agent.clone(), csr_api, app_config_id, cert_config, fs_root).await?,
+        );
     }
 
     vsock.write_lv(&SetupMessages::NoMoreCertificates).await?;
@@ -780,7 +816,6 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
 
     Ok(certs)
 }
-
 
 const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -792,21 +827,22 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
             em_app::request_issue_certificate(&node_agent, csr)
                 .map_err(|e| e.to_string())
                 .and_then(|r| r.certificate.ok_or("No certificate returned".to_string()))
-        }))
-            .await
-            .map(|r| r.map_err(|_| String::from("Join error")))
-            .map_err(|_| String::from("Timeout: Failed to request certificates"));
+        }),
+    )
+    .await
+    .map(|r| r.map_err(|_| String::from("Join error")))
+    .map_err(|_| String::from("Timeout: Failed to request certificates"));
 
     match request {
         Ok(Ok(Ok(cert))) => {
             info!("Received cert message, sending to enclave");
             info!("cert message sent");
             Ok(cert)
-        },
+        }
         Err(e) | Ok(Err(e)) | Ok(Ok(Err(e))) => {
             info!("Error requesting App Certificate: {}", e);
             Err(e)
-        },
+        }
     }
 }
 
@@ -872,7 +908,10 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(path: &Path, data: &C, enti
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
-    use api_model::{converter::{DsmConfiguration}, enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir}};
+    use api_model::converter::DsmConfiguration;
+    use api_model::enclave::{
+        CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir,
+    };
     use async_trait::async_trait;
     use shared::models::NBDConfiguration;
     use shared::socket::InMemorySocket;
@@ -916,9 +955,7 @@ mod tests {
                     host: "".to_string(),
                     port: 0,
                 },
-                dsm_configuration: DsmConfiguration {
-                    dsm_url: "".to_string()
-                },
+                dsm_configuration: DsmConfiguration { dsm_url: "".to_string() },
             },
             env_vars: &[],
             cert_list: None,
@@ -949,8 +986,8 @@ mod tests {
 fn get_fs_api_key(env_vars: &[(String, String)], is_debug: bool) -> Option<String> {
     if is_debug {
         return env_vars
-        .iter()
-        .find_map(|e| if e.0 == "FS_API_KEY" { Some(e.1.clone()) } else { None });
+            .iter()
+            .find_map(|e| if e.0 == "FS_API_KEY" { Some(e.1.clone()) } else { None });
     }
     None
 }

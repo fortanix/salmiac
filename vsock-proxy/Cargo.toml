@@ -1,9 +1,9 @@
 [workspace]
 
 members = [
-    "shared",
-    "parent",
     "enclave",
+    "parent",
+    "shared",
 ]
 
 [workspace.dependencies]

@@ -56,7 +56,9 @@ fn dsm_create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, Str
             .ok_or_else(|| format!("Unable to get host from endpoint"))?;
         let hyper_client = dsm_create_hyper_client_with_cert(
             host.to_string(),
-            conn_info.auth_cert.ok_or_else(|| format!("Unable to get auth cert for connection to DSM"))?,
+            conn_info
+                .auth_cert
+                .ok_or_else(|| format!("Unable to get auth cert for connection to DSM"))?,
         )?;
 
         Ok(SdkmsClient::builder()
@@ -220,10 +222,7 @@ fn dsm_get_overlayfs_key(conn_info: ClientConnectionInfo) -> Result<ClientWithKe
     })
 }
 
-pub(crate) fn dsm_enc_with_overlayfs_key(
-    conn_info: ClientConnectionInfo,
-    plaintext: Blob,
-) -> Result<EncryptResponse, String> {
+pub(crate) fn dsm_enc_with_overlayfs_key(conn_info: ClientConnectionInfo, plaintext: Blob) -> Result<EncryptResponse, String> {
     let client_key_pair = dsm_get_overlayfs_key(conn_info)?;
     let enc_req = dsm_generate_enc_req(&client_key_pair.overlayfs_key, plaintext)?;
     dsm_encrypt_blob(&enc_req, &client_key_pair.dsm_client)
@@ -253,7 +252,10 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::certificate::CertificateResult;
-    use crate::dsm_key_config::{dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key, ClientConnectionInfo, OVERLAY_FS_SECURITY_OBJECT_PREFIX};
+    use crate::dsm_key_config::{
+        dsm_create_client, dsm_dec_with_overlayfs_key, dsm_enc_with_overlayfs_key, dsm_get_overlayfs_key, ClientConnectionInfo,
+        OVERLAY_FS_SECURITY_OBJECT_PREFIX,
+    };
 
     const PLAINTEXT: &str = "hello world. This is a test string.";
     const DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
@@ -321,13 +323,8 @@ mod tests {
             auth_cert: Some(&mut cert_res),
             dsm_url: DSM_APP_ENDPOINT.to_string(),
         };
-        let dec_resp = dsm_dec_with_overlayfs_key(
-            conn_info_dec,
-            enc_resp.cipher,
-            enc_resp.iv.unwrap(),
-            enc_resp.tag.unwrap(),
-        )
-        .unwrap();
+        let dec_resp =
+            dsm_dec_with_overlayfs_key(conn_info_dec, enc_resp.cipher, enc_resp.iv.unwrap(), enc_resp.tag.unwrap()).unwrap();
         assert_eq!(Blob::from(PLAINTEXT), dec_resp.plain);
     }
 
@@ -345,13 +342,8 @@ mod tests {
             auth_cert: None,
             dsm_url: DSM_ENDPOINT.to_string(),
         };
-        let dec_resp = dsm_dec_with_overlayfs_key(
-            conn_info_dec,
-            enc_resp.cipher,
-            enc_resp.iv.unwrap(),
-            enc_resp.tag.unwrap(),
-        )
-        .unwrap();
+        let dec_resp =
+            dsm_dec_with_overlayfs_key(conn_info_dec, enc_resp.cipher, enc_resp.iv.unwrap(), enc_resp.tag.unwrap()).unwrap();
         assert_eq!(Blob::from(PLAINTEXT), dec_resp.plain);
     }
 
