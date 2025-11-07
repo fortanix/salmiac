@@ -66,57 +66,53 @@ impl DsmFsOps {
         let client_clone = self.client.clone();
         let mac_clone = mac.clone();
         let header_clone = header.clone();
-        let dsm_mac_task_res = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let dsm_cli = client_clone
                 .lock()
                 .map_err(|e| format!("Unable to lock on DSM client for MAC verify operation : {:?}", e))?;
             Self::mac_verify_header(&dsm_cli, header_clone, mac_clone)
         })
         .await
-        .map_err(|e| format!("Unable to run task to verify hmac header : {:?}", e))?;
-        dsm_mac_task_res
+        .map_err(|e| format!("Unable to run task to verify hmac header : {:?}", e))?
     }
 
     pub(crate) async fn dsm_mac_header(&self, header: Blob) -> Result<Blob, String> {
         let client_clone = Arc::clone(&self.client);
         let header_clone = header.clone();
-        let dsm_mac_task_res = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let dsm_cli = client_clone
                 .lock()
                 .map_err(|e| format!("Unable to lock on DSM client for MAC operation : {:?}", e))?;
             Self::mac_header(&dsm_cli, header_clone)
         })
         .await
-        .map_err(|e| format!("Unable to run task to hmac header : {:?}", e))?;
-        dsm_mac_task_res
+        .map_err(|e| format!("Unable to run task to hmac header : {:?}", e))?
     }
 
     pub(crate) async fn dsm_encrypt_passphrase(&self, passphrase: Blob) -> Result<EncryptedPassphrase, String> {
         let client_clone = Arc::clone(&self.client);
         let passphrase_clone = passphrase.clone();
-        let dsm_enc_task_res = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let dsm_cli = client_clone
                 .lock()
                 .map_err(|e| format!("Unable to lock on DSM client for enc operation : {:?}", e))?;
             Self::encrypt_passphrase(&dsm_cli, passphrase_clone)
         })
         .await
-        .map_err(|e| format!("Unable to run task to enc passphrase : {:?}", e))?;
-        dsm_enc_task_res
+        .map_err(|e| format!("Unable to run task to enc passphrase : {:?}", e))?
     }
 
     pub(crate) async fn dsm_decrypt_passphrase(&self, wrapped_key: EncryptedPassphrase) -> Result<Blob, String> {
         let client_clone = Arc::clone(&self.client);
         let wrapped_key_clone = wrapped_key.clone();
-        let dsm_dec_task_res = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let dsm_cli = client_clone
                 .lock()
                 .map_err(|e| format!("Unable to lock on DSM client for dec operation : {:?}", e))?;
             Self::decrypt_passphrase(&dsm_cli, wrapped_key_clone)
         })
         .await
-        .map_err(|e| format!("Unable to run task to enc passphrase : {:?}", e))?;
-        dsm_dec_task_res
+        .map_err(|e| format!("Unable to run task to enc passphrase : {:?}", e))?
     }
 
     fn create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, String> {
