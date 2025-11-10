@@ -31,7 +31,7 @@ openssl = "0.10"
 pkix = "0.1.2"
 rand = "0.8.5"
 rtnetlink = "0.8.0"
-sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"], optional = true }
+sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
 serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
@@ -52,7 +52,3 @@ serde_cbor = "0.11.2"
 [dev-dependencies]
 lazy_static = "1.0"
 parent_lib = { path = "../parent/lib" }
-
-[features]
-opensource_sdkms_cli = ["sdkms"]
-default = ["opensource_sdkms_cli"]

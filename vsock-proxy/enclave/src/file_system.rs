@@ -25,6 +25,9 @@ const NBD_DEVICE: &str = "/dev/nbd0";
 const NBD_RW_DEVICE: &str = "/dev/nbd1";
 const DM_VERITY_VOLUME: &str = "rodir";
 
+const OVERLAY_FS_SECURITY_OBJECT_PREFIX: &str = "fortanix-overlayfs-security-object-build-";
+const DERIVATION_DATA_IV: &str = "salmiac-persiste";
+
 pub struct FsMountOptions {
     pub is_tmp_exec: bool,
 }
@@ -86,9 +89,12 @@ pub(crate) async fn mount_read_write_file_system(
     conn_info: Option<ClientConnectionInfo<'_>>,
 ) -> Result<EncryptedVolume, String> {
     let mut dsm_ops_handler = None;
-    if conn_info.is_some() {
-        let conn_info_l = conn_info.unwrap();
-        let dsm_fs_ops = DsmFsOps::new(conn_info_l)?;
+    if let Some(conn_info) = conn_info {
+        let dsm_fs_ops = DsmFsOps::new(
+            conn_info,
+            OVERLAY_FS_SECURITY_OBJECT_PREFIX.to_string(),
+            DERIVATION_DATA_IV.to_string(),
+        )?;
         dsm_ops_handler = Some(dsm_fs_ops);
     }
 

@@ -427,9 +427,8 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         mount_read_only_file_system().await?;
         info!("Finished read only file system mount.");
 
-        let mut conn_info = None;
         let mut cert_res;
-        if enclave_manifest.enable_overlay_filesystem_persistence {
+        let conn_info = if enclave_manifest.enable_overlay_filesystem_persistence {
             if let Some(client_cert) = auth_cert {
                 cert_res = ClientCertificate {
                     key: client_cert
@@ -438,13 +437,17 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
                         .map_err(|e| format!("Unable to convert cert key to der vec : {:?}", e))?,
                     certificate: client_cert.certificate.clone(),
                 };
-                conn_info = Some(ClientConnectionInfo {
+                Some(ClientConnectionInfo {
                     fs_api_key,
                     auth_cert: Some(&mut cert_res),
                     dsm_url,
-                });
+                })
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
         let encrypted_fs = mount_read_write_file_system(conn_info).await?;
         info!("Finished read/write file system mount.");
