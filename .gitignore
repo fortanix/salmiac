@@ -4,3 +4,4 @@
 /tools/container-converter/target
 vsock-proxy/target
 enclave-startup/target
+/tools/enclaveos-encrypted-fs/target

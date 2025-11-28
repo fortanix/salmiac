@@ -16,6 +16,7 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
       "vsock-proxy/enclave"
       "vsock-proxy/parent"
       "tools/container-converter"
+      "tools/enclaveos-encrypted-fs"
   )
 for unit_test_dir in "${unit_test_dirs[@]}"
   do
