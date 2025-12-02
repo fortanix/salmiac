@@ -18,6 +18,8 @@ use async_process::{Child, Command};
 use async_trait::async_trait;
 use chrono::Utc;
 use em_client::Sha256Hash;
+use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
+use enclaveos_encrypted_fs::EncryptedVolume;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
@@ -49,12 +51,11 @@ use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificatePaths,
     CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE,
 };
-use crate::dsm_key_config::ClientConnectionInfo;
 use crate::file_system::{
-    close_dm_crypt_device, close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
-    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options, get_available_encrypted_space,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system, mount_read_write_file_system, run_nbd_client,
-    setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_fortanix_directories,
+    create_overlay_dirs, fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
+    DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 
 const STARTUP_BINARY: &str = "/enclave-startup";
@@ -219,7 +220,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             env_vars: &setup_result.env_vars,
             cert_list: certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
         };
-        setup_file_system(parent_guard.deref_mut(), FileSystemSetupApiImpl {}, fs_setup_config).await?;
+        let encrypted_fs = setup_file_system(parent_guard.deref_mut(), FileSystemSetupApiImpl {}, fs_setup_config).await?;
 
         for certificate in &mut certificate_info {
             write_certificate(certificate, Some(default_cert_dir()))?;
@@ -243,7 +244,7 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
 
         let exit_status = start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
 
-        cleanup_fs().await?;
+        cleanup_fs(encrypted_fs).await?;
 
         Ok(exit_status)
     });
@@ -370,15 +371,17 @@ pub(crate) async fn setup_file_system<'a, Socket: AsyncWrite + AsyncRead + Unpin
     parent_socket: &mut Socket,
     api: Api,
     setup_config: FileSystemSetupConfig<'a>,
-) -> Result<(), String> {
+) -> Result<EncryptedVolume, String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_socket.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
-    let space = api.setup(nbd_config, setup_config).await?;
+    let encrypted_fs = api.setup(nbd_config, setup_config).await?;
+
+    let space = EncryptedVolume::get_available_encrypted_space().await?;
 
     parent_socket.write_lv(&SetupMessages::EncryptedSpaceAvailable(space)).await?;
 
-    Ok(())
+    Ok(encrypted_fs)
 }
 
 pub struct FileSystemSetupConfig<'a> {
@@ -391,13 +394,13 @@ pub struct FileSystemSetupConfig<'a> {
 
 #[async_trait]
 pub trait FileSystemSetupApi<'a> {
-    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<usize, String>;
+    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<EncryptedVolume, String>;
 }
 
 struct FileSystemSetupApiImpl {}
 #[async_trait]
 impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
-    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<usize, String> {
+    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<EncryptedVolume, String> {
         let enclave_manifest = arg.enclave_manifest;
         let auth_cert = arg.cert_list;
         let dsm_url = (&arg.enclave_manifest.dsm_configuration.dsm_url).to_string();
@@ -424,16 +427,29 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         mount_read_only_file_system().await?;
         info!("Finished read only file system mount.");
 
-        let mut conn_info = None;
-        if enclave_manifest.enable_overlay_filesystem_persistence {
-            conn_info = Some(ClientConnectionInfo {
-                fs_api_key,
-                auth_cert,
-                dsm_url,
-            });
-        }
+        let mut cert_res;
+        let conn_info = if enclave_manifest.enable_overlay_filesystem_persistence {
+            if let Some(client_cert) = auth_cert {
+                cert_res = ClientCertificate {
+                    key: client_cert
+                        .key
+                        .write_private_der_vec()
+                        .map_err(|e| format!("Unable to convert cert key to der vec : {:?}", e))?,
+                    certificate: client_cert.certificate.clone(),
+                };
+                Some(ClientConnectionInfo {
+                    fs_api_key,
+                    auth_cert: Some(&mut cert_res),
+                    dsm_url,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        mount_read_write_file_system(conn_info).await?;
+        let encrypted_fs = mount_read_write_file_system(conn_info).await?;
         info!("Finished read/write file system mount.");
 
         mount_overlay_fs().await?;
@@ -449,18 +465,19 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
 
         info!("Finished file system mount.");
 
-        get_available_encrypted_space().await
+        EncryptedVolume::get_available_encrypted_space().await?;
+        Ok(encrypted_fs)
     }
 }
 
-async fn cleanup_fs() -> Result<(), String> {
+async fn cleanup_fs(encrypted_fs: EncryptedVolume) -> Result<(), String> {
     unmount_file_system_nodes(FILE_SYSTEM_NODES).await?;
     info!("Unmounted file system nodes.");
 
     unmount_overlay_fs().await?;
     info!("Unmounted overlay file system.");
 
-    close_dm_crypt_device().await?;
+    encrypted_fs.cleanup_encrypted_volume().await?;
     info!("Closed dm-crypt device.");
 
     close_dm_verity_volume().await?;
@@ -916,6 +933,7 @@ mod tests {
         CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir,
     };
     use async_trait::async_trait;
+    use enclaveos_encrypted_fs::EncryptedVolume;
     use shared::models::NBDConfiguration;
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
@@ -925,8 +943,12 @@ mod tests {
     struct MockFileSystemApi {}
     #[async_trait]
     impl<'a> FileSystemSetupApi<'a> for MockFileSystemApi {
-        async fn setup(&self, _nbd_config: NBDConfiguration, _arg: FileSystemSetupConfig<'a>) -> Result<usize, String> {
-            Ok(777)
+        async fn setup(
+            &self,
+            _nbd_config: NBDConfiguration,
+            _arg: FileSystemSetupConfig<'a>,
+        ) -> Result<EncryptedVolume, String> {
+            Ok(EncryptedVolume::init("", ""))
         }
     }
 
@@ -934,7 +956,7 @@ mod tests {
         parent_lib::setup_file_system(&mut parent_socket, IpAddr::V4(Ipv4Addr::LOCALHOST)).await
     }
 
-    async fn enclave(mut enclave_socket: InMemorySocket) -> Result<(), String> {
+    async fn enclave(mut enclave_socket: InMemorySocket) -> Result<EncryptedVolume, String> {
         let setup_config = FileSystemSetupConfig {
             enclave_manifest: &EnclaveManifest {
                 user_config: UserConfig {

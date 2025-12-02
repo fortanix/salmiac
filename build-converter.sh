@@ -25,5 +25,4 @@ fi;
 
 pushd tools/container-converter
 cargo build $cargo_build_flag $features_list --locked
-
 popd

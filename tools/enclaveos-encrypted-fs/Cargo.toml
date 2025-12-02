@@ -1,0 +1,30 @@
+[package]
+name = "enclaveos-encrypted-fs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Fortanix, Inc."]
+license = "MPL-2.0"
+repository = "https://github.com/fortanix/salmiac"
+
+[dependencies]
+async-process = "1.2.0"
+em-app = "0.5.1"
+hyper = "0.10.16"
+log = "0.4"
+mbedtls = { version = "0.13.4", features = ["std", "x509", "ssl", "rdrand"] }
+rand = "0.8"
+sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"]}
+serde = "1.0"
+serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+sha2 = "0.10"
+sysinfo = "0.29.8"
+thiserror = "1.0.69"
+tokio = { version = "1.35", features = ["full"] } 
+url = "2.3"
+uuid = "0.8.2"
+
+[dev-dependencies]
+lazy_static = "1.4.0"
+
+[[example]]
+name = "setup-using-dsm"
