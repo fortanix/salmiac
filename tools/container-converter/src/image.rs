@@ -208,8 +208,8 @@ mod tests {
         let reference = DockerReference::from_str("test").unwrap();
         let details = ImageDetails {
             architecture: "".to_string(),
-            author: "".to_string(),
-            comment: "".to_string(),
+            author: Some("".to_string()),
+            comment: Some("".to_string()),
             config: ContainerConfig {
                 attach_stderr: Some(false),
                 attach_stdin: Some(false),
@@ -226,14 +226,14 @@ mod tests {
                 open_stdin: Some(false),
                 stdin_once: Some(false),
                 tty: Some(false),
-                user: "".to_string(),
-                working_dir: "".to_string(),
+                user: Some("".to_string()),
+                working_dir: Some("".to_string()),
             },
             created: DateTime::<Utc>::MAX_UTC,
-            docker_version: "".to_string(),
+            docker_version: Some("".to_string()),
             id: "".to_string(),
             os: "".to_string(),
-            parent: "".to_string(),
+            parent: Some("".to_string()),
             repo_tags: None,
             repo_digests: None,
             size: 0,
@@ -243,7 +243,7 @@ mod tests {
         let mut input_image = ImageWithDetails { reference, details };
 
         let mut test = |user: String, reference: (User, User)| -> () {
-            input_image.details.config.user = user;
+            input_image.details.config.user = Some(user);
 
             let result = input_image.user_and_group();
 
