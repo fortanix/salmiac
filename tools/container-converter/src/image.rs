@@ -43,7 +43,7 @@ impl<'a> ImageWithDetails<'a> {
             ImageWithDetails::extract_entry_point_with_arguments(cmd)?
         };
 
-        let (user, group) = ImageWithDetails::extract_user_and_group(&config.user);
+        let (user, group) = ImageWithDetails::extract_user_and_group(&config.user.clone().unwrap_or_default());
 
         Ok(UserProgramConfig {
             entry_point,
@@ -55,11 +55,11 @@ impl<'a> ImageWithDetails<'a> {
     }
 
     pub fn user_and_group(&self) -> (User, User) {
-        ImageWithDetails::extract_user_and_group(&self.details.config.user)
+        ImageWithDetails::extract_user_and_group(&self.details.config.user.clone().unwrap_or_default())
     }
 
     pub fn working_dir(&self) -> WorkingDir {
-        WorkingDir::from(self.details.config.working_dir.deref())
+        WorkingDir::from(self.details.config.working_dir.clone().unwrap_or_default().as_str())
     }
 
     pub(crate) fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage<'a> {
