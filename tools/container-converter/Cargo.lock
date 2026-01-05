@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "shiplift"
 version = "0.7.0"
-source = "git+https://github.com/fortanix/shiplift.git?branch=aj/RTE-662#f53e02104ccdceedcd3922e9803a30861e799ffa"
+source = "git+https://github.com/fortanix/shiplift.git#07ee2d8d19bb8435d6c4fb38c0b5a2a905f23486"
 dependencies = [
  "base64",
  "byteorder",
