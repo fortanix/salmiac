@@ -43,7 +43,7 @@ impl<'a> ImageWithDetails<'a> {
             ImageWithDetails::extract_entry_point_with_arguments(cmd)?
         };
 
-        let (user, group) = ImageWithDetails::extract_user_and_group(&config.user);
+        let (user, group) = ImageWithDetails::extract_user_and_group(&config.user.clone().unwrap_or_default());
 
         Ok(UserProgramConfig {
             entry_point,
@@ -55,11 +55,11 @@ impl<'a> ImageWithDetails<'a> {
     }
 
     pub fn user_and_group(&self) -> (User, User) {
-        ImageWithDetails::extract_user_and_group(&self.details.config.user)
+        ImageWithDetails::extract_user_and_group(&self.details.config.user.clone().unwrap_or_default())
     }
 
     pub fn working_dir(&self) -> WorkingDir {
-        WorkingDir::from(self.details.config.working_dir.deref())
+        WorkingDir::from(self.details.config.working_dir.clone().unwrap_or_default().as_str())
     }
 
     pub(crate) fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage<'a> {
@@ -208,8 +208,8 @@ mod tests {
         let reference = DockerReference::from_str("test").unwrap();
         let details = ImageDetails {
             architecture: "".to_string(),
-            author: "".to_string(),
-            comment: "".to_string(),
+            author: Some("".to_string()),
+            comment: Some("".to_string()),
             config: ContainerConfig {
                 attach_stderr: Some(false),
                 attach_stdin: Some(false),
@@ -226,14 +226,14 @@ mod tests {
                 open_stdin: Some(false),
                 stdin_once: Some(false),
                 tty: Some(false),
-                user: "".to_string(),
-                working_dir: "".to_string(),
+                user: Some("".to_string()),
+                working_dir: Some("".to_string()),
             },
             created: DateTime::<Utc>::MAX_UTC,
-            docker_version: "".to_string(),
+            docker_version: Some("".to_string()),
             id: "".to_string(),
             os: "".to_string(),
-            parent: "".to_string(),
+            parent: Some("".to_string()),
             repo_tags: None,
             repo_digests: None,
             size: 0,
@@ -243,7 +243,7 @@ mod tests {
         let mut input_image = ImageWithDetails { reference, details };
 
         let mut test = |user: String, reference: (User, User)| -> () {
-            input_image.details.config.user = user;
+            input_image.details.config.user = Some(user);
 
             let result = input_image.user_and_group();
 

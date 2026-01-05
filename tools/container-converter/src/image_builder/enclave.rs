@@ -103,7 +103,7 @@ pub(crate) struct EnclaveSettings {
 impl EnclaveSettings {
     pub(crate) fn new(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Self {
         EnclaveSettings {
-            user_name: input_image.details.config.user.clone(),
+            user_name: input_image.details.config.user.clone().unwrap_or_default(),
             env_vars: vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
             enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false),
