@@ -11,7 +11,7 @@ async-process = "1.2.0"
 em-app = "0.5.1"
 hyper = "0.10.16"
 log = "0.4"
-mbedtls = { version = "0.13.4", features = ["std", "x509", "ssl", "rdrand"] }
+mbedtls = { version = "0.13.5", features = ["std", "x509", "ssl", "rdrand"] }
 rand = "0.8"
 sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"]}
 serde = "1.0"
