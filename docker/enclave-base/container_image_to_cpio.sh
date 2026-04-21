@@ -8,14 +8,13 @@ function show_usage() {
         [-h]                Show help
         [-k]                Keep intermediary files (default: false)
         [-o output_file]    CPIO output file (default: stdout)
-        -i <oci_url>        Image URL supported by skopeo copy (containers-storage, dir, docker, docker-archive, docker-daemon, oci, oci-archive, ostree, sif, tarball)
-        -t <image_tag>      Image tag"
+        -i <oci_url>        Image URL supported by skopeo copy (containers-storage, dir, docker, docker-archive, docker-daemon, oci, oci-archive, ostree, sif, tarball)"
 }
 
 keep_files=0
 output_file=/dev/stdout
-tag=latest
-while getopts "hi:ko:t:" option; do
+tag=salmiac
+while getopts "hi:ko:" option; do
     case $option in
         h)
             echo "Convert a container image to a CPIO New ASCII format"
@@ -31,9 +30,6 @@ while getopts "hi:ko:t:" option; do
         o)
             output_file=$(realpath "$OPTARG")
             ;;
-        t)
-            tag="$OPTARG"
-            ;;
         *)
             show_usage
             exit 1
@@ -47,14 +43,14 @@ if [ -z "${oci_url}" ]; then
 fi
 
 # Create temporary directory to extract image layers
-skopeo_tmp_dir=$(mktemp --directory --tmpdir="${PWD}")
+skopeo_tmp_dir="$(mktemp --directory --tmpdir="${PWD}")"
 
 # Copy image filesystem layers
-echo skopeo copy "${oci_url}:${tag}" "oci:${skopeo_tmp_dir}:${tag}" >&2
-skopeo copy "${oci_url}:${tag}" "oci:${skopeo_tmp_dir}:${tag}" >&2
+echo skopeo copy "${oci_url}" "oci:${skopeo_tmp_dir}:${tag}" >&2
+skopeo copy "${oci_url}" "oci:${skopeo_tmp_dir}:${tag}" >&2
 
 # Create temporary directory to unpack rootfs
-umoci_tmp_dir=$(mktemp --directory --tmpdir="${PWD}")
+umoci_tmp_dir="$(mktemp --directory --tmpdir="${PWD}")"
 
 # Extract image into a bundle
 echo umoci unpack --rootless --image "${skopeo_tmp_dir}:${tag}" "${umoci_tmp_dir}" >&2
