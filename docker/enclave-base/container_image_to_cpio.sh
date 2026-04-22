@@ -42,23 +42,22 @@ if [ -z "${oci_url}" ]; then
     exit 1
 fi
 
+set -x
 # Create temporary directory to extract image layers
 skopeo_tmp_dir="$(mktemp --directory --tmpdir="${PWD}")"
 
 # Copy image filesystem layers
-echo skopeo copy "${oci_url}" "oci:${skopeo_tmp_dir}:${tag}" >&2
 skopeo copy "${oci_url}" "oci:${skopeo_tmp_dir}:${tag}" >&2
 
 # Create temporary directory to unpack rootfs
 umoci_tmp_dir="$(mktemp --directory --tmpdir="${PWD}")"
 
 # Extract image into a bundle
-echo umoci unpack --rootless --image "${skopeo_tmp_dir}:${tag}" "${umoci_tmp_dir}" >&2
-umoci unpack --rootless --image "${skopeo_tmp_dir}:${tag}" "${umoci_tmp_dir}"
+umoci unpack --rootless --image "${skopeo_tmp_dir}:${tag}" "${umoci_tmp_dir}" >&2
 
 pushd "${umoci_tmp_dir}/rootfs" >&2
 find . | cpio --create --format newc --owner 0:0 > "${output_file}"
-popd > /dev/null >&2
+popd >&2
 
 if [ $keep_files == 0 ]; then
     rm -fr ${skopeo_tmp_dir} >&2
