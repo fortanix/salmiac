@@ -6,6 +6,7 @@ on:
     paths:
       - 'docker/enclave-base/**'
       - 'docker/parent-base/**'
+      - 'docker/parent-base-snp/**'
   pull_request:
     branches: [ "master" ]
     types:
@@ -14,6 +15,7 @@ on:
     paths:
       - 'docker/enclave-base/**'
       - 'docker/parent-base/**'
+      - 'docker/parent-base-snp/**'
 
 jobs:
   build-docker-images:
@@ -29,4 +31,8 @@ jobs:
         run: |
           docker build docker/enclave-base -t enclave-base
           docker build docker/parent-base -t parent-base
-          docker rmi enclave-base parent-base
+          docker build \
+            --build-context parent-base=docker/parent-base \
+            -t parent-base-snp \
+            docker/parent-base-snp
+          docker rmi enclave-base parent-base parent-base-snp
