@@ -1,13 +1,16 @@
 # Host-side toolbox image for launching SEV-SNP confidential VMs.
 ARG UBUNTU_VERSION=24.04
 ARG QEMU_VERSION=v10.2.2
+ARG QEMU_TARBALL_SHA256=784b296ff29c1417aa72323abcb2d2ea9ab9771724f577dcd785c3b04f21e176
 
-# Build QEMU from source at a pinned tag.
-# Ubuntu 24.04 ships QEMU 8.2, which predates the mature SEV-SNP feature set
-# we require. Building from an upstream tag keeps behavior deterministic for
-# attestation reference values and lets us upgrade deliberately.
+# Build QEMU from source at a pinned upstream release.
+# Ubuntu 24.04 ships QEMU 8.2, which predates the mature SEV-SNP feature
+# set we require. Downloading the release tarball and verifying its
+# SHA-256 keeps behavior deterministic for attestation reference values
+# and lets us upgrade deliberately.
 FROM ubuntu:${UBUNTU_VERSION} AS qemu-builder
 ARG QEMU_VERSION
+ARG QEMU_TARBALL_SHA256
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
@@ -15,6 +18,7 @@ RUN apt-get update \
         bison \
         build-essential \
         ca-certificates \
+        curl \
         flex \
         git \
         libaio-dev \
@@ -28,10 +32,18 @@ RUN apt-get update \
         pkg-config \
         python3 \
         python3-venv \
+        xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch "${QEMU_VERSION}" \
-        https://gitlab.com/qemu-project/qemu.git /src/qemu
+# Download the official QEMU release tarball, verify its SHA-256, then
+# extract. Any mismatch fails the build.
+RUN QEMU_VER_NUM="${QEMU_VERSION#v}" \
+    && curl -fsSL -o /tmp/qemu.tar.xz \
+        "https://download.qemu.org/qemu-${QEMU_VER_NUM}.tar.xz" \
+    && echo "${QEMU_TARBALL_SHA256}  /tmp/qemu.tar.xz" | sha256sum -c - \
+    && mkdir -p /src/qemu \
+    && tar -xJf /tmp/qemu.tar.xz -C /src/qemu --strip-components=1 \
+    && rm /tmp/qemu.tar.xz
 
 WORKDIR /src/qemu
 RUN ./configure \
@@ -53,6 +65,35 @@ RUN ./configure \
 FROM ubuntu:${UBUNTU_VERSION} AS parent-base-snp
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Runtime packages. Groups:
+#
+#   QEMU runtime libraries, linked by the binaries built in stage 1:
+#     libaio1t64      - libaio (async disk I/O)
+#     libcap-ng0      - libcap-ng (POSIX capability drops for sandboxing)
+#     libglib2.0-0t64 - GLib (QEMU's core utility library)
+#     libpixman-1-0   - pixman (guest framebuffer pixel ops; still
+#                       linked even with --disable-gtk/sdl/vnc)
+#     libseccomp2     - seccomp BPF filter (--enable-seccomp)
+#     libslirp0       - libslirp (user-mode networking, --enable-slirp)
+#     zlib1g          - zlib (compressed disk images, bzImage loading)
+#
+#   Host <-> CVM networking for the fortanix-tap0 interface:
+#     dnsmasq, iproute2, iptables, net-tools
+#
+#   Backing storage for the CVM's persistent disk (same as Nitro):
+#     nbd-server
+#
+#   Linked by Salmiac's Rust networking crates (matches Nitro parent-base):
+#     libpcap-dev
+#
+#   Kernel-module loader for KVM / VFIO setup on the host:
+#     kmod
+#
+#   General userspace utilities used by Salmiac tooling:
+#     ca-certificates, curl, jq, sudo, systemctl
+#
+#   Diagnostics:
+#     strace, tcpdump
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
