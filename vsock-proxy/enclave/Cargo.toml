@@ -52,3 +52,8 @@ serde_cbor = "0.11.2"
 [dev-dependencies]
 lazy_static = "1.0"
 parent_lib = { path = "../parent/lib" }
+
+[lints.rust]
+unexpected_cfgs = { level = "deny", check-cfg = [
+    'cfg(platform, values("nitro"))',
+]}

@@ -8,6 +8,8 @@ use std::{env, fs};
 // to avoid problems runtime linking errors with libnss
 const ENCLAVE_STARTUP_TARGET: &str = "x86_64-unknown-linux-musl";
 
+const VSOCK_PROXY_RUSTFLAGS: &str = "--cfg platform=\"nitro\"";
+
 const VSOCK_PROXY_BIN_DIR: &str = "../../vsock-proxy/target";
 
 const ENCLAVE_STARTUP_BIN_DIR: &str = "../../enclave-startup/target";
@@ -37,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         let mut result = Command::new("cargo");
 
-        result.current_dir(current_dir.join("../../vsock-proxy")).arg("build");
+        result.current_dir(current_dir.join("../../vsock-proxy")).env("RUSTFLAGS", VSOCK_PROXY_RUSTFLAGS).arg("build");
 
         if let Some(build_flag) = cargo_build_flag {
             result.arg(build_flag);

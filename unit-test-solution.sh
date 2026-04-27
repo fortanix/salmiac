@@ -2,6 +2,10 @@
 
 set -exo pipefail
 
+VSOCK_PROXY_PLATFORMS=(
+    nitro
+)
+
 # Run unit tests
 if [ $FLAVOR == "release" ]; then
   cargo_build_flag="--release"
@@ -21,7 +25,14 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
 for unit_test_dir in "${unit_test_dirs[@]}"
   do
     pushd "$unit_test_dir"
-    cargo test $cargo_build_flag --locked
+    if [[ "$unit_test_dir" == vsock-proxy/* ]] ; then
+      for platform in "${VSOCK_PROXY_PLATFORMS[@]}"
+      do
+        RUSTFLAGS="--cfg=platform=\"${platform}\"" cargo test $cargo_build_flag --locked
+      done
+    else
+      cargo test $cargo_build_flag --locked
+    fi
     popd
   done
 fi
