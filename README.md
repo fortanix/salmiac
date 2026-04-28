@@ -1,24 +1,21 @@
-Salmiac
-======
-
+# Salmiac
 
 A confidential VM running unmodified container images in AWS [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/).
 Salmiac makes it possible to run an application in isolated compute environments to protect and securely process highly sensitive data.
 
-By default bare Nitro Enclaves doesn't provide any networking capability outside of the enclave environment as well
+By default, bare Nitro Enclaves doesn't provide any networking capability outside of the enclave environment as well
 as no persistent storage, meaning that all your data is lost when container image finishes its execution.
 
 Salmiac enhances Nitro Enclaves by enabling networking for external communication and providing encrypted persistent storage.
 
-Useful links
-------------
+## Useful Links
 
 * :wrench: [Nitro-cli](https://github.com/aws/aws-nitro-enclaves-cli) a tool Salmiac is built on.
 * :book: [The Security Design of the AWS Nitro System](https://docs.aws.amazon.com/whitepapers/latest/security-design-of-aws-nitro-system/security-design-of-aws-nitro-system.html), official Nitro Enclaves whitepaper.
 * :film_projector: [Presentation](https://archive.fosdem.org/2023/schedule/event/cc_aws/) of Salmiac internals.
 
-Quick Start Guide
---------------
+## Quick Start Guide
+
 This guide allows you to build salmiac from source and convert your docker application into a one that can run in a nitro enclave. 
 
 1. Set up your Ubuntu based build system:
@@ -110,13 +107,33 @@ This guide allows you to build salmiac from source and convert your docker appli
       docker run -it --rm --privileged -v /run/nitro_enclaves:/run/nitro_enclaves -e ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE=true hello-world-nitro
     ```
 
-# Contributing
+## Releases
+
+The crates within this repository are not published to [crates.io](https://crates.io/), and generally are intended to be
+used as `git` references or submodules, and as such, release versioning is tied
+to commit hashes and branches.
+
+### Branches
+
+There is a release strategy based on branches,
+which follow a naming scheme of `release/salmiac/major.minor`.
+Fortanix, while maintaining this repository, will create such release branches at
+certain points of development, which are generally tied to [Confidential Computing Manager](https://www.fortanix.com/platform/confidential-computing-manager)
+releases.
+
+### Backports
+
+Unlike with tag-based releases, these release branches _may_ have backported changes added to them, so particular
+attention _must_ be paid to the branch tip commit, as these may change.
+No patch number is used in release branches, making this all the more important.
+
+## Contributing
 
 We gratefully accept bug reports and contributions from the community.
 By participating in this community, you agree to abide by [Code of Conduct](./CODE_OF_CONDUCT.md).
 All contributions are covered under the Developer's Certificate of Origin (DCO).
 
-## Developer's Certificate of Origin 1.1
+### Developer's Certificate of Origin 1.1
 
 By making a contribution to this project, I certify that:
 
@@ -142,6 +159,6 @@ personal information I submit with it, including my sign-off) is
 maintained indefinitely and may be redistributed consistent with
 this project or the open source license(s) involved.
 
-# License
+## License
 
 This project is primarily distributed under the terms of the Mozilla Public License (MPL) 2.0, see [LICENSE](./LICENSE) for details.
