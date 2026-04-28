@@ -27,9 +27,10 @@ jobs:
       - name: Build docker images
         run: |
           docker build docker/enclave-base -t enclave-base
+          docker build docker/enclave-base-snp -t enclave-base-snp
           docker build docker/parent-base -t parent-base
           docker build \
             --build-context parent-base=docker/parent-base \
             -t parent-base-snp \
             docker/parent-base-snp
-          docker rmi enclave-base parent-base parent-base-snp
+          docker rmi enclave-base enclave-base-snp parent-base parent-base-snp
