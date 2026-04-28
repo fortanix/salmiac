@@ -20,6 +20,3 @@ pub(crate) struct GuestLaunchResult {
 
 #[cfg(platform = "nitro")]
 pub(crate) use nitro::{enable_client_log_forwarding, launch_guest};
-
-#[cfg(not(platform = "nitro"))]
-compile_error!("Set cfg(platform = \"...\") to proceed. Available options are: platform=\"nitro\"");

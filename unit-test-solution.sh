@@ -28,7 +28,7 @@ for unit_test_dir in "${unit_test_dirs[@]}"
     if [[ "$unit_test_dir" == vsock-proxy/* ]] ; then
       for platform in "${VSOCK_PROXY_PLATFORMS[@]}"
       do
-        RUSTFLAGS="--cfg=platform=\"${platform}\"" cargo test $cargo_build_flag --locked
+        VSOCK_PROXY_PLATFORM="${platform}" cargo test $cargo_build_flag --locked
       done
     else
       cargo test $cargo_build_flag --locked

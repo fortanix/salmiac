@@ -1,0 +1,7 @@
+[package]
+name = "vsock-proxy-build-support"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+strum = { version = "0.28", features = ["derive"] }

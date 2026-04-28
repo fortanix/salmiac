@@ -8,10 +8,6 @@ if [ -z "$repo_root" ] ; then
     repo_root=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")")
 fi
 
-VSOCK_PROXY_PLATFORMS=(
-    nitro
-)
-
 RUSTFMT_PATHS=(
     "$repo_root/api-model"
     "$repo_root/enclave-startup"
@@ -32,14 +28,7 @@ declare -A CLIPPY_PATHS=(
 for path_to_check in "${RUSTFMT_PATHS[@]}"
 do
     pushd "$path_to_check"
-    if [[ "$path_to_check" == "$repo_root/vsock-proxy"* ]] ; then
-        for platform in "${VSOCK_PROXY_PLATFORMS[@]}"
-        do
-            RUSTFLAGS="--cfg=platform=\"${platform}\"" cargo fmt --check
-        done
-    else
-        cargo fmt --check
-    fi
+    cargo fmt --check
 #    TODO: RTE-568
 #    cargo sort --check
     popd
