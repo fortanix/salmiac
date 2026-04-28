@@ -4,21 +4,20 @@ on:
   push:
     branches: [ "master" ]
     paths:
-      - 'docker/enclave-base/**'
-      - 'docker/parent-base/**'
+      - 'docker/**'
   pull_request:
     branches: [ "master" ]
     types:
       - closed
       - opened
+      - synchronize
     paths:
-      - 'docker/enclave-base/**'
-      - 'docker/parent-base/**'
+      - 'docker/**'
 
 jobs:
   build-docker-images:
     runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'edited')
+    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize')
     steps:
       - name: Pull main repository
         uses: actions/checkout@v3
@@ -29,4 +28,8 @@ jobs:
         run: |
           docker build docker/enclave-base -t enclave-base
           docker build docker/parent-base -t parent-base
-          docker rmi enclave-base parent-base
+          docker build \
+            --build-context parent-base=docker/parent-base \
+            -t parent-base-snp \
+            docker/parent-base-snp
+          docker rmi enclave-base parent-base parent-base-snp
