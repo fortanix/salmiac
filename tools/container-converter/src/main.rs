@@ -6,7 +6,7 @@
 
 use std::fs;
 
-use api_model::converter::NitroEnclavesConversionRequest;
+use api_model::nitro::NitroEnclavesConversionRequest;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
 use log::error;

@@ -6,6 +6,8 @@
 
 pub mod converter;
 pub mod enclave;
+// TODO: config
+pub mod nitro;
 
 use std::convert::TryFrom;
 use std::fmt;

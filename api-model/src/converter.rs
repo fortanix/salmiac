@@ -10,21 +10,21 @@ use std::path::Path;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{ByteUnit, HexString};
+use crate::HexString;
 
-#[derive(Clone, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct NitroEnclavesConversionRequest {
-    #[cfg_attr(feature = "serde", serde(flatten))]
-    pub request: ConversionRequest,
-    pub nitro_enclaves_options: NitroEnclavesConversionRequestOptions,
-}
-
-impl NitroEnclavesConversionRequest {
-    pub fn is_debug(&self) -> bool {
-        self.request.converter_options.debug.unwrap_or(false)
-    }
-}
+//#[derive(Clone, PartialEq, Debug)]
+//#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+//pub struct NitroEnclavesConversionRequest {
+//    #[cfg_attr(feature = "serde", serde(flatten))]
+//    pub request: ConversionRequest,
+//    pub nitro_enclaves_options: NitroEnclavesConversionRequestOptions,
+//}
+//
+//impl NitroEnclavesConversionRequest {
+//    pub fn is_debug(&self) -> bool {
+//        self.request.converter_options.debug.unwrap_or(false)
+//    }
+//}
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -209,17 +209,17 @@ fn default_to_false() -> Option<bool> {
     Some(false)
 }
 
-#[derive(Clone, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct NitroEnclavesConversionRequestOptions {
-    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
-    pub cpu_count: Option<u8>,
-
-    /// Override the enclave size, e.g. 2048M. Suffixes K, M, and G are supported.
-    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
-    pub mem_size: Option<ByteUnit>,
-    // there may be more coming, we don't know at this point of time
-}
+//#[derive(Clone, PartialEq, Debug)]
+//#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+//pub struct NitroEnclavesConversionRequestOptions {
+//    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+//    pub cpu_count: Option<u8>,
+//
+//    /// Override the enclave size, e.g. 2048M. Suffixes K, M, and G are supported.
+//    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+//    pub mem_size: Option<ByteUnit>,
+//    // there may be more coming, we don't know at this point of time
+//}
 
 /// Credentials for authenticating to a docker registry
 #[derive(Debug, Clone, PartialEq)]
@@ -232,16 +232,16 @@ pub struct AuthConfig {
     pub password: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct NitroEnclavesConversionResponse {
-    /// Converted image details
-    #[cfg_attr(feature = "serde", serde(flatten))]
-    pub converted_image: ConvertedImageInfo,
-
-    /// NitroEnclaves configuration of the converted image
-    pub config: NitroEnclavesConfig,
-}
+//#[derive(Clone, Eq, PartialEq, Debug)]
+//#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+//pub struct NitroEnclavesConversionResponse {
+//    /// Converted image details
+//    #[cfg_attr(feature = "serde", serde(flatten))]
+//    pub converted_image: ConvertedImageInfo,
+//
+//    /// NitroEnclaves configuration of the converted image
+//    pub config: NitroEnclavesConfig,
+//}
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

@@ -13,11 +13,13 @@ use std::sync::mpsc::Sender;
 use std::{env, fmt};
 
 use api_model::converter::{
-    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig,
-    NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements,
-    NitroEnclavesVersion,
+    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm
 };
 use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
+use api_model::nitro::{
+    NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse,
+    NitroEnclavesMeasurements, NitroEnclavesVersion,
+};
 use api_model::HexString;
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
@@ -521,8 +523,8 @@ mod tests {
     use api_model::converter::{
         CaCertificateConfig, CcmConfiguration, CertIssuer, CertificateConfig, ConversionRequest,
         ConversionRequestImageInfo, ConverterOptions, DsmConfiguration, KeyType,
-        NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions,
     };
+    use api_model::nitro::{NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions};
     use lazy_static::lazy_static;
     use serde_json::Value;
 
