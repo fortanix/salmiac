@@ -10,6 +10,8 @@ use crate::{ConverterError, ConverterErrorKind};
 
 pub mod enclave;
 pub mod parent;
+#[cfg(platform = "snp")]
+pub mod snp;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 const ORIG_ENV_LIST_PATH: &'static str = "original-parent.env";

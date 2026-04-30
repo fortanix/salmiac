@@ -3,6 +3,9 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+#[cfg(platform = "snp")]
+mod snp;
+
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ffi::OsStr;
@@ -13,7 +16,7 @@ use std::sync::mpsc::Sender;
 use std::{env, fmt};
 
 use api_model::converter::{
-    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm
+    AuthConfig, ConversionRequest, ConvertedImageInfo, ConverterOptions, HashAlgorithm,
 };
 use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
 use api_model::nitro::{
@@ -104,16 +107,16 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     })?
 }
 
-fn validate_request(request: &NitroEnclavesConversionRequest) -> Result<()> {
-    if request.request.input_image.name == request.request.output_image.name {
+fn validate_request(request: &ConversionRequest) -> Result<()> {
+    if request.input_image.name == request.output_image.name {
         return Err(ConverterError {
             message: "Input and output images must be different".to_string(),
             kind: ConverterErrorKind::BadRequest,
         });
     }
 
-    if !request.request.converter_options.certificates.is_empty() {
-        for cert_settings in &request.request.converter_options.certificates {
+    if !request.converter_options.certificates.is_empty() {
+        for cert_settings in &request.converter_options.certificates {
             if let Some(kp) = &cert_settings.key_param {
                 let key_size = kp.as_u64().unwrap_or(DEFAULT_RSA_SIZE.into());
                 // If a certificate is configured and it contains a valid number, it should
@@ -138,14 +141,14 @@ fn validate_request(request: &NitroEnclavesConversionRequest) -> Result<()> {
         }
     }
 
-    if !request.request.converter_options.ca_certificates.is_empty() {
+    if !request.converter_options.ca_certificates.is_empty() {
         return Err(ConverterError {
             message: "CA certificates are not supported on this platform yet".to_string(),
             kind: ConverterErrorKind::BadCertConfig,
         });
     }
 
-    if let Some(c) = &request.request.converter_options.ccm_configuration {
+    if let Some(c) = &request.converter_options.ccm_configuration {
         if CcmBackendUrl::new(c.ccm_url.as_str()).is_err() {
             return Err(ConverterError {
                 message: "CcmConfiguration:ccm_url should be in <host>:<port> format".to_string(),
@@ -154,7 +157,7 @@ fn validate_request(request: &NitroEnclavesConversionRequest) -> Result<()> {
         }
     }
 
-    if let Some(d) = &request.request.converter_options.dsm_configuration {
+    if let Some(d) = &request.converter_options.dsm_configuration {
         if url::Url::parse(&d.dsm_url).is_err() {
             return Err(ConverterError {
                 message: "DsmConfiguration:dsm_url is not a valid url".to_string(),
@@ -170,7 +173,7 @@ async fn run0(
     conversion_request: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
 ) -> Result<NitroEnclavesConversionResponse> {
-    validate_request(&conversion_request)?;
+    validate_request(&conversion_request.request)?;
 
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
     info!("Parent base image is {}", parent_image);
@@ -648,7 +651,7 @@ mod tests {
                 mem_size: None,
             },
         };
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -701,7 +704,7 @@ mod tests {
                 mem_size: None,
             },
         };
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_ok());
     }
 
@@ -748,7 +751,7 @@ mod tests {
                 mem_size: None,
             },
         };
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -801,7 +804,7 @@ mod tests {
                 mem_size: None,
             },
         };
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -819,7 +822,7 @@ mod tests {
             ca_cert: None,
             system: None,
         }];
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -834,13 +837,13 @@ mod tests {
         let mut request = SAMPLE_REQUEST.clone();
 
         // Test 1 - Default config i.e. No ccm config set
-        assert!(validate_request(&request).is_ok());
+        assert!(validate_request(&request.request).is_ok());
 
         // Test 2 - Invalid CCM configuration set
         request.request.converter_options.ccm_configuration = Some(CcmConfiguration {
             ccm_url: "InvalidUrl".to_string(),
         });
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -857,7 +860,7 @@ mod tests {
         request.request.converter_options.ccm_configuration = Some(CcmConfiguration {
             ccm_url: "ccm.sample.fortanix.com:267".to_string(),
         });
-        assert!(validate_request(&request).is_ok());
+        assert!(validate_request(&request.request).is_ok());
     }
 
     #[test]
@@ -865,13 +868,13 @@ mod tests {
         let mut request = SAMPLE_REQUEST.clone();
 
         // Test 1 - Default config i.e. No dsm config set
-        assert!(validate_request(&request).is_ok());
+        assert!(validate_request(&request.request).is_ok());
 
         // Test 2 - Invalid DSM configuration set
         request.request.converter_options.dsm_configuration = Some(DsmConfiguration {
             dsm_url: "InvalidUrl".to_string(),
         });
-        let res = validate_request(&request);
+        let res = validate_request(&request.request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -888,6 +891,6 @@ mod tests {
         request.request.converter_options.dsm_configuration = Some(DsmConfiguration {
             dsm_url: "https://someregion.smartkey.io".to_string(),
         });
-        assert!(validate_request(&request).is_ok());
+        assert!(validate_request(&request.request).is_ok());
     }
 }

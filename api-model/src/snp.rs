@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     converter::{ConversionRequest, ConvertedImageInfo},
-    ByteUnit,
+    ByteUnit, HexString,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -53,12 +53,8 @@ pub struct SNPEnclavesConversionResponse {
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SNPEnclavesConfig {
-    // here the key should be different nitro enclaves versions
-    ///// SNPEnclaves measurements of the converted image
-    //pub measurements: HashMap<NitroEnclavesVersion, NitroEnclavesMeasurements>,
-    //
-    ///// Signer of the nitro enclaves
-    //pub pcr8: HexString,
+    /// SNPEnclaves measurements of the converted image
+    pub measurements: SNPEnclavesMeasurements,
 }
 
 //#[derive(Clone, Eq, PartialEq, Debug, Hash)]
@@ -70,8 +66,5 @@ pub struct SNPEnclavesConfig {
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SNPEnclavesMeasurements {
-    //pub hash_algorithm: HashAlgorithm,
-    //pub pcr0: HexString,
-    //pub pcr1: HexString,
-    //pub pcr2: HexString,
+    pub launch_measurement: HexString,
 }

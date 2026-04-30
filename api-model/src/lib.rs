@@ -6,9 +6,9 @@
 
 pub mod converter;
 pub mod enclave;
-// TODO: config
+#[cfg(platform = "nitro")]
 pub mod nitro;
-// TODO config
+#[cfg(platform = "snp")]
 pub mod snp;
 
 use std::convert::TryFrom;
