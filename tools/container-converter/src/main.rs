@@ -4,13 +4,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::fs;
-
+#[cfg(platform = "nitro")]
 use api_model::nitro::NitroEnclavesConversionRequest;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
 use log::error;
+use std::fs;
 
+#[cfg(platform = "nitro")]
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
@@ -40,6 +41,18 @@ async fn main() -> Result<(), String> {
             Err(err.message)
         }
     }
+}
+
+#[cfg(platform = "snp")]
+#[tokio::main]
+async fn main2() -> Result<(), String> {
+    use api_model::snp::SNPEnclavesConversionRequest;
+
+    let request = SNPEnclavesConversionRequest {
+        request: todo!(),
+        snp_enclaves_options: todo!(),
+    };
+    container_converter::snp::run(request);
 }
 
 fn console_arguments<'a>() -> ArgMatches<'a> {

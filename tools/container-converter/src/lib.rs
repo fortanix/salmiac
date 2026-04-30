@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #[cfg(platform = "snp")]
-mod snp;
+pub mod snp;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -19,6 +19,7 @@ use api_model::converter::{
     AuthConfig, ConversionRequest, ConvertedImageInfo, ConverterOptions, HashAlgorithm,
 };
 use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
+#[cfg(platform = "nitro")]
 use api_model::nitro::{
     NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse,
     NitroEnclavesMeasurements, NitroEnclavesVersion,
@@ -37,7 +38,8 @@ use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{
     docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails,
 };
-use crate::image_builder::enclave::PCRList;
+#[cfg(platform = "nitro")]
+use crate::image_builder::nitro::enclave::PCRList;
 
 pub mod docker;
 pub mod file;
@@ -87,6 +89,7 @@ const ENCLAVE_IMAGE: &str = "enclave-base";
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
 
+#[cfg(platform = "nitro")]
 pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
     let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
     let local_repository = Docker::new();
@@ -169,6 +172,7 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
     Ok(())
 }
 
+#[cfg(platform = "nitro")]
 async fn run0(
     conversion_request: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
@@ -220,10 +224,12 @@ async fn run0(
 
         debug!("User program config is: {:?}", user_program_config);
 
-        let enclave_builder = EnclaveImageBuilder {
-            client_image_reference: &input_image.image.reference,
-            dir: &temp_dir,
-            enclave_base_image: &enclave_base_image.reference,
+        let enclave_builder = crate::image_builder::nitro::enclave::EnclaveImageBuilder {
+            enclave_image_builder: EnclaveImageBuilder {
+                client_image_reference: &input_image.image.reference,
+                dir: &temp_dir,
+                enclave_base_image: &enclave_base_image.reference,
+            },
         };
 
         let enclave_settings =
@@ -247,9 +253,11 @@ async fn run0(
             .await?
     };
 
-    let parent_builder = ParentImageBuilder {
-        parent_image,
-        dir: &temp_dir,
+    let parent_builder = crate::image_builder::nitro::parent::ParentImageBuilder {
+        parent_image_builder: ParentImageBuilder {
+            parent_image,
+            dir: &temp_dir,
+        },
         start_options: conversion_request.nitro_enclaves_options,
     };
 
@@ -324,6 +332,7 @@ async fn push_result_image(
     Ok(())
 }
 
+#[cfg(platform = "nitro")]
 fn create_response(
     image: &ImageWithDetails,
     pcr_list: PCRList,
@@ -520,6 +529,7 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
 }
 
 #[cfg(test)]
+#[cfg(platform = "nitro")]
 mod tests {
     use std::env;
 
