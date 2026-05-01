@@ -10,23 +10,26 @@ use std::{
 };
 
 use api_model::{
+    converter::ConvertedImageInfo,
     enclave::UserConfig,
-    snp::{SNPEnclavesConversionRequest, SNPEnclavesConversionResponse},
+    snp::{
+        SNPEnclavesConfig, SNPEnclavesConversionRequest, SNPEnclavesConversionResponse,
+        SNPEnclavesMeasurements,
+    },
     HexString,
 };
-use log::{debug, info};
+use log::{debug, error, info};
 use shiplift::Docker;
 use tempfile::TempDir;
 
 use crate::{
     clean_docker_images, create_user_program_config,
     docker::{DockerDaemon, DockerUtil},
-    get_enclave_base_image, get_parent_base_image,
+    get_enclave_base_image, get_parent_base_image, hex_response,
     image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails},
     image_builder::{
         enclave::{get_image_env, EnclaveSettings},
-        snp::enclave::EnclaveImageBuilder,
-        snp::parent::ParentImageBuilder,
+        snp::{enclave::EnclaveImageBuilder, parent::ParentImageBuilder},
     },
     preserve_images_list, push_result_image, validate_request, ConverterError, ConverterErrorKind,
     Result, ENCLAVE_IMAGE, PARENT_IMAGE,
@@ -168,5 +171,37 @@ fn create_response(
     image: &ImageWithDetails,
     measurement: HexString,
 ) -> Result<SNPEnclavesConversionResponse> {
-    todo!()
+    let result = SNPEnclavesConversionResponse {
+        converted_image: ConvertedImageInfo {
+            name: image.reference.to_string(),
+            sha: hex_response(image.short_id())?,
+            size: image.details.size as usize,
+        },
+
+        config: SNPEnclavesConfig {
+            measurements: SNPEnclavesMeasurements {
+                launch_measurement: measurement,
+            },
+        },
+    };
+    Ok(result)
+}
+
+pub async fn process_request(request_file: &str) -> std::result::Result<(), String> {
+    let request = serde_json::from_str::<SNPEnclavesConversionRequest>(&request_file)
+        .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
+
+    match run(request).await {
+        Ok(response) => {
+            let response_serialized = serde_json::to_string(&response)
+                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
+
+            println!("Successful nitro conversion: {:?}", response_serialized);
+            Ok(())
+        }
+        Err(err) => {
+            error!("Converter exited with error: {}", err.message);
+            Err(err.message)
+        }
+    }
 }

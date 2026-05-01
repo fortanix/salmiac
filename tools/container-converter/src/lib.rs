@@ -332,18 +332,18 @@ async fn push_result_image(
     Ok(())
 }
 
+fn hex_response(arg: &str) -> Result<HexString> {
+    HexString::from_str(arg).map_err(|err| ConverterError {
+        message: format!("Failed converting string {} to hex string. {:?}", arg, err),
+        kind: ConverterErrorKind::InternalError,
+    })
+}
+
 #[cfg(platform = "nitro")]
 fn create_response(
     image: &ImageWithDetails,
     pcr_list: PCRList,
 ) -> Result<NitroEnclavesConversionResponse> {
-    fn hex_response(arg: &str) -> Result<HexString> {
-        HexString::from_str(arg).map_err(|err| ConverterError {
-            message: format!("Failed converting string {} to hex string. {:?}", arg, err),
-            kind: ConverterErrorKind::InternalError,
-        })
-    }
-
     let mut measurements = HashMap::new();
 
     measurements.insert(

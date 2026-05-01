@@ -16,7 +16,9 @@ use std::fs;
 async fn main() -> Result<(), String> {
     env_logger::init();
 
-    let console_arguments = console_arguments();
+    let console_arguments = console_arguments(
+        "Converts user docker container to be able to run in AWS Nitro environment",
+    );
 
     let request_file_path = console_arguments
         .value_of("request-file")
@@ -45,19 +47,27 @@ async fn main() -> Result<(), String> {
 
 #[cfg(platform = "snp")]
 #[tokio::main]
-async fn main2() -> Result<(), String> {
-    use api_model::snp::SNPEnclavesConversionRequest;
+async fn main() -> Result<(), String> {
+    env_logger::init();
 
-    let request = SNPEnclavesConversionRequest {
-        request: todo!(),
-        snp_enclaves_options: todo!(),
-    };
-    container_converter::snp::run(request);
+    let console_arguments = console_arguments(
+        "Converts user docker container to be able to run in AMD SNP environment",
+    );
+
+    let request_file_path = console_arguments
+        .value_of("request-file")
+        .expect("Request file must be provided");
+
+    let request_file = fs::read_to_string(request_file_path)
+        .map_err(|err| format!("Failed reading request file. {:?}", err))?;
+
+    container_converter::snp::process_request(&request_file).await
 }
 
-fn console_arguments<'a>() -> ArgMatches<'a> {
+fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
     App::new("Container converter")
-        .about("Converts user docker container to be able to run in AWS Nitro environment")
+        //.about("Converts user docker container to be able to run in AWS Nitro environment")
+        .about(platform)
         .setting(AppSettings::DisableVersion)
         .arg(
             Arg::with_name("request-file")
