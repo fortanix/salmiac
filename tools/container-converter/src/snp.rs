@@ -78,7 +78,6 @@ async fn run0(
     conversion_request: SNPEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
 ) -> Result<SNPEnclavesConversionResponse> {
-    // TODO: common code
     validate_request(&conversion_request.request)?;
 
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
@@ -135,7 +134,6 @@ async fn run0(
             certificate_config: conversion_request.request.converter_options.certificates,
         };
 
-        // End of common code - Move enclave builder down?
         let enclave_builder = EnclaveImageBuilder {
             client_image_reference: &input_image.image.reference,
             dir: &temp_dir,
