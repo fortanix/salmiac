@@ -1,9 +1,7 @@
 use api_model::snp::SNPEnclavesConversionRequestOptions;
 use tempfile::TempDir;
 
-use crate::{image::ImageWithDetails, ConverterError};
-
-pub type Result<T> = std::result::Result<T, ConverterError>;
+use crate::{image::ImageWithDetails, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image: String,

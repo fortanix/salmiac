@@ -4,11 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#[cfg(platform = "nitro")]
-use api_model::nitro::NitroEnclavesConversionRequest;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use env_logger;
-use log::error;
 use std::fs;
 
 #[cfg(platform = "nitro")]
@@ -27,22 +24,7 @@ async fn main() -> Result<(), String> {
     let request_file = fs::read_to_string(request_file_path)
         .map_err(|err| format!("Failed reading request file. {:?}", err))?;
 
-    let request = serde_json::from_str::<NitroEnclavesConversionRequest>(&request_file)
-        .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
-
-    match container_converter::run(request).await {
-        Ok(response) => {
-            let response_serialized = serde_json::to_string(&response)
-                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
-
-            println!("Successful nitro conversion: {:?}", response_serialized);
-            Ok(())
-        }
-        Err(err) => {
-            error!("Converter exited with error: {}", err.message);
-            Err(err.message)
-        }
-    }
+    container_converter::nitro::process_request(&request_file).await
 }
 
 #[cfg(platform = "snp")]

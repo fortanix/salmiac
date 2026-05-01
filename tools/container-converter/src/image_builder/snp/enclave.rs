@@ -2,9 +2,7 @@ use api_model::snp::SNPEnclavesMeasurements;
 use docker_image_reference::Reference as DockerReference;
 use tempfile::TempDir;
 
-use crate::ConverterError;
-
-pub type Result<T> = std::result::Result<T, ConverterError>;
+use crate::Result;
 
 pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) client_image_reference: &'a DockerReference<'a>,

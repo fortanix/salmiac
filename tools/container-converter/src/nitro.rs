@@ -1,42 +1,45 @@
 /* Copyright (c) Fortanix, Inc.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+*  *
+*   * This Source Code Form is subject to the terms of the Mozilla Public
+*    * License, v. 2.0. If a copy of the MPL was not distributed with this
+*     * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#[cfg(platform = "nitro")]
+use std::collections::HashMap;
 use std::{
     env,
     sync::mpsc::{self, Sender},
 };
 
-use api_model::{
-    converter::ConvertedImageInfo,
-    enclave::UserConfig,
-    snp::{
-        SNPEnclavesConfig, SNPEnclavesConversionRequest, SNPEnclavesConversionResponse,
-        SNPEnclavesMeasurements,
+use crate::{
+    clean_docker_images, create_user_program_config,
+    docker::{DockerDaemon, DockerUtil},
+    get_enclave_base_image, get_parent_base_image,
+    image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails},
+    image_builder::{
+        enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings},
+        parent::ParentImageBuilder,
     },
-    HexString,
+    preserve_images_list, push_result_image, validate_request, ConverterError, ConverterErrorKind,
+    Result, ENCLAVE_IMAGE, PARENT_IMAGE,
+};
+#[cfg(platform = "nitro")]
+use crate::{hex_response, image_builder::nitro::enclave::PCRList};
+#[cfg(platform = "nitro")]
+use api_model::{
+    converter::{ConvertedImageInfo, HashAlgorithm},
+    nitro::{NitroEnclavesConfig, NitroEnclavesMeasurements, NitroEnclavesVersion},
+};
+use api_model::{
+    enclave::UserConfig,
+    nitro::{NitroEnclavesConversionRequest, NitroEnclavesConversionResponse},
 };
 use log::{debug, error, info};
 use shiplift::Docker;
 use tempfile::TempDir;
 
-use crate::{
-    clean_docker_images, create_user_program_config,
-    docker::{DockerDaemon, DockerUtil},
-    get_enclave_base_image, get_parent_base_image, hex_response,
-    image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails},
-    image_builder::{
-        enclave::{get_image_env, EnclaveSettings},
-        snp::{enclave::EnclaveImageBuilder, parent::ParentImageBuilder},
-    },
-    preserve_images_list, push_result_image, validate_request, ConverterError, ConverterErrorKind,
-    Result, ENCLAVE_IMAGE, PARENT_IMAGE,
-};
-
 pub async fn process_request(request_file: &str) -> std::result::Result<(), String> {
-    let request = serde_json::from_str::<SNPEnclavesConversionRequest>(&request_file)
+    let request = serde_json::from_str::<NitroEnclavesConversionRequest>(&request_file)
         .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
 
     match run(request).await {
@@ -54,7 +57,7 @@ pub async fn process_request(request_file: &str) -> std::result::Result<(), Stri
     }
 }
 
-pub async fn run(args: SNPEnclavesConversionRequest) -> Result<SNPEnclavesConversionResponse> {
+pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
     let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
     let local_repository = Docker::new();
     let preserve_images = preserve_images_list()?;
@@ -75,10 +78,9 @@ pub async fn run(args: SNPEnclavesConversionRequest) -> Result<SNPEnclavesConver
 }
 
 async fn run0(
-    conversion_request: SNPEnclavesConversionRequest,
+    conversion_request: NitroEnclavesConversionRequest,
     images_to_clean_snd: Sender<ImageToClean>,
-) -> Result<SNPEnclavesConversionResponse> {
-    // TODO: common code
+) -> Result<NitroEnclavesConversionResponse> {
     validate_request(&conversion_request.request)?;
 
     let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
@@ -113,7 +115,7 @@ async fn run0(
     })?;
 
     info!("Building enclave image!");
-    let image_result = {
+    let nitro_image_result = {
         let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
         info!("Enclave base image is {}", enclave_base_image_str);
 
@@ -126,6 +128,14 @@ async fn run0(
 
         debug!("User program config is: {:?}", user_program_config);
 
+        let enclave_builder = crate::image_builder::nitro::enclave::EnclaveImageBuilder {
+            enclave_image_builder: EnclaveImageBuilder {
+                client_image_reference: &input_image.image.reference,
+                dir: &temp_dir,
+                enclave_base_image: &enclave_base_image.reference,
+            },
+        };
+
         let enclave_settings =
             EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
         let image_env_vars =
@@ -133,13 +143,6 @@ async fn run0(
         let user_config = UserConfig {
             user_program_config,
             certificate_config: conversion_request.request.converter_options.certificates,
-        };
-
-        // End of common code - Move enclave builder down?
-        let enclave_builder = EnclaveImageBuilder {
-            client_image_reference: &input_image.image.reference,
-            dir: &temp_dir,
-            enclave_base_image: &enclave_base_image.reference,
         };
 
         let sender = images_to_clean_snd.clone();
@@ -154,10 +157,12 @@ async fn run0(
             .await?
     };
 
-    let parent_builder = ParentImageBuilder {
-        parent_image,
-        dir: &temp_dir,
-        start_options: conversion_request.snp_enclaves_options,
+    let parent_builder = crate::image_builder::nitro::parent::ParentImageBuilder {
+        parent_image_builder: ParentImageBuilder {
+            parent_image,
+            dir: &temp_dir,
+        },
+        start_options: conversion_request.nitro_enclaves_options,
     };
 
     info!("Building result image!");
@@ -183,25 +188,38 @@ async fn run0(
         info!("Skipping output image push");
     }
 
-    create_response(&result.image, image_result.launch_measurement)
+    create_response(&result.image, nitro_image_result.pcr_list)
 }
 
+#[cfg(platform = "nitro")]
 fn create_response(
     image: &ImageWithDetails,
-    measurement: HexString,
-) -> Result<SNPEnclavesConversionResponse> {
-    let result = SNPEnclavesConversionResponse {
+    pcr_list: PCRList,
+) -> Result<NitroEnclavesConversionResponse> {
+    let mut measurements = HashMap::new();
+
+    measurements.insert(
+        NitroEnclavesVersion::NitroEnclaves,
+        NitroEnclavesMeasurements {
+            hash_algorithm: HashAlgorithm::Sha384,
+            pcr0: hex_response(&pcr_list.pcr0)?,
+            pcr1: hex_response(&pcr_list.pcr1)?,
+            pcr2: hex_response(&pcr_list.pcr2)?,
+        },
+    );
+
+    let result = NitroEnclavesConversionResponse {
         converted_image: ConvertedImageInfo {
             name: image.reference.to_string(),
             sha: hex_response(image.short_id())?,
             size: image.details.size as usize,
         },
 
-        config: SNPEnclavesConfig {
-            measurements: SNPEnclavesMeasurements {
-                launch_measurement: measurement,
-            },
+        config: NitroEnclavesConfig {
+            measurements,
+            pcr8: hex_response(&pcr_list.pcr8.unwrap_or_default())?,
         },
     };
+
     Ok(result)
 }

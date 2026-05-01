@@ -3,6 +3,8 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+#[cfg(platform = "nitro")]
+pub mod nitro;
 #[cfg(platform = "snp")]
 pub mod snp;
 
@@ -19,11 +21,6 @@ use api_model::converter::{
     AuthConfig, ConversionRequest, ConvertedImageInfo, ConverterOptions, HashAlgorithm,
 };
 use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
-#[cfg(platform = "nitro")]
-use api_model::nitro::{
-    NitroEnclavesConfig, NitroEnclavesConversionRequest, NitroEnclavesConversionResponse,
-    NitroEnclavesMeasurements, NitroEnclavesVersion,
-};
 use api_model::HexString;
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
@@ -38,8 +35,6 @@ use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{
     docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails,
 };
-#[cfg(platform = "nitro")]
-use crate::image_builder::nitro::enclave::PCRList;
 
 pub mod docker;
 pub mod file;
@@ -88,27 +83,6 @@ const ENCLAVE_IMAGE: &str = "enclave-base";
 
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
-
-#[cfg(platform = "nitro")]
-pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesConversionResponse> {
-    let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
-    let local_repository = Docker::new();
-    let preserve_images = preserve_images_list()?;
-
-    let resource_cleaner = tokio::spawn(clean_docker_images(
-        local_repository,
-        images_to_clean_rcv,
-        preserve_images,
-    ));
-    let converter = tokio::spawn(run0(args, images_to_clean_snd));
-
-    let (result, _) = tokio::join!(converter, resource_cleaner);
-
-    result.map_err(|err| ConverterError {
-        message: format!("Join error in convert task. {:?}", err),
-        kind: ConverterErrorKind::InternalError,
-    })?
-}
 
 fn validate_request(request: &ConversionRequest) -> Result<()> {
     if request.input_image.name == request.output_image.name {
@@ -172,121 +146,6 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
     Ok(())
 }
 
-#[cfg(platform = "nitro")]
-async fn run0(
-    conversion_request: NitroEnclavesConversionRequest,
-    images_to_clean_snd: Sender<ImageToClean>,
-) -> Result<NitroEnclavesConversionResponse> {
-    validate_request(&conversion_request.request)?;
-
-    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
-    info!("Parent base image is {}", parent_image);
-    info!("Retrieving requisite images!");
-    get_parent_base_image(&parent_image).await?;
-
-    let client_image = docker_reference(&conversion_request.request.input_image.name)?;
-
-    let input_repository = DockerDaemon::new(&conversion_request.request.input_image.auth_config);
-
-    info!("Retrieving client image!");
-    let input_image = input_repository
-        .get_latest_image_details(&client_image)
-        .await
-        .map(|details| {
-            ImageWithDetails {
-                reference: client_image,
-                details,
-            }
-            .make_temporary(ImageKind::Input, images_to_clean_snd.clone())
-        })
-        .map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::ImageGet,
-        })?;
-
-    info!("Creating working directory!");
-    let temp_dir = TempDir::new().map_err(|err| ConverterError {
-        message: format!("Cannot create temp dir {:?}", err),
-        kind: ConverterErrorKind::RequisitesCreation,
-    })?;
-
-    info!("Building enclave image!");
-    let nitro_image_result = {
-        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
-        info!("Enclave base image is {}", enclave_base_image_str);
-
-        let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
-
-        let user_program_config = create_user_program_config(
-            &conversion_request.request.converter_options,
-            &input_image.image,
-        )?;
-
-        debug!("User program config is: {:?}", user_program_config);
-
-        let enclave_builder = crate::image_builder::nitro::enclave::EnclaveImageBuilder {
-            enclave_image_builder: EnclaveImageBuilder {
-                client_image_reference: &input_image.image.reference,
-                dir: &temp_dir,
-                enclave_base_image: &enclave_base_image.reference,
-            },
-        };
-
-        let enclave_settings =
-            EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
-        let image_env_vars =
-            get_image_env(&input_image, &conversion_request.request.converter_options);
-        let user_config = UserConfig {
-            user_program_config,
-            certificate_config: conversion_request.request.converter_options.certificates,
-        };
-
-        let sender = images_to_clean_snd.clone();
-        enclave_builder
-            .create_image(
-                &input_repository,
-                enclave_settings,
-                user_config,
-                image_env_vars,
-                sender,
-            )
-            .await?
-    };
-
-    let parent_builder = crate::image_builder::nitro::parent::ParentImageBuilder {
-        parent_image_builder: ParentImageBuilder {
-            parent_image,
-            dir: &temp_dir,
-        },
-        start_options: conversion_request.nitro_enclaves_options,
-    };
-
-    info!("Building result image!");
-    let output_image = output_docker_reference(&conversion_request.request.output_image.name)?;
-    let result = parent_builder
-        .create_image(&input_repository, output_image)
-        .await
-        .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
-
-    if conversion_request
-        .request
-        .converter_options
-        .push_converted_image
-        .unwrap_or(true)
-    {
-        info!("Attempting to push output image");
-        push_result_image(
-            &result.image,
-            &conversion_request.request.output_image.auth_config,
-        )
-        .await?;
-    } else {
-        info!("Skipping output image push");
-    }
-
-    create_response(&result.image, nitro_image_result.pcr_list)
-}
-
 fn create_user_program_config(
     converter_options: &ConverterOptions,
     input_image: &ImageWithDetails<'_>,
@@ -337,39 +196,6 @@ fn hex_response(arg: &str) -> Result<HexString> {
         message: format!("Failed converting string {} to hex string. {:?}", arg, err),
         kind: ConverterErrorKind::InternalError,
     })
-}
-
-#[cfg(platform = "nitro")]
-fn create_response(
-    image: &ImageWithDetails,
-    pcr_list: PCRList,
-) -> Result<NitroEnclavesConversionResponse> {
-    let mut measurements = HashMap::new();
-
-    measurements.insert(
-        NitroEnclavesVersion::NitroEnclaves,
-        NitroEnclavesMeasurements {
-            hash_algorithm: HashAlgorithm::Sha384,
-            pcr0: hex_response(&pcr_list.pcr0)?,
-            pcr1: hex_response(&pcr_list.pcr1)?,
-            pcr2: hex_response(&pcr_list.pcr2)?,
-        },
-    );
-
-    let result = NitroEnclavesConversionResponse {
-        converted_image: ConvertedImageInfo {
-            name: image.reference.to_string(),
-            sha: hex_response(image.short_id())?,
-            size: image.details.size as usize,
-        },
-
-        config: NitroEnclavesConfig {
-            measurements,
-            pcr8: hex_response(&pcr_list.pcr8.unwrap_or_default())?,
-        },
-    };
-
-    Ok(result)
 }
 
 async fn get_enclave_base_image(image: &str) -> Result<ImageWithDetails> {
