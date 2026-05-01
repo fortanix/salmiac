@@ -355,7 +355,6 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
 }
 
 #[cfg(test)]
-#[cfg(platform = "nitro")]
 mod tests {
     use std::env;
 
@@ -363,55 +362,47 @@ mod tests {
         CaCertificateConfig, CcmConfiguration, CertIssuer, CertificateConfig, ConversionRequest,
         ConversionRequestImageInfo, ConverterOptions, DsmConfiguration, KeyType,
     };
-    use api_model::nitro::{NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions};
     use lazy_static::lazy_static;
     use serde_json::Value;
 
     use crate::{preserve_images_list, validate_request, ConverterErrorKind, ImageKind};
 
     lazy_static! {
-        static ref SAMPLE_REQUEST: NitroEnclavesConversionRequest =
-            NitroEnclavesConversionRequest {
-                request: ConversionRequest {
-                    input_image: ConversionRequestImageInfo {
-                        name: "input-image".to_string(),
-                        auth_config: None
-                    },
-                    output_image: ConversionRequestImageInfo {
-                        name: "output-image".to_string(),
-                        auth_config: None
-                    },
-                    converter_options: ConverterOptions {
-                        allow_cmdline_args: None,
-                        allow_docker_pull_failure: None,
-                        app: None,
-                        ca_certificates: vec![],
-                        certificates: vec![CertificateConfig {
-                            issuer: CertIssuer::ManagerCa,
-                            subject: None,
-                            alt_names: vec![],
-                            key_type: KeyType::Rsa,
-                            key_param: Some(Value::from(2048)),
-                            key_path: None,
-                            cert_path: None,
-                            chain_path: None,
-                        }],
-                        debug: None,
-                        entry_point: vec![],
-                        entry_point_args: vec![],
-                        push_converted_image: None,
-                        env_vars: vec![],
-                        java_mode: None,
-                        enable_overlay_filesystem_persistence: None,
-                        ccm_configuration: None,
-                        dsm_configuration: None,
-                    },
-                },
-                nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
-                    cpu_count: None,
-                    mem_size: None
-                },
-            };
+        static ref SAMPLE_REQUEST: ConversionRequest = ConversionRequest {
+            input_image: ConversionRequestImageInfo {
+                name: "input-image".to_string(),
+                auth_config: None
+            },
+            output_image: ConversionRequestImageInfo {
+                name: "output-image".to_string(),
+                auth_config: None
+            },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![CertificateConfig {
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
+            },
+        };
     }
 
     #[test]
@@ -455,39 +446,33 @@ mod tests {
 
     #[test]
     fn validate_converter_request_same_input_output_image_name() -> () {
-        let request = NitroEnclavesConversionRequest {
-            request: ConversionRequest {
-                input_image: ConversionRequestImageInfo {
-                    name: "sample-image".to_string(),
-                    auth_config: None,
-                },
-                output_image: ConversionRequestImageInfo {
-                    name: "sample-image".to_string(),
-                    auth_config: None,
-                },
-                converter_options: ConverterOptions {
-                    allow_cmdline_args: None,
-                    allow_docker_pull_failure: None,
-                    app: None,
-                    ca_certificates: vec![],
-                    certificates: vec![],
-                    debug: None,
-                    entry_point: vec![],
-                    entry_point_args: vec![],
-                    push_converted_image: None,
-                    env_vars: vec![],
-                    java_mode: None,
-                    enable_overlay_filesystem_persistence: None,
-                    ccm_configuration: None,
-                    dsm_configuration: None,
-                },
+        let request = ConversionRequest {
+            input_image: ConversionRequestImageInfo {
+                name: "sample-image".to_string(),
+                auth_config: None,
             },
-            nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
-                cpu_count: None,
-                mem_size: None,
+            output_image: ConversionRequestImageInfo {
+                name: "sample-image".to_string(),
+                auth_config: None,
+            },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         };
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -499,95 +484,83 @@ mod tests {
 
     #[test]
     fn validate_converter_request_correct_key_param() -> () {
-        let request = NitroEnclavesConversionRequest {
-            request: ConversionRequest {
-                input_image: ConversionRequestImageInfo {
-                    name: "input-image".to_string(),
-                    auth_config: None,
-                },
-                output_image: ConversionRequestImageInfo {
-                    name: "output-image".to_string(),
-                    auth_config: None,
-                },
-                converter_options: ConverterOptions {
-                    allow_cmdline_args: None,
-                    allow_docker_pull_failure: None,
-                    app: None,
-                    ca_certificates: vec![],
-                    certificates: vec![CertificateConfig {
-                        issuer: CertIssuer::ManagerCa,
-                        subject: None,
-                        alt_names: vec![],
-                        key_type: KeyType::Rsa,
-                        key_param: Some(Value::from(2048)),
-                        key_path: None,
-                        cert_path: None,
-                        chain_path: None,
-                    }],
-                    debug: None,
-                    entry_point: vec![],
-                    entry_point_args: vec![],
-                    push_converted_image: None,
-                    env_vars: vec![],
-                    java_mode: None,
-                    enable_overlay_filesystem_persistence: None,
-                    ccm_configuration: None,
-                    dsm_configuration: None,
-                },
+        let request = ConversionRequest {
+            input_image: ConversionRequestImageInfo {
+                name: "input-image".to_string(),
+                auth_config: None,
             },
-            nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
-                cpu_count: None,
-                mem_size: None,
+            output_image: ConversionRequestImageInfo {
+                name: "output-image".to_string(),
+                auth_config: None,
+            },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![CertificateConfig {
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         };
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_ok());
     }
 
     #[test]
     fn validate_converter_request_incorrect_key_param() -> () {
-        let request = NitroEnclavesConversionRequest {
-            request: ConversionRequest {
-                input_image: ConversionRequestImageInfo {
-                    name: "input-image".to_string(),
-                    auth_config: None,
-                },
-                output_image: ConversionRequestImageInfo {
-                    name: "output-image".to_string(),
-                    auth_config: None,
-                },
-                converter_options: ConverterOptions {
-                    allow_cmdline_args: None,
-                    allow_docker_pull_failure: None,
-                    app: None,
-                    ca_certificates: vec![],
-                    certificates: vec![CertificateConfig {
-                        issuer: CertIssuer::ManagerCa,
-                        subject: None,
-                        alt_names: vec![],
-                        key_type: KeyType::Rsa,
-                        key_param: Some(Value::from(1024)),
-                        key_path: None,
-                        cert_path: None,
-                        chain_path: None,
-                    }],
-                    debug: None,
-                    entry_point: vec![],
-                    entry_point_args: vec![],
-                    push_converted_image: None,
-                    env_vars: vec![],
-                    java_mode: None,
-                    enable_overlay_filesystem_persistence: None,
-                    ccm_configuration: None,
-                    dsm_configuration: None,
-                },
+        let request = ConversionRequest {
+            input_image: ConversionRequestImageInfo {
+                name: "input-image".to_string(),
+                auth_config: None,
             },
-            nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
-                cpu_count: None,
-                mem_size: None,
+            output_image: ConversionRequestImageInfo {
+                name: "output-image".to_string(),
+                auth_config: None,
+            },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![CertificateConfig {
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(1024)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: None,
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         };
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -599,48 +572,42 @@ mod tests {
 
     #[test]
     fn validate_converter_request_unsupported_chain_path() -> () {
-        let request = NitroEnclavesConversionRequest {
-            request: ConversionRequest {
-                input_image: ConversionRequestImageInfo {
-                    name: "input-image".to_string(),
-                    auth_config: None,
-                },
-                output_image: ConversionRequestImageInfo {
-                    name: "output-image".to_string(),
-                    auth_config: None,
-                },
-                converter_options: ConverterOptions {
-                    allow_cmdline_args: None,
-                    allow_docker_pull_failure: None,
-                    app: None,
-                    ca_certificates: vec![],
-                    certificates: vec![CertificateConfig {
-                        issuer: CertIssuer::ManagerCa,
-                        subject: None,
-                        alt_names: vec![],
-                        key_type: KeyType::Rsa,
-                        key_param: Some(Value::from(2048)),
-                        key_path: None,
-                        cert_path: None,
-                        chain_path: Some("/tmp/capath".to_string()),
-                    }],
-                    debug: None,
-                    entry_point: vec![],
-                    entry_point_args: vec![],
-                    push_converted_image: None,
-                    env_vars: vec![],
-                    java_mode: None,
-                    enable_overlay_filesystem_persistence: None,
-                    ccm_configuration: None,
-                    dsm_configuration: None,
-                },
+        let request = ConversionRequest {
+            input_image: ConversionRequestImageInfo {
+                name: "input-image".to_string(),
+                auth_config: None,
             },
-            nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
-                cpu_count: None,
-                mem_size: None,
+            output_image: ConversionRequestImageInfo {
+                name: "output-image".to_string(),
+                auth_config: None,
+            },
+            converter_options: ConverterOptions {
+                allow_cmdline_args: None,
+                allow_docker_pull_failure: None,
+                app: None,
+                ca_certificates: vec![],
+                certificates: vec![CertificateConfig {
+                    issuer: CertIssuer::ManagerCa,
+                    subject: None,
+                    alt_names: vec![],
+                    key_type: KeyType::Rsa,
+                    key_param: Some(Value::from(2048)),
+                    key_path: None,
+                    cert_path: None,
+                    chain_path: Some("/tmp/capath".to_string()),
+                }],
+                debug: None,
+                entry_point: vec![],
+                entry_point_args: vec![],
+                push_converted_image: None,
+                env_vars: vec![],
+                java_mode: None,
+                enable_overlay_filesystem_persistence: None,
+                ccm_configuration: None,
+                dsm_configuration: None,
             },
         };
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -653,12 +620,12 @@ mod tests {
     #[test]
     fn validate_converter_request_unsupported_ca_certificates() -> () {
         let mut request = SAMPLE_REQUEST.clone();
-        request.request.converter_options.ca_certificates = vec![CaCertificateConfig {
+        request.converter_options.ca_certificates = vec![CaCertificateConfig {
             ca_path: None,
             ca_cert: None,
             system: None,
         }];
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -673,13 +640,13 @@ mod tests {
         let mut request = SAMPLE_REQUEST.clone();
 
         // Test 1 - Default config i.e. No ccm config set
-        assert!(validate_request(&request.request).is_ok());
+        assert!(validate_request(&request).is_ok());
 
         // Test 2 - Invalid CCM configuration set
-        request.request.converter_options.ccm_configuration = Some(CcmConfiguration {
+        request.converter_options.ccm_configuration = Some(CcmConfiguration {
             ccm_url: "InvalidUrl".to_string(),
         });
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -693,10 +660,10 @@ mod tests {
         );
 
         // Test 3 - Valid CCM configuration set
-        request.request.converter_options.ccm_configuration = Some(CcmConfiguration {
+        request.converter_options.ccm_configuration = Some(CcmConfiguration {
             ccm_url: "ccm.sample.fortanix.com:267".to_string(),
         });
-        assert!(validate_request(&request.request).is_ok());
+        assert!(validate_request(&request).is_ok());
     }
 
     #[test]
@@ -704,13 +671,13 @@ mod tests {
         let mut request = SAMPLE_REQUEST.clone();
 
         // Test 1 - Default config i.e. No dsm config set
-        assert!(validate_request(&request.request).is_ok());
+        assert!(validate_request(&request).is_ok());
 
         // Test 2 - Invalid DSM configuration set
-        request.request.converter_options.dsm_configuration = Some(DsmConfiguration {
+        request.converter_options.dsm_configuration = Some(DsmConfiguration {
             dsm_url: "InvalidUrl".to_string(),
         });
-        let res = validate_request(&request.request);
+        let res = validate_request(&request);
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
@@ -724,9 +691,9 @@ mod tests {
         );
 
         // Test 3 - Valid DSM configuration set
-        request.request.converter_options.dsm_configuration = Some(DsmConfiguration {
+        request.converter_options.dsm_configuration = Some(DsmConfiguration {
             dsm_url: "https://someregion.smartkey.io".to_string(),
         });
-        assert!(validate_request(&request.request).is_ok());
+        assert!(validate_request(&request).is_ok());
     }
 }
