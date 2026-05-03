@@ -31,4 +31,4 @@ tun = { version = "0.5.3", features = ["async"] }
 unexpected_cfgs = { level = "deny" }
 
 [build-dependencies]
-vsock-proxy-build-support = { path = "../build-support" }
+salmiac-build-support = { path = "../../build-support" }

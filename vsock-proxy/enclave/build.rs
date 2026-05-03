@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::io::{self, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::{env, fs, str};
-use vsock_proxy_build_support::Platform;
+use salmiac_build_support::Platform;
 
 use mbedtls::x509::Certificate;
 use pkix::pem;

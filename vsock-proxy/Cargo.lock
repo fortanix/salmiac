@@ -702,6 +702,7 @@ dependencies = [
  "pkix",
  "rand 0.8.5",
  "rtnetlink",
+ "salmiac-build-support",
  "sdkms",
  "serde",
  "serde_cbor",
@@ -714,7 +715,6 @@ dependencies = [
  "tun",
  "url 2.3.1",
  "uuid 0.7.4",
- "vsock-proxy-build-support",
 ]
 
 [[package]]
@@ -1701,12 +1701,12 @@ dependencies = [
  "parent_lib",
  "pcap",
  "rtnetlink",
+ "salmiac-build-support",
  "shared",
  "tempdir",
  "tokio",
  "tokio-vsock",
  "tun",
- "vsock-proxy-build-support",
 ]
 
 [[package]]
@@ -2116,6 +2116,13 @@ name = "safemem"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
+
+[[package]]
+name = "salmiac-build-support"
+version = "0.1.0"
+dependencies = [
+ "strum",
+]
 
 [[package]]
 name = "schannel"
@@ -2789,13 +2796,6 @@ checksum = "c932be691560e8f3f7b2be5a47df1b8f45387e1d1df40d45b2e62284b9e9150e"
 dependencies = [
  "libc",
  "nix 0.19.1",
-]
-
-[[package]]
-name = "vsock-proxy-build-support"
-version = "0.1.0"
-dependencies = [
- "strum",
 ]
 
 [[package]]

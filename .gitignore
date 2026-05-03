@@ -1,4 +1,6 @@
+/api-model/target
 /build/
+/build-support/target
 /artifacts
 /docker/staging
 /tools/container-converter/target
