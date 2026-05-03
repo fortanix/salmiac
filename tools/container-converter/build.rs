@@ -8,9 +8,9 @@ use std::{env, fs};
 // to avoid problems runtime linking errors with libnss
 const ENCLAVE_STARTUP_TARGET: &str = "x86_64-unknown-linux-musl";
 
-const VSOCK_PROXY_PLATFORM_ENV: &str = "VSOCK_PROXY_PLATFORM";
+const SALMIAC_PLATFORM_ENV: &str = "SALMIAC_PLATFORM";
 
-const VSOCK_PROXY_PLATFORM: &str = "nitro";
+const SALMIAC_PLATFORM: &str = "nitro";
 
 const VSOCK_PROXY_BIN_DIR: &str = "../../vsock-proxy/target";
 
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let status = {
         let mut result = Command::new("cargo");
 
-        result.current_dir(current_dir.join("../../vsock-proxy")).env(VSOCK_PROXY_PLATFORM_ENV, VSOCK_PROXY_PLATFORM).arg("build");
+        result.current_dir(current_dir.join("../../vsock-proxy")).env(SALMIAC_PLATFORM_ENV, SALMIAC_PLATFORM).arg("build");
 
         if let Some(build_flag) = cargo_build_flag {
             result.arg(build_flag);

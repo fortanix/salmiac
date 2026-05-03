@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use strum::{AsRefStr, EnumString, VariantNames};
 
-pub const PLATFORM_ENV: &str = "VSOCK_PROXY_PLATFORM";
+pub const PLATFORM_ENV: &str = "SALMIAC_PLATFORM";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, AsRefStr, EnumString, VariantNames)]
 #[strum(serialize_all = "snake_case")]

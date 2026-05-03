@@ -2,7 +2,7 @@
 
 set -exo pipefail
 
-VSOCK_PROXY_PLATFORMS=(
+SALMIAC_PLATFORMS=(
     nitro
 )
 
@@ -26,9 +26,9 @@ for unit_test_dir in "${unit_test_dirs[@]}"
   do
     pushd "$unit_test_dir"
     if [[ "$unit_test_dir" == vsock-proxy/* ]] ; then
-      for platform in "${VSOCK_PROXY_PLATFORMS[@]}"
+      for platform in "${SALMIAC_PLATFORMS[@]}"
       do
-        VSOCK_PROXY_PLATFORM="${platform}" cargo test $cargo_build_flag --locked
+        SALMIAC_PLATFORM="${platform}" cargo test $cargo_build_flag --locked
       done
     else
       cargo test $cargo_build_flag --locked
