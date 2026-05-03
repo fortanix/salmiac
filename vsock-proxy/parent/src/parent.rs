@@ -139,7 +139,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
 // Setup two Tcp servers - one to read stdout and another for stderr of the client program
 async fn setup_log_listeners(tap_l3_address: IpAddr) -> Result<Vec<(TcpListener, StreamType)>, String> {
-    if crate::platform::enable_client_log_forwarding() {
+    if crate::platform::should_forward_client_logs() {
         let mut res: Vec<(TcpListener, StreamType)> = Vec::with_capacity(2);
         for stream in CLIENT_LOG_STREAMS {
             let listen = TcpListener::bind(SocketAddr::new(tap_l3_address, 0)).await.map_err(|e| {

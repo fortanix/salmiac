@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .status()
     .expect("Failed to build vsock-proxy project");
 
-    assert!(status.success(), "Failed to build vsock-proxy project: {}", status);
+    assert!(status.success(), "failed to build vsock-proxy project: {}", status);
 
     fs::copy(vsock_proxy_bin_dir.join("enclave"), resources_enclave_dir.join("enclave")).expect("Failed to copy enclave bin");
     fs::copy(vsock_proxy_bin_dir.join("parent"), resources_parent_dir.join("parent")).expect("Failed to copy parent bin");
@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .status()
     .expect("Failed to build enclave-startup project");
 
-    assert!(status.success(), "Failed to build enclave-startup project: {}", status);
+    assert!(status.success(), "failed to build enclave-startup project: {}", status);
 
     fs::copy(
         enclave_startup_bin_dir.join("enclave-startup"),

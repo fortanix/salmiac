@@ -29,12 +29,12 @@ fn env_var_or_default<T: ToString>(var_name: &str, default: T) -> String {
     env::var(var_name).unwrap_or_else(|_| default.to_string())
 }
 
-pub(crate) fn enclaveos_debug_enabled() -> bool {
+pub fn is_enclaveos_debug_enabled() -> bool {
     env::var(ENCLAVEOS_DEBUG_ENV).as_deref() == Ok(ENCLAVEOS_DEBUG_VALUE)
 }
 
-pub(crate) fn enable_client_log_forwarding() -> bool {
-    !enclaveos_debug_enabled()
+pub(crate) fn should_forward_client_logs() -> bool {
+    !is_enclaveos_debug_enabled()
 }
 
 pub(crate) fn launch_guest() -> GuestLaunchResult {
@@ -42,7 +42,7 @@ pub(crate) fn launch_guest() -> GuestLaunchResult {
 
     let enclave_tasks = FuturesUnordered::new();
 
-    if enclaveos_debug_enabled() {
+    if is_enclaveos_debug_enabled() {
         enclave_tasks.push(tokio::spawn(stream_console_logs()));
     }
 
@@ -76,7 +76,7 @@ async fn start_nitro_enclave() -> Result<(), String> {
         &memsize,
     ];
 
-    if enclaveos_debug_enabled() {
+    if is_enclaveos_debug_enabled() {
         args.push("--debug-mode");
     }
 
