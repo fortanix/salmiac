@@ -38,18 +38,19 @@ pub(crate) fn should_forward_client_logs() -> bool {
 }
 
 pub(crate) fn launch_guest() -> GuestLaunchResult {
-    let enclave_process = tokio::spawn(start_nitro_enclave());
+    GuestLaunchResult {
+        enclave_process: tokio::spawn(start_nitro_enclave()),
+    }
+}
 
-    let enclave_tasks = FuturesUnordered::new();
+pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
+    let tasks = GuestTasks::new();
 
     if is_enclaveos_debug_enabled() {
-        enclave_tasks.push(tokio::spawn(stream_console_logs()));
+        tasks.push(tokio::spawn(stream_console_logs()));
     }
 
-    GuestLaunchResult {
-        enclave_process,
-        enclave_tasks,
-    }
+    tasks
 }
 
 async fn stream_console_logs() -> Result<(), String> {

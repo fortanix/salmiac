@@ -88,7 +88,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     info!("Connected to enclave.");
     // Add enclave processes to a separate list of futures. They will be cleaned up
     // once the parent sends the ExitEnclave message to the enclave port.
-    let enclave_tasks = guest_launch_result.enclave_tasks;
+    let enclave_tasks = crate::platform::start_post_connect_guest_tasks();
 
     send_env_variables(&mut enclave_port).await?;
     send_node_agent_address(&mut enclave_port).await?;
