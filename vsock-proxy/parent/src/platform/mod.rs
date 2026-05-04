@@ -10,13 +10,15 @@ use tokio::task::JoinHandle;
 #[cfg(platform = "nitro")]
 mod nitro;
 
+pub(crate) type GuestTasks = FuturesUnordered<JoinHandle<Result<(), String>>>;
+
 pub(crate) struct GuestLaunchResult {
     pub(crate) enclave_process: JoinHandle<Result<(), String>>,
-
-    /// Tasks whose lifecycle is tied to the guest/enclave/VM lifetime.
-    /// These are cleaned up after the parent sends ExitEnclave to the enclave.
-    pub(crate) enclave_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>,
 }
 
 #[cfg(platform = "nitro")]
-pub(crate) use nitro::{should_forward_client_logs, launch_guest};
+pub(crate) use nitro::{
+    launch_guest,
+    should_forward_client_logs,
+    start_post_connect_guest_tasks,
+};
