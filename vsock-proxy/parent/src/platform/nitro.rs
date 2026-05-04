@@ -6,11 +6,10 @@
 
 use std::env;
 
-use futures::stream::FuturesUnordered;
 use log::info;
 use shared::run_subprocess;
 
-use super::GuestLaunchResult;
+use super::{GuestLaunchResult, GuestTasks};
 
 const DEFAULT_CPU_COUNT: u8 = 2;
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
