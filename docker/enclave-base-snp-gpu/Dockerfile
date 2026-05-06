@@ -1,4 +1,4 @@
-# Image placed inside a SEV-SNP confidential VM.
+# Image placed inside a SEV-SNP confidential VM with GPU passthrough.
 # The NVIDIA kernel modules are shipped with the guest kernel (either
 # built-in or paired as pre-built .ko files separately). This image
 # carries only the userspace NVIDIA driver (libcuda, nvidia-smi,
@@ -7,7 +7,7 @@
 ARG UBUNTU_VERSION=24.04
 ARG NVIDIA_DRIVER_BRANCH=595
 
-FROM ubuntu:${UBUNTU_VERSION} AS enclave-base-snp
+FROM ubuntu:${UBUNTU_VERSION} AS enclave-base-snp-gpu
 ARG NVIDIA_DRIVER_BRANCH
 ENV DEBIAN_FRONTEND=noninteractive
 
