@@ -28,7 +28,7 @@ fn env_var_or_default<T: ToString>(var_name: &str, default: T) -> String {
     env::var(var_name).unwrap_or_else(|_| default.to_string())
 }
 
-pub fn is_enclaveos_debug_enabled() -> bool {
+fn is_enclaveos_debug_enabled() -> bool {
     env::var(ENCLAVEOS_DEBUG_ENV).as_deref() == Ok(ENCLAVEOS_DEBUG_VALUE)
 }
 
