@@ -11,7 +11,6 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::ops::Add;
 use std::path::Path;
-use std::sync::mpsc::Sender;
 
 use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
@@ -20,14 +19,13 @@ use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
 use nix::unistd::{chown, Uid};
 use rand::distributions::{Alphanumeric, DistString};
-use serde::Deserialize;
 use sys_mount::{Mount, Unmount, UnmountFlags};
 use tar::Archive;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
 use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
-use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
+use crate::image::ImageWithDetails;
 use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 

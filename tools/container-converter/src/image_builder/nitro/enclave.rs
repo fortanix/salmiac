@@ -4,32 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::fs;
-use std::fs::File;
-use std::io::{Read, Seek};
-use std::ops::Add;
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
-use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
-use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
+use api_model::enclave::{EnclaveManifest, UserConfig};
 use docker_image_reference::Reference as DockerReference;
-use log::{debug, info, warn};
-use nix::sys::statfs::statfs;
-use nix::unistd::{chown, Uid};
-use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
-use sys_mount::{Mount, Unmount, UnmountFlags};
-use tar::Archive;
-use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
-use crate::image::{ImageKind, ImageToClean, ImageWithDetails};
+use crate::file::BuildContext;
+use crate::image::{ImageKind, ImageToClean};
 use crate::image_builder::enclave::EnclaveSettings;
-use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 #[derive(Deserialize)]

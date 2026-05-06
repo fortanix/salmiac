@@ -5,19 +5,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 
-use api_model::enclave;
-use docker_image_reference::Reference as DockerReference;
-use log::info;
 use tempfile::TempDir;
 
-use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
-use crate::image::ImageWithDetails;
+use crate::file::Resource;
 use crate::image_builder::enclave::EnclaveImageBuilder;
-use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub struct ParentImageBuilder<'a> {

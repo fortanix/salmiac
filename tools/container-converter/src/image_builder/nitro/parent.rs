@@ -11,13 +11,12 @@ use std::path::Path;
 use api_model::nitro::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
-use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile, UnixFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
-use crate::image_builder::{nitro, rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
+use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
