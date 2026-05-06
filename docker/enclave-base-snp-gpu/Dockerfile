@@ -4,6 +4,8 @@
 # carries only the userspace NVIDIA driver (libcuda, nvidia-smi,
 # libnvidia-ml) that applications and tooling use to talk to them.
 
+#TODO: RTE-944 Userspace hardening
+
 ARG UBUNTU_VERSION=24.04
 ARG NVIDIA_DRIVER_BRANCH=595
 
