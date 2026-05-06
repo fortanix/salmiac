@@ -48,7 +48,6 @@ async fn main() -> Result<(), String> {
 
 fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
     App::new("Container converter")
-        //.about("Converts user docker container to be able to run in AWS Nitro environment")
         .about(platform)
         .setting(AppSettings::DisableVersion)
         .arg(

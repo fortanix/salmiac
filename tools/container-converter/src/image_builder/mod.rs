@@ -21,11 +21,7 @@ const ORIG_ENV_LIST_PATH: &'static str = "original-parent.env";
 const MEGA_BYTE: u64 = 1024 * 1024;
 
 fn rust_log_env_var(project_name: &str) -> String {
-    let log_level = if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "info"
-    };
+    let log_level = if cfg!(debug_assertions) { "debug" } else { "info" };
 
     format!("RUST_LOG={}={}", project_name, log_level)
 }
@@ -61,17 +57,11 @@ mod tests {
 
     #[async_trait]
     impl DockerUtil for TestDockerDaemon {
-        async fn get_latest_image_details(
-            &self,
-            _image: &DockerReference<'_>,
-        ) -> Result<ImageDetails, String> {
+        async fn get_latest_image_details(&self, _image: &DockerReference<'_>) -> Result<ImageDetails, String> {
             todo!()
         }
 
-        async fn get_local_image_details(
-            &self,
-            _image: &Reference<'_>,
-        ) -> Result<ImageDetails, String> {
+        async fn get_local_image_details(&self, _image: &Reference<'_>) -> Result<ImageDetails, String> {
             todo!()
         }
 
@@ -83,18 +73,11 @@ mod tests {
             todo!()
         }
 
-        async fn build_image_from_archive(
-            &self,
-            _archive: File,
-            _image: &Reference<'_>,
-        ) -> Result<(), String> {
+        async fn build_image_from_archive(&self, _archive: File, _image: &Reference<'_>) -> Result<(), String> {
             todo!()
         }
 
-        async fn create_container(
-            &self,
-            image: &Reference<'_>,
-        ) -> Result<ContainerCreateInfo, String> {
+        async fn create_container(&self, image: &Reference<'_>) -> Result<ContainerCreateInfo, String> {
             Ok(ContainerCreateInfo {
                 id: image.to_string(),
                 warnings: None,
@@ -105,11 +88,7 @@ mod tests {
             Ok(())
         }
 
-        async fn export_container_file_system(
-            &self,
-            _container_name: &str,
-            file: &mut File,
-        ) -> Result<(), String> {
+        async fn export_container_file_system(&self, _container_name: &str, file: &mut File) -> Result<(), String> {
             let mut header = Header::new_gnu();
             let data: &[u8] = TEST_DATA.as_bytes();
 
@@ -133,10 +112,8 @@ mod tests {
     async fn export_image_file_system_correct_pass() {
         let temp_dir = TempDir::new().expect("Failed creating temp dir");
 
-        let client_image_reference =
-            DockerReference::from_str("test").expect("Failed creating docker reference");
-        let enclave_base_image =
-            &DockerReference::from_str("test").expect("Failed creating docker reference");
+        let client_image_reference = DockerReference::from_str("test").expect("Failed creating docker reference");
+        let enclave_base_image = &DockerReference::from_str("test").expect("Failed creating docker reference");
         let enclave_builder = EnclaveImageBuilder {
             client_image_reference: &client_image_reference,
             dir: &temp_dir,
@@ -148,9 +125,7 @@ mod tests {
             .await
             .expect("Failed exporting image file system");
 
-        archive
-            .unpack(temp_dir.path())
-            .expect("Failed unpacking archive.");
+        archive.unpack(temp_dir.path()).expect("Failed unpacking archive.");
 
         let mut result_file = fs::OpenOptions::new()
             .read(true)
@@ -158,9 +133,7 @@ mod tests {
             .expect("Cannot open result file");
 
         let mut result = String::new();
-        result_file
-            .read_to_string(&mut result)
-            .expect("Failed reading result file");
+        result_file.read_to_string(&mut result).expect("Failed reading result file");
 
         assert_eq!(result, TEST_DATA)
     }
@@ -262,11 +235,7 @@ mod tests {
                 "C=C_VALUE".to_string(),
             ]),
             vec![],
-            vec![
-                "A=A_VALUE".to_string(),
-                "B=B_VALUE".to_string(),
-                "C=C_VALUE".to_string(),
-            ],
+            vec!["A=A_VALUE".to_string(), "B=B_VALUE".to_string(), "C=C_VALUE".to_string()],
         );
     }
 }

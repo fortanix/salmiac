@@ -214,11 +214,7 @@ async fn get_parent_base_image(image: &str) -> Result<()> {
     Ok(())
 }
 
-async fn get_base_image(
-    image: &str,
-    username: Option<String>,
-    password: Option<String>,
-) -> Result<ImageWithDetails> {
+async fn get_base_image(image: &str, username: Option<String>, password: Option<String>) -> Result<ImageWithDetails> {
     let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,
@@ -226,10 +222,7 @@ async fn get_base_image(
 
     let repository = DockerDaemon::new(&auth_config);
     let reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
-        message: format!(
-            "Requisite image {} address has bad format. {:?}",
-            image, err
-        ),
+        message: format!("Requisite image {} address has bad format. {:?}", image, err),
         kind: ConverterErrorKind::BadRequest,
     })?;
 
@@ -291,18 +284,12 @@ async fn clean_docker_images(
         let image_interface = Image::new(&docker, image.name.clone());
         let mut delete_options = DeleteOptions::builder().force();
 
-        match image_interface
-            .delete_with_options(&delete_options.build())
-            .await
-        {
+        match image_interface.delete_with_options(&delete_options.build()).await {
             Ok(_) => {
                 info!("Successfully cleaned {:?} image {}", image.kind, image.name);
             }
             Err(e) => {
-                warn!(
-                    "Error cleaning {:?} image {}. {:?}",
-                    image.kind, image.name, e
-                );
+                warn!("Error cleaning {:?} image {}. {:?}", image.kind, image.name, e);
             }
         }
     }
@@ -320,12 +307,9 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
     command.args(args);
 
     debug!("Running subprocess {:?} {:?}", subprocess_path, args);
-    let process = command.spawn().map_err(|err| {
-        format!(
-            "Failed to run subprocess {:?}. {:?}. Args {:?}",
-            subprocess_path, err, args
-        )
-    })?;
+    let process = command
+        .spawn()
+        .map_err(|err| format!("Failed to run subprocess {:?}. {:?}. Args {:?}", subprocess_path, err, args))?;
 
     let output = process.output().await.map_err(|err| {
         format!(
@@ -412,11 +396,7 @@ mod tests {
         let mut result = preserve_images_list();
 
         assert!(result.is_ok());
-        assert!(result
-            .unwrap()
-            .into_iter()
-            .collect::<Vec<ImageKind>>()
-            .is_empty());
+        assert!(result.unwrap().into_iter().collect::<Vec<ImageKind>>().is_empty());
 
         env::set_var("PRESERVE_IMAGES", "result");
 
@@ -654,10 +634,7 @@ mod tests {
             converter_error.message,
             "CcmConfiguration:ccm_url should be in <host>:<port> format"
         );
-        assert_eq!(
-            converter_error.kind,
-            ConverterErrorKind::BadCcmConfiguration
-        );
+        assert_eq!(converter_error.kind, ConverterErrorKind::BadCcmConfiguration);
 
         // Test 3 - Valid CCM configuration set
         request.converter_options.ccm_configuration = Some(CcmConfiguration {
@@ -681,14 +658,8 @@ mod tests {
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
-        assert_eq!(
-            converter_error.message,
-            "DsmConfiguration:dsm_url is not a valid url"
-        );
-        assert_eq!(
-            converter_error.kind,
-            ConverterErrorKind::BadDsmConfiguration
-        );
+        assert_eq!(converter_error.message, "DsmConfiguration:dsm_url is not a valid url");
+        assert_eq!(converter_error.kind, ConverterErrorKind::BadDsmConfiguration);
 
         // Test 3 - Valid DSM configuration set
         request.converter_options.dsm_configuration = Some(DsmConfiguration {

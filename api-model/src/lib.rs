@@ -35,9 +35,7 @@ impl HexString {
     /// An instance of `Ok(HexString)` if `hex_string` represents a valid hex encoded string or
     /// an instance of `Err(String)` otherwise.
     pub fn from_str(hex_string: &str) -> Result<HexString, String> {
-        Ok(HexString(
-            hex::decode(hex_string).map_err(|e| e.to_string())?,
-        ))
+        Ok(HexString(hex::decode(hex_string).map_err(|e| e.to_string())?))
     }
 
     /// Returns raw bytes consuming `self`
@@ -71,9 +69,8 @@ impl<'de> Deserialize<'de> for HexString {
             }
 
             fn visit_str<E: Error>(self, string: &str) -> Result<HexString, E> {
-                Ok(HexString::from_str(string).map_err(|_| {
-                    Error::invalid_value(serde::de::Unexpected::Str(string), &"hex encoded string")
-                })?)
+                Ok(HexString::from_str(string)
+                    .map_err(|_| Error::invalid_value(serde::de::Unexpected::Str(string), &"hex encoded string"))?)
             }
         }
 
@@ -193,9 +190,8 @@ impl<'de> Deserialize<'de> for ByteUnit {
             }
 
             fn visit_str<E: Error>(self, string: &str) -> Result<ByteUnit, E> {
-                ByteUnit::from_str(string).map_err(|_| {
-                    Error::invalid_value(serde::de::Unexpected::Str(string), &"number of bytes")
-                })
+                ByteUnit::from_str(string)
+                    .map_err(|_| Error::invalid_value(serde::de::Unexpected::Str(string), &"number of bytes"))
             }
         }
 
@@ -288,9 +284,7 @@ pub mod tests {
     #[cfg(feature = "serde")]
     #[test]
     pub fn test_byte_unit_deserialization_correct_pass() {
-        let test_cases = [
-            "\"\"", "\"123\"", "\"1K\"", "\"1k\"", "\"1M\"", "\"1m\"", "\"1G\"", "\"1g\"",
-        ];
+        let test_cases = ["\"\"", "\"123\"", "\"1K\"", "\"1k\"", "\"1M\"", "\"1m\"", "\"1G\"", "\"1g\""];
         let references: [u64; 8] = [
             0,
             123,
@@ -341,8 +335,7 @@ pub mod tests {
         for i in 0..test_cases.len() {
             let reference = &test_cases[i];
 
-            let result: HexString =
-                serde_json::from_str(&format!("\"{}\"", reference)).expect("Deserialization ok");
+            let result: HexString = serde_json::from_str(&format!("\"{}\"", reference)).expect("Deserialization ok");
 
             assert_eq!(result.to_string(), reference.to_lowercase());
         }
