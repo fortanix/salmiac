@@ -26,11 +26,11 @@ jobs:
 
       - name: Build docker images
         run: |
-          docker build docker/enclave-base -t enclave-base
-          docker build docker/enclave-base-snp-gpu -t enclave-base-snp-gpu
-          docker build docker/parent-base -t parent-base
+          docker build docker/nitro/enclave-base -t enclave-base-nitro
+          docker build docker/snp/enclave-base-gpu -t enclave-base-snp-gpu
+          docker build docker/nitro/parent-base -t parent-base-nitro
           docker build \
-            --build-context parent-base=docker/parent-base \
+            --build-context parent-base=docker/nitro/parent-base \
             -t parent-base-snp \
-            docker/parent-base-snp
-          docker rmi enclave-base enclave-base-snp-gpu parent-base parent-base-snp
+            docker/snp/parent-base
+          docker rmi enclave-base-nitro enclave-base-snp-gpu parent-base-nitro parent-base-snp
