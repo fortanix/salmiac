@@ -44,12 +44,12 @@ This guide allows you to build salmiac from source and convert your docker appli
 3. Build requisite docker images needed to run container converter
    ```bash
    # Run from the root of the repository
-   # build enclave-base-nitro image
-   cd salmiac/docker/nitro/enclave-base
-   docker build -t enclave-base-nitro .
+   # build enclave-base image
+   cd salmiac/docker/enclave-base
+   docker build -t enclave-base .
          
    # build parent-base-nitro image
-   cd ../parent-base
+   cd ../nitro/parent-base
    docker build -t parent-base-nitro .
     ```
 
@@ -95,7 +95,7 @@ This guide allows you to build salmiac from source and convert your docker appli
 7. Make your application Nitro VM-capable by running container converter with the file from previous step.
    The converter by default pulls the input image and pushes the output image to remote repositories. These images are then cleaned up from the local docker cache. In our example, the output image push is disabled in the request json and to preserve the images in the docker cache, 'PRESERVE_IMAGES' environment variable is specified.
    ```bash
-      docker run --rm -e PARENT_IMAGE=parent-base-nitro -e ENCLAVE_IMAGE=enclave-base-nitro --name nitro-converter --user 0 --privileged -v /var/run/docker.sock:/var/run/docker.sock -e PRESERVE_IMAGES=input,result -v /tmp/req-files:/app converter --request-file /app/req.json
+      docker run --rm -e PARENT_IMAGE=parent-base-nitro -e ENCLAVE_IMAGE=enclave-base --name nitro-converter --user 0 --privileged -v /var/run/docker.sock:/var/run/docker.sock -e PRESERVE_IMAGES=input,result -v /tmp/req-files:/app nitro-converter --request-file /app/req.json
     ```
 
 8. Copy converted image into your EC2 instance and run the image.

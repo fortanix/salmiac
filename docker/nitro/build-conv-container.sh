@@ -10,7 +10,7 @@ cp ../../tools/container-converter/target/$1/container-converter ./staging
 mv ./staging/container-converter ./staging/server
 
 # Package the enclave and parent base images for the converter
-docker save -o ./staging/enclave-base.tar enclave-base-nitro
+docker save -o ./staging/enclave-base.tar enclave-base
 docker save -o ./staging/parent-base.tar parent-base-nitro
 
 # The Dockerfile used to build the converter uses a prebuilt parent-base
