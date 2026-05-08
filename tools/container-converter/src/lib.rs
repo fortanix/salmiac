@@ -370,7 +370,7 @@ fn hex_response(arg: &str) -> Result<HexString> {
     })
 }
 
-async fn get_enclave_base_image(image: &str) -> Result<ImageWithDetails> {
+async fn get_enclave_base_image(image: &str) -> Result<ImageWithDetails<'_>> {
     let username = env_var_or_none("ENCLAVE_IMAGE_USERNAME");
     let password = env_var_or_none("ENCLAVE_IMAGE_PASSWORD");
 
@@ -390,7 +390,7 @@ async fn get_base_image(
     image: &str,
     username: Option<String>,
     password: Option<String>,
-) -> Result<ImageWithDetails> {
+) -> Result<ImageWithDetails<'_>> {
     let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,

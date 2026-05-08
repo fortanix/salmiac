@@ -6,19 +6,16 @@
 
 use std::collections::HashMap;
 
-use crate::image_builder::nitro::enclave::NitroEnclaveMeasurements;
-use crate::{
-    image::ImageWithDetails,
-    Result,
-};
 use crate::hex_response;
+use crate::image_builder::nitro::enclave::NitroEnclaveMeasurements;
+use crate::{image::ImageWithDetails, Result};
 use api_model::{
     converter::{ConvertedImageInfo, HashAlgorithm},
-    nitro::{NitroEnclavesConfig, NitroEnclavesMeasurements, NitroEnclavesVersion},
+    nitro::{
+        NitroEnclavesConfig, NitroEnclavesConversionResponse, NitroEnclavesMeasurements,
+        NitroEnclavesVersion,
+    },
 };
-use api_model::
-    nitro::NitroEnclavesConversionResponse
-;
 
 pub const PLATFORM_ABOUT: &str =
     "Converts user docker container to be able to run in AWS Nitro environment";

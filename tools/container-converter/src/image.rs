@@ -189,14 +189,14 @@ impl FromStr for ImageKind {
     }
 }
 
-pub(crate) fn docker_reference(image: &str) -> Result<DockerReference> {
+pub(crate) fn docker_reference(image: &str) -> Result<DockerReference<'_>> {
     DockerReference::from_str(image).map_err(|err| ConverterError {
         message: err.to_string(),
         kind: ConverterErrorKind::BadRequest,
     })
 }
 
-pub(crate) fn output_docker_reference(image: &str) -> Result<DockerReference> {
+pub(crate) fn output_docker_reference(image: &str) -> Result<DockerReference<'_>> {
     docker_reference(image).and_then(|e| {
         if e.tag().is_none() || e.has_digest() {
             Err(ConverterError {
