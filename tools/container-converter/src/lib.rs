@@ -13,24 +13,47 @@ use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::str::FromStr;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender};
 use std::{env, fmt};
 
-use api_model::converter::{
-    AuthConfig, ConversionRequest, ConverterOptions,
-};
-use api_model::enclave::{CcmBackendUrl, UserProgramConfig};
+use api_model::converter::{AuthConfig, ConversionRequest, ConverterOptions};
+use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
 use api_model::HexString;
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, error, info, warn};
 use shiplift::image::DeleteOptions;
 use shiplift::{Docker, Image};
+use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{
-    ImageKind, ImageToClean, ImageWithDetails,
+    docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails,
 };
+use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
+use crate::image_builder::parent::ParentImageBuilder;
+
+#[cfg(platform = "nitro")]
+use crate::image_builder::nitro::enclave::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+#[cfg(platform = "nitro")]
+use crate::image_builder::nitro::parent::ParentImageBuilder as PlatformParentImageBuilder;
+#[cfg(platform = "nitro")]
+use crate::nitro::create_response;
+#[cfg(platform = "nitro")]
+use api_model::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
+#[cfg(platform = "nitro")]
+use api_model::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
+
+#[cfg(platform = "snp")]
+use crate::image_builder::snp::enclave::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+#[cfg(platform = "snp")]
+use crate::image_builder::snp::parent::ParentImageBuilder as PlatformParentImageBuilder;
+#[cfg(platform = "snp")]
+use crate::snp::create_response;
+#[cfg(platform = "snp")]
+use api_model::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
+#[cfg(platform = "snp")]
+use api_model::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
 
 pub mod docker;
 pub mod file;
@@ -79,6 +102,159 @@ const ENCLAVE_IMAGE: &str = "enclave-base";
 
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
+
+pub async fn process_request(request_file: &str) -> std::result::Result<(), String> {
+    let request = serde_json::from_str::<PlatformConversionRequest>(&request_file)
+        .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
+
+    match run(request).await {
+        Ok(response) => {
+            let response_serialized = serde_json::to_string(&response)
+                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
+
+            println!("Successful conversion: {:?}", response_serialized);
+            Ok(())
+        }
+        Err(err) => {
+            error!("Converter exited with error: {}", err.message);
+            Err(err.message)
+        }
+    }
+}
+
+pub async fn run(args: PlatformConversionRequest) -> Result<PlatformConversionResponse> {
+    let (images_to_clean_snd, images_to_clean_rcv) = mpsc::channel();
+    let local_repository = Docker::new();
+    let preserve_images = preserve_images_list()?;
+
+    let resource_cleaner = tokio::spawn(clean_docker_images(
+        local_repository,
+        images_to_clean_rcv,
+        preserve_images,
+    ));
+    let converter = tokio::spawn(run0(args, images_to_clean_snd));
+
+    let (result, _) = tokio::join!(converter, resource_cleaner);
+
+    result.map_err(|err| ConverterError {
+        message: format!("Join error in convert task. {:?}", err),
+        kind: ConverterErrorKind::InternalError,
+    })?
+}
+
+async fn run0(
+    conversion_request: PlatformConversionRequest,
+    images_to_clean_snd: Sender<ImageToClean>,
+) -> Result<PlatformConversionResponse> {
+    validate_request(&conversion_request.request)?;
+
+    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
+    info!("Parent base image is {}", parent_image);
+    info!("Retrieving requisite images!");
+    get_parent_base_image(&parent_image).await?;
+
+    let client_image = docker_reference(&conversion_request.request.input_image.name)?;
+
+    let input_repository = DockerDaemon::new(&conversion_request.request.input_image.auth_config);
+
+    info!("Retrieving client image!");
+    let input_image = input_repository
+        .get_latest_image_details(&client_image)
+        .await
+        .map(|details| {
+            ImageWithDetails {
+                reference: client_image,
+                details,
+            }
+            .make_temporary(ImageKind::Input, images_to_clean_snd.clone())
+        })
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImageGet,
+        })?;
+
+    info!("Creating working directory!");
+    let temp_dir = TempDir::new().map_err(|err| ConverterError {
+        message: format!("Cannot create temp dir {:?}", err),
+        kind: ConverterErrorKind::RequisitesCreation,
+    })?;
+
+    info!("Building enclave image!");
+    let image_result = {
+        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
+        info!("Enclave base image is {}", enclave_base_image_str);
+
+        let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
+
+        let user_program_config = create_user_program_config(
+            &conversion_request.request.converter_options,
+            &input_image.image,
+        )?;
+
+        debug!("User program config is: {:?}", user_program_config);
+
+        let enclave_builder = PlatformEnclaveImageBuilder {
+            enclave_image_builder: EnclaveImageBuilder {
+                client_image_reference: &input_image.image.reference,
+                dir: &temp_dir,
+                enclave_base_image: &enclave_base_image.reference,
+            },
+        };
+
+        let enclave_settings =
+            EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
+        let image_env_vars =
+            get_image_env(&input_image, &conversion_request.request.converter_options);
+        let user_config = UserConfig {
+            user_program_config,
+            certificate_config: conversion_request.request.converter_options.certificates,
+        };
+
+        let sender = images_to_clean_snd.clone();
+        enclave_builder
+            .create_image(
+                &input_repository,
+                enclave_settings,
+                user_config,
+                image_env_vars,
+                sender,
+            )
+            .await?
+    };
+
+    let parent_builder = PlatformParentImageBuilder {
+        parent_image_builder: ParentImageBuilder {
+            parent_image,
+            dir: &temp_dir,
+        },
+        start_options: conversion_request.enclaves_options,
+    };
+
+    info!("Building result image!");
+    let output_image = output_docker_reference(&conversion_request.request.output_image.name)?;
+    let result = parent_builder
+        .create_image(&input_repository, output_image)
+        .await
+        .map(|e| e.make_temporary(ImageKind::Result, images_to_clean_snd.clone()))?;
+
+    if conversion_request
+        .request
+        .converter_options
+        .push_converted_image
+        .unwrap_or(true)
+    {
+        info!("Attempting to push output image");
+        push_result_image(
+            &result.image,
+            &conversion_request.request.output_image.auth_config,
+        )
+        .await?;
+    } else {
+        info!("Skipping output image push");
+    }
+
+    create_response(&result.image, image_result)
+}
 
 fn validate_request(request: &ConversionRequest) -> Result<()> {
     if request.input_image.name == request.output_image.name {
@@ -210,7 +386,11 @@ async fn get_parent_base_image(image: &str) -> Result<()> {
     Ok(())
 }
 
-async fn get_base_image(image: &str, username: Option<String>, password: Option<String>) -> Result<ImageWithDetails> {
+async fn get_base_image(
+    image: &str,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<ImageWithDetails> {
     let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,
@@ -218,7 +398,10 @@ async fn get_base_image(image: &str, username: Option<String>, password: Option<
 
     let repository = DockerDaemon::new(&auth_config);
     let reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
-        message: format!("Requisite image {} address has bad format. {:?}", image, err),
+        message: format!(
+            "Requisite image {} address has bad format. {:?}",
+            image, err
+        ),
         kind: ConverterErrorKind::BadRequest,
     })?;
 
@@ -280,12 +463,18 @@ async fn clean_docker_images(
         let image_interface = Image::new(&docker, image.name.clone());
         let mut delete_options = DeleteOptions::builder().force();
 
-        match image_interface.delete_with_options(&delete_options.build()).await {
+        match image_interface
+            .delete_with_options(&delete_options.build())
+            .await
+        {
             Ok(_) => {
                 info!("Successfully cleaned {:?} image {}", image.kind, image.name);
             }
             Err(e) => {
-                warn!("Error cleaning {:?} image {}. {:?}", image.kind, image.name, e);
+                warn!(
+                    "Error cleaning {:?} image {}. {:?}",
+                    image.kind, image.name, e
+                );
             }
         }
     }
@@ -303,9 +492,12 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
     command.args(args);
 
     debug!("Running subprocess {:?} {:?}", subprocess_path, args);
-    let process = command
-        .spawn()
-        .map_err(|err| format!("Failed to run subprocess {:?}. {:?}. Args {:?}", subprocess_path, err, args))?;
+    let process = command.spawn().map_err(|err| {
+        format!(
+            "Failed to run subprocess {:?}. {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
 
     let output = process.output().await.map_err(|err| {
         format!(
@@ -392,7 +584,11 @@ mod tests {
         let mut result = preserve_images_list();
 
         assert!(result.is_ok());
-        assert!(result.unwrap().into_iter().collect::<Vec<ImageKind>>().is_empty());
+        assert!(result
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<ImageKind>>()
+            .is_empty());
 
         env::set_var("PRESERVE_IMAGES", "result");
 
@@ -630,7 +826,10 @@ mod tests {
             converter_error.message,
             "CcmConfiguration:ccm_url should be in <host>:<port> format"
         );
-        assert_eq!(converter_error.kind, ConverterErrorKind::BadCcmConfiguration);
+        assert_eq!(
+            converter_error.kind,
+            ConverterErrorKind::BadCcmConfiguration
+        );
 
         // Test 3 - Valid CCM configuration set
         request.converter_options.ccm_configuration = Some(CcmConfiguration {
@@ -654,8 +853,14 @@ mod tests {
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
-        assert_eq!(converter_error.message, "DsmConfiguration:dsm_url is not a valid url");
-        assert_eq!(converter_error.kind, ConverterErrorKind::BadDsmConfiguration);
+        assert_eq!(
+            converter_error.message,
+            "DsmConfiguration:dsm_url is not a valid url"
+        );
+        assert_eq!(
+            converter_error.kind,
+            ConverterErrorKind::BadDsmConfiguration
+        );
 
         // Test 3 - Valid DSM configuration set
         request.converter_options.dsm_configuration = Some(DsmConfiguration {

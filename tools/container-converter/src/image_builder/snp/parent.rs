@@ -5,13 +5,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api_model::snp::SNPEnclavesConversionRequestOptions;
-use tempfile::TempDir;
 
 use crate::{image::ImageWithDetails, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
-    pub(crate) parent_image: String,
-    pub(crate) dir: &'a TempDir,
+    pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: SNPEnclavesConversionRequestOptions,
 }
 impl<'a> ParentImageBuilder<'a> {

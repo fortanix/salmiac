@@ -5,36 +5,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use clap::{App, AppSettings, Arg, ArgMatches};
+use container_converter::process_request;
 use env_logger;
 use std::fs;
 
 #[cfg(platform = "nitro")]
-#[tokio::main]
-async fn main() -> Result<(), String> {
-    env_logger::init();
-
-    let console_arguments = console_arguments(
-        "Converts user docker container to be able to run in AWS Nitro environment",
-    );
-
-    let request_file_path = console_arguments
-        .value_of("request-file")
-        .expect("Request file must be provided");
-
-    let request_file = fs::read_to_string(request_file_path)
-        .map_err(|err| format!("Failed reading request file. {:?}", err))?;
-
-    container_converter::nitro::process_request(&request_file).await
-}
-
+use container_converter::nitro as platform;
 #[cfg(platform = "snp")]
+use container_converter::snp as platform;
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
 
-    let console_arguments = console_arguments(
-        "Converts user docker container to be able to run in AMD SNP environment",
-    );
+    let console_arguments = console_arguments(platform::PLATFORM_ABOUT);
 
     let request_file_path = console_arguments
         .value_of("request-file")
@@ -43,7 +27,7 @@ async fn main() -> Result<(), String> {
     let request_file = fs::read_to_string(request_file_path)
         .map_err(|err| format!("Failed reading request file. {:?}", err))?;
 
-    container_converter::snp::process_request(&request_file).await
+    process_request(&request_file).await
 }
 
 fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
