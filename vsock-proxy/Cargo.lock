@@ -76,6 +76,7 @@ name = "api-model"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "salmiac-build-support",
  "serde",
  "serde_json 1.0.2",
 ]
