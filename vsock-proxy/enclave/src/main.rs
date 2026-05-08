@@ -8,6 +8,7 @@ mod app_configuration;
 mod certificate;
 mod enclave;
 mod file_system;
+mod platform;
 
 use std::path::Path;
 use std::process;

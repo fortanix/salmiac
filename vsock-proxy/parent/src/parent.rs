@@ -52,10 +52,6 @@ const MIN_RW_BLOCKFILE_SIZE: usize = 64 * 1024 * 1024;
 
 const VSOCK_PARENT_PORT: u32 = 5006;
 
-const DEFAULT_CPU_COUNT: u8 = 2;
-
-const DEFAULT_MEMORY_SIZE: u64 = 2048;
-
 const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
 const CLIENT_LOG_STREAMS: [StreamType; 2] = [StreamType::Stdout, StreamType::Stderr];
@@ -82,21 +78,17 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     }
 
     info!("Spawning enclave process.");
+    let guest_launch_result = crate::platform::launch_guest();
     // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
-    let _enclave_process = tokio::spawn(start_nitro_enclave());
+    let _enclave_process = guest_launch_result.enclave_process;
 
     info!("Awaiting confirmation from enclave.");
     let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;
 
     info!("Connected to enclave.");
-    let console_process = tokio::spawn(enables_console_logs());
     // Add enclave processes to a separate list of futures. They will be cleaned up
     // once the parent sends the ExitEnclave message to the enclave port.
-    let enclave_tasks = FuturesUnordered::new();
-    enclave_tasks.push({
-        let _ = enclave_tasks;
-        console_process
-    });
+    let enclave_tasks = crate::platform::start_post_connect_guest_tasks();
 
     send_env_variables(&mut enclave_port).await?;
     send_node_agent_address(&mut enclave_port).await?;
@@ -147,7 +139,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
 // Setup two Tcp servers - one to read stdout and another for stderr of the client program
 async fn setup_log_listeners(tap_l3_address: IpAddr) -> Result<Vec<(TcpListener, StreamType)>, String> {
-    if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) != "debug" {
+    if crate::platform::should_forward_client_logs() {
         let mut res: Vec<(TcpListener, StreamType)> = Vec::with_capacity(2);
         for stream in CLIENT_LOG_STREAMS {
             let listen = TcpListener::bind(SocketAddr::new(tap_l3_address, 0)).await.map_err(|e| {
@@ -378,39 +370,6 @@ async fn run_log_listeners(listeners_info: Vec<(TcpListener, StreamType)>) -> Re
         tasks.push(tokio::spawn(start_accepting_connections(tcp_listener, stream_type)));
     }
     Ok(tasks)
-}
-
-async fn enables_console_logs() -> Result<(), String> {
-    if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
-        info!("ENCLAVEOS_DEBUG set, fetching enclave console logs.");
-        run_subprocess(
-            "nitro-cli",
-            &["console", "--enclave-name", "enclave", "--disconnect-timeout", "30"],
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-async fn start_nitro_enclave() -> Result<(), String> {
-    let cpu_count = env::var("CPU_COUNT").unwrap_or(DEFAULT_CPU_COUNT.to_string());
-    let memsize = env::var("MEM_SIZE").unwrap_or(DEFAULT_MEMORY_SIZE.to_string());
-
-    let command = "nitro-cli";
-    let mut args = vec![
-        "run-enclave",
-        "--eif-path",
-        "/opt/fortanix/enclave-os/enclave.eif",
-        "--cpu-count",
-        &cpu_count,
-        "--memory",
-        &memsize,
-    ];
-    if env::var("ENCLAVEOS_DEBUG").unwrap_or(" ".to_string()) == "debug" {
-        args.push("--debug-mode");
-    }
-
-    run_subprocess(command, &args).await
 }
 
 fn start_background_tasks(

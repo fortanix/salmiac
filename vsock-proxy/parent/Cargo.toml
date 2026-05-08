@@ -26,3 +26,9 @@ tempdir = "0.3.7"
 tokio = { version = "1.21.1", features = ["macros", "rt", "rt-multi-thread", "io-std", "io-util"] }
 tokio-vsock = "0.3.1"
 tun = { version = "0.5.3", features = ["async"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "deny" }
+
+[build-dependencies]
+salmiac-build-support = { path = "../../build-support" }

@@ -8,6 +8,10 @@ use std::{env, fs};
 // to avoid problems runtime linking errors with libnss
 const ENCLAVE_STARTUP_TARGET: &str = "x86_64-unknown-linux-musl";
 
+const SALMIAC_PLATFORM_ENV: &str = "SALMIAC_PLATFORM";
+
+const SALMIAC_PLATFORM: &str = "nitro";
+
 const VSOCK_PROXY_BIN_DIR: &str = "../../vsock-proxy/target";
 
 const ENCLAVE_STARTUP_BIN_DIR: &str = "../../enclave-startup/target";
@@ -34,10 +38,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let current_dir = env::current_dir().expect("Failed retrieving current directory");
 
-    {
+    let status = {
         let mut result = Command::new("cargo");
 
-        result.current_dir(current_dir.join("../../vsock-proxy")).arg("build");
+        result.current_dir(current_dir.join("../../vsock-proxy")).env(SALMIAC_PLATFORM_ENV, SALMIAC_PLATFORM).arg("build");
 
         if let Some(build_flag) = cargo_build_flag {
             result.arg(build_flag);
@@ -48,10 +52,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     .status()
     .expect("Failed to build vsock-proxy project");
 
+    assert!(status.success(), "failed to build vsock-proxy project: {}", status);
+
     fs::copy(vsock_proxy_bin_dir.join("enclave"), resources_enclave_dir.join("enclave")).expect("Failed to copy enclave bin");
     fs::copy(vsock_proxy_bin_dir.join("parent"), resources_parent_dir.join("parent")).expect("Failed to copy parent bin");
 
-    {
+    let status = {
         let mut result = Command::new("cargo");
 
         result.current_dir(current_dir.join("../../enclave-startup")).arg("build");
@@ -66,6 +72,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     .status()
     .expect("Failed to build enclave-startup project");
+
+    assert!(status.success(), "failed to build enclave-startup project: {}", status);
 
     fs::copy(
         enclave_startup_bin_dir.join("enclave-startup"),

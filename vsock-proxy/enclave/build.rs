@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::io::{self, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::{env, fs, str};
+use salmiac_build_support::Platform;
 
 use mbedtls::x509::Certificate;
 use pkix::pem;
@@ -54,6 +55,10 @@ fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
 }
 
 fn main() -> io::Result<()> {
+    if let Err(err) = Platform::emit_cfg_from_env() {
+        panic!("{}", err);
+    }
+
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let mut cert_list = Vec::new();
     let dir_location = if let Some(path) = env::var_os("ROOT_CERTIFICATE_DIR") {
