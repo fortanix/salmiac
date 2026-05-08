@@ -8,32 +8,28 @@ pub mod nitro;
 #[cfg(platform = "snp")]
 pub mod snp;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use std::{env, fmt};
 
 use api_model::converter::{
-    AuthConfig, ConversionRequest, ConvertedImageInfo, ConverterOptions, HashAlgorithm,
+    AuthConfig, ConversionRequest, ConverterOptions,
 };
-use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
+use api_model::enclave::{CcmBackendUrl, UserProgramConfig};
 use api_model::HexString;
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
-use image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
-use image_builder::parent::ParentImageBuilder;
 use log::{debug, error, info, warn};
 use shiplift::image::DeleteOptions;
 use shiplift::{Docker, Image};
-use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{
-    docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails,
+    ImageKind, ImageToClean, ImageWithDetails,
 };
 
 pub mod docker;

@@ -151,7 +151,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(Archive::new(archive_file))
     }
 
-    fn create_manifest_file(&self, enclave_manifest: EnclaveManifest, build_context: &BuildContext) -> Result<()> {
+    pub(crate) fn create_manifest_file(enclave_manifest: EnclaveManifest, build_context: &BuildContext) -> Result<()> {
         let data = serde_json::to_vec(&enclave_manifest).map_err(|err| ConverterError {
             message: format!("Failed serializing enclave settings file. {:?}", err),
             kind: ConverterErrorKind::RequisitesCreation,
@@ -169,7 +169,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil, user_config: &UserConfig) -> Result<FileSystemConfig> {
+    pub(crate) async fn create_block_file(&self, docker_util: &dyn DockerUtil, user_config: &UserConfig) -> Result<FileSystemConfig> {
         let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
         let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
 
@@ -182,7 +182,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             .await
     }
 
-    fn enclave_image(&self) -> String {
+    pub(crate) fn enclave_image(&self) -> String {
         self.retag_client_image(&Alphanumeric.sample_string(&mut rand::thread_rng(), 16))
     }
 
@@ -440,7 +440,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    fn check_path_exists(user_config: &UserConfig, block_file_out_path: &Path) -> Result<()> {
+    pub(crate) fn check_path_exists(user_config: &UserConfig, block_file_out_path: &Path) -> Result<()> {
         fn check_path_exists0(path_to_check: &Path, block_file_out_path: &Path, object_name: &str) -> Result<()> {
             let path = if path_to_check.is_absolute() {
                 path_to_check.strip_prefix("/").unwrap()

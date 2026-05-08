@@ -9,6 +9,7 @@ use std::sync::mpsc::Sender;
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use docker_image_reference::Reference as DockerReference;
+use log::info;
 use serde::Deserialize;
 
 use crate::docker::DockerUtil;
