@@ -19,6 +19,4 @@ salmiac-build-support = { path = "../build-support" }
 serde = ["dep:serde"]
 
 [lints.rust]
-unexpected_cfgs = { level = "deny", check-cfg = [
-  'cfg(platform, values("nitro", "snp"))',
-] }
+unexpected_cfgs = { level = "deny" }
