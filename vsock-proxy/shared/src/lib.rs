@@ -3,6 +3,7 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+#![deny(warnings)]
 
 pub mod models;
 pub mod netlink;
@@ -81,8 +82,20 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
     Ok(Ipv6Addr::from(as_array))
 }
 
+#[cfg(platform = "nitro")]
 // Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
 pub const VSOCK_PARENT_CID: u32 = 3;
+
+#[cfg(any(platform = "simulator", platform = "snp"))]
+pub const VSOCK_PARENT_CID: u32 = 2;
+
+#[cfg(platform = "nitro")]
+// Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
+pub const VSOCK_LISTENER_CID: u32 = VSOCK_PARENT_CID;
+
+#[cfg(any(platform = "simulator", platform = "snp"))]
+// TODO(before merge): don't hardcode u32::MAX
+pub const VSOCK_LISTENER_CID: u32 = u32::MAX; // VMADDR_CID_ANY
 
 pub fn parse_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name)
