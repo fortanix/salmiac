@@ -62,13 +62,31 @@ jobs:
         run: |
           ./sanity.sh
 
-      - name: Build Rust code
+      - name: Build Nitro converter
+        env:
+          SALMIAC_PLATFORM: nitro
         run: |
           ./build-converter.sh
 
-      - name: Run Rust unit tests
+      - name: Run Nitro unit tests
         env:
           FORTANIX_API_KEY: ${{ secrets.FORTANIX_API_KEY }}
           OVERLAYFS_UNIT_TEST_API_KEY: ${{ secrets.OVERLAYFS_UNIT_TEST_API_KEY }}
+          SALMIAC_PLATFORM: nitro
         run: |
           ./unit-test-solution.sh
+
+      - name: Build SNP converter
+        env:
+          SALMIAC_PLATFORM: snp
+        run: |
+          ./build-converter.sh
+
+      - name: Run SNP unit tests
+        env:
+          FORTANIX_API_KEY: ${{ secrets.FORTANIX_API_KEY }}
+          OVERLAYFS_UNIT_TEST_API_KEY: ${{ secrets.OVERLAYFS_UNIT_TEST_API_KEY }}
+          SALMIAC_PLATFORM: snp
+        run: |
+          ./unit-test-solution.sh
+

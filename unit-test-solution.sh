@@ -2,14 +2,10 @@
 
 set -exo pipefail
 
-SALMIAC_PLATFORMS=(
-    nitro
-)
-
 # Run unit tests
 if [ $FLAVOR == "release" ]; then
   cargo_build_flag="--release"
-fi;
+fi
 
 if [ -z "$SKIP_RUNNING_TESTS" ]; then
   if [ -z "$FORTANIX_API_KEY" ]; then
@@ -22,21 +18,13 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
       "tools/container-converter"
       "tools/enclaveos-encrypted-fs"
   )
-for unit_test_dir in "${unit_test_dirs[@]}"
-  do
+  for unit_test_dir in "${unit_test_dirs[@]}"; do
     pushd "$unit_test_dir"
-    if [[ "$unit_test_dir" == vsock-proxy/* ]] ; then
-      for platform in "${SALMIAC_PLATFORMS[@]}"
-      do
-        SALMIAC_PLATFORM="${platform}" cargo test $cargo_build_flag --locked
-      done
-    else
-      cargo test $cargo_build_flag --locked
-    fi
+    cargo test $cargo_build_flag --locked
     popd
   done
 fi
 
 pushd api-model
-  cargo test $cargo_build_flag --features=serde --locked
+cargo test $cargo_build_flag --features=serde --locked
 popd
