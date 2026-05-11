@@ -63,6 +63,21 @@ fn main() -> io::Result<()> {
         panic!("{}", err);
     }
 
+    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_NAME");
+    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_PATH");
+
+    for dir in &[PathBuf::from("../../embedded-attestation-client")] {
+        for entry in walkdir::WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| !(e.file_name() == "target" && e.file_type().is_dir()))
+        {
+            if entry.file_type().is_file() {
+                println!("cargo::rerun-if-changed={}", entry.path().display());
+            }
+        }
+    }
+
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let mut cert_list = Vec::new();
     let dir_location = if let Some(path) = env::var_os("ROOT_CERTIFICATE_DIR") {

@@ -16,4 +16,5 @@ docker save -o ./staging/parent-base.tar parent-base-snp
 
 # Build the converter
 docker build -t snp-converter .
+#docker build --no-cache -t snp-converter .
 
