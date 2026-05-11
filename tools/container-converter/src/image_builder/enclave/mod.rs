@@ -4,6 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#[cfg(platform = "nitro")]
+pub(crate) mod nitro;
+#[cfg(platform = "snp")]
+pub(crate) mod snp;
+
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
@@ -106,12 +111,12 @@ impl<'a> EnclaveImageBuilder<'a> {
     pub(crate) const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         Resource {
             name: "enclave",
-            data: include_bytes!("../resources/enclave/enclave"),
+            data: include_bytes!("../../resources/enclave/enclave"),
             is_executable: true,
         },
         Resource {
             name: "enclave-startup",
-            data: include_bytes!("../resources/enclave/enclave-startup"),
+            data: include_bytes!("../../resources/enclave/enclave-startup"),
             is_executable: true,
         },
     ];

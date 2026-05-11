@@ -28,7 +28,7 @@ impl<'a> ParentImageBuilder<'a> {
     pub(crate) const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
         crate::image_builder::parent::ParentImageBuilder::STARTUP_SCRIPT_NAME,
         crate::image_builder::parent::ParentImageBuilder::BINARY_NAME,
-        crate::image_builder::nitro::enclave::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+        crate::image_builder::enclave::nitro::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
         EnclaveImageBuilder::BLOCK_FILE_OUT,
     ];
 
@@ -48,7 +48,7 @@ impl<'a> ParentImageBuilder<'a> {
         self.parent_image_builder
             .move_enclave_files_into_build_context(
                 &build_context.path(),
-                crate::image_builder::nitro::enclave::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+                crate::image_builder::enclave::nitro::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
             )?;
 
         self.create_requisites(&build_context, ParentImageBuilder::IMAGE_COPY_DEPENDENCIES)

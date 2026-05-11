@@ -4,6 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#[cfg(platform = "nitro")]
+pub(crate) mod nitro;
+#[cfg(platform = "snp")]
+pub(crate) mod snp;
+
 use std::fs;
 use std::path::Path;
 
@@ -30,12 +35,12 @@ impl<'a> ParentImageBuilder<'a> {
     pub(crate) const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
         file::Resource {
             name: ParentImageBuilder::STARTUP_SCRIPT_NAME,
-            data: include_bytes!("../resources/parent/start-parent.sh"),
+            data: include_bytes!("../../resources/parent/start-parent.sh"),
             is_executable: true,
         },
         file::Resource {
             name: ParentImageBuilder::BINARY_NAME,
-            data: include_bytes!("../resources/parent/parent"),
+            data: include_bytes!("../../resources/parent/parent"),
             is_executable: true,
         },
     ];

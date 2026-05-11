@@ -6,8 +6,7 @@
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use container_converter::process_request;
-use env_logger;
-use std::{fmt::format, fs, sync::LazyLock};
+use std::{fs, sync::LazyLock};
 
 #[cfg(platform = "nitro")]
 use container_converter::nitro as platform;

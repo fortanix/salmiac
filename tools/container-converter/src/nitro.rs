@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::hex_response;
-use crate::image_builder::nitro::enclave::NitroEnclaveMeasurements;
+use crate::image_builder::enclave::nitro::NitroEnclaveMeasurements;
 use crate::{image::ImageWithDetails, Result};
 use api_model::{
     converter::{ConvertedImageInfo, HashAlgorithm},

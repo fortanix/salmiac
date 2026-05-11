@@ -34,9 +34,9 @@ use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveS
 use crate::image_builder::parent::ParentImageBuilder;
 
 #[cfg(platform = "nitro")]
-use crate::image_builder::nitro::enclave::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+use crate::image_builder::enclave::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 #[cfg(platform = "nitro")]
-use crate::image_builder::nitro::parent::ParentImageBuilder as PlatformParentImageBuilder;
+use crate::image_builder::parent::nitro::ParentImageBuilder as PlatformParentImageBuilder;
 #[cfg(platform = "nitro")]
 use crate::nitro::create_response;
 #[cfg(platform = "nitro")]
@@ -45,9 +45,9 @@ use api_model::nitro::NitroEnclavesConversionRequest as PlatformConversionReques
 use api_model::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
 
 #[cfg(platform = "snp")]
-use crate::image_builder::snp::enclave::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+use crate::image_builder::enclave::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 #[cfg(platform = "snp")]
-use crate::image_builder::snp::parent::ParentImageBuilder as PlatformParentImageBuilder;
+use crate::image_builder::parent::snp::ParentImageBuilder as PlatformParentImageBuilder;
 #[cfg(platform = "snp")]
 use crate::snp::create_response;
 #[cfg(platform = "snp")]
