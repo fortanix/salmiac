@@ -6,8 +6,13 @@
 
 #[cfg(platform = "nitro")]
 pub(crate) mod nitro;
+#[cfg(platform = "nitro")]
+pub(crate) use crate::image_builder::parent::nitro::ParentImageBuilder as PlatformParentImageBuilder;
+
 #[cfg(platform = "snp")]
 pub(crate) mod snp;
+#[cfg(platform = "snp")]
+pub(crate) use self::snp::ParentImageBuilder as PlatformParentImageBuilder;
 
 use std::fs;
 use std::path::Path;

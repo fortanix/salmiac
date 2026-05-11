@@ -33,27 +33,16 @@ use crate::image::{
 use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
 use crate::image_builder::parent::ParentImageBuilder;
 
+use crate::image_builder::enclave::PlatformEnclaveImageBuilder;
+use crate::image_builder::parent::PlatformParentImageBuilder;
+use api_model::PlatformConversionRequest;
+use api_model::PlatformConversionResponse;
+
 #[cfg(platform = "nitro")]
-mod nitro_imports {
-    pub(super) use crate::image_builder::enclave::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
-    pub(super) use crate::image_builder::parent::nitro::ParentImageBuilder as PlatformParentImageBuilder;
-    pub(super) use crate::nitro::create_response;
-    pub(super) use api_model::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
-    pub(super) use api_model::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
-}
-#[cfg(platform = "nitro")]
-use nitro_imports::*;
+use crate::nitro::create_response;
 
 #[cfg(platform = "snp")]
-mod snp_imports {
-    pub(super) use crate::image_builder::enclave::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
-    pub(super) use crate::image_builder::parent::snp::ParentImageBuilder as PlatformParentImageBuilder;
-    pub(super) use crate::snp::create_response;
-    pub(super) use api_model::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
-    pub(super) use api_model::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
-}
-#[cfg(platform = "snp")]
-use snp_imports::*;
+use crate::snp::create_response;
 
 pub mod docker;
 pub mod file;

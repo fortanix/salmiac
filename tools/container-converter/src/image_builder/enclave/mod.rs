@@ -6,8 +6,13 @@
 
 #[cfg(platform = "nitro")]
 pub(crate) mod nitro;
+#[cfg(platform = "nitro")]
+pub(crate) use self::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+
 #[cfg(platform = "snp")]
 pub(crate) mod snp;
+#[cfg(platform = "snp")]
+pub(crate) use self::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 
 use std::ffi::OsStr;
 use std::fmt::Debug;
