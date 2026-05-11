@@ -57,12 +57,6 @@ pub struct SNPEnclavesConfig {
     pub measurements: SNPEnclavesMeasurements,
 }
 
-//#[derive(Clone, Eq, PartialEq, Debug, Hash)]
-//#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-//pub enum NitroEnclavesVersion {
-//    NitroEnclaves, // more to come here
-//}
-
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SNPEnclavesMeasurements {
