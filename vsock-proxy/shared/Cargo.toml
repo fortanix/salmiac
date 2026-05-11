@@ -22,3 +22,6 @@ threadpool = "1.7.1"
 tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "net"] }
 tokio-vsock = "0.3.1"
 tun = { version = "0.5.3", features = ["async"] }
+
+[build-dependencies]
+salmiac-build-support = { path = "../../build-support" }

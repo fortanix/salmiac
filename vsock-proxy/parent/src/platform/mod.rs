@@ -10,11 +10,27 @@ use tokio::task::JoinHandle;
 #[cfg(platform = "nitro")]
 mod nitro;
 
+#[cfg(platform = "simulator")]
+mod simulator;
+
+#[cfg(platform = "snp")]
+mod snp;
+
 pub(crate) type GuestTasks = FuturesUnordered<JoinHandle<Result<(), String>>>;
 
-pub(crate) struct GuestLaunchResult {
-    pub(crate) enclave_process: JoinHandle<Result<(), String>>,
-}
+#[cfg(platform = "simulator")]
+pub(crate) use simulator::{
+    launch_guest,
+    should_forward_client_logs,
+    start_post_connect_guest_tasks,
+};
+
+#[cfg(platform = "snp")]
+pub(crate) use snp::{
+    launch_guest,
+    should_forward_client_logs,
+    start_post_connect_guest_tasks,
+};
 
 #[cfg(platform = "nitro")]
 pub(crate) use nitro::{
@@ -22,3 +38,7 @@ pub(crate) use nitro::{
     should_forward_client_logs,
     start_post_connect_guest_tasks,
 };
+
+pub(crate) struct GuestLaunchResult {
+    pub(crate) enclave_process: JoinHandle<Result<(), String>>,
+}

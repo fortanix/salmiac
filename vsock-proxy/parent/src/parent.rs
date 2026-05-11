@@ -22,7 +22,7 @@ use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
     cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks, AppLogPortInfo,
-    CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
+    CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_LISTENER_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -607,8 +607,8 @@ async fn create_vsock_stream(port: u32) -> Result<AsyncVsockStream, String> {
 }
 
 pub(crate) fn listen_to_parent(port: u32) -> Result<AsyncVsockListener, String> {
-    AsyncVsockListener::bind(VSOCK_PARENT_CID, port)
-        .map_err(|_| format!("Could not bind to cid: {}, port: {}", VSOCK_PARENT_CID, port))
+    AsyncVsockListener::bind(VSOCK_LISTENER_CID, port)
+        .map_err(|_| format!("Could not bind to cid: {}, port: {}", VSOCK_LISTENER_CID, port))
 }
 
 pub(crate) async fn accept(listener: &mut AsyncVsockListener) -> Result<AsyncVsockStream, String> {
