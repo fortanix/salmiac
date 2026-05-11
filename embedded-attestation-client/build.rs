@@ -1,0 +1,84 @@
+use build_support::Platform;
+use std::env;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+static ATTESTATION_CLIENT_BIN_NAME: &str = "ccm-attestation-client-sevsnp";
+
+fn main() {
+    if let Err(err) = Platform::emit_cfg_from_env() {
+        panic!("{}", err);
+    }
+
+    // Don't do any special builds for platforms besides SNP
+    if let Platform::Snp = Platform::from_env().unwrap() {
+        // Continue to do the build
+    } else {
+        // Do not build this if not necessary
+        return;
+    }
+
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+
+    // Run a build and copy the attestation client binary to include into the system
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let repos_dir = manifest_dir.parent().unwrap().parent().unwrap();
+
+    // EMBEDDED_ATTEST_CLIENT_ROCHE_NAME allows a developer to use a Roche directory name besides "roche"
+    let roche_repo_name =
+        env::var("EMBEDDED_ATTEST_CLIENT_ROCHE_NAME").unwrap_or("roche".to_string());
+    let roche_dir = repos_dir.join(roche_repo_name);
+    let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
+
+    let target_profile = env::var("PROFILE").unwrap();
+    let target_dir = roche_dir.join("target").join(&target_profile);
+    let bin_name = ATTESTATION_CLIENT_BIN_NAME;
+    // Command::new("cargo").args(["build", "--release"]).current_dir(attest_client_dir).status().unwrap();
+
+    // Get the toolchain version used in Roche, as we cannot use the Salmiac toolchain
+    let mut buf = String::new();
+    File::open(roche_dir.join("rust-toolchain.toml"))
+        .expect("Could not find rust-toolchain.toml file")
+        .read_to_string(&mut buf)
+        .expect("Failed to read rust-toolchain.toml file");
+    let table = toml::from_str::<toml::Value>(&buf).expect("Could not parse rust-toolchain.toml");
+    let toolchain = if let toml::Value::Table(table) = table {
+        if let toml::Value::Table(toolchain_table) = table.get("toolchain").unwrap() {
+            toolchain_table["channel"]
+                .as_str()
+                .expect("Could not find channel")
+                .to_string()
+        } else {
+            panic!("Could not \"toolchain\" table in rust-toolchain.toml");
+        }
+    } else {
+        panic!("Could not get roche toolchain channel");
+    };
+
+    // Run the attestation client build
+    let mut cmd = Command::new("cargo");
+    cmd.args(["build"])
+        .current_dir(attest_client_dir)
+        .env_remove("RUSTC")
+        .env("RUSTUP_TOOLCHAIN", toolchain);
+    // Debug profile should not be supplied as a profile flag, other ones can be
+    if target_profile != "debug" {
+        cmd.arg(format!("--profile={}", &target_profile));
+    }
+    let build_status = cmd.status().unwrap();
+    if !build_status.success() {
+        panic!("Parent Roche repo Attestation Client build failed");
+    }
+
+    // Copy the attestation client to the output directory
+    std::fs::copy(
+        target_dir.join(bin_name),
+        Path::new(&out_dir).join(bin_name),
+    )
+    .expect("Could not copy attestation client binary");
+
+    // Set the ATTESTATION_CLIENT_BIN_NAME name to be used
+    println!("cargo::rustc-env=ATTESTATION_CLIENT_BIN_NAME={}", bin_name);
+}

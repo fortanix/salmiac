@@ -17,6 +17,7 @@ clap = "2.33"
 const_format = "0.2.32"
 em-app = { workspace = true }
 em-client = { workspace = true }
+embedded-attestation-client = { path = "../../embedded-attestation-client"  }
 enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
 futures = "0.3"
@@ -49,6 +50,7 @@ mbedtls = { version = "0.13.5", features = ["rdrand", "std", "ssl"], default-fea
 pkix = "0.1.2"
 serde_cbor = "0.11.2"
 salmiac-build-support = { path = "../../build-support" }
+toml = "0.5"
 
 [dev-dependencies]
 lazy_static = "1.0"
