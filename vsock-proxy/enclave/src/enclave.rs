@@ -26,8 +26,8 @@ use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
-    ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
-    UserProgramExitStatus,
+    ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings,
+    PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus,
 };
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
@@ -35,8 +35,8 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
-    cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType, HOSTNAME_FILE, HOSTS_FILE,
-    NS_SWITCH_FILE, VSOCK_PARENT_CID,
+    cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType,
+    HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -46,16 +46,20 @@ use tokio::time::{self as tokio_time, Duration};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
 
-use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
+use crate::app_configuration::{
+    setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
+};
 use crate::certificate::{
-    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi, CertificatePaths,
-    CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR, DEFAULT_CERT_RSA_KEY_SIZE,
+    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
+    CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
+    DEFAULT_CERT_RSA_KEY_SIZE,
 };
 use crate::file_system::{
-    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount, create_fortanix_directories,
-    create_overlay_dirs, fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
-    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes, unmount_overlay_fs,
-    DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
+    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options,
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
+    unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 
 const STARTUP_BINARY: &str = "/enclave-startup";
@@ -73,14 +77,17 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
 ];
 
 /// The time duration before expiry a cert renewal is attempted
-const CERT_RENEWAL_BEFORE_EXPIRY: Duration = Duration::from_secs(10 * 60 * 60 * 24 /* 10 days */);
+const CERT_RENEWAL_BEFORE_EXPIRY: Duration =
+    Duration::from_secs(10 * 60 * 60 * 24 /* 10 days */);
 
 /// The interval between certs are checked for renewal
-const CERT_RENEWAL_INTERVAL_RELEASE: Duration = Duration::from_secs(24 * 60 * 60 /* 24 hours */);
+const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
+    Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
 fn default_cert_dir() -> PathBuf {
-    PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
+    PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
+        .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default())
 }
 
 async fn auto_cert_renewal(
@@ -160,7 +167,10 @@ async fn auto_cert_renewals(
     }
 }
 
-pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserProgramExitStatus, String> {
+pub(crate) async fn run(
+    vsock_port: u32,
+    settings_path: &Path,
+) -> Result<UserProgramExitStatus, String> {
     let mut parent_port = connect_to_parent_async(vsock_port).await?;
 
     let (setup_result, networking_setup_result) = startup(&mut parent_port, settings_path).await?;
@@ -185,7 +195,11 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
     let environment_setup_completed_cloned = environment_setup_completed.clone();
     let node_agent = setup_result.node_agent_address.clone();
     let app_config_id = setup_result.app_config.id.clone();
-    let cert_settings = setup_result.enclave_manifest.user_config.certificate_config.clone();
+    let cert_settings = setup_result
+        .enclave_manifest
+        .user_config
+        .certificate_config
+        .clone();
     let is_debug = setup_result.enclave_manifest.is_debug;
 
     background_tasks.push(tokio::spawn(async move {
@@ -209,7 +223,11 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             setup_result.node_agent_address.clone(),
             &EmAppCSRApi {},
             &setup_result.app_config.id,
-            &mut setup_result.enclave_manifest.user_config.certificate_config.clone(),
+            &mut setup_result
+                .enclave_manifest
+                .user_config
+                .certificate_config
+                .clone(),
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
             skip_def_cert_req,
         )
@@ -218,15 +236,25 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
         let fs_setup_config = FileSystemSetupConfig {
             enclave_manifest: &setup_result.enclave_manifest,
             env_vars: &setup_result.env_vars,
-            cert_list: certificate_info.get_mut(0).map(|e| &mut e.certificate_result),
+            cert_list: certificate_info
+                .get_mut(0)
+                .map(|e| &mut e.certificate_result),
         };
-        let encrypted_fs = setup_file_system(parent_guard.deref_mut(), FileSystemSetupApiImpl {}, fs_setup_config).await?;
+        let encrypted_fs = setup_file_system(
+            parent_guard.deref_mut(),
+            FileSystemSetupApiImpl {},
+            fs_setup_config,
+        )
+        .await?;
 
         for certificate in &mut certificate_info {
             write_certificate(certificate, Some(default_cert_dir()))?;
         }
 
-        let first_certificate = certificate_info.into_iter().next().map(|e| e.certificate_result);
+        let first_certificate = certificate_info
+            .into_iter()
+            .next()
+            .map(|e| e.certificate_result);
 
         setup_app_configuration(
             &setup_result.app_config,
@@ -234,15 +262,15 @@ pub(crate) async fn run(vsock_port: u32, settings_path: &Path) -> Result<UserPro
             &setup_result.enclave_manifest.ccm_backend_url,
         )?;
 
-        let log_conn_addrs =
-            extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
         drop(parent_guard);
 
         // The environment for the user application is ready, signal this to background tasks
         // indicating that the file system, etc. is ready to be used
         environment_setup_completed.notify_waiters();
 
-        let exit_status = start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
+        let exit_status =
+            start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
 
         cleanup_fs(encrypted_fs).await?;
 
@@ -263,7 +291,12 @@ fn enable_loopback_network_interface() -> Result<(), String> {
             warn!("Loopback interface is not present inside an enclave!");
             return Ok(());
         }
-        Err(err) => return Err(format!("Failed accessing loopback network interface. {:?}", err)),
+        Err(err) => {
+            return Err(format!(
+                "Failed accessing loopback network interface. {:?}",
+                err
+            ))
+        }
     };
 
     loopback_interface
@@ -283,22 +316,26 @@ async fn startup(
 
     debug!("Received enclave manifest {:?}", enclave_manifest);
 
-    let mut runtime_env_vars = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
-    let node_agent_address = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
+    let mut runtime_env_vars =
+        extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
+    let node_agent_address =
+        extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
     let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
     // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
     // configuration must be set at conversion time.
     env_vars.append(&mut runtime_env_vars);
 
-    let mut extra_user_program_args =
-        extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
+    let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
     if enclave_manifest.is_debug {
         let existing_arguments = &mut enclave_manifest.user_config.user_program_config.arguments;
 
         existing_arguments.append(&mut extra_user_program_args);
 
-        debug!("Running user program with the args - {:?}", existing_arguments);
+        debug!(
+            "Running user program with the args - {:?}",
+            existing_arguments
+        );
     }
 
     let mut app_config = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ApplicationConfig(e) => e)?;
@@ -327,7 +364,10 @@ fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, St
         let pair = env.split_once("=");
         match pair {
             None => {
-                info!("Env string doesn't contain equal sign separating key value pair - {:?}", env);
+                info!(
+                    "Env string doesn't contain equal sign separating key value pair - {:?}",
+                    env
+                );
             }
             Some(e) => {
                 res.push((e.0.to_string(), e.1.to_string()));
@@ -367,7 +407,11 @@ fn setup_app_configuration(
     }
 }
 
-pub(crate) async fn setup_file_system<'a, Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: FileSystemSetupApi<'a>>(
+pub(crate) async fn setup_file_system<
+    'a,
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    Api: FileSystemSetupApi<'a>,
+>(
     parent_socket: &mut Socket,
     api: Api,
     setup_config: FileSystemSetupConfig<'a>,
@@ -379,7 +423,9 @@ pub(crate) async fn setup_file_system<'a, Socket: AsyncWrite + AsyncRead + Unpin
 
     let space = EncryptedVolume::get_available_encrypted_space().await?;
 
-    parent_socket.write_lv(&SetupMessages::EncryptedSpaceAvailable(space)).await?;
+    parent_socket
+        .write_lv(&SetupMessages::EncryptedSpaceAvailable(space))
+        .await?;
 
     Ok(encrypted_fs)
 }
@@ -394,13 +440,21 @@ pub struct FileSystemSetupConfig<'a> {
 
 #[async_trait]
 pub trait FileSystemSetupApi<'a> {
-    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<EncryptedVolume, String>;
+    async fn setup(
+        &self,
+        nbd_config: NBDConfiguration,
+        arg: FileSystemSetupConfig<'a>,
+    ) -> Result<EncryptedVolume, String>;
 }
 
 struct FileSystemSetupApiImpl {}
 #[async_trait]
 impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
-    async fn setup(&self, nbd_config: NBDConfiguration, arg: FileSystemSetupConfig<'a>) -> Result<EncryptedVolume, String> {
+    async fn setup(
+        &self,
+        nbd_config: NBDConfiguration,
+        arg: FileSystemSetupConfig<'a>,
+    ) -> Result<EncryptedVolume, String> {
         let enclave_manifest = arg.enclave_manifest;
         let auth_cert = arg.cert_list;
         let dsm_url = (&arg.enclave_manifest.dsm_configuration.dsm_url).to_string();
@@ -491,13 +545,18 @@ async fn signal_user_program_exit_status(
     parent: &mut ParentStream,
     exit_status: Result<UserProgramExitStatus, String>,
 ) -> Result<(), String> {
-    match parent.exchange_message(&SetupMessages::UserProgramExit(exit_status)).await? {
+    match parent
+        .exchange_message(&SetupMessages::UserProgramExit(exit_status))
+        .await?
+    {
         SetupMessages::ExitEnclave => Ok(()),
         _ => Err(String::from("Expected exit response")),
     }
 }
 
-fn start_background_tasks(tap_devices: Vec<TapDeviceInfo>) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
+fn start_background_tasks(
+    tap_devices: Vec<TapDeviceInfo>,
+) -> FuturesUnordered<JoinHandle<Result<(), String>>> {
     let result = FuturesUnordered::new();
 
     for tap_device in tap_devices {
@@ -515,14 +574,20 @@ async fn start_and_await_user_program_return(
     hostname: String,
     log_conn_addrs: Vec<AppLogPortInfo>,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = tokio::spawn(start_user_program(enclave_setup_result, hostname, log_conn_addrs));
+    let user_program = tokio::spawn(start_user_program(
+        enclave_setup_result,
+        hostname,
+        log_conn_addrs,
+    ));
 
     user_program
         .await
         .map_err(|err| format!("Join error in user program wait loop. {:?}", err))?
 }
 
-async fn connect_to_log_ports(log_addrs: Vec<AppLogPortInfo>) -> Result<Vec<(TcpStream, StreamType)>, String> {
+async fn connect_to_log_ports(
+    log_addrs: Vec<AppLogPortInfo>,
+) -> Result<Vec<(TcpStream, StreamType)>, String> {
     let mut res: Vec<(TcpStream, StreamType)> = vec![];
     for log_info in log_addrs {
         let stream = TcpStream::connect(log_info.sock_addr).await.map_err(|e| {
@@ -531,7 +596,10 @@ async fn connect_to_log_ports(log_addrs: Vec<AppLogPortInfo>) -> Result<Vec<(Tcp
                 log_info.sock_addr, e
             )
         })?;
-        info!("Connected to parent on {:?} for stream {:?}", stream, log_info.stream_type);
+        info!(
+            "Connected to parent on {:?} for stream {:?}",
+            stream, log_info.stream_type
+        );
         res.push((stream, log_info.stream_type));
     }
     Ok(res)
@@ -594,7 +662,10 @@ async fn start_user_program(
     hostname: String,
     log_conn_addrs: Vec<AppLogPortInfo>,
 ) -> Result<UserProgramExitStatus, String> {
-    let user_program = enclave_setup_result.enclave_manifest.user_config.user_program_config;
+    let user_program = enclave_setup_result
+        .enclave_manifest
+        .user_config
+        .user_program_config;
     let is_debug_shell = enclave_setup_result
         .env_vars
         .contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
@@ -623,7 +694,8 @@ async fn start_user_program(
     } else {
         // We have to recreate /run/sshd because it is setup as a `tmpfs` by a nitro kernel.
         if is_debug_shell {
-            fs::create_dir_all("/run/sshd").map_err(|err| format!("Failed creating dir /run/sshd. {:?}", err))?;
+            fs::create_dir_all("/run/sshd")
+                .map_err(|err| format!("Failed creating dir /run/sshd. {:?}", err))?;
         }
 
         let mut client_command = Command::new(user_program.entry_point.clone());
@@ -633,7 +705,10 @@ async fn start_user_program(
         client_command
     };
 
-    info!("Setting the following env vars {:?}", enclave_setup_result.env_vars);
+    info!(
+        "Setting the following env vars {:?}",
+        enclave_setup_result.env_vars
+    );
     client_command.envs(enclave_setup_result.env_vars);
 
     let streams = connect_to_log_ports(log_conn_addrs).await?;
@@ -645,12 +720,17 @@ async fn start_user_program(
     let tasks = forward_client_logs(enable_log_forwarding, streams, &mut client_program).await?;
 
     info!("launching client program");
-    let output = client_program
-        .output()
-        .await
-        .map_err(|err| format!("Error while waiting for client program to finish: {:?}", err))?;
+    let output = client_program.output().await.map_err(|err| {
+        format!(
+            "Error while waiting for client program to finish: {:?}",
+            err
+        )
+    })?;
 
-    info!("client program returns result status >> {:?}", output.status);
+    info!(
+        "client program returns result status >> {:?}",
+        output.status
+    );
     let result = if let Some(code) = output.status.code() {
         UserProgramExitStatus::ExitCode(code)
     } else {
@@ -662,7 +742,9 @@ async fn start_user_program(
     Ok(result)
 }
 
-async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<EnclaveNetworkingSetupResult, String> {
+async fn setup_tap_devices(
+    vsock: &mut AsyncVsockStream,
+) -> Result<EnclaveNetworkingSetupResult, String> {
     let mut result = setup_enclave_networking(vsock).await?;
     info!("Finished networking setup.");
 
@@ -678,7 +760,9 @@ async fn setup_tap_devices(vsock: &mut AsyncVsockStream) -> Result<EnclaveNetwor
     Ok(result)
 }
 
-async fn setup_file_system_tap_device(configuration: PrivateNetworkDeviceSettings) -> Result<TapDeviceInfo, String> {
+async fn setup_file_system_tap_device(
+    configuration: PrivateNetworkDeviceSettings,
+) -> Result<TapDeviceInfo, String> {
     let tap = create_async_tap_device(&tap_device_config(
         &configuration.l3_address,
         &configuration.name,
@@ -686,7 +770,10 @@ async fn setup_file_system_tap_device(configuration: PrivateNetworkDeviceSetting
     ))?;
     let fs_vsock = connect_to_parent_async(configuration.vsock_port_number).await?;
 
-    info!("FS Device {} is connected and ready.", configuration.vsock_port_number);
+    info!(
+        "FS Device {} is connected and ready.",
+        configuration.vsock_port_number
+    );
 
     Ok(TapDeviceInfo {
         vsock: fs_vsock,
@@ -719,7 +806,9 @@ struct EnclaveNetworkingSetupResult {
     tap_devices: Vec<TapDeviceInfo>,
 }
 
-async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<EnclaveNetworkingSetupResult, String> {
+async fn setup_enclave_networking(
+    parent_port: &mut AsyncVsockStream,
+) -> Result<EnclaveNetworkingSetupResult, String> {
     let netlink = Netlink::new();
 
     let device_settings_list = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NetworkDeviceSettings(s) => s)?;
@@ -728,10 +817,16 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     for device_settings in &device_settings_list {
         let tap = setup_network_device(device_settings, &netlink).await?;
-        info!("Trying to connect on port {}", device_settings.vsock_port_number);
+        info!(
+            "Trying to connect on port {}",
+            device_settings.vsock_port_number
+        );
         let vsock = connect_to_parent_async(device_settings.vsock_port_number).await?;
 
-        info!("Device {} is connected and ready.", device_settings.vsock_port_number);
+        info!(
+            "Device {} is connected and ready.",
+            device_settings.vsock_port_number
+        );
 
         tap_devices.push(TapDeviceInfo {
             vsock,
@@ -742,7 +837,8 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
 
     let global_settings = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::GlobalNetworkSettings(s) => s)?;
 
-    fs::create_dir("/run/resolvconf").map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
+    fs::create_dir("/run/resolvconf")
+        .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
     for file in global_settings.global_settings_list {
         write_to_file(Path::new(&file.path), &file.data, &file.path)?;
@@ -759,11 +855,14 @@ async fn setup_enclave_networking(parent_port: &mut AsyncVsockStream) -> Result<
     })
 }
 
-async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: &Netlink) -> Result<AsyncDevice, String> {
+async fn setup_network_device(
+    parent_settings: &NetworkDeviceSettings,
+    netlink: &Netlink,
+) -> Result<AsyncDevice, String> {
     let tap_device = create_async_tap_device(&tun::Configuration::from(parent_settings))?;
 
-    let tap_index =
-        if_nametoindex(tap_device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
+    let tap_index = if_nametoindex(tap_device.get_ref().name())
+        .map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
 
     info!(
         "Setting up device with index {} and settings {:?}.",
@@ -800,7 +899,9 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     // those entries from parent as it becomes the only way for the enclave to know
     // it's neighbours.
     for arp_entry in &parent_settings.static_arp_entries {
-        netlink.add_neighbour_for_device(tap_index, arp_entry).await?;
+        netlink
+            .add_neighbour_for_device(tap_index, arp_entry)
+            .await?;
 
         debug!("ARP entry {:?} is set.", arp_entry);
     }
@@ -808,7 +909,10 @@ async fn setup_network_device(parent_settings: &NetworkDeviceSettings, netlink: 
     Ok(tap_device)
 }
 
-pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+pub(crate) async fn setup_enclave_certifications<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    Api: CSRApi,
+>(
     vsock: &mut Socket,
     node_agent: Option<String>,
     csr_api: &Api,
@@ -826,7 +930,15 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
         certs.push(
-            setup_enclave_certification(Some(vsock), node_agent.clone(), csr_api, app_config_id, cert_config, fs_root).await?,
+            setup_enclave_certification(
+                Some(vsock),
+                node_agent.clone(),
+                csr_api,
+                app_config_id,
+                cert_config,
+                fs_root,
+            )
+            .await?,
         );
     }
 
@@ -866,7 +978,10 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     }
 }
 
-pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead + Unpin + Send, Api: CSRApi>(
+pub(crate) async fn setup_enclave_certification<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    Api: CSRApi,
+>(
     vsock: Option<&mut Socket>,
     node_agent: Option<String>,
     csr_api: &Api,
@@ -900,7 +1015,10 @@ pub(crate) async fn setup_enclave_certification<Socket: AsyncWrite + AsyncRead +
             fs_root,
         ))
     } else {
-        Err(format!("key param not specified for cert config {:?}", cert_config))
+        Err(format!(
+            "key param not specified for cert config {:?}",
+            cert_config
+        ))
     }
 }
 
@@ -915,13 +1033,26 @@ async fn connect_to_parent_async(port: u32) -> Result<AsyncVsockStream, String> 
 }
 
 fn read_enclave_manifest(path: &Path) -> Result<EnclaveManifest, String> {
-    let settings_raw = fs::read_to_string(path).map_err(|err| format!("Failed to read enclave manifest file. {:?}", err))?;
+    let settings_raw = fs::read_to_string(path)
+        .map_err(|err| format!("Failed to read enclave manifest file. {:?}", err))?;
 
-    serde_json::from_str(&settings_raw).map_err(|err| format!("Failed to deserialize enclave manifest. {:?}", err))
+    serde_json::from_str(&settings_raw)
+        .map_err(|err| format!("Failed to deserialize enclave manifest. {:?}", err))
 }
 
-pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(path: &Path, data: &C, entity_name: &str) -> Result<(), String> {
-    fs::write(path, data).map_err(|err| format!("Failed to write {} into file {}. {:?}", path.display(), entity_name, err))
+pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
+    path: &Path,
+    data: &C,
+    entity_name: &str,
+) -> Result<(), String> {
+    fs::write(path, data).map_err(|err| {
+        format!(
+            "Failed to write {} into file {}. {:?}",
+            path.display(),
+            entity_name,
+            err
+        )
+    })
 }
 
 #[cfg(test)]
@@ -930,7 +1061,8 @@ mod tests {
 
     use api_model::converter::DsmConfiguration;
     use api_model::enclave::{
-        CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir,
+        CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig,
+        WorkingDir,
     };
     use async_trait::async_trait;
     use enclaveos_encrypted_fs::EncryptedVolume;
@@ -980,13 +1112,16 @@ mod tests {
                     host: "".to_string(),
                     port: 0,
                 },
-                dsm_configuration: DsmConfiguration { dsm_url: "".to_string() },
+                dsm_configuration: DsmConfiguration {
+                    dsm_url: "".to_string(),
+                },
             },
             env_vars: &[],
             cert_list: None,
         };
 
-        crate::enclave::setup_file_system(&mut enclave_socket, MockFileSystemApi {}, setup_config).await
+        crate::enclave::setup_file_system(&mut enclave_socket, MockFileSystemApi {}, setup_config)
+            .await
     }
 
     #[test]
@@ -1010,9 +1145,13 @@ mod tests {
 /// (non-debug) enclave, do not allow usage of an api key
 fn get_fs_api_key(env_vars: &[(String, String)], is_debug: bool) -> Option<String> {
     if is_debug {
-        return env_vars
-            .iter()
-            .find_map(|e| if e.0 == "FS_API_KEY" { Some(e.1.clone()) } else { None });
+        return env_vars.iter().find_map(|e| {
+            if e.0 == "FS_API_KEY" {
+                Some(e.1.clone())
+            } else {
+                None
+            }
+        });
     }
     None
 }

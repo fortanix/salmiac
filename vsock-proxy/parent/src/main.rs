@@ -101,7 +101,11 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
         .setting(AppSettings::DisableHelpFlags)
         // Together with settings `AppSettings::AllowExternalSubcommands` and `AppSettings::AllowLeadingHyphen`
         // this `arg()` will capture all not defined arguments
-        .arg(Arg::with_name("unknown").multiple(true).allow_hyphen_values(true));
+        .arg(
+            Arg::with_name("unknown")
+                .multiple(true)
+                .allow_hyphen_values(true),
+        );
 
     result.get_matches()
 }

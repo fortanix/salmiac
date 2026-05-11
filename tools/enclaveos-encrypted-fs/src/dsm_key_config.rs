@@ -18,8 +18,9 @@ use mbedtls::ssl::config::{AuthMode, Endpoint, Preset, Transport};
 use mbedtls::ssl::{Config, Version};
 use mbedtls::x509::Certificate;
 use sdkms::api_model::{
-    Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DeriveKeyMechanism, DeriveKeyRequest, DigestAlgorithm,
-    EncryptRequest, KeyOperations, ListSobjectsParams, MacRequest, ObjectType, Sobject, SobjectDescriptor, VerifyMacRequest,
+    Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DeriveKeyMechanism, DeriveKeyRequest,
+    DigestAlgorithm, EncryptRequest, KeyOperations, ListSobjectsParams, MacRequest, ObjectType,
+    Sobject, SobjectDescriptor, VerifyMacRequest,
 };
 use sdkms::SdkmsClient;
 use uuid::Uuid;
@@ -67,7 +68,8 @@ impl DsmFsOps {
             let app_id = Uuid::parse_str(&app_id_str).ok();
 
             let endpoint = conn_info.dsm_url;
-            let endoint_url = url::Url::parse(&*endpoint).map_err(|e| format!("Unable to parse endpoint : {:?}", e))?;
+            let endoint_url = url::Url::parse(&*endpoint)
+                .map_err(|e| format!("Unable to parse endpoint : {:?}", e))?;
             let host = endoint_url
                 .host_str()
                 .ok_or_else(|| format!("Unable to get host from endpoint"))?;
@@ -99,7 +101,10 @@ impl DsmFsOps {
         }
     }
 
-    fn create_hyper_client_with_cert(host: String, auth_cert: &mut ClientCertificate) -> Result<Arc<Client>, String> {
+    fn create_hyper_client_with_cert(
+        host: String,
+        auth_cert: &mut ClientCertificate,
+    ) -> Result<Arc<Client>, String> {
         let mut config = Config::new(Endpoint::Client, Transport::Stream, Preset::Default);
         config.set_authmode(AuthMode::Optional);
         config.set_rng(Arc::new(mbedtls::rng::Rdrand));
@@ -127,13 +132,15 @@ impl DsmFsOps {
 
         let ssl = MbedSSLClient::new_with_sni(Arc::new(config), true, Some(host));
         let connector = HttpsConnector::new(ssl);
-        Ok(Arc::new(hyper::Client::with_connector(Pool::with_connector(
-            Default::default(),
-            connector,
-        ))))
+        Ok(Arc::new(hyper::Client::with_connector(
+            Pool::with_connector(Default::default(), connector),
+        )))
     }
 
-    fn get_keys(client: &SdkmsClient, query_params: Option<&ListSobjectsParams>) -> Result<Vec<Sobject>, String> {
+    fn get_keys(
+        client: &SdkmsClient,
+        query_params: Option<&ListSobjectsParams>,
+    ) -> Result<Vec<Sobject>, String> {
         client
             .list_sobjects(query_params)
             .map_err(|_| format!("Unable to list sobjects"))
@@ -172,7 +179,10 @@ impl DsmFsOps {
                 prefix
             ))
         } else {
-            Ok(result_key.get(0).expect("Unable to pop prefixed result key").clone())
+            Ok(result_key
+                .get(0)
+                .expect("Unable to pop prefixed result key")
+                .clone())
         }
     }
 
@@ -208,7 +218,11 @@ impl DsmFsOps {
         }
     }
 
-    fn derive_mac_key(client: &SdkmsClient, sobject_prefix: String, derivation_data_iv: String) -> Result<Blob, String> {
+    fn derive_mac_key(
+        client: &SdkmsClient,
+        sobject_prefix: String,
+        derivation_data_iv: String,
+    ) -> Result<Blob, String> {
         // Find the parent key by prefix name search
         let parent_key = Self::get_key_by_prefix(client, &sobject_prefix)?;
         let parent_kid = parent_key
@@ -232,7 +246,11 @@ impl DsmFsOps {
             .ok_or_else(|| format!("Transient key blob not found in sobject"))
     }
 
-    fn derive_enc_dec_key(client: &SdkmsClient, sobject_prefix: String, derivation_data_iv: String) -> Result<Blob, String> {
+    fn derive_enc_dec_key(
+        client: &SdkmsClient,
+        sobject_prefix: String,
+        derivation_data_iv: String,
+    ) -> Result<Blob, String> {
         // Find the parent key by prefix name search
         let parent_key = Self::get_key_by_prefix(client, &sobject_prefix)?;
         let parent_kid = parent_key
@@ -296,7 +314,10 @@ impl DsmFsOps {
         let macv_response = client
             .mac_verify(&macv_request)
             .map_err(|e| format!("Unable to verify MAC : {:?}", e))?;
-        macv_response.result.then(|| ()).ok_or("MAC verification failed".to_string())
+        macv_response
+            .result
+            .then(|| ())
+            .ok_or("MAC verification failed".to_string())
     }
 
     fn encrypt_passphrase(
@@ -381,8 +402,15 @@ pub trait DsmInterface {
     const DERIVATION_DATA_PASSPHRASE: &str = "nt-storage-key00";
     const DERIVATION_DATA_HEADER_HMAC: &str = "nt-storage-key01";
 
-    fn dsm_mac_verify_header(&self, header: Blob, mac: Blob) -> impl std::future::Future<Output = Result<(), String>> + Send;
-    fn dsm_mac_header(&self, header: Blob) -> impl std::future::Future<Output = Result<Blob, String>> + Send;
+    fn dsm_mac_verify_header(
+        &self,
+        header: Blob,
+        mac: Blob,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
+    fn dsm_mac_header(
+        &self,
+        header: Blob,
+    ) -> impl std::future::Future<Output = Result<Blob, String>> + Send;
     fn dsm_encrypt_passphrase(
         &self,
         passphrase: Blob,
@@ -396,17 +424,24 @@ pub trait DsmInterface {
     fn filter_key_by_prefix(key_list: Vec<Sobject>, prefix: &str) -> Vec<Sobject> {
         key_list
             .into_iter()
-            .filter(|s| s.name.as_ref().map(|n| n.starts_with(prefix)).unwrap_or(false))
+            .filter(|s| {
+                s.name
+                    .as_ref()
+                    .map(|n| n.starts_with(prefix))
+                    .unwrap_or(false)
+            })
             .collect()
     }
 }
 
 impl DsmInterface for DsmFsOps {
     fn dsm_get_endpoint(&self) -> Result<String, String> {
-        let dsm_cli = self
-            .client
-            .lock()
-            .map_err(|e| format!("Unable to lock on DSM client for obtaining endpoint : {:?}", e))?;
+        let dsm_cli = self.client.lock().map_err(|e| {
+            format!(
+                "Unable to lock on DSM client for obtaining endpoint : {:?}",
+                e
+            )
+        })?;
         Ok(dsm_cli.api_endpoint().to_string())
     }
 
@@ -415,10 +450,12 @@ impl DsmInterface for DsmFsOps {
         let mac_clone = mac.clone();
         let header_clone = header.clone();
         let dsm_mac_task_res = tokio::task::spawn_blocking(move || {
-            let dsm_cli = self_clone
-                .client
-                .lock()
-                .map_err(|e| format!("Unable to lock on DSM client for MAC verify operation : {:?}", e))?;
+            let dsm_cli = self_clone.client.lock().map_err(|e| {
+                format!(
+                    "Unable to lock on DSM client for MAC verify operation : {:?}",
+                    e
+                )
+            })?;
             DsmFsOps::mac_verify_header(
                 &dsm_cli,
                 header_clone,
@@ -452,7 +489,10 @@ impl DsmInterface for DsmFsOps {
         dsm_mac_task_res
     }
 
-    async fn dsm_encrypt_passphrase(&self, passphrase: Blob) -> Result<EncryptedPassphrase, String> {
+    async fn dsm_encrypt_passphrase(
+        &self,
+        passphrase: Blob,
+    ) -> Result<EncryptedPassphrase, String> {
         let self_clone = self.clone();
         let passphrase_clone = passphrase.clone();
         let dsm_enc_task_res = tokio::task::spawn_blocking(move || {
@@ -472,7 +512,10 @@ impl DsmInterface for DsmFsOps {
         dsm_enc_task_res
     }
 
-    async fn dsm_decrypt_passphrase(&self, wrapped_key: EncryptedPassphrase) -> Result<Blob, String> {
+    async fn dsm_decrypt_passphrase(
+        &self,
+        wrapped_key: EncryptedPassphrase,
+    ) -> Result<Blob, String> {
         let self_clone = self.clone();
         let wrapped_key_clone = wrapped_key.clone();
         let dsm_dec_task_res = tokio::task::spawn_blocking(move || {
@@ -506,7 +549,8 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::dsm_key_config::{
-        ClientCertificate, ClientConnectionInfo, DsmFsOps, DsmInterface, DEFAULT_DSM_APPS_ENDPOINT, DEFAULT_DSM_ENDPOINT,
+        ClientCertificate, ClientConnectionInfo, DsmFsOps, DsmInterface, DEFAULT_DSM_APPS_ENDPOINT,
+        DEFAULT_DSM_ENDPOINT,
     };
 
     const PLAINTEXT: &str = "hello world. This is a test string.";
@@ -516,10 +560,11 @@ mod tests {
     const DERIVATION_DATA_IV: &str = "sample-persisten";
 
     lazy_static! {
-        static ref DSM_API_KEY: String =
-            env::var("FORTANIX_API_KEY").expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
-        static ref DSM_TEST_API_KEY: String = env::var("OVERLAYFS_UNIT_TEST_API_KEY")
-            .expect("The environment variable OVERLAYFS_UNIT_TEST_API_KEY must be set for this unit test");
+        static ref DSM_API_KEY: String = env::var("FORTANIX_API_KEY")
+            .expect("The environment variable FORTANIX_API_KEY must be set for this unit test");
+        static ref DSM_TEST_API_KEY: String = env::var("OVERLAYFS_UNIT_TEST_API_KEY").expect(
+            "The environment variable OVERLAYFS_UNIT_TEST_API_KEY must be set for this unit test"
+        );
     }
 
     #[test]
@@ -553,7 +598,10 @@ mod tests {
         // First set of key-cert is typically used by salmiac - app ID is embedded in the app cert
         // Second set of key-cert is used by cognac - app ID may not be embedded in app cert and may be provided as env var
         let key_cert_paths = [
-            ("salmiac-overlayfs-ca-signed.key", "salmiac-overlayfs-ca-signed-cert.pem"),
+            (
+                "salmiac-overlayfs-ca-signed.key",
+                "salmiac-overlayfs-ca-signed-cert.pem",
+            ),
             ("client.key", "client.cert"),
         ];
         let mut sobject_prefix = SALM_FS_SECURITY_OBJECT_PREFIX;
@@ -569,13 +617,19 @@ mod tests {
             let mut keypath = PathBuf::from(test_resource.clone());
             keypath.push(key_path);
             let mut key_contents: Vec<u8> = Vec::new();
-            let _key_size = File::open(keypath).unwrap().read_to_end(&mut key_contents).unwrap();
+            let _key_size = File::open(keypath)
+                .unwrap()
+                .read_to_end(&mut key_contents)
+                .unwrap();
             key_contents.push(0);
 
             let mut certpath = PathBuf::from(test_resource);
             certpath.push(cert_path);
             let mut cert_contents: Vec<u8> = Vec::new();
-            let _cert_size = File::open(certpath).unwrap().read_to_end(&mut cert_contents).unwrap();
+            let _cert_size = File::open(certpath)
+                .unwrap()
+                .read_to_end(&mut cert_contents)
+                .unwrap();
 
             let mut key = Pk::from_private_key(key_contents.as_slice(), None).unwrap();
             let mut cert_res = ClientCertificate {
@@ -590,15 +644,28 @@ mod tests {
                 auth_cert: Some(&mut cert_res),
                 dsm_url: DEFAULT_DSM_APPS_ENDPOINT.to_string(),
             };
-            let dsm_fs_enc = DsmFsOps::new(conn_info_enc, sobject_prefix.to_string(), DERIVATION_DATA_IV.to_string()).unwrap();
-            let resp = dsm_fs_enc.dsm_encrypt_passphrase(Blob::from(PLAINTEXT)).await.unwrap();
+            let dsm_fs_enc = DsmFsOps::new(
+                conn_info_enc,
+                sobject_prefix.to_string(),
+                DERIVATION_DATA_IV.to_string(),
+            )
+            .unwrap();
+            let resp = dsm_fs_enc
+                .dsm_encrypt_passphrase(Blob::from(PLAINTEXT))
+                .await
+                .unwrap();
 
             let conn_info_dec = ClientConnectionInfo {
                 fs_api_key: None,
                 auth_cert: Some(&mut cert_res),
                 dsm_url: DEFAULT_DSM_APPS_ENDPOINT.to_string(),
             };
-            let dsm_fs_dec = DsmFsOps::new(conn_info_dec, sobject_prefix.to_string(), DERIVATION_DATA_IV.to_string()).unwrap();
+            let dsm_fs_dec = DsmFsOps::new(
+                conn_info_dec,
+                sobject_prefix.to_string(),
+                DERIVATION_DATA_IV.to_string(),
+            )
+            .unwrap();
             let dec_resp = dsm_fs_dec.dsm_decrypt_passphrase(resp).await.unwrap();
             assert_eq!(Blob::from(PLAINTEXT), dec_resp);
         }
@@ -617,7 +684,10 @@ mod tests {
             DERIVATION_DATA_IV.to_string(),
         )
         .unwrap();
-        let wrapped_passhrase = dsm_fs_enc.dsm_encrypt_passphrase(Blob::from(PLAINTEXT)).await.unwrap();
+        let wrapped_passhrase = dsm_fs_enc
+            .dsm_encrypt_passphrase(Blob::from(PLAINTEXT))
+            .await
+            .unwrap();
 
         let conn_info_dec = ClientConnectionInfo {
             fs_api_key: Some(DSM_API_KEY.to_string()),
@@ -630,7 +700,10 @@ mod tests {
             DERIVATION_DATA_IV.to_string(),
         )
         .unwrap();
-        let unwrapped_passphrase = dsm_fs_dec.dsm_decrypt_passphrase(wrapped_passhrase).await.unwrap();
+        let unwrapped_passphrase = dsm_fs_dec
+            .dsm_decrypt_passphrase(wrapped_passhrase)
+            .await
+            .unwrap();
 
         assert_eq!(Blob::from(PLAINTEXT), unwrapped_passphrase);
     }
@@ -648,7 +721,10 @@ mod tests {
             DERIVATION_DATA_IV.to_string(),
         )
         .unwrap();
-        let mac = dsm_fs_mac.dsm_mac_header(Blob::from(PLAINTEXT)).await.unwrap();
+        let mac = dsm_fs_mac
+            .dsm_mac_header(Blob::from(PLAINTEXT))
+            .await
+            .unwrap();
 
         let conn_info_macv = ClientConnectionInfo {
             fs_api_key: Some(DSM_API_KEY.to_string()),
@@ -661,7 +737,10 @@ mod tests {
             DERIVATION_DATA_IV.to_string(),
         )
         .unwrap();
-        dsm_fs_macv.dsm_mac_verify_header(Blob::from(PLAINTEXT), mac).await.unwrap();
+        dsm_fs_macv
+            .dsm_mac_verify_header(Blob::from(PLAINTEXT), mac)
+            .await
+            .unwrap();
     }
 
     #[test]

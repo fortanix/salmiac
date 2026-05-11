@@ -31,7 +31,10 @@ impl Netlink {
 
         let _connection = tokio::spawn(connection);
 
-        Netlink { handle, _connection }
+        Netlink {
+            handle,
+            _connection,
+        }
     }
 }
 
@@ -40,7 +43,11 @@ impl Netlink {
 pub trait NetlinkCommon {
     async fn get_link_for_device(&self, device_index: u32) -> Result<Option<LinkMessage>, String>;
 
-    async fn set_link_for_device(&self, device_index: u32, mac_address: &[u8; 6]) -> Result<(), String>;
+    async fn set_link_for_device(
+        &self,
+        device_index: u32,
+        mac_address: &[u8; 6],
+    ) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -64,7 +71,11 @@ impl NetlinkCommon for Netlink {
         Ok(result)
     }
 
-    async fn set_link_for_device(&self, device_index: u32, mac_address: &[u8; 6]) -> Result<(), String> {
+    async fn set_link_for_device(
+        &self,
+        device_index: u32,
+        mac_address: &[u8; 6],
+    ) -> Result<(), String> {
         self.handle
             .link()
             .set(device_index)

@@ -14,8 +14,7 @@ pub enum Platform {
 impl Platform {
     pub fn from_env() -> Result<Self, String> {
         match env::var(PLATFORM_ENV) {
-            Ok(value) => Platform::from_str(&value)
-                .map_err(|_| unsupported_platform_error(&value)),
+            Ok(value) => Platform::from_str(&value).map_err(|_| unsupported_platform_error(&value)),
             Err(err) => Err(format!("failed to read {PLATFORM_ENV}: {err}")),
         }
     }

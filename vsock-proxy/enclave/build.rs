@@ -4,11 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use salmiac_build_support::Platform;
 use std::ffi::OsString;
 use std::io::{self, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::{env, fs, str};
-use salmiac_build_support::Platform;
 
 use mbedtls::x509::Certificate;
 use pkix::pem;
@@ -37,7 +37,11 @@ fn read_certificates(path: PathBuf) -> io::Result<Vec<Vec<u8>>> {
                     certs.push(der);
                 }
                 Err(err) => {
-                    println!("WARN: invalid certificate found in file {}. {:?}", path.display(), err)
+                    println!(
+                        "WARN: invalid certificate found in file {}. {:?}",
+                        path.display(),
+                        err
+                    )
                 }
             }
         }
@@ -86,13 +90,19 @@ fn main() -> io::Result<()> {
     } else {
         eprintln!(
             "No root certificates found in \"{}\"",
-            dir_location.into_string().unwrap_or(String::from("<parse error>"))
+            dir_location
+                .into_string()
+                .unwrap_or(String::from("<parse error>"))
         );
-        return Err(Error::new(ErrorKind::NotFound, "Didn't find any root certificates"));
+        return Err(Error::new(
+            ErrorKind::NotFound,
+            "Didn't find any root certificates",
+        ));
     }
     let serialized_data: Vec<u8> = serde_cbor::to_vec(&cert_list).expect("Serialization Failed");
 
     let output_file = Path::new(&out_dir).join("cert_list");
-    fs::write(output_file.as_path(), serialized_data).expect("Could not write root certificates to build directory");
+    fs::write(output_file.as_path(), serialized_data)
+        .expect("Could not write root certificates to build directory");
     Ok(())
 }

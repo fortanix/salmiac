@@ -36,14 +36,16 @@ impl<'a> ImageWithDetails<'a> {
             (entry_point, entry_point_arguments)
         } else {
             let cmd = config.cmd.as_ref().ok_or(ConverterError {
-                message: "Input image must have a CMD clause if ENTRYPOINT is not present.".to_string(),
+                message: "Input image must have a CMD clause if ENTRYPOINT is not present."
+                    .to_string(),
                 kind: ConverterErrorKind::BadRequest,
             })?;
 
             ImageWithDetails::extract_entry_point_with_arguments(cmd)?
         };
 
-        let (user, group) = ImageWithDetails::extract_user_and_group(&config.user.clone().unwrap_or_default());
+        let (user, group) =
+            ImageWithDetails::extract_user_and_group(&config.user.clone().unwrap_or_default());
 
         Ok(UserProgramConfig {
             entry_point,
@@ -55,14 +57,27 @@ impl<'a> ImageWithDetails<'a> {
     }
 
     pub fn user_and_group(&self) -> (User, User) {
-        ImageWithDetails::extract_user_and_group(&self.details.config.user.clone().unwrap_or_default())
+        ImageWithDetails::extract_user_and_group(
+            &self.details.config.user.clone().unwrap_or_default(),
+        )
     }
 
     pub fn working_dir(&self) -> WorkingDir {
-        WorkingDir::from(self.details.config.working_dir.clone().unwrap_or_default().as_str())
+        WorkingDir::from(
+            self.details
+                .config
+                .working_dir
+                .clone()
+                .unwrap_or_default()
+                .as_str(),
+        )
     }
 
-    pub(crate) fn make_temporary(self, kind: ImageKind, sender: Sender<ImageToClean>) -> TempImage<'a> {
+    pub(crate) fn make_temporary(
+        self,
+        kind: ImageKind,
+        sender: Sender<ImageToClean>,
+    ) -> TempImage<'a> {
         TempImage {
             image: self,
             kind,
@@ -251,9 +266,18 @@ mod tests {
         };
 
         test("test".to_string(), (User::from("test"), User::from("")));
-        test("test:test".to_string(), (User::from("test"), User::from("test")));
-        test("test:root".to_string(), (User::from("test"), User::from("root")));
-        test("root:test".to_string(), (User::from("root"), User::from("test")));
+        test(
+            "test:test".to_string(),
+            (User::from("test"), User::from("test")),
+        );
+        test(
+            "test:root".to_string(),
+            (User::from("test"), User::from("root")),
+        );
+        test(
+            "root:test".to_string(),
+            (User::from("root"), User::from("test")),
+        );
         test("".to_string(), (User::from(""), User::from("")));
         test(":test".to_string(), (User::from(""), User::from("test")));
         test("test:".to_string(), (User::from("test"), User::from("")));

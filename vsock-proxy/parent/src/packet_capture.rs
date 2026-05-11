@@ -28,7 +28,10 @@ pub(crate) struct PcapLoopsResult {
 /// Network forwarding tasks never exit during normal parent execution and it is considered an error if they do.
 /// # Returns
 /// Handles to two network forwarding tasks
-pub(crate) fn start_pcap_loops(network_device: Device, vsock: AsyncVsockStream) -> Result<PcapLoopsResult, String> {
+pub(crate) fn start_pcap_loops(
+    network_device: Device,
+    vsock: AsyncVsockStream,
+) -> Result<PcapLoopsResult, String> {
     let read_capture = open_packet_capture(network_device.clone(), Mode::Read)?;
     let write_capture = open_packet_capture(network_device, Mode::Write)?;
 
@@ -109,7 +112,10 @@ async fn read_from_device_async(
     Ok(())
 }
 
-async fn write_to_device_async(capture: Capture<Active>, mut from_enclave: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+async fn write_to_device_async(
+    capture: Capture<Active>,
+    mut from_enclave: ReadHalf<AsyncVsockStream>,
+) -> Result<(), String> {
     let mut capture = capture
         .sink()
         .map_err(|err| format!("Failed to convert capture to sink: {:?}", err))?;
@@ -147,7 +153,9 @@ fn open_packet_capture(device: pcap::Device, mode: Mode) -> Result<Capture<Activ
         info!("Capturing with device: {}", device_name);
     }
 
-    let mut capture = capture.open().map_err(|err| format!("Cannot open capture {:?}", err))?;
+    let mut capture = capture
+        .open()
+        .map_err(|err| format!("Cannot open capture {:?}", err))?;
     capture = capture
         .setnonblock()
         .map_err(|err| format!("Failed to configure pcap non-blocking mode {:?}", err))?;

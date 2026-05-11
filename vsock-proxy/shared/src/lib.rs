@@ -65,7 +65,8 @@ pub struct AppLogPortInfo {
 /// # Returns
 /// `Ok` if slice has a size of 4 elements and `Err` otherwise
 pub fn vec_to_ip4(vec: &[u8]) -> Result<Ipv4Addr, String> {
-    let as_array = <[u8; 4]>::try_from(&vec[..]).map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
+    let as_array = <[u8; 4]>::try_from(&vec[..])
+        .map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
 
     Ok(Ipv4Addr::from(as_array))
 }
@@ -74,7 +75,8 @@ pub fn vec_to_ip4(vec: &[u8]) -> Result<Ipv4Addr, String> {
 /// # Returns
 /// `Ok` if slice has a size of 8 elements and `Err` otherwise
 pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
-    let as_array = <[u16; 8]>::try_from(&vec[..]).map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
+    let as_array = <[u16; 8]>::try_from(&vec[..])
+        .map_err(|err| format!("Cannot convert vec to array {:?}", err))?;
 
     Ok(Ipv6Addr::from(as_array))
 }
@@ -83,7 +85,8 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
 pub const VSOCK_PARENT_CID: u32 = 3;
 
 pub fn parse_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> T {
-    parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
+    parse_optional_console_argument(args, name)
+        .expect(format!("{} must be specified", name).as_str())
 }
 
 pub fn parse_optional_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> Option<T> {
@@ -252,9 +255,12 @@ pub async fn run_subprocess_with_output_setup(
     }
 
     debug!("Running subprocess {} {:?}.", subprocess_path, args);
-    let process = command
-        .spawn()
-        .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
+    let process = command.spawn().map_err(|err| {
+        format!(
+            "Failed to run subprocess {}. {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
 
     let output = process.output().await.map_err(|err| {
         format!(
@@ -266,11 +272,16 @@ pub async fn run_subprocess_with_output_setup(
     if output.status.success() {
         Ok(output)
     } else {
-        Err(format!("Process exited with a negative return code. Output is: {:?}", output))
+        Err(format!(
+            "Process exited with a negative return code. Output is: {:?}",
+            output
+        ))
     }
 }
 
-pub fn cleanup_tokio_tasks(background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>) -> Result<(), String> {
+pub fn cleanup_tokio_tasks(
+    background_tasks: FuturesUnordered<JoinHandle<Result<(), String>>>,
+) -> Result<(), String> {
     for background_task in &background_tasks {
         while !background_task.is_finished() {
             background_task.abort();

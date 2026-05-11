@@ -19,14 +19,25 @@ use crate::{find_map, vec_to_ip4};
 /// Netlink functions to manipulate ARP table
 #[async_trait]
 pub trait NetlinkARP {
-    async fn add_neighbour_for_device(&self, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String>;
+    async fn add_neighbour_for_device(
+        &self,
+        device_index: u32,
+        arp_entry: &ARPEntry,
+    ) -> Result<(), String>;
 
-    async fn get_neighbours_for_device(&self, device_index: u32) -> Result<Vec<NeighbourMessage>, String>;
+    async fn get_neighbours_for_device(
+        &self,
+        device_index: u32,
+    ) -> Result<Vec<NeighbourMessage>, String>;
 }
 
 #[async_trait]
 impl NetlinkARP for Netlink {
-    async fn add_neighbour_for_device(&self, device_index: u32, arp_entry: &ARPEntry) -> Result<(), String> {
+    async fn add_neighbour_for_device(
+        &self,
+        device_index: u32,
+        arp_entry: &ARPEntry,
+    ) -> Result<(), String> {
         self.handle
             .neighbours()
             .add(device_index, arp_entry.l3_address)
@@ -39,8 +50,16 @@ impl NetlinkARP for Netlink {
             .map_err(|err| format!("Failed to create ARP entry {:?}", err))
     }
 
-    async fn get_neighbours_for_device(&self, device_index: u32) -> Result<Vec<NeighbourMessage>, String> {
-        let mut neighbours = self.handle.neighbours().get().set_family(IpVersion::V4).execute();
+    async fn get_neighbours_for_device(
+        &self,
+        device_index: u32,
+    ) -> Result<Vec<NeighbourMessage>, String> {
+        let mut neighbours = self
+            .handle
+            .neighbours()
+            .get()
+            .set_family(IpVersion::V4)
+            .execute();
 
         let mut result: Vec<NeighbourMessage> = Vec::new();
         while let Some(neighbour) = next_in_stream(&mut neighbours).await? {

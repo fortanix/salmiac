@@ -54,7 +54,11 @@ pub struct TapLoopsResult {
 /// Network forwarding tasks never exit during normal enclave execution and it is considered an error if they do.
 /// # Returns
 /// Handles to two network forwarding tasks
-pub fn start_tap_loops(tap_device: AsyncDevice, vsock: AsyncVsockStream, mtu: u32) -> TapLoopsResult {
+pub fn start_tap_loops(
+    tap_device: AsyncDevice,
+    vsock: AsyncVsockStream,
+    mtu: u32,
+) -> TapLoopsResult {
     let (tap_read, tap_write) = io::split(tap_device);
     let (vsock_read, vsock_write) = io::split(vsock);
 
@@ -87,7 +91,10 @@ async fn read_from_tap_async(
     }
 }
 
-async fn write_to_tap_async(mut device: WriteHalf<AsyncDevice>, mut vsock: ReadHalf<AsyncVsockStream>) -> Result<(), String> {
+async fn write_to_tap_async(
+    mut device: WriteHalf<AsyncDevice>,
+    mut vsock: ReadHalf<AsyncVsockStream>,
+) -> Result<(), String> {
     loop {
         let packet = vsock.read_lv_bytes().await?;
 

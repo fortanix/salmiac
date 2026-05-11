@@ -16,21 +16,27 @@ use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
-use parent_lib::{communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS};
-use shared::models::{ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages, UserProgramExitStatus};
+use parent_lib::{
+    communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS,
+};
+use shared::models::{
+    ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages,
+    UserProgramExitStatus,
+};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
-    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks, AppLogPortInfo,
-    CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
+    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
+    AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE,
+    NS_SWITCH_FILE, VSOCK_PARENT_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
 use crate::network::{
-    choose_addrs_for_private_taps, list_network_devices, set_up_private_tap_devices, setup_network_devices, PairedPcapDevice,
-    PairedTapDevice,
+    choose_addrs_for_private_taps, list_network_devices, set_up_private_tap_devices,
+    setup_network_devices, PairedPcapDevice, PairedTapDevice,
 };
 use crate::packet_capture::start_pcap_loops;
 use crate::ParentConsoleArguments;
@@ -60,11 +66,19 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
     loop {
         match enclave.read_lv().await? {
             SetupMessages::UserProgramExit(status) => return status,
-            SetupMessages::CSR(csr) => match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
-                Ok(()) => (),
-                Err(e) => info!("CSR message handler failed with {e}. Continuing, the enclave will retry later"),
-            },
-            _r => return Err(format!("Unexpected message while executing user application")),
+            SetupMessages::CSR(csr) => {
+                match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
+                    Ok(()) => (),
+                    Err(e) => info!(
+                    "CSR message handler failed with {e}. Continuing, the enclave will retry later"
+                ),
+                }
+            }
+            _r => {
+                return Err(format!(
+                    "Unexpected message while executing user application"
+                ))
+            }
         }
     }
 }
@@ -74,7 +88,8 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
     if !overlayfs_parent_dir.exists() {
         info!("Creating overlayfs directory where the rw encrypted blockfile would be created...");
-        fs::create_dir_all(overlayfs_parent_dir).map_err(|e| format!("Unable to create overlayfs parent dir : {:?}", e))?;
+        fs::create_dir_all(overlayfs_parent_dir)
+            .map_err(|e| format!("Unable to create overlayfs parent dir : {:?}", e))?;
     }
 
     info!("Spawning enclave process.");
@@ -118,7 +133,9 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
         setup_file_system(&mut enclave_port, tap_l3_address).await?;
 
         // Pass the ports which the enclave can connect to for forwarding logs
-        enclave_port.write_lv(&SetupMessages::AppLogPort(log_ports)).await?;
+        enclave_port
+            .write_lv(&SetupMessages::AppLogPort(log_ports))
+            .await?;
 
         // Start message handler loop, next message can be easily handled in loop
         let exit_code = message_handler(&mut enclave_port).await?;
@@ -138,16 +155,20 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 }
 
 // Setup two Tcp servers - one to read stdout and another for stderr of the client program
-async fn setup_log_listeners(tap_l3_address: IpAddr) -> Result<Vec<(TcpListener, StreamType)>, String> {
+async fn setup_log_listeners(
+    tap_l3_address: IpAddr,
+) -> Result<Vec<(TcpListener, StreamType)>, String> {
     if crate::platform::should_forward_client_logs() {
         let mut res: Vec<(TcpListener, StreamType)> = Vec::with_capacity(2);
         for stream in CLIENT_LOG_STREAMS {
-            let listen = TcpListener::bind(SocketAddr::new(tap_l3_address, 0)).await.map_err(|e| {
-                format!(
-                    "Unable to setup tcp listener, bind on IP {:?} failed : {:?}",
-                    tap_l3_address, e
-                )
-            })?;
+            let listen = TcpListener::bind(SocketAddr::new(tap_l3_address, 0))
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Unable to setup tcp listener, bind on IP {:?} failed : {:?}",
+                        tap_l3_address, e
+                    )
+                })?;
             res.push((listen, stream));
         }
         Ok(res)
@@ -158,7 +179,9 @@ async fn setup_log_listeners(tap_l3_address: IpAddr) -> Result<Vec<(TcpListener,
 
 // Obtain the socket addresses of the tcp listeners which were setup to obtain client
 // application logs.
-fn get_log_sock_addrs(listeners: &mut Vec<(TcpListener, StreamType)>) -> Result<Vec<AppLogPortInfo>, String> {
+fn get_log_sock_addrs(
+    listeners: &mut Vec<(TcpListener, StreamType)>,
+) -> Result<Vec<AppLogPortInfo>, String> {
     Ok(listeners
         .iter()
         .filter_map(|(tcp_listener, stream_type)| {
@@ -191,18 +214,26 @@ async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), St
 
 fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>, String> {
     let mut runtime_vars: HashMap<String, String> = env::vars().collect();
-    info!("Found the following environment variables in parent : {:?}", runtime_vars);
+    info!(
+        "Found the following environment variables in parent : {:?}",
+        runtime_vars
+    );
 
     // "_" is a special var setup by bash that points to the currently executed binary
     // to not leak the binary path into the enclave we remove this var explicitly.
     runtime_vars.remove("_");
 
     // The ORIG_ENV_LIST_PATH file contains the list of variables which were set in the parent at conversion time.
-    let file =
-        File::open(orig_env_path.as_path()).map_err(|e| format!("Unable to find parent's original env variables : {}", e))?;
+    let file = File::open(orig_env_path.as_path())
+        .map_err(|e| format!("Unable to find parent's original env variables : {}", e))?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
-        let env_line = line.map_err(|e| format!("Unable to read line from file {:?} : {:?}", orig_env_path, e))?;
+        let env_line = line.map_err(|e| {
+            format!(
+                "Unable to read line from file {:?} : {:?}",
+                orig_env_path, e
+            )
+        })?;
         // Ill formed env variables will be ignored
         let parent_env_var = env_line.split_once("=").unwrap_or(("", ""));
 
@@ -220,11 +251,17 @@ fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>,
 ///    time)
 ///  - Keep environment variables which were present in the parent container but their values
 ///    have now been updated. The exception to this rule is for the PATH variable.
-fn filter_parent_env_from_runtime_envs(runtime_env_vars: &mut HashMap<String, String>, parent_env: (&str, &str)) -> () {
+fn filter_parent_env_from_runtime_envs(
+    runtime_env_vars: &mut HashMap<String, String>,
+    parent_env: (&str, &str),
+) -> () {
     let (conv_time_env_key, conv_time_env_val) = parent_env;
 
     if conv_time_env_key != "HOSTNAME" {
-        info!("Testing if {:?} does not exist or has been updated.", parent_env);
+        info!(
+            "Testing if {:?} does not exist or has been updated.",
+            parent_env
+        );
 
         match runtime_env_vars.get(conv_time_env_key) {
             Some(value) if value == conv_time_env_val || conv_time_env_key == "PATH" => {
@@ -236,28 +273,40 @@ fn filter_parent_env_from_runtime_envs(runtime_env_vars: &mut HashMap<String, St
 }
 
 async fn send_env_variables(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
-    let filtered_env_vars = filter_env_variables(Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH))?;
-    info!("Passing these variables to the enclave : {:?}", filtered_env_vars);
-    enclave_port.write_lv(&SetupMessages::EnvVariables(filtered_env_vars)).await
+    let filtered_env_vars =
+        filter_env_variables(Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH))?;
+    info!(
+        "Passing these variables to the enclave : {:?}",
+        filtered_env_vars
+    );
+    enclave_port
+        .write_lv(&SetupMessages::EnvVariables(filtered_env_vars))
+        .await
 }
 
 async fn send_node_agent_address(enclave_port: &mut AsyncVsockStream) -> Result<(), String> {
     let address = parent_lib::node_agent_address();
     info!("Returning node agent: {:?}", address);
-    enclave_port.write_lv(&SetupMessages::NodeAgentUrl(address)).await
+    enclave_port
+        .write_lv(&SetupMessages::NodeAgentUrl(address))
+        .await
 }
 
-async fn send_enclave_extra_console_args(enclave_port: &mut AsyncVsockStream, arguments: Vec<String>) -> Result<(), String> {
+async fn send_enclave_extra_console_args(
+    enclave_port: &mut AsyncVsockStream,
+    arguments: Vec<String>,
+) -> Result<(), String> {
     enclave_port
         .write_lv(&SetupMessages::ExtraUserProgramArguments(arguments))
         .await
 }
 
 fn write_nbd_config(l3_address: IpAddr, exports: &[NBDExportConfig]) -> Result<(), String> {
-    fs::create_dir_all(INSTALLATION_DIR).map_err(|err| format!("Failed creating {} dir. {:?}", INSTALLATION_DIR, err))?;
+    fs::create_dir_all(INSTALLATION_DIR)
+        .map_err(|err| format!("Failed creating {} dir. {:?}", INSTALLATION_DIR, err))?;
 
-    let mut nbd_config_file =
-        fs::File::create(NBD_CONFIG_FILE).map_err(|err| format!("Failed creating {} file. {:?}", NBD_CONFIG_FILE, err))?;
+    let mut nbd_config_file = fs::File::create(NBD_CONFIG_FILE)
+        .map_err(|err| format!("Failed creating {} file. {:?}", NBD_CONFIG_FILE, err))?;
 
     let mut config = format!(
         "
@@ -316,10 +365,14 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
         let result = format!(
             "NBD server exited with code {}. Stdout: {}. Stderr: {}",
             out.status,
-            String::from_utf8(out.stdout.clone())
-                .unwrap_or(format!("Failed decoding stdout to UTF-8, raw output is {:?}", out.stdout)),
-            String::from_utf8(out.stderr.clone())
-                .unwrap_or(format!("Failed decoding stderr to UTF-8, raw output is {:?}", out.stderr))
+            String::from_utf8(out.stdout.clone()).unwrap_or(format!(
+                "Failed decoding stdout to UTF-8, raw output is {:?}",
+                out.stdout
+            )),
+            String::from_utf8(out.stderr.clone()).unwrap_or(format!(
+                "Failed decoding stderr to UTF-8, raw output is {:?}",
+                out.stderr
+            ))
         );
 
         Err(result)
@@ -335,7 +388,10 @@ async fn run_dnsmasq() -> Result<(), String> {
     run_subprocess("/usr/sbin/dnsmasq", &["--keep-in-foreground"]).await
 }
 
-async fn start_accepting_connections(listen: TcpListener, stream_type: StreamType) -> Result<(), String> {
+async fn start_accepting_connections(
+    listen: TcpListener,
+    stream_type: StreamType,
+) -> Result<(), String> {
     // We need to accept one connection which is expected from the enclave side
     info!(
         "Waiting for connections on {:?}",
@@ -343,10 +399,12 @@ async fn start_accepting_connections(listen: TcpListener, stream_type: StreamTyp
             .local_addr()
             .map_err(|e| format!("unable to get local addr for listener {:?}", e))?
     );
-    let (mut stream, _socket) = listen
-        .accept()
-        .await
-        .map_err(|e| format!("Unable to accept a new connection on the log listener : {:?}", e))?;
+    let (mut stream, _socket) = listen.accept().await.map_err(|e| {
+        format!(
+            "Unable to accept a new connection on the log listener : {:?}",
+            e
+        )
+    })?;
 
     // Copy data from the tcp streams to the respective stdout/stderr of the parent console
     // tokio::io::copy continues to run until the stream returns an EOF, at which point it returns Ok(0)
@@ -354,20 +412,35 @@ async fn start_accepting_connections(listen: TcpListener, stream_type: StreamTyp
         StreamType::Stdout => {
             let _copy_size = tokio::io::copy(&mut stream, &mut tokio::io::stdout())
                 .await
-                .map_err(|e| format!("Unable to copy data from socket {:?} to stdout of parent : {:?}", stream, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Unable to copy data from socket {:?} to stdout of parent : {:?}",
+                        stream, e
+                    )
+                })?;
         }
         StreamType::Stderr => {
             let _copy_size = tokio::io::copy(&mut stream, &mut tokio::io::stderr())
                 .await
-                .map_err(|e| format!("Unable to copy data from socket {:?} to stderr of parent : {:?}", stream, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Unable to copy data from socket {:?} to stderr of parent : {:?}",
+                        stream, e
+                    )
+                })?;
         }
     }
     Ok(())
 }
-async fn run_log_listeners(listeners_info: Vec<(TcpListener, StreamType)>) -> Result<Vec<JoinHandle<Result<(), String>>>, ()> {
+async fn run_log_listeners(
+    listeners_info: Vec<(TcpListener, StreamType)>,
+) -> Result<Vec<JoinHandle<Result<(), String>>>, ()> {
     let mut tasks = vec![];
     for (tcp_listener, stream_type) in listeners_info {
-        tasks.push(tokio::spawn(start_accepting_connections(tcp_listener, stream_type)));
+        tasks.push(tokio::spawn(start_accepting_connections(
+            tcp_listener,
+            stream_type,
+        )));
     }
     Ok(tasks)
 }
@@ -385,7 +458,8 @@ fn start_background_tasks(
     }
 
     let private_device = parent_setup_result.private_tap;
-    let private_tap_loops = start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
+    let private_tap_loops =
+        start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
 
     result.push(private_tap_loops.tap_to_vsock);
     result.push(private_tap_loops.vsock_to_tap);
@@ -442,7 +516,10 @@ struct ResolvConfResult {
     start_dnsmasq: bool,
 }
 
-async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> Result<ParentSetupResult, String> {
+async fn setup_parent(
+    vsock: &mut AsyncVsockStream,
+    rw_block_file_size: u64,
+) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
     let (network_devices, settings_list) = list_network_devices().await?;
@@ -454,15 +531,27 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
         })
         .collect();
 
-    let paired_network_devices = setup_network_devices(vsock, network_devices, settings_list).await?;
+    let paired_network_devices =
+        setup_network_devices(vsock, network_devices, settings_list).await?;
 
-    let (parent_address, enclave_address) = choose_addrs_for_private_taps(network_addresses_in_use)?;
+    let (parent_address, enclave_address) =
+        choose_addrs_for_private_taps(network_addresses_in_use)?;
 
     let start_dnsmasq = send_global_network_settings(parent_address, vsock).await?;
 
     let private_tap = {
-        create_rw_block_file(rw_block_file_size, Path::new(OVERLAYFS_BLOCKFILE_DIR).join(RW_BLOCK_FILE_OUT))?;
-        set_up_private_tap_devices(vsock, parent_address, PRIVATE_TAP_NAME, enclave_address, PRIVATE_TAP_NAME).await?
+        create_rw_block_file(
+            rw_block_file_size,
+            Path::new(OVERLAYFS_BLOCKFILE_DIR).join(RW_BLOCK_FILE_OUT),
+        )?;
+        set_up_private_tap_devices(
+            vsock,
+            parent_address,
+            PRIVATE_TAP_NAME,
+            enclave_address,
+            PRIVATE_TAP_NAME,
+        )
+        .await?
     };
 
     communicate_certificates(vsock, EmAppCertificateApi {}).await?;
@@ -489,14 +578,16 @@ async fn setup_parent(vsock: &mut AsyncVsockStream, rw_block_file_size: u64) -> 
 /// Note that this function does NOT modify the parent's resolv.conf. It just returns the modified version
 /// that should be used by the enclave.
 fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResult, String> {
-    let parent_resolv = File::open(DNS_RESOLV_FILE).map_err(|err| format!("Could not open {}. {:?}", DNS_RESOLV_FILE, err))?;
+    let parent_resolv = File::open(DNS_RESOLV_FILE)
+        .map_err(|err| format!("Could not open {}. {:?}", DNS_RESOLV_FILE, err))?;
 
     let mut enclave_resolv: Vec<u8> = vec![];
     let mut start_dnsmasq: bool = false;
     let lines = BufReader::new(parent_resolv).lines();
 
     for line in lines {
-        let line = line.map_err(|err| format!("unable to read file {}. {:?}", DNS_RESOLV_FILE, err))?;
+        let line =
+            line.map_err(|err| format!("unable to read file {}. {:?}", DNS_RESOLV_FILE, err))?;
         // According to the man page for resolv.conf, the keyword (like nameserver) must start the line, so we don't
         // have to trim before looking for the "nameserver" keyword. We do need to look for at least one whitespace
         // character, since the keyword must be followed by whitespace. There don't currently appear to be any
@@ -517,7 +608,9 @@ fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResu
                     "Updating resolv.conf data sent to enclave with parent's tap device address {:?}",
                     nameserver_address.ip()
                 );
-                enclave_resolv.extend_from_slice(format!("nameserver {:?}\n", nameserver_address.ip()).as_bytes());
+                enclave_resolv.extend_from_slice(
+                    format!("nameserver {:?}\n", nameserver_address.ip()).as_bytes(),
+                );
                 start_dnsmasq = true;
             } else {
                 enclave_resolv.extend_from_slice(line.as_bytes());
@@ -551,7 +644,8 @@ async fn send_global_network_settings(
             .map_err(|err| format!("Failed reading parent's {} file. {:?}", path, err))
     }
 
-    let raw_hostname = nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
+    let raw_hostname =
+        nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
 
     let hostname = raw_hostname
         .into_string()
@@ -564,7 +658,12 @@ async fn send_global_network_settings(
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file.resolv_conf_file, hosts_file, host_name_file, ns_switch_file],
+        global_settings_list: vec![
+            dns_file.resolv_conf_file,
+            hosts_file,
+            host_name_file,
+            ns_switch_file,
+        ],
     };
 
     enclave_port
@@ -591,9 +690,17 @@ async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<
 
     let skip_server_verify = env_var_or_none("SKIP_SERVER_VERIFY")
         .map_or(Ok(false), |e| bool::from_str(&e))
-        .map_err(|err| format!("Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}", err))?;
+        .map_err(|err| {
+            format!(
+                "Failed converting SKIP_SERVER_VERIFY env var to bool. {:?}",
+                err
+            )
+        })?;
 
-    let application_configuration = ApplicationConfiguration { id, skip_server_verify };
+    let application_configuration = ApplicationConfiguration {
+        id,
+        skip_server_verify,
+    };
 
     vsock
         .write_lv(&SetupMessages::ApplicationConfig(application_configuration))
@@ -607,8 +714,12 @@ async fn create_vsock_stream(port: u32) -> Result<AsyncVsockStream, String> {
 }
 
 pub(crate) fn listen_to_parent(port: u32) -> Result<AsyncVsockListener, String> {
-    AsyncVsockListener::bind(VSOCK_PARENT_CID, port)
-        .map_err(|_| format!("Could not bind to cid: {}, port: {}", VSOCK_PARENT_CID, port))
+    AsyncVsockListener::bind(VSOCK_PARENT_CID, port).map_err(|_| {
+        format!(
+            "Could not bind to cid: {}, port: {}",
+            VSOCK_PARENT_CID, port
+        )
+    })
 }
 
 pub(crate) async fn accept(listener: &mut AsyncVsockListener) -> Result<AsyncVsockStream, String> {
@@ -623,7 +734,10 @@ fn get_app_config_id() -> Option<String> {
     match env::var("ENCLAVEOS_APPCONFIG_ID").or(env::var("APPCONFIG_ID")) {
         Ok(result) => Some(result),
         Err(err) => {
-            warn!("Env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID is not set. {:?}", err);
+            warn!(
+                "Env var ENCLAVEOS_APPCONFIG_ID or APPCONFIG_ID is not set. {:?}",
+                err
+            );
             None
         }
     }
@@ -671,7 +785,13 @@ fn create_rw_block_file(size: u64, path: PathBuf) -> Result<(), String> {
                 .write(true)
                 .create(true)
                 .open(path.as_path())
-                .map_err(|err| format!("Failed creating RW block file {:?}. {:?}", path.as_path(), err))?;
+                .map_err(|err| {
+                    format!(
+                        "Failed creating RW block file {:?}. {:?}",
+                        path.as_path(),
+                        err
+                    )
+                })?;
 
             info!("Setting RW blockfile size to {:?}", size);
             block_file.set_len(size).map_err(|err| {
@@ -695,7 +815,9 @@ mod tests {
 
     use tempdir::TempDir;
 
-    use crate::parent::{create_rw_block_file, filter_parent_env_from_runtime_envs, MIN_RW_BLOCKFILE_SIZE};
+    use crate::parent::{
+        create_rw_block_file, filter_parent_env_from_runtime_envs, MIN_RW_BLOCKFILE_SIZE,
+    };
 
     // Create a temporary directory. Create a file of specified size in the directory.
     // If size is set to 0, skip creation of file.
@@ -705,7 +827,8 @@ mod tests {
         if size > 0 {
             let file_path = dir.path().join(testname);
             let file = File::create(file_path).expect("Can't create test file path");
-            file.set_len(size as u64).expect("Unable to set size of test file");
+            file.set_len(size as u64)
+                .expect("Unable to set size of test file");
         }
     }
 
@@ -729,8 +852,18 @@ mod tests {
         // tested here
         // test status - expected test result - whether it is expected to succeed or fail
         let testcases: Vec<(&str, usize, usize, bool)> = vec![
-            ("existing_min_size_file", MIN_RW_BLOCKFILE_SIZE, MIN_RW_BLOCKFILE_SIZE, true),
-            ("existing_less_than_min_size_file", 10 * 1024 * 1024, 10 * 1024 * 1024, false),
+            (
+                "existing_min_size_file",
+                MIN_RW_BLOCKFILE_SIZE,
+                MIN_RW_BLOCKFILE_SIZE,
+                true,
+            ),
+            (
+                "existing_less_than_min_size_file",
+                10 * 1024 * 1024,
+                10 * 1024 * 1024,
+                false,
+            ),
             ("nonexistent_file", 0, 70 * 1024 * 1024, true),
             ("nonexistent_size_check", 0, 10, false),
         ];
@@ -749,7 +882,10 @@ mod tests {
         filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("HOSTNAME", "my-old-host"));
 
         // Ensure the entry remains unchanged
-        assert_eq!(runtime_env_vars.get("HOSTNAME"), Some(&"my-new-host".to_string()));
+        assert_eq!(
+            runtime_env_vars.get("HOSTNAME"),
+            Some(&"my-new-host".to_string())
+        );
     }
 
     #[test]
@@ -771,7 +907,10 @@ mod tests {
         filter_parent_env_from_runtime_envs(&mut runtime_env_vars, ("MY_VAR", "old_value"));
 
         // Ensure the key was not removed
-        assert_eq!(runtime_env_vars.get("MY_VAR"), Some(&"new_value".to_string()));
+        assert_eq!(
+            runtime_env_vars.get("MY_VAR"),
+            Some(&"new_value".to_string())
+        );
     }
 
     #[test]

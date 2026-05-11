@@ -21,16 +21,16 @@ async fn main() -> Result<(), String> {
         .value_of("request-file")
         .expect("Request file must be provided");
 
-    let request_file =
-        fs::read_to_string(request_file_path).map_err(|err| format!("Failed reading request file. {:?}", err))?;
+    let request_file = fs::read_to_string(request_file_path)
+        .map_err(|err| format!("Failed reading request file. {:?}", err))?;
 
     let request = serde_json::from_str::<NitroEnclavesConversionRequest>(&request_file)
         .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
 
     match container_converter::run(request).await {
         Ok(response) => {
-            let response_serialized =
-                serde_json::to_string(&response).map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
+            let response_serialized = serde_json::to_string(&response)
+                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
 
             println!("Successful nitro conversion: {:?}", response_serialized);
             Ok(())

@@ -52,7 +52,10 @@ impl FileSystemConfig {
                 field_header, dm_verity_stdout
             ))?;
 
-        Ok(Self { root_hash, hash_offset })
+        Ok(Self {
+            root_hash,
+            hash_offset,
+        })
     }
 }
 

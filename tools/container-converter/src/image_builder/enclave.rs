@@ -50,7 +50,10 @@ pub(crate) struct PCRList {
     pub(crate) pcr8: Option<String>,
 }
 
-pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file: &Path) -> Result<NitroEnclaveMeasurements> {
+pub(crate) async fn create_nitro_image(
+    image: &DockerReference<'_>,
+    output_file: &Path,
+) -> Result<NitroEnclaveMeasurements> {
     let output = output_file.to_str().ok_or(ConverterError {
         message: format!("Failed to cast path {:?} to string", output_file),
         kind: ConverterErrorKind::NitroFileCreation,
@@ -58,7 +61,13 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
 
     let image_as_str = image.to_string();
 
-    let nitro_cli_args = ["build-enclave", "--docker-uri", &image_as_str, "--output-file", output];
+    let nitro_cli_args = [
+        "build-enclave",
+        "--docker-uri",
+        &image_as_str,
+        "--output-file",
+        output,
+    ];
 
     let process_output = run_subprocess("nitro-cli", &nitro_cli_args)
         .await
@@ -67,14 +76,25 @@ pub(crate) async fn create_nitro_image(image: &DockerReference<'_>, output_file:
             kind: ConverterErrorKind::NitroFileCreation,
         })?;
 
-    serde_json::from_str::<NitroEnclaveMeasurements>(&process_output).map_err(|err| ConverterError {
-        message: format!("Bad measurements. {:?}", err),
-        kind: ConverterErrorKind::NitroFileCreation,
+    serde_json::from_str::<NitroEnclaveMeasurements>(&process_output).map_err(|err| {
+        ConverterError {
+            message: format!("Bad measurements. {:?}", err),
+            kind: ConverterErrorKind::NitroFileCreation,
+        }
     })
 }
 
-pub(crate) fn get_image_env(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Vec<String> {
-    let mut result = input_image.details.config.env.as_ref().map(|e| e.clone()).unwrap_or(vec![]);
+pub(crate) fn get_image_env(
+    input_image: &ImageWithDetails<'_>,
+    converter_options: &ConverterOptions,
+) -> Vec<String> {
+    let mut result = input_image
+        .details
+        .config
+        .env
+        .as_ref()
+        .map(|e| e.clone())
+        .unwrap_or(vec![]);
 
     // Docker `ENV` assigns environment variables by the order of definition, thus making
     // latest definition of the same variable override previous definition.
@@ -101,12 +121,17 @@ pub(crate) struct EnclaveSettings {
 }
 
 impl EnclaveSettings {
-    pub(crate) fn new(input_image: &ImageWithDetails<'_>, converter_options: &ConverterOptions) -> Self {
+    pub(crate) fn new(
+        input_image: &ImageWithDetails<'_>,
+        converter_options: &ConverterOptions,
+    ) -> Self {
         EnclaveSettings {
             user_name: input_image.details.config.user.clone().unwrap_or_default(),
             env_vars: vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
-            enable_overlay_filesystem_persistence: converter_options.enable_overlay_filesystem_persistence.unwrap_or(false),
+            enable_overlay_filesystem_persistence: converter_options
+                .enable_overlay_filesystem_persistence
+                .unwrap_or(false),
             ccm_backend_url: CcmBackendUrl::new(
                 converter_options
                     .ccm_configuration
@@ -116,7 +141,10 @@ impl EnclaveSettings {
                     .as_str(),
             )
             .unwrap_or_default(),
-            dsm_configuration: converter_options.dsm_configuration.clone().unwrap_or_default(),
+            dsm_configuration: converter_options
+                .dsm_configuration
+                .clone()
+                .unwrap_or_default(),
         }
     }
 }
@@ -153,7 +181,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         },
     ];
 
-    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &["enclave", "enclave-settings.json", "enclave-startup"];
+    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] =
+        &["enclave", "enclave-settings.json", "enclave-startup"];
 
     pub(crate) async fn create_image(
         &self,
@@ -164,14 +193,16 @@ impl<'a> EnclaveImageBuilder<'a> {
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;
-        let enable_overlay_filesystem_persistence = enclave_settings.enable_overlay_filesystem_persistence;
+        let enable_overlay_filesystem_persistence =
+            enclave_settings.enable_overlay_filesystem_persistence;
         let ccm_backend_url = enclave_settings.ccm_backend_url.clone();
         let dsm_configuration = enclave_settings.dsm_configuration.clone();
 
-        let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        let build_context =
+            BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
 
         self.create_requisites(enclave_settings, &build_context)
             .map_err(|message| ConverterError {
@@ -207,10 +238,11 @@ impl<'a> EnclaveImageBuilder<'a> {
         // After nitro-cli finishes we can safely reclaim it.
         let result_image_raw = self.enclave_image();
 
-        let result_reference = DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
-            message: format!("Failed to create enclave image reference. {:?}", message),
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        let result_reference =
+            DockerReference::from_str(&result_image_raw).map_err(|message| ConverterError {
+                message: format!("Failed to create enclave image reference. {:?}", message),
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
 
         let result = docker_util
             .create_image_from_archive(result_reference, build_context_archive_file)
@@ -244,7 +276,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             .read(true)
             .open(&archive_path)
             .map_err(|err| ConverterError {
-                message: format!("Failed creating image fs archive at {}. {:?}", archive_path.display(), err),
+                message: format!(
+                    "Failed creating image fs archive at {}. {:?}",
+                    archive_path.display(),
+                    err
+                ),
                 kind: ConverterErrorKind::ImageFileSystemExport,
             })?;
 
@@ -257,14 +293,22 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
 
         archive_file.rewind().map_err(|err| ConverterError {
-            message: format!("Failed seek in image fs archive at {}. {:?}", archive_path.display(), err),
+            message: format!(
+                "Failed seek in image fs archive at {}. {:?}",
+                archive_path.display(),
+                err
+            ),
             kind: ConverterErrorKind::ImageFileSystemExport,
         })?;
 
         Ok(Archive::new(archive_file))
     }
 
-    fn create_manifest_file(&self, enclave_manifest: EnclaveManifest, build_context: &BuildContext) -> Result<()> {
+    fn create_manifest_file(
+        &self,
+        enclave_manifest: EnclaveManifest,
+        build_context: &BuildContext,
+    ) -> Result<()> {
         let data = serde_json::to_vec(&enclave_manifest).map_err(|err| ConverterError {
             message: format!("Failed serializing enclave settings file. {:?}", err),
             kind: ConverterErrorKind::RequisitesCreation,
@@ -276,23 +320,41 @@ impl<'a> EnclaveImageBuilder<'a> {
             is_executable: false,
         };
 
-        build_context.create_resource(resource).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })
+        build_context
+            .create_resource(resource)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })
     }
 
-    async fn create_block_file(&self, docker_util: &dyn DockerUtil, user_config: &UserConfig) -> Result<FileSystemConfig> {
-        let block_file_mount_dir = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
+    async fn create_block_file(
+        &self,
+        docker_util: &dyn DockerUtil,
+        user_config: &UserConfig,
+    ) -> Result<FileSystemConfig> {
+        let block_file_mount_dir = self
+            .dir
+            .path()
+            .join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
         let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
 
         fs::create_dir(&block_file_mount_dir).map_err(|err| ConverterError {
-            message: format!("Failed creating dir {}. {:?}", block_file_mount_dir.display(), err),
+            message: format!(
+                "Failed creating dir {}. {:?}",
+                block_file_mount_dir.display(),
+                err
+            ),
             kind: ConverterErrorKind::BlockFileCreation,
         })?;
 
-        self.create_block_file0(&block_file_mount_dir, &block_file_out, user_config, docker_util)
-            .await
+        self.create_block_file0(
+            &block_file_mount_dir,
+            &block_file_out,
+            user_config,
+            docker_util,
+        )
+        .await
     }
 
     fn enclave_image(&self) -> String {
@@ -339,7 +401,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         let run_enclave_cmd = {
             let enclave_bin = install_dir_path.join("enclave");
 
-            let enclave_settings_file = install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
+            let enclave_settings_file =
+                install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
 
             let user_name = {
                 if let Some(pos) = enclave_settings.user_name.find(":") {
@@ -388,10 +451,12 @@ impl<'a> EnclaveImageBuilder<'a> {
             subprocess_path: S,
             args: &[A],
         ) -> Result<String> {
-            run_subprocess(subprocess_path, args).await.map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::BlockFileCreation,
-            })
+            run_subprocess(subprocess_path, args)
+                .await
+                .map_err(|message| ConverterError {
+                    message,
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })
         }
 
         async fn get_available_disc_space(block_file_dir: &Path) -> Result<u64> {
@@ -408,7 +473,11 @@ impl<'a> EnclaveImageBuilder<'a> {
                 })
         }
 
-        async fn create_block_file(working_dir: &Path, block_file_out_path: &Path, size_mb: u64) -> Result<()> {
+        async fn create_block_file(
+            working_dir: &Path,
+            block_file_out_path: &Path,
+            size_mb: u64,
+        ) -> Result<()> {
             let available_disc_space = get_available_disc_space(working_dir).await?;
 
             if available_disc_space < size_mb {
@@ -423,21 +492,29 @@ impl<'a> EnclaveImageBuilder<'a> {
             }
 
             info!("Creating block file of size {}MB", size_mb);
-            let block_file = fs::File::create(block_file_out_path).map_err(|err| ConverterError {
-                message: format!("Failed creating block file {}. {:?}", block_file_out_path.display(), err).to_string(),
-                kind: ConverterErrorKind::BlockFileCreation,
-            })?;
+            let block_file =
+                fs::File::create(block_file_out_path).map_err(|err| ConverterError {
+                    message: format!(
+                        "Failed creating block file {}. {:?}",
+                        block_file_out_path.display(),
+                        err
+                    )
+                    .to_string(),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })?;
 
-            block_file.set_len(size_mb * MEGA_BYTE).map_err(|err| ConverterError {
-                message: format!(
-                    "Failed truncating block file {} to size {}. {:?}",
-                    block_file_out_path.display(),
-                    size_mb,
-                    err
-                )
-                .to_string(),
-                kind: ConverterErrorKind::BlockFileCreation,
-            })
+            block_file
+                .set_len(size_mb * MEGA_BYTE)
+                .map_err(|err| ConverterError {
+                    message: format!(
+                        "Failed truncating block file {} to size {}. {:?}",
+                        block_file_out_path.display(),
+                        size_mb,
+                        err
+                    )
+                    .to_string(),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })
         }
 
         async fn populate_block_file(
@@ -510,7 +587,9 @@ impl<'a> EnclaveImageBuilder<'a> {
         // as it's hard to precisely compute the size required to describe all entities in the file system.
         // The total size includes file and directory metadata which varies based on the number of directories and files present in the client image.
         loop {
-            size_mb_up = (size_mb_up as f64 * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE) as u64;
+            size_mb_up = (size_mb_up as f64
+                * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE)
+                as u64;
             archive = archive.rewind().map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::BlockFileCreation,
@@ -518,7 +597,9 @@ impl<'a> EnclaveImageBuilder<'a> {
 
             create_block_file(self.dir.path(), block_file_out_path, size_mb_up).await?;
 
-            match populate_block_file(&mut archive, user_config, block_file_out_path, mount_dir).await {
+            match populate_block_file(&mut archive, user_config, block_file_out_path, mount_dir)
+                .await
+            {
                 Err(ConverterError {
                     kind: ConverterErrorKind::BlockFileFull,
                     ..
@@ -554,7 +635,11 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     fn check_path_exists(user_config: &UserConfig, block_file_out_path: &Path) -> Result<()> {
-        fn check_path_exists0(path_to_check: &Path, block_file_out_path: &Path, object_name: &str) -> Result<()> {
+        fn check_path_exists0(
+            path_to_check: &Path,
+            block_file_out_path: &Path,
+            object_name: &str,
+        ) -> Result<()> {
             let path = if path_to_check.is_absolute() {
                 path_to_check.strip_prefix("/").unwrap()
             } else {
@@ -566,7 +651,12 @@ impl<'a> EnclaveImageBuilder<'a> {
                 // Paths that consist of a single file name like "key.pem" will also end up here with path = "" (empty string),
                 // which describes a file inside a folder specified by block_file_out_path
                 Some(path) if !block_file_out_path.join(path).exists() => Err(ConverterError {
-                    message: format!("{} path: {} doesn't exist inside client image.", object_name, path.display()).to_string(),
+                    message: format!(
+                        "{} path: {} doesn't exist inside client image.",
+                        object_name,
+                        path.display()
+                    )
+                    .to_string(),
                     kind: ConverterErrorKind::BadRequest,
                 }),
                 // If a path doesn't have any parent() it means that it doesn't have any directory prefix and is invalid.
@@ -622,7 +712,10 @@ trait ArchiveExtensions {
     /// # Mutability remarks
     /// Modifies the underlying data pointer when iterating over the entries.
     /// To work with archive object again you have to rewind the pointer to the beginning of the underlying data structure.
-    fn unpack_preserve_permissions(&mut self, destination: &Path) -> std::result::Result<(), String>;
+    fn unpack_preserve_permissions(
+        &mut self,
+        destination: &Path,
+    ) -> std::result::Result<(), String>;
 
     /// Rewinds the underlying data pointer to point to the beginning of the underlying data structure of the archive.
     fn rewind(self) -> std::result::Result<Self, String>
@@ -646,7 +739,9 @@ impl ArchiveSize {
     const PER_FILE_METADATA: u64 = 4096 / 4;
 
     fn size_bytes(self) -> u64 {
-        ArchiveSize::PER_FILE_METADATA * self.file_count + self.total_file_size + ArchiveSize::DIR_ENTRY_SIZE * self.dir_count
+        ArchiveSize::PER_FILE_METADATA * self.file_count
+            + self.total_file_size
+            + ArchiveSize::DIR_ENTRY_SIZE * self.dir_count
     }
 }
 
@@ -676,7 +771,9 @@ impl<'a, R: 'a + Read> From<tar::Entry<'a, R>> for ArchiveSize {
     }
 }
 
-impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Error>> for ArchiveSize {
+impl<'a, R: 'a + Read> From<std::result::Result<tar::Entry<'a, R>, std::io::Error>>
+    for ArchiveSize
+{
     fn from(entry: std::result::Result<tar::Entry<'a, R>, std::io::Error>) -> Self {
         match entry {
             Ok(entry) => ArchiveSize::from(entry),
@@ -700,19 +797,29 @@ where
             .entries_with_seek()
             .map_err(|err| format!("Cannot read exported file system archive. {:?}", err))?;
 
-        let result = entries.fold(ArchiveSize::default(), |accm, e| accm + ArchiveSize::from(e));
+        let result = entries.fold(ArchiveSize::default(), |accm, e| {
+            accm + ArchiveSize::from(e)
+        });
 
         debug!("Archive size measurements are: {:?}", result);
 
         Ok(result.size_bytes())
     }
 
-    fn unpack_preserve_permissions(&mut self, destination: &Path) -> std::result::Result<(), String> {
+    fn unpack_preserve_permissions(
+        &mut self,
+        destination: &Path,
+    ) -> std::result::Result<(), String> {
         self.set_preserve_permissions(true);
         self.set_preserve_ownerships(true);
 
-        self.unpack(destination)
-            .map_err(|err| format!("Failed unpacking client fs archive {}. {:?}", destination.display(), err))
+        self.unpack(destination).map_err(|err| {
+            format!(
+                "Failed unpacking client fs archive {}. {:?}",
+                destination.display(),
+                err
+            )
+        })
     }
 
     fn rewind(self) -> std::result::Result<Self, String> {
@@ -788,7 +895,9 @@ mod tests {
         let file = builder.into_inner().expect("Failed unwrapping builder");
 
         let mut archive = Archive::new(file);
-        let result = archive.size().expect("Failed computing size of the archive");
+        let result = archive
+            .size()
+            .expect("Failed computing size of the archive");
 
         assert_eq!(result, 0)
     }
@@ -797,11 +906,15 @@ mod tests {
     fn dir_and_file_archive_correct_pass() {
         use ArchiveExtensions;
 
-        let archive_file = NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating archive file");
-        let mut data_file_a = NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating data file");
+        let archive_file =
+            NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating archive file");
+        let mut data_file_a =
+            NamedTempFile::new_in(Path::new("/tmp")).expect("Failed creating data file");
 
         let test_data = "Hello World";
-        data_file_a.write_all(test_data.as_bytes()).expect("Failed writing test data");
+        data_file_a
+            .write_all(test_data.as_bytes())
+            .expect("Failed writing test data");
         data_file_a.rewind().expect("Failed rewinding file");
 
         let mut builder = Builder::new(archive_file);
@@ -817,7 +930,9 @@ mod tests {
 
         let mut archive = Archive::new(file);
 
-        let result = archive.size().expect("Failed computing size of the archive");
+        let result = archive
+            .size()
+            .expect("Failed computing size of the archive");
         let reference = ArchiveSize {
             total_file_size: test_data.as_bytes().len() as u64,
             dir_count: 1,
@@ -902,11 +1017,20 @@ mod tests {
         let configs = vec![
             user_config(Some(path_to_str(&abs_key_path)), None),
             user_config(None, Some(path_to_str(&abs_cert_path))),
-            user_config(Some(path_to_str(&abs_key_path)), Some(path_to_str(&abs_cert_path))),
+            user_config(
+                Some(path_to_str(&abs_key_path)),
+                Some(path_to_str(&abs_cert_path)),
+            ),
             user_config(Some(path_to_str(&relative_key_path)), None),
             user_config(None, Some(path_to_str(&relative_cert_path))),
-            user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path))),
-            user_config(Some(path_to_str(&no_file_path)), Some(path_to_str(&no_file_path))),
+            user_config(
+                Some(path_to_str(&relative_key_path)),
+                Some(path_to_str(&relative_cert_path)),
+            ),
+            user_config(
+                Some(path_to_str(&no_file_path)),
+                Some(path_to_str(&no_file_path)),
+            ),
             user_config(Some(String::new()), Some(String::new())),
         ];
 
@@ -924,7 +1048,8 @@ mod tests {
 
         for config in &configs {
             assert!(
-                EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path)).is_err(),
+                EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path))
+                    .is_err(),
                 "Config used: {:?}",
                 config
             )
@@ -943,23 +1068,41 @@ mod tests {
     #[test]
     fn check_path_found_correct_path() {
         let block_file_valid_path = Path::new("/tmp");
-        let key_file_dir = TempDir::new_in(block_file_valid_path).expect("Failed creating key file dir");
-        let cert_file_dir = TempDir::new_in(block_file_valid_path).expect("Failed creating cert file dir");
+        let key_file_dir =
+            TempDir::new_in(block_file_valid_path).expect("Failed creating key file dir");
+        let cert_file_dir =
+            TempDir::new_in(block_file_valid_path).expect("Failed creating cert file dir");
 
         let abs_key_path = {
-            let result = key_file_dir.path().strip_prefix("/tmp").unwrap().join("key.pem");
+            let result = key_file_dir
+                .path()
+                .strip_prefix("/tmp")
+                .unwrap()
+                .join("key.pem");
             Path::new("/").join(result)
         };
         let abs_cert_path = {
-            let result = cert_file_dir.path().strip_prefix("/tmp").unwrap().join("cert.pem");
+            let result = cert_file_dir
+                .path()
+                .strip_prefix("/tmp")
+                .unwrap()
+                .join("cert.pem");
             Path::new("/").join(result)
         };
 
         assert!(abs_key_path.is_absolute());
         assert!(abs_cert_path.is_absolute());
 
-        let relative_key_path = key_file_dir.path().strip_prefix("/tmp/").unwrap().join("key.pem");
-        let relative_cert_path = cert_file_dir.path().strip_prefix("/tmp/").unwrap().join("cert.pem");
+        let relative_key_path = key_file_dir
+            .path()
+            .strip_prefix("/tmp/")
+            .unwrap()
+            .join("key.pem");
+        let relative_cert_path = cert_file_dir
+            .path()
+            .strip_prefix("/tmp/")
+            .unwrap()
+            .join("cert.pem");
 
         assert!(relative_key_path.is_relative());
         assert!(relative_cert_path.is_relative());
@@ -967,10 +1110,16 @@ mod tests {
         let configs = vec![
             user_config(Some(path_to_str(&abs_key_path)), None),
             user_config(None, Some(path_to_str(&abs_cert_path))),
-            user_config(Some(path_to_str(&abs_key_path)), Some(path_to_str(&abs_cert_path))),
+            user_config(
+                Some(path_to_str(&abs_key_path)),
+                Some(path_to_str(&abs_cert_path)),
+            ),
             user_config(Some(path_to_str(&relative_key_path)), None),
             user_config(None, Some(path_to_str(&relative_cert_path))),
-            user_config(Some(path_to_str(&relative_key_path)), Some(path_to_str(&relative_cert_path))),
+            user_config(
+                Some(path_to_str(&relative_key_path)),
+                Some(path_to_str(&relative_cert_path)),
+            ),
         ];
 
         for config in &configs {
