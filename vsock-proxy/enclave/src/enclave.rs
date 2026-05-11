@@ -12,6 +12,22 @@ use std::process::Stdio;
 use std::string::ToString;
 use std::sync::Arc;
 
+use crate::app_configuration::{
+    setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
+};
+#[allow(unused_imports)]
+use crate::certificate::{
+    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
+    CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
+    DEFAULT_CERT_RSA_KEY_SIZE,
+};
+use crate::file_system::{
+    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
+    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options,
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
+    unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+};
 use api_model::converter::CertificateConfig;
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
 use async_process::{Child, Command};
@@ -24,6 +40,7 @@ use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, error, info, warn};
+use mbedtls::pk::Pk;
 use nix::net::if_::if_nametoindex;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings,
@@ -45,22 +62,6 @@ use tokio::task::{self, JoinHandle};
 use tokio::time::{self as tokio_time, Duration};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
-
-use crate::app_configuration::{
-    setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
-};
-use crate::certificate::{
-    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
-    CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
-    DEFAULT_CERT_RSA_KEY_SIZE,
-};
-use crate::file_system::{
-    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
-    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
-    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
-    unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
-};
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
@@ -245,6 +246,11 @@ pub(crate) async fn run(
             skip_def_cert_req,
         )
         .await?;
+
+        info!("Certificate setup complete:");
+        for cert in &certificate_info {
+            info!("Certificate path: {}, ", cert.certificate_path.display());
+        }
 
         let fs_setup_config = FileSystemSetupConfig {
             enclave_manifest: &setup_result.enclave_manifest,
@@ -962,8 +968,10 @@ pub(crate) async fn setup_enclave_certifications<
     Ok(certs)
 }
 
+#[allow(unused)]
 const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
+#[allow(unused)]
 async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result<String, String> {
     info!("Requesting CCM for App Certificate, timing out after 60 sec...");
     let request = tokio::time::timeout(
@@ -991,6 +999,103 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     }
 }
 
+#[cfg(platform = "snp")]
+pub(crate) async fn setup_enclave_certification<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    Api: CSRApi,
+>(
+    _vsock: Option<&mut Socket>,
+    _node_agent: Option<String>,
+    csr_api: &Api,
+    app_config_id: &Option<String>,
+    cert_config: &CertificateConfig,
+    fs_root: &Path,
+) -> Result<CertificateWithPath, String> {
+    // For SNP, for the time being, an embedded attestation agent is used to create certificates.
+    // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
+    use embedded_attestation_client::EmbeddedSnpAttestationClient;
+    use log::Level;
+    use std::ffi::CString;
+
+    // // Because the function is still called and expects to use the CsrApi, we need to get the CSR
+    // // and ignore it
+    // if let Some(kp) = &cert_config.key_param {
+    //     let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+    //     let mut key = create_signer_key(key_size as u32)?;
+    //     let _csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+    // } else {
+    //     return Err(format!(
+    //         "key param not specified for cert config {:?}",
+    //         cert_config
+    //     ));
+    // }
+    info!("Running embedded attestation client to obtain certificates");
+
+    let mut client = EmbeddedSnpAttestationClient::new()?;
+    // We will write out the key and certificate to the temporary working directory of the embedded
+    // client, and read them into memory
+    let temp_dir = client.temp_dir_path();
+    let cert_path = temp_dir.join("cert");
+    let key_path = temp_dir.join("key");
+    client
+        .app_cert_key_file_name(&key_path)
+        .app_cert_file_name(&cert_path)
+        .app_config_id(app_config_id.clone())
+        .work_dir(Some(temp_dir))
+        .log_level(Some(Level::Debug));
+    if !cert_config.alt_names.is_empty() {
+        client.app_cert_alt_names(Some(cert_config.alt_names.clone()));
+    }
+    client.run()?;
+
+    info!("Embedded attestation client finished.");
+
+    // Check if the key and cert have been created
+    if !&cert_path.exists() {
+        return Err(format!(
+            "Expected embedded client cert does not exist: {}",
+            cert_path.display()
+        ));
+    }
+    if !&key_path.exists() {
+        return Err(format!(
+            "Expected embedded client key does not exist: {}",
+            key_path.display()
+        ));
+    }
+
+    // Read the key and cert and convert them into values that can be returned
+    let cert_pem = fs::read_to_string(cert_path)
+        .map_err(|e| format!("Failed to read embedded client cert file: {}", e))?;
+    let key_pem = fs::read_to_string(key_path)
+        .map_err(|e| format!("Failed to read  embedded client key file: {}", e))?;
+
+    // We need a CString to feed null-terminated data to Pk, as it expects this format
+    let key_pem_cstr = CString::new(key_pem.as_bytes()).map_err(|e| {
+        format!(
+            "Failed to convert embedded client key file bytes to CString: {}",
+            e
+        )
+    })?;
+
+    let key_pk = Pk::from_private_key(key_pem_cstr.as_bytes_with_nul(), None).map_err(|e| {
+        format!(
+            "Failed to convert embedded client key file to mbedtls PK: {}",
+            e
+        )
+    })?;
+
+    Ok(CertificateWithPath::new(
+        CertificateResult {
+            certificate: cert_pem,
+            key: key_pk,
+        },
+        cert_config,
+        fs_root,
+    ))
+}
+
+#[cfg(not(platform = "snp"))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,

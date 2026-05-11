@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::result::Result;
 use std::{env, fs};
@@ -23,10 +23,24 @@ const RESOURCES_PARENT_DIR: &str = "src/resources/parent";
 const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../vsock-proxy/src");
-    println!("cargo:rerun-if-changed=../../vsock-proxy/Cargo.toml");
-    println!("cargo:rerun-if-changed=../../enclave-startup/src");
-    println!("cargo:rerun-if-changed=../../enclave-startup/Cargo.toml");
+    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_NAME");
+    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_PATH");
+
+    for dir in &[
+        PathBuf::from("../../vsock-proxy"),
+        PathBuf::from("../../enclave-startup"),
+        PathBuf::from("../../embedded-attestation-client"),
+    ] {
+        for entry in walkdir::WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| !(e.file_name() == "target" && e.file_type().is_dir()))
+        {
+            if entry.file_type().is_file() {
+                println!("cargo::rerun-if-changed={}", entry.path().display());
+            }
+        }
+    }
 
     if let Err(err) = Platform::emit_cfg_from_env() {
         panic!("{}", err);
@@ -57,6 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let current_dir = env::current_dir().expect("Failed retrieving current directory");
 
+    build_print::info!("Building vsock-proxy");
     let status = {
         let platform =
             env::var(SALMIAC_PLATFORM_ENV).unwrap_or_else(|_| SALMIAC_PLATFORM.to_string());
@@ -75,6 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     .status()
     .expect("Failed to build vsock-proxy project");
+    build_print::info!("Done building vsock-proxy");
 
     assert!(
         status.success(),
@@ -93,6 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     )
     .expect("Failed to copy parent bin");
 
+    build_print::info!("Building enclave-startup");
     let status = {
         let mut result = Command::new("cargo");
 
@@ -116,6 +133,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "failed to build enclave-startup project: {}",
         status
     );
+    build_print::info!("Done building enclave-startup");
 
     fs::copy(
         enclave_startup_bin_dir.join("enclave-startup"),
