@@ -34,26 +34,26 @@ use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveS
 use crate::image_builder::parent::ParentImageBuilder;
 
 #[cfg(platform = "nitro")]
-use crate::image_builder::enclave::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+mod nitro_imports {
+    pub(super) use crate::image_builder::enclave::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+    pub(super) use crate::image_builder::parent::nitro::ParentImageBuilder as PlatformParentImageBuilder;
+    pub(super) use crate::nitro::create_response;
+    pub(super) use api_model::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
+    pub(super) use api_model::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
+}
 #[cfg(platform = "nitro")]
-use crate::image_builder::parent::nitro::ParentImageBuilder as PlatformParentImageBuilder;
-#[cfg(platform = "nitro")]
-use crate::nitro::create_response;
-#[cfg(platform = "nitro")]
-use api_model::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
-#[cfg(platform = "nitro")]
-use api_model::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
+use nitro_imports::*;
 
 #[cfg(platform = "snp")]
-use crate::image_builder::enclave::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+mod snp_imports {
+    pub(super) use crate::image_builder::enclave::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+    pub(super) use crate::image_builder::parent::snp::ParentImageBuilder as PlatformParentImageBuilder;
+    pub(super) use crate::snp::create_response;
+    pub(super) use api_model::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
+    pub(super) use api_model::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
+}
 #[cfg(platform = "snp")]
-use crate::image_builder::parent::snp::ParentImageBuilder as PlatformParentImageBuilder;
-#[cfg(platform = "snp")]
-use crate::snp::create_response;
-#[cfg(platform = "snp")]
-use api_model::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
-#[cfg(platform = "snp")]
-use api_model::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
+use snp_imports::*;
 
 pub mod docker;
 pub mod file;
