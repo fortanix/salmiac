@@ -17,8 +17,7 @@ use api_model::{
     },
 };
 
-pub const PLATFORM_ABOUT: &str =
-    "Converts user docker container to be able to run in AWS Nitro environment";
+pub const NAME: &str = "AWS Nitro";
 
 pub(crate) fn create_response(
     image: &ImageWithDetails,

@@ -18,8 +18,7 @@ use crate::{
     Result,
 };
 
-pub const PLATFORM_ABOUT: &str =
-    "Converts user docker container to be able to run in AMD SNP environment";
+pub const NAME: &str = "AMD SNP";
 
 pub(crate) fn create_response(
     image: &ImageWithDetails,

@@ -7,18 +7,20 @@
 use clap::{App, AppSettings, Arg, ArgMatches};
 use container_converter::process_request;
 use env_logger;
-use std::fs;
+use std::{fmt::format, fs, sync::LazyLock};
 
 #[cfg(platform = "nitro")]
 use container_converter::nitro as platform;
 #[cfg(platform = "snp")]
 use container_converter::snp as platform;
 
+static ABOUT: LazyLock<String> = LazyLock::new(|| format!("Converts user docker container to be able to run in {} environment", platform::NAME));
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
 
-    let console_arguments = console_arguments(platform::PLATFORM_ABOUT);
+    let console_arguments = console_arguments(&ABOUT);
 
     let request_file_path = console_arguments
         .value_of("request-file")
