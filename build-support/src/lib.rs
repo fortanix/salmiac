@@ -9,7 +9,7 @@ pub const PLATFORM_ENV: &str = "SALMIAC_PLATFORM";
 #[strum(serialize_all = "snake_case")]
 pub enum Platform {
     Nitro,
-    Snp
+    Snp,
 }
 
 impl Platform {

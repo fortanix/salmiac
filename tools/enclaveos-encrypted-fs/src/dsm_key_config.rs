@@ -399,8 +399,8 @@ pub trait DsmInterface {
     const TLS_MIN_VERSION: Version = Version::Tls1_2;
 
     const DERIVED_KEY_SIZE: u32 = 256;
-    const DERIVATION_DATA_PASSPHRASE: &str = "nt-storage-key00";
-    const DERIVATION_DATA_HEADER_HMAC: &str = "nt-storage-key01";
+    const DERIVATION_DATA_PASSPHRASE: &'static str = "nt-storage-key00";
+    const DERIVATION_DATA_HEADER_HMAC: &'static str = "nt-storage-key01";
 
     fn dsm_mac_verify_header(
         &self,

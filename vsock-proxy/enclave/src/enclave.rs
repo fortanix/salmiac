@@ -45,10 +45,11 @@ use tokio::task::{self, JoinHandle};
 use tokio::time::{self as tokio_time, Duration};
 use tokio_vsock::VsockStream as AsyncVsockStream;
 use tun::{AsyncDevice, Device};
-
+use embedded_attestation_client::EmbeddedSnpAttestationClient;
 use crate::app_configuration::{
     setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
+use crate::app_configuration::{setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials};
 use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
     CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
@@ -978,6 +979,25 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     }
 }
 
+#[cfg(platform = "snp")]
+pub(crate) async fn setup_enclave_certification<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    Api: CSRApi,
+>(
+    vsock: Option<&mut Socket>,
+    node_agent: Option<String>,
+    csr_api: &Api,
+    app_config_id: &Option<String>,
+    cert_config: &CertificateConfig,
+    fs_root: &Path,
+) -> Result<CertificateWithPath, String> {
+    // TODO: Use the embedded binary of the SNP attestation client to create certificates
+    use embedded_attestation_client::EmbeddedSnpAttestationClient;
+    let client = EmbeddedSnpAttestationClient::new();
+    todo!()
+}
+
+#[cfg(platform = "nitro")]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,

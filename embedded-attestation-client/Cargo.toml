@@ -1,0 +1,11 @@
+[package]
+name = "embedded-attestation-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tempfile = "3"
+
+[build-dependencies]
+build-support = { path = "../build-support", package = "salmiac-build-support" }
+toml = "0.5"
