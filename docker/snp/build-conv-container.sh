@@ -1,5 +1,3 @@
-#TODO: RTE-941
-
 #!/bin/bash
 
 set -exo pipefail
