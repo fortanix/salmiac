@@ -20,6 +20,7 @@ static ATTESTATION_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
 
 /// Helper struct for the embedded SNP Attestation client.
 pub struct EmbeddedSnpAttestationClient {
+    // TODO: Consider using tempfile::SpooledTempFile to keep everything in memory
     /// Directory where the SNP Attestation Client will be unpacked to
     temp_dir: TempDir,
 }
