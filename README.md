@@ -16,7 +16,7 @@ Salmiac enhances Nitro Enclaves by enabling networking for external communicatio
 
 ## Quick Start Guide
 
-This guide allows you to build salmiac from source and convert your docker application into a one that can run in a nitro enclave. 
+This guide allows you to build salmiac from source and convert your docker application into a one that can run in a nitro enclave or snp enclave. 
 
 1. Set up your Ubuntu based build system:
     - Install Rust:
@@ -44,13 +44,18 @@ This guide allows you to build salmiac from source and convert your docker appli
 3. Build requisite docker images needed to run container converter
    ```bash
    # Run from the root of the repository
-   # build enclave-base image
-   cd salmiac/docker/enclave-base
-   docker build -t enclave-base .
+   # build enclave-base image (this can be used for snp non-gpu verion)
+   cd salmiac/docker
+   docker build -t enclave-base enclave-base
+
+   # build snp enclave-base-gpu image
+   docker build -t enclave-base-snp-gpu docker/snp/enclave-base-gpu
          
    # build parent-base-nitro image
-   cd ../nitro/parent-base
-   docker build -t parent-base-nitro .
+   docker build -t parent-base-nitro nitro/parent-base
+
+   # build parent-base-snp image
+   docker build --build-context parent-base=nitro/parent-base -t parent-base-snp docker/snp/parent-base
     ```
 
 4. Build the enclave kernel. This step takes a long time and needs to be done only once. The artifacts produced by this step need not be cleaned up unless the kernel config is updated.
@@ -58,20 +63,25 @@ This guide allows you to build salmiac from source and convert your docker appli
    cd salmiac/docker/nitro/amzn-linux-nbd
    ./build-enclave-kernel.sh build
     ```
+   
+   // TODO: Update this step, to include kernel related to gpu
 
 5. Build the converter image. To produce a debug build of the converter, change FLAVOR to debug from the step below.
     ```bash
       # Run from the root of the repository
       cd salmiac
       export FLAVOR=release # To produce a debug build of the converter, change the value to `debug`
+      export SALMIAC_PLATFORM=nitro # For building a snp converter change it to `snp`. For more info refer to build-support/README.md
       ./build-converter.sh
 
-      cd docker/nitro
+      # To build converter
+      cd docker/$SALMIAC_PLATFORM
       ./build-conv-container.sh $FLAVOR
     ```
 
 6. Create a simple conversion request json file (say /tmp/req.json)
    More details about each field of the conversion request can be found in /salmiac/api-model/src/converter.rs
+
    ```javascript
    {
       "input_image": {
@@ -91,11 +101,33 @@ This guide allows you to build salmiac from source and convert your docker appli
    }
    ```
 
+   ```javascript
+   {
+      "input_image": {
+         "name": "hello-world"
+      },
+      "output_image": {
+         "name": "hello-world-snp"
+      },
+      "converter_options": {
+         "push_converted_image": false,
+         "enable_overlay_filesystem_persistence": false
+      },
+      "nitro_enclaves_options": {
+         "cpu_count": 2,
+         "mem_size": "4096M",
+         "enable_gpu_passthrough": true
+      }
+   }
+   ```
+
 7. Make your application Nitro VM-capable by running container converter with the file from previous step.
    The converter by default pulls the input image and pushes the output image to remote repositories. These images are then cleaned up from the local docker cache. In our example, the output image push is disabled in the request json and to preserve the images in the docker cache, 'PRESERVE_IMAGES' environment variable is specified.
    ```bash
       docker run --rm -e PARENT_IMAGE=parent-base-nitro -e ENCLAVE_IMAGE=enclave-base --name nitro-converter --user 0 --privileged -v /var/run/docker.sock:/var/run/docker.sock -e PRESERVE_IMAGES=input,result -v /tmp/req.json:/app/req.json nitro-converter --request-file /app/req.json
     ```
+
+   // TODO: Update this script
 
 8. Copy converted image into your EC2 instance and run the image.
    Note the use of the environment variable which disables the use of default certificates, which allows you to skip access to Fortanix CCM. Read more about environment variables used in salmiac here - /salmiac/ENV_VARS.md
