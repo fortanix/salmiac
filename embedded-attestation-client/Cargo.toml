@@ -9,3 +9,4 @@ tempfile = "3"
 [build-dependencies]
 build-support = { path = "../build-support", package = "salmiac-build-support" }
 toml = "0.5"
+walkdir = "2"

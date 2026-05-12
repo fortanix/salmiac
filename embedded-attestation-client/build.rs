@@ -32,6 +32,16 @@ fn main() {
     let roche_dir = repos_dir.join(roche_repo_name);
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
+    // Re-run the build if any of the source files in the Attestation Client project have changed
+    for entry in walkdir::WalkDir::new("foo")
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file() {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
+    }
+
     let target_profile = env::var("PROFILE").unwrap();
     let target_dir = roche_dir.join("target").join(&target_profile);
     let bin_name = ATTESTATION_CLIENT_BIN_NAME;
