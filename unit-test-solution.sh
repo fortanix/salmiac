@@ -17,11 +17,15 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
       echo "Environment variable FORTANIX_API_KEY is unset. Unable to run dsm_key_config unit tests"
       exit 1
   fi
+  # Platform agnostic tests
+  pushd "tools/enclaveos-encrypted-fs"
+    cargo test "$cargo_build_flag" --locked
+  popd
+  # Platform specific tests
   unit_test_dirs=(
       "vsock-proxy/enclave"
       "vsock-proxy/parent"
       "tools/container-converter"
-      "tools/enclaveos-encrypted-fs"
   )
   for platform in "${SALMIAC_PLATFORMS[@]}"
   do
