@@ -21,8 +21,13 @@ pub(crate) struct BuildContext {
 
 impl BuildContext {
     pub(crate) fn new(dir: &Path) -> Result<Self, String> {
-        let temp_dir =
-            TempDir::new_in(dir).map_err(|err| format!("Cannot create build context in {}. {:?}", dir.display(), err))?;
+        let temp_dir = TempDir::new_in(dir).map_err(|err| {
+            format!(
+                "Cannot create build context in {}. {:?}",
+                dir.display(),
+                err
+            )
+        })?;
 
         Ok(Self { temp_dir })
     }
@@ -37,11 +42,19 @@ impl BuildContext {
 
     pub(crate) fn create_resources(&self, resources: &[Resource]) -> Result<(), String> {
         for resource in resources {
-            let mut file = fs::File::create(self.path().join(&resource.name))
-                .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+            let mut file = fs::File::create(self.path().join(&resource.name)).map_err(|err| {
+                format!(
+                    "Failed to create resource {}, error: {:?}",
+                    &resource.name, err
+                )
+            })?;
 
-            file.write_all(&resource.data)
-                .map_err(|err| format!("Failed to create resource {}, error: {:?}", &resource.name, err))?;
+            file.write_all(&resource.data).map_err(|err| {
+                format!(
+                    "Failed to create resource {}, error: {:?}",
+                    &resource.name, err
+                )
+            })?;
 
             if resource.is_executable {
                 file.set_execute()
@@ -52,7 +65,10 @@ impl BuildContext {
         Ok(())
     }
 
-    pub(crate) fn create_docker_file(&self, docker_file_contents: &DockerFile) -> Result<(), String> {
+    pub(crate) fn create_docker_file(
+        &self,
+        docker_file_contents: &DockerFile,
+    ) -> Result<(), String> {
         let docker_file_path = self.path().join("Dockerfile");
 
         let mut docker_file_handler = fs::OpenOptions::new()
@@ -60,14 +76,24 @@ impl BuildContext {
             .truncate(true)
             .write(true)
             .open(&docker_file_path)
-            .map_err(|err| format!("Failed to create docker file at {}. {:?}", self.path().display(), err))?;
+            .map_err(|err| {
+                format!(
+                    "Failed to create docker file at {}. {:?}",
+                    self.path().display(),
+                    err
+                )
+            })?;
 
         let contents = docker_file_contents.to_string();
         docker_file_handler
             .write_all(contents.as_bytes())
             .map_err(|err| format!("Failed to write to Dockerfile {:?}", err))?;
 
-        debug!("File contents of {}:\n {}", docker_file_path.display(), contents);
+        debug!(
+            "File contents of {}:\n {}",
+            docker_file_path.display(),
+            contents
+        );
 
         Ok(())
     }
@@ -87,10 +113,10 @@ impl BuildContext {
                 )
             })?;
 
-        let dir_as_str = self
-            .path()
-            .to_str()
-            .ok_or(format!("Failed to cast path {} to string", self.path().display()))?;
+        let dir_as_str = self.path().to_str().ok_or(format!(
+            "Failed to cast path {} to string",
+            self.path().display()
+        ))?;
 
         info!(
             "Packaging build context {} into archive at {}.",
@@ -106,9 +132,13 @@ impl BuildContext {
             )
         })?;
 
-        archive_file
-            .rewind()
-            .map_err(|err| format!("Failed rewinding archive at {}. {:?}", archive_path.display(), err))?;
+        archive_file.rewind().map_err(|err| {
+            format!(
+                "Failed rewinding archive at {}. {:?}",
+                archive_path.display(),
+                err
+            )
+        })?;
 
         Ok(archive_file)
     }
@@ -125,7 +155,10 @@ pub(crate) struct Resource<'a> {
 }
 
 pub(crate) fn log_file(path: &Path) -> Result<(), String> {
-    let file_name = path.file_name().and_then(|e| e.to_str()).unwrap_or("<Unknown file>");
+    let file_name = path
+        .file_name()
+        .and_then(|e| e.to_str())
+        .unwrap_or("<Unknown file>");
 
     let file = fs::OpenOptions::new()
         .read(true)

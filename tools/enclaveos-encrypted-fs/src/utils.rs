@@ -56,9 +56,12 @@ pub async fn run_subprocess_with_output_setup(
     }
 
     debug!("Running subprocess {} {:?}.", subprocess_path, args);
-    let process = command
-        .spawn()
-        .map_err(|err| format!("Failed to run subprocess {}. {:?}. Args {:?}", subprocess_path, err, args))?;
+    let process = command.spawn().map_err(|err| {
+        format!(
+            "Failed to run subprocess {}. {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
 
     let output = process.output().await.map_err(|err| {
         format!(
@@ -70,7 +73,10 @@ pub async fn run_subprocess_with_output_setup(
     if output.status.success() {
         Ok(output)
     } else {
-        Err(format!("Process exited with a negative return code. Output is: {:?}", output))
+        Err(format!(
+            "Process exited with a negative return code. Output is: {:?}",
+            output
+        ))
     }
 }
 
@@ -100,7 +106,10 @@ pub fn run_blocking_subprocess(subprocess_path: &str, args: &[&str]) -> Result<(
 pub fn find_env_or_err(key: &str) -> Result<String, String> {
     match env::var(key) {
         Ok(value) => Ok(value),
-        Err(e) => Err(format!("Unable to find environment variable {}. Error: {}", key, e)),
+        Err(e) => Err(format!(
+            "Unable to find environment variable {}. Error: {}",
+            key, e
+        )),
     }
 }
 

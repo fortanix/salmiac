@@ -69,15 +69,20 @@ pub(crate) async fn setup_network_devices(
     let result = devices
         .into_iter()
         .zip(device_streams.into_iter())
-        .map(|e| PairedPcapDevice { pcap: e.0, vsock: e.1 })
+        .map(|e| PairedPcapDevice {
+            pcap: e.0,
+            vsock: e.1,
+        })
         .collect();
 
     Ok(result)
 }
 
-pub(crate) async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDeviceSettings>), String> {
+pub(crate) async fn list_network_devices(
+) -> Result<(Vec<Device>, Vec<NetworkDeviceSettings>), String> {
     let netlink = Netlink::new();
-    let devices = pcap::Device::list().map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
+    let devices = pcap::Device::list()
+        .map_err(|err| format!("Failed retrieving network device list. {:?}", err))?;
 
     let mut device_settings: Vec<NetworkDeviceSettings> = Vec::new();
 
@@ -102,7 +107,10 @@ pub(crate) async fn list_network_devices() -> Result<(Vec<Device>, Vec<NetworkDe
     Ok((devices, device_settings))
 }
 
-async fn get_network_settings_for_device<D, N>(device: &D, netlink: &N) -> Result<NetworkDeviceSettings, String>
+async fn get_network_settings_for_device<D, N>(
+    device: &D,
+    netlink: &N,
+) -> Result<NetworkDeviceSettings, String>
 where
     D: NetworkDevice,
     N: NetlinkCommon + NetlinkARP + NetlinkRoute,
@@ -118,21 +126,39 @@ where
     let mac_address = device_link
         .address()
         .map(|e| <[u8; 6]>::try_from(&e[..]))
-        .ok_or(&*format!("Parent link in device {} should have an address.", device_name))?
-        .map_err(|err| format!("Cannot convert array slice {:?}. Network device is {}", err, device_name))?;
+        .ok_or(&*format!(
+            "Parent link in device {} should have an address.",
+            device_name
+        ))?
+        .map_err(|err| {
+            format!(
+                "Cannot convert array slice {:?}. Network device is {}",
+                err, device_name
+            )
+        })?;
 
-    let mtu = device_link
-        .mtu()
-        .expect(&*format!("Parent device {} should have an MTU.", device_name));
+    let mtu = device_link.mtu().expect(&*format!(
+        "Parent device {} should have an MTU.",
+        device_name
+    ));
 
     let ip_network = device.ip_network()?;
 
-    let get_routes_result = netlink.get_routes_for_device(device_index, rtnetlink::IpVersion::V4).await?;
+    let get_routes_result = netlink
+        .get_routes_for_device(device_index, rtnetlink::IpVersion::V4)
+        .await?;
 
-    let gateway = get_routes_result.gateway.map(|e| Gateway::try_from(&e)).transpose()?;
+    let gateway = get_routes_result
+        .gateway
+        .map(|e| Gateway::try_from(&e))
+        .transpose()?;
 
     let routes = {
-        let result: Result<Vec<Route>, String> = get_routes_result.routes.iter().map(Route::try_from).collect();
+        let result: Result<Vec<Route>, String> = get_routes_result
+            .routes
+            .iter()
+            .map(Route::try_from)
+            .collect();
 
         result?
     };
@@ -185,15 +211,21 @@ pub(crate) enum ChecksumComputationError {
 /// - Computing the checksum for IPv4, TCP, or UDP headers.
 /// - Encountering an unsupported Layer 4 protocol.
 pub(crate) fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumComputationError> {
-    let ethernet_packet = SlicedPacket::from_ethernet(&data)
-        .map_err(|err| ChecksumComputationError::Err(format!("Cannot parse ethernet packet. {:?}", err)))?;
+    let ethernet_packet = SlicedPacket::from_ethernet(&data).map_err(|err| {
+        ChecksumComputationError::Err(format!("Cannot parse ethernet packet. {:?}", err))
+    })?;
 
     let l3_checksum = match ethernet_packet.ip {
         Some(Ipv4(ref ip_packet, _)) => {
             let checksum = ip_packet
                 .to_header()
                 .calc_header_checksum()
-                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing IPv4 checksum. {:?}", err)))?;
+                .map_err(|err| {
+                    ChecksumComputationError::Err(format!(
+                        "Failed computing IPv4 checksum. {:?}",
+                        err
+                    ))
+                })?;
 
             let offset = field_offset_in_packet(data, ip_packet.slice(), IPV4_CHECKSUM_FIELD_INDEX);
 
@@ -207,7 +239,12 @@ pub(crate) fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumC
         (Some(Ipv4(ip_packet, _)), Some(Tcp(tcp_packet))) => {
             let checksum = tcp_packet
                 .calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
-                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing TCP checksum. {:?}", err)))?;
+                .map_err(|err| {
+                    ChecksumComputationError::Err(format!(
+                        "Failed computing TCP checksum. {:?}",
+                        err
+                    ))
+                })?;
 
             let offset = field_offset_in_packet(data, tcp_packet.slice(), TCP_CHECKSUM_FIELD_INDEX);
 
@@ -216,14 +253,21 @@ pub(crate) fn recompute_packet_checksum(data: &mut [u8]) -> Result<(), ChecksumC
         (Some(Ipv4(ip_packet, _)), Some(Udp(udp_packet))) => {
             let checksum = udp_packet
                 .calc_checksum_ipv4(&ip_packet, ethernet_packet.payload)
-                .map_err(|err| ChecksumComputationError::Err(format!("Failed computing UDP checksum. {:?}", err)))?;
+                .map_err(|err| {
+                    ChecksumComputationError::Err(format!(
+                        "Failed computing UDP checksum. {:?}",
+                        err
+                    ))
+                })?;
 
             let offset = field_offset_in_packet(data, udp_packet.slice(), UDP_CHECKSUM_FIELD_INDEX);
 
             Some((offset, checksum))
         }
         (_, Some(Unknown(protocol_number))) => {
-            return Err(ChecksumComputationError::UnsupportedProtocol(protocol_number));
+            return Err(ChecksumComputationError::UnsupportedProtocol(
+                protocol_number,
+            ));
         }
         _ => None,
     };
@@ -251,7 +295,11 @@ fn update_checksum(packet: &mut [u8], checksum_offset: usize, checksum: u16) -> 
 /// # Panics
 /// Panics if `header` isn't contained within `full_packet` or if
 /// `header_field_index` isn't contained within `header`.
-fn field_offset_in_packet<'a>(full_packet: &'a [u8], header: &'a [u8], header_field_index: usize) -> usize {
+fn field_offset_in_packet<'a>(
+    full_packet: &'a [u8],
+    header: &'a [u8],
+    header_field_index: usize,
+) -> usize {
     assert!(full_packet.len() <= (isize::max_value() as usize)); // assertion 1
     let full_packet = full_packet.as_ptr_range();
     let field = header[header_field_index..].as_ptr_range();
@@ -285,11 +333,15 @@ pub(crate) async fn set_up_private_tap_devices(
     enclave_address: IpNetwork,
     enclave_dev_name: &str,
 ) -> Result<PairedTapDevice, String> {
-    let device = create_async_tap_device(&tap_device_config(&parent_address, parent_dev_name, PRIVATE_TAP_MTU))?;
+    let device = create_async_tap_device(&tap_device_config(
+        &parent_address,
+        parent_dev_name,
+        PRIVATE_TAP_MTU,
+    ))?;
 
     use tun::Device;
-    let tap_index =
-        if_nametoindex(device.get_ref().name()).map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
+    let tap_index = if_nametoindex(device.get_ref().name())
+        .map_err(|err| format!("Cannot find index for tap device {:?}", err))?;
 
     let mut listener = listen_to_parent(tap_index)?;
 
@@ -301,7 +353,9 @@ pub(crate) async fn set_up_private_tap_devices(
     };
 
     enclave_port
-        .write_lv(&SetupMessages::PrivateNetworkDeviceSettings(private_tap_settings))
+        .write_lv(&SetupMessages::PrivateNetworkDeviceSettings(
+            private_tap_settings,
+        ))
         .await?;
 
     let vsock = accept(&mut listener).await?;
@@ -328,7 +382,9 @@ pub(crate) async fn set_up_private_tap_devices(
 /// enclave's address.
 ///
 /// TODO: We should use IPv6 addresses instead of IPv4 addresses for the private network.
-pub(crate) fn choose_addrs_for_private_taps(in_use: Vec<Ipv4Network>) -> Result<(IpNetwork, IpNetwork), String> {
+pub(crate) fn choose_addrs_for_private_taps(
+    in_use: Vec<Ipv4Network>,
+) -> Result<(IpNetwork, IpNetwork), String> {
     let private_networks: [Ipv4Network; 3] = [
         Ipv4Network::new(Ipv4Addr::new(10, 0, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),
         Ipv4Network::new(Ipv4Addr::new(172, 16, 0, 0), FS_TAP_NETWORK_PREFIX_SIZE).expect(""),
@@ -342,8 +398,10 @@ pub(crate) fn choose_addrs_for_private_taps(in_use: Vec<Ipv4Network>) -> Result<
             let parent_address: Ipv4Addr = (network_id + 1).into();
             let enclave_address: Ipv4Addr = (network_id + 2).into();
 
-            let parent_network = IpNetwork::new(IpAddr::V4(parent_address), FS_TAP_NETWORK_PREFIX_SIZE).expect("");
-            let enclave_network = IpNetwork::new(IpAddr::V4(enclave_address), FS_TAP_NETWORK_PREFIX_SIZE).expect("");
+            let parent_network =
+                IpNetwork::new(IpAddr::V4(parent_address), FS_TAP_NETWORK_PREFIX_SIZE).expect("");
+            let enclave_network =
+                IpNetwork::new(IpAddr::V4(enclave_address), FS_TAP_NETWORK_PREFIX_SIZE).expect("");
 
             return Ok((parent_network, enclave_network));
         }
@@ -363,29 +421,46 @@ trait NetworkDevice {
     fn index(&self) -> Result<u32, String> {
         let device_name = self.name();
 
-        if_nametoindex(device_name).map_err(|err| format!("Cannot find index for device {}, error {:?}", device_name, err))
+        if_nametoindex(device_name).map_err(|err| {
+            format!(
+                "Cannot find index for device {}, error {:?}",
+                device_name, err
+            )
+        })
     }
 
     fn ip_network(&self) -> Result<IpNetwork, String> {
         fn addresses_to_string(addresses: &[Address]) -> String {
-            addresses.iter().map(|e| e.addr.to_string()).collect::<Vec<_>>().join(",")
+            addresses
+                .iter()
+                .map(|e| e.addr.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
         }
 
         let device_name = self.name();
         let assigned_addresses = self.addresses();
 
-        let address = assigned_addresses.iter().find(|e| e.addr.is_ipv4()).ok_or(format!(
-            "Cannot find an IpV4 address for device {}. Device address list is {:?}",
-            device_name,
-            addresses_to_string(&assigned_addresses)
+        let address = assigned_addresses
+            .iter()
+            .find(|e| e.addr.is_ipv4())
+            .ok_or(format!(
+                "Cannot find an IpV4 address for device {}. Device address list is {:?}",
+                device_name,
+                addresses_to_string(&assigned_addresses)
+            ))?;
+
+        let netmask = address.netmask.ok_or(&*format!(
+            "Device {} address must have a netmask.",
+            device_name
         ))?;
 
-        let netmask = address
-            .netmask
-            .ok_or(&*format!("Device {} address must have a netmask.", device_name))?;
-
-        IpNetwork::with_netmask(address.addr, netmask)
-            .map_err(|err| format!("Cannot create ip network for device {}. {:?}", device_name, err))
+        IpNetwork::with_netmask(address.addr, netmask).map_err(|err| {
+            format!(
+                "Cannot create ip network for device {}. {:?}",
+                device_name, err
+            )
+        })
     }
 }
 
@@ -425,7 +500,9 @@ mod tests {
 
     #[test]
     fn ip_network_incorrect_pass() {
-        let no_addresses = TestNetworkDevice { addresses_data: vec![] };
+        let no_addresses = TestNetworkDevice {
+            addresses_data: vec![],
+        };
         let no_netmask = TestNetworkDevice {
             addresses_data: vec![Address {
                 addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -475,7 +552,9 @@ mod tests {
         };
 
         let result = device.ip_network().expect("ip network failed");
-        let reference = IpNetwork::V4(Ipv4Network::with_netmask(ip_address, netmask).expect("ipv4 network ctor failed"));
+        let reference = IpNetwork::V4(
+            Ipv4Network::with_netmask(ip_address, netmask).expect("ipv4 network ctor failed"),
+        );
 
         assert_eq!(result, reference)
     }

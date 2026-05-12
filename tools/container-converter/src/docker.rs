@@ -16,32 +16,56 @@ use futures::StreamExt;
 use log::{debug, error, info, warn};
 use shiplift::container::ContainerCreateInfo;
 use shiplift::image::{BuildParams, ImageDetails, PushOptions};
-use shiplift::{ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions};
+use shiplift::{
+    ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions,
+};
 
 use crate::image::ImageWithDetails;
 
 /// Convenience functions to work with docker daemon
 #[async_trait]
 pub trait DockerUtil: Send + Sync {
-    async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
+    async fn get_latest_image_details(
+        &self,
+        image: &DockerReference<'_>,
+    ) -> Result<ImageDetails, String>;
 
-    async fn get_local_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String>;
+    async fn get_local_image_details(
+        &self,
+        image: &DockerReference<'_>,
+    ) -> Result<ImageDetails, String>;
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String>;
 
     async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String>;
 
-    async fn build_image_from_archive(&self, archive: fs::File, image: &DockerReference<'_>) -> Result<(), String>;
+    async fn build_image_from_archive(
+        &self,
+        archive: fs::File,
+        image: &DockerReference<'_>,
+    ) -> Result<(), String>;
 
-    async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String>;
+    async fn create_container(
+        &self,
+        image: &DockerReference<'_>,
+    ) -> Result<ContainerCreateInfo, String>;
 
     async fn force_delete_container(&self, container_name: &str) -> Result<(), String>;
 
-    async fn export_container_file_system(&self, container_name: &str, file: &mut File) -> Result<(), String>;
+    async fn export_container_file_system(
+        &self,
+        container_name: &str,
+        file: &mut File,
+    ) -> Result<(), String>;
 
-    async fn export_image_file_system(&self, image: &DockerReference<'_>, file: &mut File) -> Result<(), String> {
+    async fn export_image_file_system(
+        &self,
+        image: &DockerReference<'_>,
+        file: &mut File,
+    ) -> Result<(), String> {
         let container_info = self.create_container(image).await?;
-        self.export_container_file_system(&container_info.id, file).await?;
+        self.export_container_file_system(&container_info.id, file)
+            .await?;
 
         // container is used only to export image file system
         // after we finish the export the container has no use for us and can be deleted
@@ -86,7 +110,10 @@ impl DockerDaemon {
             builder.build()
         });
 
-        DockerDaemon { docker, credentials }
+        DockerDaemon {
+            docker,
+            credentials,
+        }
     }
 
     async fn get_local_image(&self, address: &DockerReference<'_>) -> Option<ImageDetails> {
@@ -162,7 +189,10 @@ impl DockerDaemon {
                                 total_bytes as f64 / (1024.0 * 1024.0)
                             );
                             if let Err(msg) = Self::image_download_hazard_check(total_bytes) {
-                                let message = format!("Aborting {} image download: system stability hazard: {}", address, msg);
+                                let message = format!(
+                                    "Aborting {} image download: system stability hazard: {}",
+                                    address, msg
+                                );
                                 error!("{}", message);
 
                                 return Err(shiplift::Error::Fault {
@@ -182,11 +212,17 @@ impl DockerDaemon {
 
 #[async_trait]
 impl DockerUtil for DockerDaemon {
-    async fn get_latest_image_details(&self, image: &DockerReference<'_>) -> Result<ImageDetails, String> {
+    async fn get_latest_image_details(
+        &self,
+        image: &DockerReference<'_>,
+    ) -> Result<ImageDetails, String> {
         // Do a pull first to make sure that we always pick the latest image version from remote repository
         match self.pull_image(image).await {
             Err(shiplift::Error::Fault { code, .. }) if code == http::StatusCode::NOT_FOUND => {
-                debug!("Image {} not found in remote repository, checking local.", image.to_string());
+                debug!(
+                    "Image {} not found in remote repository, checking local.",
+                    image.to_string()
+                );
             }
             Err(err) => {
                 return Err(format!(
@@ -202,13 +238,15 @@ impl DockerUtil for DockerDaemon {
     }
 
     async fn get_local_image_details(&self, image: &Reference<'_>) -> Result<ImageDetails, String> {
-        self.get_local_image(&image)
-            .await
-            .ok_or(format!("Image {} not found in local repository.", image.to_string()))
+        self.get_local_image(&image).await.ok_or(format!(
+            "Image {} not found in local repository.",
+            image.to_string()
+        ))
     }
 
     async fn load_image(&self, tar_path: &str) -> Result<(), String> {
-        let tar = fs::File::open(tar_path).map_err(|err| format!("Unable to open image file - {:?} : {:?}", tar_path, err))?;
+        let tar = fs::File::open(tar_path)
+            .map_err(|err| format!("Unable to open image file - {:?} : {:?}", tar_path, err))?;
 
         let reader = Box::from(tar);
         let mut stream = self.docker.images().import(reader);
@@ -248,14 +286,17 @@ impl DockerUtil for DockerDaemon {
 
         let image_interface = Image::new(&self.docker, image.reference.to_string());
 
-        image_interface.tag(&tag_options.build()).await.map_err(|err| {
-            format!(
-                "Failed to tag image {} with repo {}. Err {:?}",
-                image.details.id,
-                image.reference.to_string(),
-                err
-            )
-        })?;
+        image_interface
+            .tag(&tag_options.build())
+            .await
+            .map_err(|err| {
+                format!(
+                    "Failed to tag image {} with repo {}. Err {:?}",
+                    image.details.id,
+                    image.reference.to_string(),
+                    err
+                )
+            })?;
 
         self.docker
             .images()
@@ -269,7 +310,11 @@ impl DockerUtil for DockerDaemon {
             })
     }
 
-    async fn build_image_from_archive(&self, archive: File, image: &Reference<'_>) -> Result<(), String> {
+    async fn build_image_from_archive(
+        &self,
+        archive: File,
+        image: &Reference<'_>,
+    ) -> Result<(), String> {
         let build_context = FrameFileRead::new(archive);
 
         let mut build_params = BuildParams::default();
@@ -281,7 +326,10 @@ impl DockerUtil for DockerDaemon {
 
         info!("Started building image {}", image.to_string());
 
-        let mut stream = self.docker.images().build_from_raw_parts(&build_params, build_context);
+        let mut stream = self
+            .docker
+            .images()
+            .build_from_raw_parts(&build_params, build_context);
         while let Some(build_result) = stream.next().await {
             match build_result {
                 Ok(output) => {
@@ -297,12 +345,21 @@ impl DockerUtil for DockerDaemon {
         Ok(())
     }
 
-    async fn create_container(&self, image: &DockerReference<'_>) -> Result<ContainerCreateInfo, String> {
+    async fn create_container(
+        &self,
+        image: &DockerReference<'_>,
+    ) -> Result<ContainerCreateInfo, String> {
         self.docker
             .containers()
             .create(&ContainerOptions::builder(&image.to_string()).build())
             .await
-            .map_err(|err| format!("Failed creating docker container from image {}. {:?}.", image.name(), err))
+            .map_err(|err| {
+                format!(
+                    "Failed creating docker container from image {}. {:?}.",
+                    image.name(),
+                    err
+                )
+            })
     }
 
     async fn force_delete_container(&self, container_name: &str) -> Result<(), String> {
@@ -313,22 +370,38 @@ impl DockerUtil for DockerDaemon {
             .get(container_name)
             .remove(remove_options)
             .await
-            .map_err(|err| format!("Failed deleting docker container {}. {:?}.", container_name, err))
+            .map_err(|err| {
+                format!(
+                    "Failed deleting docker container {}. {:?}.",
+                    container_name, err
+                )
+            })
     }
 
-    async fn export_container_file_system(&self, container_name: &str, file: &mut File) -> Result<(), String> {
-        info!("Started file system export of a container {}...", container_name);
+    async fn export_container_file_system(
+        &self,
+        container_name: &str,
+        file: &mut File,
+    ) -> Result<(), String> {
+        info!(
+            "Started file system export of a container {}...",
+            container_name
+        );
         let mut stream = Box::pin(self.docker.containers().get(container_name).export());
 
         while let Some(export_result) = stream.next().await {
             match export_result {
                 Ok(output) => {
-                    file.write_all(&output)
-                        .map_err(|err| format!("Failed writing to container fs archive. {:?}", err))?;
+                    file.write_all(&output).map_err(|err| {
+                        format!("Failed writing to container fs archive. {:?}", err)
+                    })?;
                 }
                 Err(e) => {
                     error!("{:?}", e);
-                    return Err(format!("Docker export for container {} failed.{:?}", container_name, e));
+                    return Err(format!(
+                        "Docker export for container {} failed.{:?}",
+                        container_name, e
+                    ));
                 }
             }
         }

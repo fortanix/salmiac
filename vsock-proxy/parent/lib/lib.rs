@@ -50,7 +50,10 @@ pub fn node_agent_address() -> Option<String> {
     })
 }
 
-pub async fn handle_csr_message<Socket: AsyncWrite + AsyncRead + Unpin + Send, CertApi: CertificateApi + Send + 'static>(
+pub async fn handle_csr_message<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    CertApi: CertificateApi + Send + 'static,
+>(
     vsock: &mut Socket,
     cert_api: CertApi,
     csr: String,
@@ -146,7 +149,9 @@ async fn send_nbd_configuration<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
         exports,
     };
 
-    enclave_port.write_lv(&SetupMessages::NBDConfiguration(configuration)).await
+    enclave_port
+        .write_lv(&SetupMessages::NBDConfiguration(configuration))
+        .await
 }
 
 async fn log_encrypted_space_available<Socket: AsyncWrite + AsyncRead + Unpin + Send>(

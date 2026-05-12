@@ -17,8 +17,4 @@ pub(crate) struct GuestLaunchResult {
 }
 
 #[cfg(platform = "nitro")]
-pub(crate) use nitro::{
-    launch_guest,
-    should_forward_client_logs,
-    start_post_connect_guest_tasks,
-};
+pub(crate) use nitro::{launch_guest, should_forward_client_logs, start_post_connect_guest_tasks};

@@ -38,14 +38,27 @@ pub(crate) enum FileSystemNode {
     File(&'static str),
 }
 
-pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_options: FsMountOptions) -> Result<(), String> {
+pub(crate) async fn mount_file_system_nodes(
+    nodes: &[FileSystemNode],
+    mount_options: FsMountOptions,
+) -> Result<(), String> {
     for node in nodes {
         match node {
             FileSystemNode::Proc => {
-                run_mount(&["-t", "proc", "/proc", &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
+                run_mount(&[
+                    "-t",
+                    "proc",
+                    "/proc",
+                    &format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT),
+                ])
+                .await?;
             }
             FileSystemNode::TreeNode(node_path) => {
-                let formatted_mount_point_str = format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path);
+                let formatted_mount_point_str = format!(
+                    "{}{node_path}",
+                    ENCLAVE_FS_OVERLAY_ROOT,
+                    node_path = node_path
+                );
                 let mut mount_args = vec!["--rbind", node_path, &formatted_mount_point_str];
                 if *node_path == "/tmp" && mount_options.is_tmp_exec {
                     mount_args.push("-o");
@@ -61,7 +74,11 @@ pub(crate) async fn mount_file_system_nodes(nodes: &[FileSystemNode], mount_opti
                 run_mount(&[
                     "--bind",
                     file_path,
-                    &format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path = file_path),
+                    &format!(
+                        "{}{file_path}",
+                        ENCLAVE_FS_OVERLAY_ROOT,
+                        file_path = file_path
+                    ),
                 ])
                 .await?;
             }
@@ -98,7 +115,9 @@ pub(crate) async fn mount_read_write_file_system(
         dsm_ops_handler = Some(dsm_fs_ops);
     }
 
-    let encrypted_fs = EncryptedVolume::setup_encrypted_volume(dsm_ops_handler, NBD_RW_DEVICE, ENCLAVE_FS_RW_ROOT).await?;
+    let encrypted_fs =
+        EncryptedVolume::setup_encrypted_volume(dsm_ops_handler, NBD_RW_DEVICE, ENCLAVE_FS_RW_ROOT)
+            .await?;
 
     create_overlay_rw_dirs().await?;
 
@@ -111,7 +130,15 @@ pub(crate) async fn mount_overlay_fs() -> Result<(), String> {
         ENCLAVE_FS_LOWER, ENCLAVE_FS_UPPER, ENCLAVE_FS_WORK
     );
 
-    run_mount(&["-t", "overlay", "-o", &overlay_dir_config, "none", ENCLAVE_FS_OVERLAY_ROOT]).await
+    run_mount(&[
+        "-t",
+        "overlay",
+        "-o",
+        &overlay_dir_config,
+        "none",
+        ENCLAVE_FS_OVERLAY_ROOT,
+    ])
+    .await
 }
 
 pub(crate) async fn create_overlay_dirs() -> Result<(), String> {
@@ -123,7 +150,12 @@ pub(crate) async fn create_overlay_dirs() -> Result<(), String> {
         .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_UPPER, err))?;
     fs::create_dir(ENCLAVE_FS_OVERLAY_ROOT)
         .await
-        .map_err(|err| format!("Failed to create dir {}. {:?}", ENCLAVE_FS_OVERLAY_ROOT, err))?;
+        .map_err(|err| {
+            format!(
+                "Failed to create dir {}. {:?}",
+                ENCLAVE_FS_OVERLAY_ROOT, err
+            )
+        })?;
 
     Ok(())
 }
@@ -179,8 +211,17 @@ pub(crate) async fn setup_dm_verity(config: &DMVerityConfig) -> Result<(), Strin
     run_subprocess("veritysetup", &args).await
 }
 
-pub(crate) async fn run_nbd_client(server_address: IpAddr, block_file_port: u16, mount_name: &str) -> Result<(), String> {
-    let args: [&str; 4] = [&server_address.to_string(), &block_file_port.to_string(), "-N", mount_name];
+pub(crate) async fn run_nbd_client(
+    server_address: IpAddr,
+    block_file_port: u16,
+    mount_name: &str,
+) -> Result<(), String> {
+    let args: [&str; 4] = [
+        &server_address.to_string(),
+        &block_file_port.to_string(),
+        "-N",
+        mount_name,
+    ];
     // NBD client exits with zero if it is able to connect to the server
     // and create /dev/nbdX device. After that we can `mount` said device
     // and use it to access the block file in `parent`.
@@ -193,15 +234,19 @@ pub(crate) async fn copy_startup_binary_to_mount(startup_binary: &str) -> Result
     let from = STARTUP_PATH.to_string() + startup_binary;
     let to = ENCLAVE_FS_OVERLAY_ROOT.to_string() + startup_binary;
 
-    fs::copy(&from, &to)
-        .await
-        .map_err(|err| format!("Failed to copy enclave startup binary from {} to {}. {:?}", from, to, err))?;
+    fs::copy(&from, &to).await.map_err(|err| {
+        format!(
+            "Failed to copy enclave startup binary from {} to {}. {:?}",
+            from, to, err
+        )
+    })?;
 
     Ok(())
 }
 
 pub(crate) async fn create_fortanix_directories() -> Result<(), String> {
-    let dir = Path::new(ENCLAVE_FS_OVERLAY_ROOT).join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default());
+    let dir = Path::new(ENCLAVE_FS_OVERLAY_ROOT)
+        .join(DEFAULT_CERT_DIR.strip_prefix("/").unwrap_or_default());
     fs::create_dir_all(dir.clone())
         .await
         .map_err(|e| format!("Failed to create fortanix directory {:?} : {:?}", dir, e))
@@ -214,7 +259,8 @@ pub(crate) async fn copy_dns_file_to_mount() -> Result<(), String> {
 
     let nbd_etc_dir: &str = &format!("{}/etc", ENCLAVE_FS_OVERLAY_ROOT);
 
-    let nbd_run_resolv_file: &str = &format!("{}/run/resolvconf/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
+    let nbd_run_resolv_file: &str =
+        &format!("{}/run/resolvconf/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
     let nbd_etc_resolv_file: &str = &format!("{}/etc/resolv.conf", ENCLAVE_FS_OVERLAY_ROOT);
 
@@ -228,18 +274,22 @@ pub(crate) async fn copy_dns_file_to_mount() -> Result<(), String> {
     // We copy resolv.conf from the enclave kernel into the block file mount point
     // so that DNS will work correctly after we do a `chroot`.
     // Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file).await.map_err(|err| {
-        format!(
-            "Failed copying resolv file from {} to {}. {:?}",
-            ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file, err
-        )
-    })?;
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file).await.map_err(|err| {
-        format!(
-            "Failed copying resolv file from {} to {}. {:?}",
-            ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file, err
-        )
-    })?;
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file)
+        .await
+        .map_err(|err| {
+            format!(
+                "Failed copying resolv file from {} to {}. {:?}",
+                ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file, err
+            )
+        })?;
+    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file)
+        .await
+        .map_err(|err| {
+            format!(
+                "Failed copying resolv file from {} to {}. {:?}",
+                ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file, err
+            )
+        })?;
 
     Ok(())
 }
@@ -258,12 +308,21 @@ pub(crate) async fn unmount_file_system_nodes(nodes: &[FileSystemNode]) -> Resul
             FileSystemNode::TreeNode(node_path) => {
                 run_unmount(&[
                     "-R",
-                    &format!("{}{node_path}", ENCLAVE_FS_OVERLAY_ROOT, node_path = node_path),
+                    &format!(
+                        "{}{node_path}",
+                        ENCLAVE_FS_OVERLAY_ROOT,
+                        node_path = node_path
+                    ),
                 ])
                 .await?;
             }
             FileSystemNode::File(file_path) => {
-                run_unmount(&[&format!("{}{file_path}", ENCLAVE_FS_OVERLAY_ROOT, file_path = file_path)]).await?;
+                run_unmount(&[&format!(
+                    "{}{file_path}",
+                    ENCLAVE_FS_OVERLAY_ROOT,
+                    file_path = file_path
+                )])
+                .await?;
             }
         }
     }

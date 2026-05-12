@@ -62,17 +62,19 @@ impl<'a> ParentImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
-        let build_context = BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        let build_context =
+            BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
 
         self.move_enclave_files_into_build_context(&build_context.path())?;
 
-        self.create_requisites(&build_context).map_err(|message| ConverterError {
-            message,
-            kind: ConverterErrorKind::RequisitesCreation,
-        })?;
+        self.create_requisites(&build_context)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
         info!("Parent prerequisites have been created!");
 
         let build_context_archive_file = build_context
@@ -131,7 +133,9 @@ impl<'a> ParentImageBuilder<'a> {
 
         build_context.create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
 
-        let startup_script_path = build_context.path().join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
+        let startup_script_path = build_context
+            .path()
+            .join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
 
         self.append_start_enclave_command(&startup_script_path)?;
 
@@ -148,7 +152,10 @@ impl<'a> ParentImageBuilder<'a> {
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
-        let run_parent_cmd = Path::new(INSTALLATION_DIR).join("start-parent.sh").display().to_string();
+        let run_parent_cmd = Path::new(INSTALLATION_DIR)
+            .join("start-parent.sh")
+            .display()
+            .to_string();
 
         let log_env = rust_log_env_var("parent");
         let cpu_count_env = self.cpu_count_env_var();
@@ -157,7 +164,10 @@ impl<'a> ParentImageBuilder<'a> {
 
         let env_vars = [log_env, cpu_count_env, mem_size_env, eos_debug_env];
 
-        let abs_orig_env_list_path = Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH).display().to_string();
+        let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
+            .join(ORIG_ENV_LIST_PATH)
+            .display()
+            .to_string();
         let save_envs_run_command = format!("printenv > {}", abs_orig_env_list_path);
 
         let from = self.parent_image.clone();
@@ -172,7 +182,10 @@ impl<'a> ParentImageBuilder<'a> {
         }
     }
 
-    fn append_start_enclave_command(&self, startup_script_path: &Path) -> std::result::Result<(), String> {
+    fn append_start_enclave_command(
+        &self,
+        startup_script_path: &Path,
+    ) -> std::result::Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .append(true)
             .open(startup_script_path)
@@ -216,7 +229,9 @@ impl<'a> ParentImageBuilder<'a> {
     fn cpu_count_env_var(&self) -> String {
         format!(
             "CPU_COUNT={}",
-            self.start_options.cpu_count.unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT)
+            self.start_options
+                .cpu_count
+                .unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT)
         )
     }
 

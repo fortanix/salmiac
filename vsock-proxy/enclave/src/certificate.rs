@@ -30,7 +30,8 @@ const DEFAULT_CERT_FILE: &str = "app_public.pem";
 pub const DEFAULT_CERT_RSA_KEY_SIZE: u32 = 3072;
 const DEFAULT_KEY_TYPE: KeyType = KeyType::Rsa;
 const DEFAULT_CERT_ISSUER: CertIssuer = CertIssuer::ManagerCa;
-const DEFAULT_RSA_KEY_SIZE_FIELD: &str = const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
+const DEFAULT_RSA_KEY_SIZE_FIELD: &str =
+    const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
 const RSA_EXPONENT: u32 = 0x10001;
 
 pub struct CertificateResult {
@@ -64,7 +65,11 @@ pub(crate) struct CertificateWithPath {
 }
 
 impl CertificateWithPath {
-    pub(crate) fn new(certificate_result: CertificateResult, cert_config: &CertificateConfig, fs_root: &Path) -> Self {
+    pub(crate) fn new(
+        certificate_result: CertificateResult,
+        cert_config: &CertificateConfig,
+        fs_root: &Path,
+    ) -> Self {
         // PathBuf.join replaces the path with the second path if its absolute. So always convert
         // the key and cert path to a relative path which is added to the enclave user program's
         // filesystem root
@@ -106,9 +111,15 @@ pub(crate) fn write_certificate(
     if let Some(d) = default_cert_dir {
         let def_key_path = Path::new(d.as_path()).join(DEFAULT_KEY_FILE);
         let def_cert_path = Path::new(d.as_path()).join(DEFAULT_CERT_FILE);
-        if cert_with_path.key_path != def_key_path || cert_with_path.certificate_path != def_cert_path {
+        if cert_with_path.key_path != def_key_path
+            || cert_with_path.certificate_path != def_cert_path
+        {
             write_to_file(&def_key_path, &key_as_pem, "key")?;
-            write_to_file(&def_cert_path, &cert_with_path.certificate_result.certificate, "certificate")?;
+            write_to_file(
+                &def_cert_path,
+                &cert_with_path.certificate_result.certificate,
+                "certificate",
+            )?;
         }
     }
 
@@ -121,8 +132,18 @@ pub(crate) fn default_certificate() -> CertificateConfig {
         alt_names: vec![],
         key_type: DEFAULT_KEY_TYPE,
         key_param: Some(serde_json::from_str(DEFAULT_RSA_KEY_SIZE_FIELD).unwrap_or_default()),
-        key_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_KEY_FILE).display().to_string()),
-        cert_path: Some(Path::new(DEFAULT_CERT_DIR).join(DEFAULT_CERT_FILE).display().to_string()),
+        key_path: Some(
+            Path::new(DEFAULT_CERT_DIR)
+                .join(DEFAULT_KEY_FILE)
+                .display()
+                .to_string(),
+        ),
+        cert_path: Some(
+            Path::new(DEFAULT_CERT_DIR)
+                .join(DEFAULT_CERT_FILE)
+                .display()
+                .to_string(),
+        ),
         chain_path: None,
     }
 }
@@ -138,7 +159,8 @@ pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin +
 
 pub(crate) fn create_signer_key(key_size: u32) -> Result<Pk, String> {
     let mut rng = Rdrand;
-    Pk::generate_rsa(&mut rng, key_size, RSA_EXPONENT).map_err(|err| format!("Failed to generate RSA key. {:?}", err))
+    Pk::generate_rsa(&mut rng, key_size, RSA_EXPONENT)
+        .map_err(|err| format!("Failed to generate RSA key. {:?}", err))
 }
 
 pub(crate) trait CSRApi {
@@ -159,14 +181,23 @@ impl CSRApi for EmAppCSRApi {
         key: &mut Pk,
     ) -> Result<String, String> {
         let subject;
-        let common_name = cert_config.subject.as_ref().map(|e| e.as_str()).unwrap_or_default();
+        let common_name = cert_config
+            .subject
+            .as_ref()
+            .map(|e| e.as_str())
+            .unwrap_or_default();
         if common_name.is_empty() {
             subject = pkix::types::Name::from(vec![]);
         } else {
             subject = em_app::common_name_to_subject(common_name);
         }
 
-        let alt_names = cert_config.alt_names.clone().into_iter().map(|s| Cow::Owned(s)).collect();
+        let alt_names = cert_config
+            .alt_names
+            .clone()
+            .into_iter()
+            .map(|s| Cow::Owned(s))
+            .collect();
 
         em_app::get_remote_attestation_csr_subject(
             "localhost", //this param is not used for now
@@ -182,10 +213,13 @@ impl CSRApi for EmAppCSRApi {
 // Returns the expiry of a certificate. `cert_pem` is expected to be pem encoded (without
 // terminating zero byte).
 pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, String> {
-    let cert_pem = CString::new(cert_pem).map_err(|e| e.to_string())?.into_bytes_with_nul();
+    let cert_pem = CString::new(cert_pem)
+        .map_err(|e| e.to_string())?
+        .into_bytes_with_nul();
     let cert = Certificate::from_pem(&cert_pem).map_err(|e| e.to_string())?;
     let not_after = cert.not_after().map_err(|e| e.to_string())?;
-    NaiveDateTime::try_from(not_after).map_err(|_e| String::from("Couldn't convert cert expiry date"))
+    NaiveDateTime::try_from(not_after)
+        .map_err(|_e| String::from("Couldn't convert cert expiry date"))
 }
 
 #[cfg(test)]
@@ -202,15 +236,19 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use crate::certificate::{
-        create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult, CertificateWithPath,
-        DEFAULT_CERT_FILE, DEFAULT_CERT_RSA_KEY_SIZE, DEFAULT_KEY_FILE,
+        create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult,
+        CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_CERT_RSA_KEY_SIZE, DEFAULT_KEY_FILE,
     };
     use crate::enclave::setup_enclave_certifications;
 
     #[derive(Clone)]
     struct MockCertApi {}
     impl CertificateApi for MockCertApi {
-        fn request_issue_certificate(&self, _url: &str, _csr_pem: String) -> Result<String, String> {
+        fn request_issue_certificate(
+            &self,
+            _url: &str,
+            _csr_pem: String,
+        ) -> Result<String, String> {
             Ok("certificate".to_string())
         }
     }
@@ -232,7 +270,10 @@ mod tests {
         communicate_certificates(&mut parent_socket, MockCertApi {}).await
     }
 
-    async fn enclave(mut enclave_socket: InMemorySocket, mut cert_configs: Vec<CertificateConfig>) -> () {
+    async fn enclave(
+        mut enclave_socket: InMemorySocket,
+        mut cert_configs: Vec<CertificateConfig>,
+    ) -> () {
         let result = setup_enclave_certifications(
             &mut enclave_socket,
             None,
@@ -310,7 +351,8 @@ mod tests {
     fn check_default_app_cert_path() {
         let cert_dir = env::temp_dir();
         let def_cert_dir = env::temp_dir();
-        let private_key = create_signer_key(DEFAULT_CERT_RSA_KEY_SIZE).expect("Unable to generate private key");
+        let private_key =
+            create_signer_key(DEFAULT_CERT_RSA_KEY_SIZE).expect("Unable to generate private key");
         let cert_string = "Sample test string";
         let mut cert_info = CertificateWithPath {
             certificate_result: CertificateResult {
@@ -320,7 +362,8 @@ mod tests {
             key_path: cert_dir.join("key.pem"),
             certificate_path: cert_dir.join("cert.pem"),
         };
-        write_certificate(&mut cert_info, Some(def_cert_dir)).expect("Unable to write certificate in expected locations");
+        write_certificate(&mut cert_info, Some(def_cert_dir))
+            .expect("Unable to write certificate in expected locations");
 
         let expected_def_cert_path = cert_dir.join(DEFAULT_CERT_FILE);
         let expected_def_key_path = cert_dir.join(DEFAULT_KEY_FILE);
@@ -342,7 +385,10 @@ mod tests {
         certpath.push("valid_cert.pem");
         let cert_contents = fs::read_to_string(&certpath).unwrap();
         let time = get_certificate_expiry(&cert_contents).unwrap();
-        let expected_time = NaiveDate::from_ymd_opt(2026, 5, 2).unwrap().and_hms_opt(13, 33, 36).unwrap();
+        let expected_time = NaiveDate::from_ymd_opt(2026, 5, 2)
+            .unwrap()
+            .and_hms_opt(13, 33, 36)
+            .unwrap();
         assert_eq!(time, expected_time);
     }
 }

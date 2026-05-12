@@ -29,7 +29,10 @@ impl AsyncVsockStream {
     /// Exchanges messages with the other side of the VSockStream. Ensures that the returned
     /// message is a response to the message sent. Currently this is achieved through locking, in
     /// the future other means can be used.
-    pub async fn exchange_message<S: Serialize + Send + Sync, R: DeserializeOwned>(&mut self, msg: &S) -> Result<R, String> {
+    pub async fn exchange_message<S: Serialize + Send + Sync, R: DeserializeOwned>(
+        &mut self,
+        msg: &S,
+    ) -> Result<R, String> {
         let mut socket = self.0.lock().await;
         socket.write_lv(msg).await?;
         socket.read_lv().await?
@@ -77,7 +80,8 @@ where
     }
 
     async fn write_lv<T: Serialize + Send + Sync>(&mut self, arg: &T) -> Result<(), String> {
-        let bytes = serde_cbor::to_vec(arg).map_err(|err| format!("Failed to serialize struct {:?}", err))?;
+        let bytes = serde_cbor::to_vec(arg)
+            .map_err(|err| format!("Failed to serialize struct {:?}", err))?;
 
         Self::write_lv_bytes(self, &bytes).await
     }
@@ -110,7 +114,8 @@ where
     async fn read_lv<T: DeserializeOwned>(&mut self) -> Result<T, String> {
         let bytes = Self::read_lv_bytes(self).await?;
 
-        serde_cbor::from_slice(&bytes).map_err(|err| format!("Failed to deserialize struct {:?}", err))
+        serde_cbor::from_slice(&bytes)
+            .map_err(|err| format!("Failed to deserialize struct {:?}", err))
     }
 }
 
@@ -160,7 +165,11 @@ impl InMemorySocket {
 }
 
 impl AsyncWrite for InMemorySocket {
-    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, Error>> {
         match self.sender.send(buf.to_vec()).map(|_| buf.len() as usize) {
             Ok(result) => Poll::Ready(Ok(result)),
             // Returning 0 means that accepting channel doesn't accept any more data
@@ -179,7 +188,11 @@ impl AsyncWrite for InMemorySocket {
 }
 
 impl AsyncRead for InMemorySocket {
-    fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         match self.receiver.recv() {
             Ok(result) => {
                 buf.put_slice(&result);

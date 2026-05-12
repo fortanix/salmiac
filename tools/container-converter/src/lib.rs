@@ -13,8 +13,9 @@ use std::sync::mpsc::Sender;
 use std::{env, fmt};
 
 use api_model::converter::{
-    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig, NitroEnclavesConversionRequest,
-    NitroEnclavesConversionResponse, NitroEnclavesMeasurements, NitroEnclavesVersion,
+    AuthConfig, ConvertedImageInfo, ConverterOptions, HashAlgorithm, NitroEnclavesConfig,
+    NitroEnclavesConversionRequest, NitroEnclavesConversionResponse, NitroEnclavesMeasurements,
+    NitroEnclavesVersion,
 };
 use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
 use api_model::HexString;
@@ -28,7 +29,9 @@ use shiplift::{Docker, Image};
 use tempfile::TempDir;
 
 use crate::docker::{DockerDaemon, DockerUtil};
-use crate::image::{docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails};
+use crate::image::{
+    docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails,
+};
 use crate::image_builder::enclave::PCRList;
 
 pub mod docker;
@@ -84,7 +87,11 @@ pub async fn run(args: NitroEnclavesConversionRequest) -> Result<NitroEnclavesCo
     let local_repository = Docker::new();
     let preserve_images = preserve_images_list()?;
 
-    let resource_cleaner = tokio::spawn(clean_docker_images(local_repository, images_to_clean_rcv, preserve_images));
+    let resource_cleaner = tokio::spawn(clean_docker_images(
+        local_repository,
+        images_to_clean_rcv,
+        preserve_images,
+    ));
     let converter = tokio::spawn(run0(args, images_to_clean_snd));
 
     let (result, _) = tokio::join!(converter, resource_cleaner);
@@ -111,7 +118,10 @@ fn validate_request(request: &NitroEnclavesConversionRequest) -> Result<()> {
                 // be one of the RSA_KEY_SIZES that is supported.
                 if !RSA_KEY_SIZES.contains(&(key_size as u32)) {
                     return Err(ConverterError {
-                        message: format!("Key param {:?} of certificate is not supported", key_size),
+                        message: format!(
+                            "Key param {:?} of certificate is not supported",
+                            key_size
+                        ),
                         kind: ConverterErrorKind::BadCertConfig,
                     });
                 }
@@ -198,8 +208,10 @@ async fn run0(
 
         let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
 
-        let user_program_config =
-            create_user_program_config(&conversion_request.request.converter_options, &input_image.image)?;
+        let user_program_config = create_user_program_config(
+            &conversion_request.request.converter_options,
+            &input_image.image,
+        )?;
 
         debug!("User program config is: {:?}", user_program_config);
 
@@ -209,8 +221,10 @@ async fn run0(
             enclave_base_image: &enclave_base_image.reference,
         };
 
-        let enclave_settings = EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
-        let image_env_vars = get_image_env(&input_image, &conversion_request.request.converter_options);
+        let enclave_settings =
+            EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
+        let image_env_vars =
+            get_image_env(&input_image, &conversion_request.request.converter_options);
         let user_config = UserConfig {
             user_program_config,
             certificate_config: conversion_request.request.converter_options.certificates,
@@ -218,7 +232,13 @@ async fn run0(
 
         let sender = images_to_clean_snd.clone();
         enclave_builder
-            .create_image(&input_repository, enclave_settings, user_config, image_env_vars, sender)
+            .create_image(
+                &input_repository,
+                enclave_settings,
+                user_config,
+                image_env_vars,
+                sender,
+            )
             .await?
     };
 
@@ -242,7 +262,11 @@ async fn run0(
         .unwrap_or(true)
     {
         info!("Attempting to push output image");
-        push_result_image(&result.image, &conversion_request.request.output_image.auth_config).await?;
+        push_result_image(
+            &result.image,
+            &conversion_request.request.output_image.auth_config,
+        )
+        .await?;
     } else {
         info!("Skipping output image push");
     }
@@ -269,24 +293,36 @@ fn create_user_program_config(
     }
 }
 
-async fn push_result_image(image: &ImageWithDetails<'_>, destination_auth: &Option<AuthConfig>) -> Result<()> {
+async fn push_result_image(
+    image: &ImageWithDetails<'_>,
+    destination_auth: &Option<AuthConfig>,
+) -> Result<()> {
     let result_repository = DockerDaemon::new(destination_auth);
 
     let image_reference = image.reference.to_string();
 
     info!("Pushing resulting image to {}!", image_reference);
 
-    result_repository.push_image(image).await.map_err(|message| ConverterError {
-        message,
-        kind: ConverterErrorKind::ImagePush,
-    })?;
+    result_repository
+        .push_image(image)
+        .await
+        .map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::ImagePush,
+        })?;
 
-    info!("Resulting image has been successfully pushed to {} !", image_reference);
+    info!(
+        "Resulting image has been successfully pushed to {} !",
+        image_reference
+    );
 
     Ok(())
 }
 
-fn create_response(image: &ImageWithDetails, pcr_list: PCRList) -> Result<NitroEnclavesConversionResponse> {
+fn create_response(
+    image: &ImageWithDetails,
+    pcr_list: PCRList,
+) -> Result<NitroEnclavesConversionResponse> {
     fn hex_response(arg: &str) -> Result<HexString> {
         HexString::from_str(arg).map_err(|err| ConverterError {
             message: format!("Failed converting string {} to hex string. {:?}", arg, err),
@@ -338,7 +374,11 @@ async fn get_parent_base_image(image: &str) -> Result<()> {
     Ok(())
 }
 
-async fn get_base_image(image: &str, username: Option<String>, password: Option<String>) -> Result<ImageWithDetails> {
+async fn get_base_image(
+    image: &str,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<ImageWithDetails> {
     let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,
@@ -346,7 +386,10 @@ async fn get_base_image(image: &str, username: Option<String>, password: Option<
 
     let repository = DockerDaemon::new(&auth_config);
     let reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
-        message: format!("Requisite image {} address has bad format. {:?}", image, err),
+        message: format!(
+            "Requisite image {} address has bad format. {:?}",
+            image, err
+        ),
         kind: ConverterErrorKind::BadRequest,
     })?;
 
@@ -408,12 +451,18 @@ async fn clean_docker_images(
         let image_interface = Image::new(&docker, image.name.clone());
         let mut delete_options = DeleteOptions::builder().force();
 
-        match image_interface.delete_with_options(&delete_options.build()).await {
+        match image_interface
+            .delete_with_options(&delete_options.build())
+            .await
+        {
             Ok(_) => {
                 info!("Successfully cleaned {:?} image {}", image.kind, image.name);
             }
             Err(e) => {
-                warn!("Error cleaning {:?} image {}. {:?}", image.kind, image.name, e);
+                warn!(
+                    "Error cleaning {:?} image {}. {:?}",
+                    image.kind, image.name, e
+                );
             }
         }
     }
@@ -431,9 +480,12 @@ pub(crate) async fn run_subprocess<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + De
     command.args(args);
 
     debug!("Running subprocess {:?} {:?}", subprocess_path, args);
-    let process = command
-        .spawn()
-        .map_err(|err| format!("Failed to run subprocess {:?}. {:?}. Args {:?}", subprocess_path, err, args))?;
+    let process = command.spawn().map_err(|err| {
+        format!(
+            "Failed to run subprocess {:?}. {:?}. Args {:?}",
+            subprocess_path, err, args
+        )
+    })?;
 
     let output = process.output().await.map_err(|err| {
         format!(
@@ -467,8 +519,9 @@ mod tests {
     use std::env;
 
     use api_model::converter::{
-        CaCertificateConfig, CcmConfiguration, CertIssuer, CertificateConfig, ConversionRequest, ConversionRequestImageInfo,
-        ConverterOptions, DsmConfiguration, KeyType, NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions,
+        CaCertificateConfig, CcmConfiguration, CertIssuer, CertificateConfig, ConversionRequest,
+        ConversionRequestImageInfo, ConverterOptions, DsmConfiguration, KeyType,
+        NitroEnclavesConversionRequest, NitroEnclavesConversionRequestOptions,
     };
     use lazy_static::lazy_static;
     use serde_json::Value;
@@ -476,47 +529,48 @@ mod tests {
     use crate::{preserve_images_list, validate_request, ConverterErrorKind, ImageKind};
 
     lazy_static! {
-        static ref SAMPLE_REQUEST: NitroEnclavesConversionRequest = NitroEnclavesConversionRequest {
-            request: ConversionRequest {
-                input_image: ConversionRequestImageInfo {
-                    name: "input-image".to_string(),
-                    auth_config: None
+        static ref SAMPLE_REQUEST: NitroEnclavesConversionRequest =
+            NitroEnclavesConversionRequest {
+                request: ConversionRequest {
+                    input_image: ConversionRequestImageInfo {
+                        name: "input-image".to_string(),
+                        auth_config: None
+                    },
+                    output_image: ConversionRequestImageInfo {
+                        name: "output-image".to_string(),
+                        auth_config: None
+                    },
+                    converter_options: ConverterOptions {
+                        allow_cmdline_args: None,
+                        allow_docker_pull_failure: None,
+                        app: None,
+                        ca_certificates: vec![],
+                        certificates: vec![CertificateConfig {
+                            issuer: CertIssuer::ManagerCa,
+                            subject: None,
+                            alt_names: vec![],
+                            key_type: KeyType::Rsa,
+                            key_param: Some(Value::from(2048)),
+                            key_path: None,
+                            cert_path: None,
+                            chain_path: None,
+                        }],
+                        debug: None,
+                        entry_point: vec![],
+                        entry_point_args: vec![],
+                        push_converted_image: None,
+                        env_vars: vec![],
+                        java_mode: None,
+                        enable_overlay_filesystem_persistence: None,
+                        ccm_configuration: None,
+                        dsm_configuration: None,
+                    },
                 },
-                output_image: ConversionRequestImageInfo {
-                    name: "output-image".to_string(),
-                    auth_config: None
+                nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
+                    cpu_count: None,
+                    mem_size: None
                 },
-                converter_options: ConverterOptions {
-                    allow_cmdline_args: None,
-                    allow_docker_pull_failure: None,
-                    app: None,
-                    ca_certificates: vec![],
-                    certificates: vec![CertificateConfig {
-                        issuer: CertIssuer::ManagerCa,
-                        subject: None,
-                        alt_names: vec![],
-                        key_type: KeyType::Rsa,
-                        key_param: Some(Value::from(2048)),
-                        key_path: None,
-                        cert_path: None,
-                        chain_path: None,
-                    }],
-                    debug: None,
-                    entry_point: vec![],
-                    entry_point_args: vec![],
-                    push_converted_image: None,
-                    env_vars: vec![],
-                    java_mode: None,
-                    enable_overlay_filesystem_persistence: None,
-                    ccm_configuration: None,
-                    dsm_configuration: None,
-                },
-            },
-            nitro_enclaves_options: NitroEnclavesConversionRequestOptions {
-                cpu_count: None,
-                mem_size: None
-            },
-        };
+            };
     }
 
     #[test]
@@ -526,7 +580,11 @@ mod tests {
         let mut result = preserve_images_list();
 
         assert!(result.is_ok());
-        assert!(result.unwrap().into_iter().collect::<Vec<ImageKind>>().is_empty());
+        assert!(result
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<ImageKind>>()
+            .is_empty());
 
         env::set_var("PRESERVE_IMAGES", "result");
 
@@ -592,7 +650,9 @@ mod tests {
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
-        assert!(converter_error.message.contains("Input and output images must be different"));
+        assert!(converter_error
+            .message
+            .contains("Input and output images must be different"));
         assert!(converter_error.kind == ConverterErrorKind::BadRequest);
     }
 
@@ -786,7 +846,10 @@ mod tests {
             converter_error.message,
             "CcmConfiguration:ccm_url should be in <host>:<port> format"
         );
-        assert_eq!(converter_error.kind, ConverterErrorKind::BadCcmConfiguration);
+        assert_eq!(
+            converter_error.kind,
+            ConverterErrorKind::BadCcmConfiguration
+        );
 
         // Test 3 - Valid CCM configuration set
         request.request.converter_options.ccm_configuration = Some(CcmConfiguration {
@@ -810,8 +873,14 @@ mod tests {
         assert!(res.is_err());
 
         let converter_error = res.expect_err("");
-        assert_eq!(converter_error.message, "DsmConfiguration:dsm_url is not a valid url");
-        assert_eq!(converter_error.kind, ConverterErrorKind::BadDsmConfiguration);
+        assert_eq!(
+            converter_error.message,
+            "DsmConfiguration:dsm_url is not a valid url"
+        );
+        assert_eq!(
+            converter_error.kind,
+            ConverterErrorKind::BadDsmConfiguration
+        );
 
         // Test 3 - Valid DSM configuration set
         request.request.converter_options.dsm_configuration = Some(DsmConfiguration {

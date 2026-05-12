@@ -4,10 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-
 use std::path::Path;
 
-use enclaveos_encrypted_fs::dsm_key_config::{ClientConnectionInfo, DsmFsOps, DEFAULT_DSM_ENDPOINT};
+use enclaveos_encrypted_fs::dsm_key_config::{
+    ClientConnectionInfo, DsmFsOps, DEFAULT_DSM_ENDPOINT,
+};
 use enclaveos_encrypted_fs::error::*;
 use enclaveos_encrypted_fs::utils::find_env_or_err;
 use enclaveos_encrypted_fs::EncryptedVolume;
@@ -34,8 +35,12 @@ async fn main() -> Result<()> {
         dsm_url: dsm_url.clone(),
     };
 
-    let dsm_ops_handler = DsmFsOps::new(conn_info, SECURITY_OBJECT_PREFIX.into(), DERIVATION_DATA_IV.into())
-        .map_err(|e| Error::GenericError(e.to_string()))?;
+    let dsm_ops_handler = DsmFsOps::new(
+        conn_info,
+        SECURITY_OBJECT_PREFIX.into(),
+        DERIVATION_DATA_IV.into(),
+    )
+    .map_err(|e| Error::GenericError(e.to_string()))?;
 
     // Create a test blockfile of size 1GB
     let mut file = fs::File::create(TEST_RW_DEVICE)
@@ -51,9 +56,13 @@ async fn main() -> Result<()> {
         .map_err(|e| Error::GenericError(e.to_string()))?;
 
     // Setup encrypted filesystem
-    let encryped_fs = EncryptedVolume::setup_encrypted_volume(Some(dsm_ops_handler), TEST_RW_DEVICE, TEST_MOUNT_POINT)
-        .await
-        .map_err(|e| Error::GenericError(e))?;
+    let encryped_fs = EncryptedVolume::setup_encrypted_volume(
+        Some(dsm_ops_handler),
+        TEST_RW_DEVICE,
+        TEST_MOUNT_POINT,
+    )
+    .await
+    .map_err(|e| Error::GenericError(e))?;
 
     // Write some data to the encrypted filesystem
     let rand_filename: String = rand::thread_rng()
@@ -85,20 +94,32 @@ async fn main() -> Result<()> {
         dsm_url,
     };
 
-    let dsm_ops_handler = DsmFsOps::new(conn_info, SECURITY_OBJECT_PREFIX.into(), DERIVATION_DATA_IV.into())
-        .map_err(|e| Error::GenericError(e.to_string()))?;
+    let dsm_ops_handler = DsmFsOps::new(
+        conn_info,
+        SECURITY_OBJECT_PREFIX.into(),
+        DERIVATION_DATA_IV.into(),
+    )
+    .map_err(|e| Error::GenericError(e.to_string()))?;
 
-    let efs = EncryptedVolume::setup_encrypted_volume(Some(dsm_ops_handler), TEST_RW_DEVICE, TEST_MOUNT_POINT)
-        .await
-        .map_err(|e| Error::GenericError(e))?;
+    let efs = EncryptedVolume::setup_encrypted_volume(
+        Some(dsm_ops_handler),
+        TEST_RW_DEVICE,
+        TEST_MOUNT_POINT,
+    )
+    .await
+    .map_err(|e| Error::GenericError(e))?;
 
     // Ensure data that was previously written can be read again
-    let contents = fs::read(testfile).await.map_err(|e| Error::GenericError(e.to_string()))?;
+    let contents = fs::read(testfile)
+        .await
+        .map_err(|e| Error::GenericError(e.to_string()))?;
 
     assert_eq!(&contents, &testdata);
 
     // Cleanup
-    efs.cleanup_encrypted_volume().await.map_err(|e| Error::GenericError(e))?;
+    efs.cleanup_encrypted_volume()
+        .await
+        .map_err(|e| Error::GenericError(e))?;
     fs::remove_dir_all(TEST_MOUNT_POINT)
         .await
         .map_err(|e| Error::GenericError(e.to_string()))?;

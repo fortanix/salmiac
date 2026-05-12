@@ -22,7 +22,9 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 
 use crate::dsm_key_config::{DsmInterface, EncryptedPassphrase};
-use crate::utils::{run_fsck, run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig};
+use crate::utils::{
+    run_fsck, run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig,
+};
 const DM_CRYPT_DEVICE: &str = "cryptdevice";
 const DM_CRYPT_FOLDER: &str = "/run/cryptsetup";
 const CRYPT_KEYFILE: &str = "/etc/rw-keyfile";
@@ -98,7 +100,8 @@ impl HeaderComponents {
     // Given the path to a device, read HeaderComponents from the start of the device
     pub async fn parse_from(device_path: &str) -> Result<Self, String> {
         // Read the whole offset area into a buffer - this includes the luks header, salmiac header and the empty space between them
-        let hdr_comp_buf = Self::copy_data_out_of_device(device_path, 0, ENCRYPTED_DATA_OFFSET).await?;
+        let hdr_comp_buf =
+            Self::copy_data_out_of_device(device_path, 0, ENCRYPTED_DATA_OFFSET).await?;
         if hdr_comp_buf.len() < ENCRYPTED_DATA_OFFSET {
             return Err(format!(
                 "The file buffer obtained is too small to obtain HeaderComponents from : {:?}",
@@ -107,7 +110,8 @@ impl HeaderComponents {
         }
 
         // Read the salmiac header from the buffer
-        let version_buf: [u8; SIZEOF_U16] = hdr_comp_buf[ENCRYPTED_DATA_OFFSET - SIZEOF_U16..ENCRYPTED_DATA_OFFSET]
+        let version_buf: [u8; SIZEOF_U16] = hdr_comp_buf
+            [ENCRYPTED_DATA_OFFSET - SIZEOF_U16..ENCRYPTED_DATA_OFFSET]
             .try_into()
             .map_err(|e| format!("Version buffer size unexpected {:?}", e))?;
         let version = u16::from_ne_bytes(version_buf);
@@ -120,13 +124,19 @@ impl HeaderComponents {
             .try_into()
             .map_err(|e| format!("luks header size buffer size unexpected {:?}", e))?;
         let luks_header_size = usize::from_ne_bytes(luks_header_size_buf);
-        if (luks_header_size < (LUKS_HDR_KEYSLOT_SIZE + LUKS_HDR_METADATA_SIZE)) || (luks_header_size > ENCRYPTED_DATA_OFFSET) {
-            return Err(format!("Unexpected luks header size {:?}", luks_header_size));
+        if (luks_header_size < (LUKS_HDR_KEYSLOT_SIZE + LUKS_HDR_METADATA_SIZE))
+            || (luks_header_size > ENCRYPTED_DATA_OFFSET)
+        {
+            return Err(format!(
+                "Unexpected luks header size {:?}",
+                luks_header_size
+            ));
         }
 
-        let luks_mac = hdr_comp_buf[ENCRYPTED_DATA_OFFSET - SIZEOF_U16 - SIZEOF_USIZE - HMAC_DIGEST_SIZE
-            ..ENCRYPTED_DATA_OFFSET - SIZEOF_U16 - SIZEOF_USIZE]
-            .to_vec();
+        let luks_mac =
+            hdr_comp_buf[ENCRYPTED_DATA_OFFSET - SIZEOF_U16 - SIZEOF_USIZE - HMAC_DIGEST_SIZE
+                ..ENCRYPTED_DATA_OFFSET - SIZEOF_U16 - SIZEOF_USIZE]
+                .to_vec();
         let salm_header = SalmiacHeader {
             version,
             luks_header_size,
@@ -151,7 +161,10 @@ impl HeaderComponents {
 
         // Verify the HMAC of the header hash
         dsm_fs
-            .dsm_mac_verify_header(Blob::from(header_hash.to_vec()), self.salm_header.luks_mac.clone().into())
+            .dsm_mac_verify_header(
+                Blob::from(header_hash.to_vec()),
+                self.salm_header.luks_mac.clone().into(),
+            )
             .await
     }
 
@@ -167,19 +180,27 @@ impl HeaderComponents {
         salm_hdr_buf[0..HMAC_DIGEST_SIZE].copy_from_slice(&self.salm_header.luks_mac);
         salm_hdr_buf[HMAC_DIGEST_SIZE..HMAC_DIGEST_SIZE + SIZEOF_USIZE]
             .copy_from_slice(&self.salm_header.luks_header_size.to_ne_bytes());
-        salm_hdr_buf[HMAC_DIGEST_SIZE + SIZEOF_USIZE..].copy_from_slice(&self.salm_header.version.to_ne_bytes());
+        salm_hdr_buf[HMAC_DIGEST_SIZE + SIZEOF_USIZE..]
+            .copy_from_slice(&self.salm_header.version.to_ne_bytes());
 
         // Copy the salmiac header at its specific offset
-        Self::copy_data_to_device_offset(dst_device_path, SALM_HDR_OFFSET, &salm_hdr_buf.to_vec()).await?;
+        Self::copy_data_to_device_offset(dst_device_path, SALM_HDR_OFFSET, &salm_hdr_buf.to_vec())
+            .await?;
         Ok(())
     }
 
     // Given the path of a detached luks2 header, obtain the HeaderComponents data
-    pub async fn create_hdr_comp(luks_hdr_path: &str, dsm_fs: Option<&impl DsmInterface>) -> Result<HeaderComponents, String> {
+    pub async fn create_hdr_comp(
+        luks_hdr_path: &str,
+        dsm_fs: Option<&impl DsmInterface>,
+    ) -> Result<HeaderComponents, String> {
         // Read the luks2 header from the detached header path
-        let luks2_header = fs::read(luks_hdr_path)
-            .await
-            .map_err(|e| format!("Unable to read detached header {:?} : {:?}", luks_hdr_path, e))?;
+        let luks2_header = fs::read(luks_hdr_path).await.map_err(|e| {
+            format!(
+                "Unable to read detached header {:?} : {:?}",
+                luks_hdr_path, e
+            )
+        })?;
         let luks_header_size = luks2_header.len();
 
         // If a dsm client is provided, obtain the HMAC of the header
@@ -192,7 +213,9 @@ impl HeaderComponents {
                 let header_hash = hasher.finalize();
 
                 // Get the HMAC of the header hash
-                let mac = dsm_fs_local.dsm_mac_header(Blob::from(header_hash.to_vec())).await?;
+                let mac = dsm_fs_local
+                    .dsm_mac_header(Blob::from(header_hash.to_vec()))
+                    .await?;
                 mac.into()
             }
         };
@@ -216,7 +239,11 @@ impl HeaderComponents {
             .map_err(|e| format!("Failed to write to header at {:?} : {:?}", header_path, e))?;
         Ok(())
     }
-    async fn copy_data_to_device_offset(device_path: &str, offset: usize, source: &Vec<u8>) -> Result<(), String> {
+    async fn copy_data_to_device_offset(
+        device_path: &str,
+        offset: usize,
+        source: &Vec<u8>,
+    ) -> Result<(), String> {
         let mut device_file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -229,7 +256,10 @@ impl HeaderComponents {
             .await
             .map_err(|e| e.to_string())?;
 
-        device_file.write_all(&source).await.map_err(|e| e.to_string())?;
+        device_file
+            .write_all(&source)
+            .await
+            .map_err(|e| e.to_string())?;
         device_file
             .shutdown()
             .await
@@ -238,21 +268,35 @@ impl HeaderComponents {
         Ok(())
     }
 
-    async fn copy_data_out_of_device(device_path: &str, offset: usize, size: usize) -> Result<Vec<u8>, String> {
-        let mut device_file = File::open(device_path)
-            .await
-            .map_err(|e| format!("Unable to open device file {:?} to copy data out : {:?}", device_path, e))?;
+    async fn copy_data_out_of_device(
+        device_path: &str,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, String> {
+        let mut device_file = File::open(device_path).await.map_err(|e| {
+            format!(
+                "Unable to open device file {:?} to copy data out : {:?}",
+                device_path, e
+            )
+        })?;
 
         device_file
             .seek(SeekFrom::Start(offset as u64))
             .await
-            .map_err(|e| format!("Seek to offset {:?} failed for {:?} : {:?}", offset, device_path, e))?;
+            .map_err(|e| {
+                format!(
+                    "Seek to offset {:?} failed for {:?} : {:?}",
+                    offset, device_path, e
+                )
+            })?;
 
         let mut temp_buf = vec![0u8; size];
-        device_file
-            .read_exact(&mut temp_buf)
-            .await
-            .map_err(|e| format!("Read exact {:?} bytes from {:?} failed : {:?}", size, device_path, e))?;
+        device_file.read_exact(&mut temp_buf).await.map_err(|e| {
+            format!(
+                "Read exact {:?} bytes from {:?} failed : {:?}",
+                size, device_path, e
+            )
+        })?;
 
         Ok(temp_buf)
     }
@@ -299,10 +343,15 @@ impl EncryptedVolume {
     /// # Notes
     /// The minimum size of a luks2 header is 16MB - it is important that the size
     /// of the device meets this requirement (RW_BLOCK_FILE_DEFAULT_SIZE).
-    async fn luks_format_device(key_path: &Path, device_path: &str, header_path: &str) -> Result<(), String> {
-        let key_path_as_str = key_path
-            .to_str()
-            .ok_or(format!("Failed converting path {} to string", key_path.display()))?;
+    async fn luks_format_device(
+        key_path: &Path,
+        device_path: &str,
+        header_path: &str,
+    ) -> Result<(), String> {
+        let key_path_as_str = key_path.to_str().ok_or(format!(
+            "Failed converting path {} to string",
+            key_path.display()
+        ))?;
 
         let luks_format_args = [
             "luksFormat",
@@ -332,19 +381,36 @@ impl EncryptedVolume {
 
         // Calling `cryptsetup` with `isLuks` argument is expected to fail if no cryptsetup device has been setup prior.
         // To not pollute the console with the errors from `crypsetup` we pipe the stdout/err when calling the sub process
-        run_subprocess_with_output_setup("cryptsetup", &args, CommandOutputConfig::all_piped()).await
+        run_subprocess_with_output_setup("cryptsetup", &args, CommandOutputConfig::all_piped())
+            .await
     }
 
     /// Export or import a token object from the given luks2 device. Always looks for the
     /// token with ID 0 and expects a file where the token is read from or written to.
-    async fn update_luks_token(header_path: &str, token_path: &str, op: TokenOp) -> Result<(), String> {
-        let op_str = if op == TokenOp::Import { "import" } else { "export" };
+    async fn update_luks_token(
+        header_path: &str,
+        token_path: &str,
+        op: TokenOp,
+    ) -> Result<(), String> {
+        let op_str = if op == TokenOp::Import {
+            "import"
+        } else {
+            "export"
+        };
 
         info!(
             "{:?} token for device header {:?} at {:?}",
             &op_str, &header_path, &token_path
         );
-        let token_args = ["token", op_str, "--token-id", "0", "--json-file", token_path, header_path];
+        let token_args = [
+            "token",
+            op_str,
+            "--token-id",
+            "0",
+            "--json-file",
+            token_path,
+            header_path,
+        ];
         run_subprocess("cryptsetup", &token_args).await
     }
 
@@ -392,7 +458,10 @@ impl EncryptedVolume {
     /// of the app or not. When it is the first run of the app, the caller
     /// of this function creates a ext4 filesystem on it after opening
     /// the device
-    async fn setup_device(dsm_ops_handler: Option<impl DsmInterface>, device_path: &str) -> Result<bool, String> {
+    async fn setup_device(
+        dsm_ops_handler: Option<impl DsmInterface>,
+        device_path: &str,
+    ) -> Result<bool, String> {
         let key_path = Path::new(CRYPT_KEYFILE);
         let mut conv_use_dsm_key = false;
 
@@ -405,14 +474,23 @@ impl EncryptedVolume {
                 info!("Luks2 device found. Attempting to fetch luks2 header and token.");
 
                 if conv_use_dsm_key {
-                    let dsm_fs = dsm_ops_handler.ok_or("expected dsm_ops_handler to obtain metadata")?;
+                    let dsm_fs =
+                        dsm_ops_handler.ok_or("expected dsm_ops_handler to obtain metadata")?;
 
                     let hdr_comp = HeaderComponents::parse_from(device_path).await?;
                     hdr_comp.verify_header(&dsm_fs).await?;
 
-                    hdr_comp.create_detached_header(DETACHED_HEADER_PATH).await?;
+                    hdr_comp
+                        .create_detached_header(DETACHED_HEADER_PATH)
+                        .await?;
 
-                    if let Ok(_) = Self::update_luks_token(DETACHED_HEADER_PATH, TOKEN_OUT_FILE, TokenOp::Export).await {
+                    if let Ok(_) = Self::update_luks_token(
+                        DETACHED_HEADER_PATH,
+                        TOKEN_OUT_FILE,
+                        TokenOp::Export,
+                    )
+                    .await
+                    {
                         info!("Fetching key file by using token object.");
                         Self::get_key_from_out_token(&dsm_fs).await?;
                     } else {
@@ -433,16 +511,20 @@ impl EncryptedVolume {
                 // Use DSM for overlayfs persistance blockfile encryption.
                 if conv_use_dsm_key {
                     info!("Accessing DSM to store passkey in luks2 token");
-                    let dsm_fs = dsm_ops_handler.ok_or("expected dsm_ops_handler to obtain metadata")?;
+                    let dsm_fs =
+                        dsm_ops_handler.ok_or("expected dsm_ops_handler to obtain metadata")?;
                     let dsm_url = dsm_fs.dsm_get_endpoint()?;
 
                     let enc_resp = dsm_fs.dsm_encrypt_passphrase(passkey.clone()).await?;
                     Self::create_luks2_token_input(TOKEN_IN_FILE, &dsm_url, enc_resp).await?;
 
                     info!("Adding token object to the RW device");
-                    Self::update_luks_token(DETACHED_HEADER_PATH, TOKEN_IN_FILE, TokenOp::Import).await?;
+                    Self::update_luks_token(DETACHED_HEADER_PATH, TOKEN_IN_FILE, TokenOp::Import)
+                        .await?;
 
-                    let hdr_comp = HeaderComponents::create_hdr_comp(DETACHED_HEADER_PATH, Some(&dsm_fs)).await?;
+                    let hdr_comp =
+                        HeaderComponents::create_hdr_comp(DETACHED_HEADER_PATH, Some(&dsm_fs))
+                            .await?;
                     hdr_comp.write_to(device_path).await?;
                 } else {
                     info!("Skipping the step to create and write the luks and salmiac header to device - Filesystem persistence is set to {}", conv_use_dsm_key);
@@ -455,7 +537,11 @@ impl EncryptedVolume {
     /// Generate the luks2 token object and write the same to
     /// the json file which will be used to add a luks2 header
     /// to the RW blockfile
-    async fn create_luks2_token_input(token_path: &str, dsm_url: &String, enc_resp: EncryptedPassphrase) -> Result<(), String> {
+    async fn create_luks2_token_input(
+        token_path: &str,
+        dsm_url: &String,
+        enc_resp: EncryptedPassphrase,
+    ) -> Result<(), String> {
         info!("Creating Luks2 token object");
 
         let token_object = LuksToken {
@@ -489,9 +575,12 @@ impl EncryptedVolume {
         // for the same. This directory is needed by cryptsetup for locking operations. Ideally it is
         // created by systemd or tmpfiles.d. Create the directory if it is not already present.
         if !Path::new(DM_CRYPT_FOLDER).exists() {
-            fs::create_dir_all(DM_CRYPT_FOLDER)
-                .await
-                .map_err(|err| format!("Failed to create folder {} for cryptsetup path. {:?}", DM_CRYPT_FOLDER, err))?;
+            fs::create_dir_all(DM_CRYPT_FOLDER).await.map_err(|err| {
+                format!(
+                    "Failed to create folder {} for cryptsetup path. {:?}",
+                    DM_CRYPT_FOLDER, err
+                )
+            })?;
         }
 
         // Check if the data disk/device path exists.

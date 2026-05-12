@@ -22,7 +22,11 @@ pub trait NetlinkRoute {
 
     async fn add_gateway(&self, gateway: &Gateway) -> Result<(), String>;
 
-    async fn get_routes_for_device(&self, device_index: u32, version: rtnetlink::IpVersion) -> Result<GetRoutesResult, String>;
+    async fn get_routes_for_device(
+        &self,
+        device_index: u32,
+        version: rtnetlink::IpVersion,
+    ) -> Result<GetRoutesResult, String>;
 }
 
 #[async_trait]
@@ -102,7 +106,11 @@ impl NetlinkRoute for Netlink {
         }
     }
 
-    async fn get_routes_for_device(&self, device_index: u32, version: rtnetlink::IpVersion) -> Result<GetRoutesResult, String> {
+    async fn get_routes_for_device(
+        &self,
+        device_index: u32,
+        version: rtnetlink::IpVersion,
+    ) -> Result<GetRoutesResult, String> {
         let mut routes_stream = self.handle.route().get(version).execute();
         let mut routes: Vec<RouteMessage> = Vec::new();
         let mut gateway: Option<RouteMessage> = None;
@@ -110,7 +118,10 @@ impl NetlinkRoute for Netlink {
         while let Some(route) = next_in_stream(&mut routes_stream).await? {
             if route.output_interface() == Some(device_index) && route.header.kind == RTN_UNICAST {
                 // default route has no destination or /0 destination
-                if route.destination_prefix().map_or(true, |(_, prefix)| prefix == 0) {
+                if route
+                    .destination_prefix()
+                    .map_or(true, |(_, prefix)| prefix == 0)
+                {
                     gateway = Some(route);
                 } else {
                     routes.push(route);
@@ -185,8 +196,8 @@ impl TryFrom<&RouteMessage> for Route {
                 Some((addr, prefix)) => {
                     let ipv4 = extract_enum_value!(addr, IpAddr::V4(e) => e)?;
 
-                    let result =
-                        Ipv4Network::new(ipv4, prefix).map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
+                    let result = Ipv4Network::new(ipv4, prefix)
+                        .map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
 
                     Ok(Some(result))
                 }
@@ -199,8 +210,8 @@ impl TryFrom<&RouteMessage> for Route {
                 Some((addr, prefix)) => {
                     let ipv6 = extract_enum_value!(addr, IpAddr::V6(e) => e)?;
 
-                    let result =
-                        Ipv6Network::new(ipv6, prefix).map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
+                    let result = Ipv6Network::new(ipv6, prefix)
+                        .map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
 
                     Ok(Some(result))
                 }
@@ -233,7 +244,9 @@ impl TryFrom<&RouteMessage> for Gateway {
     type Error = String;
 
     fn try_from(route: &RouteMessage) -> Result<Self, Self::Error> {
-        let l3_address = route.gateway().ok_or("Gateway route must have a gateway address.")?;
+        let l3_address = route
+            .gateway()
+            .ok_or("Gateway route must have a gateway address.")?;
 
         Ok(Self {
             protocol: route.header.protocol,

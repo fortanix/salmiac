@@ -57,7 +57,13 @@ async fn stream_console_logs() -> Result<(), String> {
 
     run_subprocess(
         NITRO_CLI,
-        &["console", "--enclave-name", ENCLAVE_NAME, "--disconnect-timeout", "30"],
+        &[
+            "console",
+            "--enclave-name",
+            ENCLAVE_NAME,
+            "--disconnect-timeout",
+            "30",
+        ],
     )
     .await
 }

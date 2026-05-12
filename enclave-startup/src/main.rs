@@ -34,7 +34,8 @@ fn main() -> Result<(), String> {
     let bin = &args[5];
     let bin_args = if args.len() > 6 { &args[6..] } else { &[] };
 
-    env::set_current_dir(workdir).map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
+    env::set_current_dir(workdir)
+        .map_err(|err| format!("Failed to set work dir to {}. {:?}", workdir, err))?;
 
     // Fetch UID/GID for the client command
     let res = fetch_uid_gid(user, group)?;
@@ -45,7 +46,8 @@ fn main() -> Result<(), String> {
     update_std_stream_owner(uid, gid)?;
 
     if !hostname.is_empty() {
-        nix::unistd::sethostname(&hostname).map_err(|err| format!("Failed setting host name to {}. {:?}", hostname, err))?;
+        nix::unistd::sethostname(&hostname)
+            .map_err(|err| format!("Failed setting host name to {}. {:?}", hostname, err))?;
         info!("Set host name to {}", hostname);
     }
 
@@ -57,7 +59,10 @@ fn main() -> Result<(), String> {
 
     // on success this function will not return, not returning has the same
     // implications as calling `process::exit`
-    info!("Launching client application: bin - {:?} args - {:?}", bin, bin_args);
+    info!(
+        "Launching client application: bin - {:?} args - {:?}",
+        bin, bin_args
+    );
     let err = client_command.exec();
 
     Err(format!("Failed to run subprocess {}. {:?}", bin, err))
@@ -75,14 +80,20 @@ fn update_std_stream_owner(uid: uid_t, gid: gid_t) -> Result<(), String> {
                 info!("Successfully updated ownership of {:?}", path);
             }
             Err(e) => {
-                warn!("Unable to change ownership of {:?} : {:?}", path, e.to_string());
+                warn!(
+                    "Unable to change ownership of {:?} : {:?}",
+                    path,
+                    e.to_string()
+                );
                 status = false;
             }
         }
     }
 
     if !status {
-        return Err(format!("Unable to update ownership of one or more std streams"));
+        return Err(format!(
+            "Unable to update ownership of one or more std streams"
+        ));
     }
 
     Ok(())
@@ -107,11 +118,19 @@ fn fetch_uid_gid(user: &String, group: &String) -> Result<User, String> {
             warn!("User {:?} not found by name", user);
         }
         Some(u) => {
-            info!("Found user by name {:?}, setting uid to {:?}", user, u.uid());
+            info!(
+                "Found user by name {:?}, setting uid to {:?}",
+                user,
+                u.uid()
+            );
             user_id = u.uid();
             uid_found = true;
             if group.is_empty() {
-                info!("Setting primary gid={:?} of user {:?}", u.primary_group_id(), user);
+                info!(
+                    "Setting primary gid={:?} of user {:?}",
+                    u.primary_group_id(),
+                    user
+                );
                 group_id = u.primary_group_id();
                 gid_found = true;
             }
@@ -126,7 +145,11 @@ fn fetch_uid_gid(user: &String, group: &String) -> Result<User, String> {
                 warn!("Group {:?} not found by name", group);
             }
             Some(g) => {
-                info!("Found group by name {:?}, setting gid to {:?}", group, g.gid());
+                info!(
+                    "Found group by name {:?}, setting gid to {:?}",
+                    group,
+                    g.gid()
+                );
                 group_id = g.gid();
                 gid_found = true;
             }
@@ -156,7 +179,10 @@ fn fetch_uid_gid(user: &String, group: &String) -> Result<User, String> {
         let res = User::new(user_id, user, group_id);
         Ok(res)
     } else {
-        Err(format!("Unable to find user/group - {:?}:{:?}", user, group))
+        Err(format!(
+            "Unable to find user/group - {:?}:{:?}",
+            user, group
+        ))
     }
 }
 
