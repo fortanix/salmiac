@@ -18,7 +18,7 @@ echo "ECR_PASSWORD=$ECR_PASSWORD" >> docker-env
 PARENT_IMAGE=fortanix/parent-base-nitro:3.0.0
 echo "PARENT_IMAGE=$PARENT_IMAGE" >> docker-env
 
-ENCLAVE_IMAGE=fortanix/enclave-base-nitro:1.1.0
+ENCLAVE_IMAGE=fortanix/enclave-base:1.1.0
 echo "ENCLAVE_IMAGE=$ENCLAVE_IMAGE" >> docker-env
 
 echo "FORTANIX_API_KEY=$FORTANIX_API_KEY" >> docker-env
