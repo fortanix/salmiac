@@ -2,6 +2,11 @@
 
 set -exo pipefail
 
+SALMIAC_PLATFORMS=(
+    nitro
+    snp
+)
+
 # Run unit tests
 if [ $FLAVOR == "release" ]; then
   cargo_build_flag="--release"
@@ -18,13 +23,17 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
       "tools/container-converter"
       "tools/enclaveos-encrypted-fs"
   )
-  for unit_test_dir in "${unit_test_dirs[@]}"; do
-    pushd "$unit_test_dir"
-    cargo test $cargo_build_flag --locked
-    popd
+  for platform in "${SALMIAC_PLATFORMS[@]}"
+  do
+      for unit_test_dir in "${unit_test_dirs[@]}"
+      do
+          pushd "$unit_test_dir"
+            SALMIAC_PLATFORM="${platform}" cargo test "$cargo_build_flag" --locked
+          popd
+      done
+      pushd "api-model"
+        SALMIAC_PLATFORM="${platform}" cargo test "$cargo_build_flag" --features=serde --locked
+      popd
   done
 fi
 
-pushd api-model
-cargo test $cargo_build_flag --features=serde --locked
-popd
