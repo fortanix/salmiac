@@ -31,6 +31,7 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl, x86_64-unknown-linux-gnu
           toolchain: nightly-2024-11-21
+          components: rustfmt
 
       - name: Install build dependencies
         run: |
@@ -56,6 +57,10 @@ jobs:
           echo "Original LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
           export LIBCLANG_PATH=$(echo "$LD_LIBRARY_PATH" | tr -d ':')
           echo "LIBCLANG_PATH=$LIBCLANG_PATH" >> $GITHUB_ENV
+
+      - name: Run Sanity checks
+        run: |
+          ./sanity.sh
 
       - name: Build Rust code
         run: |
