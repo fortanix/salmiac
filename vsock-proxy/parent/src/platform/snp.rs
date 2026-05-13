@@ -1,6 +1,5 @@
 use crate::platform::{GuestLaunchResult, GuestTasks};
 
-
 pub(crate) fn launch_guest() -> GuestLaunchResult {
     todo!("RTE-917")
 }

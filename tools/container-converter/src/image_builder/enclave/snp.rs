@@ -9,7 +9,7 @@ use api_model::snp::SNPEnclavesMeasurements;
 use crate::Result;
 
 pub(crate) struct EnclaveImageBuilder<'a> {
-    pub(crate) enclave_image_builder: crate::image_builder::enclave::EnclaveImageBuilder<'a>
+    pub(crate) enclave_image_builder: crate::image_builder::enclave::EnclaveImageBuilder<'a>,
 }
 impl<'a> EnclaveImageBuilder<'a> {
     // TODO: RTE-941

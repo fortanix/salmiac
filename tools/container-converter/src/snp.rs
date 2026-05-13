@@ -6,17 +6,10 @@
 
 use api_model::{
     converter::ConvertedImageInfo,
-    snp::{
-        SNPEnclavesConfig, SNPEnclavesConversionResponse,
-        SNPEnclavesMeasurements,
-    },
+    snp::{SNPEnclavesConfig, SNPEnclavesConversionResponse, SNPEnclavesMeasurements},
 };
 
-use crate::{
-    hex_response,
-    image::ImageWithDetails,
-    Result,
-};
+use crate::{hex_response, image::ImageWithDetails, Result};
 
 pub const NAME: &str = "AMD SNP";
 

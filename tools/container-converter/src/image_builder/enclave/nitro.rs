@@ -177,4 +177,3 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(nitro_measurements)
     }
 }
-

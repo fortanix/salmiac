@@ -65,7 +65,10 @@ pub struct CertificateConfig {
     pub subject: Option<String>,
 
     /// Subject alternate names to include in the certificate (e.g. DNS:example.com)
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Vec::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
     pub alt_names: Vec<String>,
 
     /// Type of key to generate
@@ -127,10 +130,16 @@ pub struct ConverterOptions {
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub app: Option<serde_json::Value>,
 
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Vec::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
     pub ca_certificates: Vec<CaCertificateConfig>,
 
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Vec::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
     pub certificates: Vec<CertificateConfig>,
 
     /// Enables debug logging from EnclaveOS
@@ -138,17 +147,26 @@ pub struct ConverterOptions {
     pub debug: Option<bool>,
 
     /// Override the entrypoint of the original container
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Vec::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
     pub entry_point: Vec<String>,
 
     /// Override additional arguments to the container entrypoint
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Vec::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
     pub entry_point_args: Vec<String>,
 
     #[cfg_attr(feature = "serde", serde(default = "default_to_true"))]
     pub push_converted_image: Option<bool>,
 
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Vec::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
     pub env_vars: Vec<String>,
 
     /// Type of the Java JVM used
