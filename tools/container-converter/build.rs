@@ -4,6 +4,8 @@ use std::process::Command;
 use std::result::Result;
 use std::{env, fs};
 
+use salmiac_build_support::Platform;
+
 // Enclave startup is statically linked to musl instead of glibc
 // to avoid problems runtime linking errors with libnss
 const ENCLAVE_STARTUP_TARGET: &str = "x86_64-unknown-linux-musl";
@@ -21,6 +23,10 @@ const RESOURCES_PARENT_DIR: &str = "src/resources/parent";
 const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    if let Err(err) = Platform::emit_cfg_from_env() {
+        panic!("{}", err);
+    }
+
     let (bin_dir, cargo_build_flag) = if cfg!(debug_assertions) {
         (Path::new("debug"), None)
     } else {

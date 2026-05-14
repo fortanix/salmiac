@@ -6,6 +6,19 @@
 
 pub mod converter;
 pub mod enclave;
+#[cfg(platform = "nitro")]
+pub mod nitro;
+#[cfg(platform = "nitro")]
+pub use self::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
+#[cfg(platform = "nitro")]
+pub use self::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
+
+#[cfg(platform = "snp")]
+pub mod snp;
+#[cfg(platform = "snp")]
+pub use self::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
+#[cfg(platform = "snp")]
+pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
 
 use std::convert::TryFrom;
 use std::fmt;

@@ -8,8 +8,8 @@ use std::path::Path;
 
 use crate::{ConverterError, ConverterErrorKind};
 
-pub mod enclave;
-pub mod parent;
+pub(crate) mod enclave;
+pub(crate) mod parent;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 const ORIG_ENV_LIST_PATH: &'static str = "original-parent.env";

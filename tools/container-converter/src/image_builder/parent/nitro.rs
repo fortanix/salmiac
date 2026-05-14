@@ -8,52 +8,27 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use api_model::converter::NitroEnclavesConversionRequestOptions;
+use api_model::nitro::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
-use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile, UnixFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
-    pub(crate) parent_image: String,
-
-    pub(crate) dir: &'a TempDir,
-
+    pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: NitroEnclavesConversionRequestOptions,
 }
 
 impl<'a> ParentImageBuilder<'a> {
-    const DEFAULT_CPU_COUNT: u8 = 2;
-
-    const DEFAULT_MEMORY_SIZE: u64 = 2048;
-
-    const STARTUP_SCRIPT_NAME: &'static str = "start-parent.sh";
-
-    const BINARY_NAME: &'static str = "parent";
-
-    const IMAGE_BUILD_DEPENDENCIES: &'static [Resource<'static>] = &[
-        file::Resource {
-            name: ParentImageBuilder::STARTUP_SCRIPT_NAME,
-            data: include_bytes!("../resources/parent/start-parent.sh"),
-            is_executable: true,
-        },
-        file::Resource {
-            name: ParentImageBuilder::BINARY_NAME,
-            data: include_bytes!("../resources/parent/parent"),
-            is_executable: true,
-        },
-    ];
-
-    const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
-        ParentImageBuilder::STARTUP_SCRIPT_NAME,
-        ParentImageBuilder::BINARY_NAME,
-        EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+    pub(crate) const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
+        crate::image_builder::parent::ParentImageBuilder::STARTUP_SCRIPT_NAME,
+        crate::image_builder::parent::ParentImageBuilder::BINARY_NAME,
+        crate::image_builder::enclave::nitro::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
         EnclaveImageBuilder::BLOCK_FILE_OUT,
     ];
 
@@ -63,14 +38,20 @@ impl<'a> ParentImageBuilder<'a> {
         image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
         let build_context =
-            BuildContext::new(&self.dir.path()).map_err(|message| ConverterError {
-                message,
-                kind: ConverterErrorKind::RequisitesCreation,
+            BuildContext::new(&self.parent_image_builder.dir.path()).map_err(|message| {
+                ConverterError {
+                    message,
+                    kind: ConverterErrorKind::RequisitesCreation,
+                }
             })?;
 
-        self.move_enclave_files_into_build_context(&build_context.path())?;
+        self.parent_image_builder
+            .move_enclave_files_into_build_context(
+                &build_context.path(),
+                crate::image_builder::enclave::nitro::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
+            )?;
 
-        self.create_requisites(&build_context)
+        self.create_requisites(&build_context, ParentImageBuilder::IMAGE_COPY_DEPENDENCIES)
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -78,7 +59,13 @@ impl<'a> ParentImageBuilder<'a> {
         info!("Parent prerequisites have been created!");
 
         let build_context_archive_file = build_context
-            .package_into_archive(&self.dir.path().join("parent-build-context.tar"))
+            .package_into_archive(
+                &self
+                    .parent_image_builder
+                    .dir
+                    .path()
+                    .join("parent-build-context.tar"),
+            )
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,
@@ -97,45 +84,24 @@ impl<'a> ParentImageBuilder<'a> {
         Ok(result)
     }
 
-    fn move_enclave_files_into_build_context(&self, build_context_dir: &Path) -> Result<()> {
-        fn move_file(from: &Path, to: &Path) -> Result<()> {
-            fs::rename(from, to).map_err(|message| ConverterError {
-                message: format!(
-                    "Failed moving file {} into build context {}. {:?}",
-                    from.display(),
-                    to.display(),
-                    message
-                ),
-                kind: ConverterErrorKind::RequisitesCreation,
-            })
-        }
-
-        move_file(
-            &self.dir.path().join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
-            &build_context_dir.join(EnclaveImageBuilder::ENCLAVE_FILE_NAME),
-        )?;
-
-        move_file(
-            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-        )
-    }
-
-    fn create_requisites(&self, build_context: &BuildContext) -> std::result::Result<(), String> {
-        let copy_items: Vec<String> = ParentImageBuilder::IMAGE_COPY_DEPENDENCIES
-            .iter()
-            .map(|e| e.to_string())
-            .collect();
+    fn create_requisites(
+        &self,
+        build_context: &BuildContext,
+        copy_dependencies: &'static [&'static str],
+    ) -> std::result::Result<(), String> {
+        let copy_items: Vec<String> = copy_dependencies.iter().map(|e| e.to_string()).collect();
 
         let docker_file = self.docker_file_contents(copy_items);
 
         build_context.create_docker_file(&docker_file)?;
 
-        build_context.create_resources(ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
+        build_context.create_resources(
+            crate::image_builder::parent::ParentImageBuilder::IMAGE_BUILD_DEPENDENCIES,
+        )?;
 
         let startup_script_path = build_context
             .path()
-            .join(ParentImageBuilder::STARTUP_SCRIPT_NAME);
+            .join(crate::image_builder::parent::ParentImageBuilder::STARTUP_SCRIPT_NAME);
 
         self.append_start_enclave_command(&startup_script_path)?;
 
@@ -160,7 +126,7 @@ impl<'a> ParentImageBuilder<'a> {
         let log_env = rust_log_env_var("parent");
         let cpu_count_env = self.cpu_count_env_var();
         let mem_size_env = self.mem_size_env_var();
-        let eos_debug_env = self.eos_debug_env_var();
+        let eos_debug_env = crate::image_builder::parent::ParentImageBuilder::eos_debug_env_var();
 
         let env_vars = [log_env, cpu_count_env, mem_size_env, eos_debug_env];
 
@@ -170,7 +136,7 @@ impl<'a> ParentImageBuilder<'a> {
             .to_string();
         let save_envs_run_command = format!("printenv > {}", abs_orig_env_list_path);
 
-        let from = self.parent_image.clone();
+        let from = self.parent_image_builder.parent_image.clone();
 
         DockerFile {
             from,
@@ -216,22 +182,12 @@ impl<'a> ParentImageBuilder<'a> {
         )
     }
 
-    fn eos_debug_env_var(&self) -> String {
-        format!("ENCLAVEOS_DEBUG={}", {
-            if cfg!(debug_assertions) {
-                "debug"
-            } else {
-                ""
-            }
-        })
-    }
-
     fn cpu_count_env_var(&self) -> String {
         format!(
             "CPU_COUNT={}",
             self.start_options
                 .cpu_count
-                .unwrap_or(ParentImageBuilder::DEFAULT_CPU_COUNT)
+                .unwrap_or(crate::image_builder::parent::ParentImageBuilder::DEFAULT_CPU_COUNT)
         )
     }
 
@@ -242,7 +198,7 @@ impl<'a> ParentImageBuilder<'a> {
                 .mem_size
                 .as_ref()
                 .map(|e| e.to_mb())
-                .unwrap_or(ParentImageBuilder::DEFAULT_MEMORY_SIZE)
+                .unwrap_or(crate::image_builder::parent::ParentImageBuilder::DEFAULT_MEMORY_SIZE)
         )
     }
 }

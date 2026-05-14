@@ -11,3 +11,12 @@ repository = "https://github.com/fortanix/salmiac"
 hex = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+
+[build-dependencies]
+salmiac-build-support = { path = "../build-support" }
+
+[features]
+serde = ["dep:serde"]
+
+[lints.rust]
+unexpected_cfgs = { level = "deny" }

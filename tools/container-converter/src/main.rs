@@ -4,18 +4,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::fs;
-
-use api_model::converter::NitroEnclavesConversionRequest;
 use clap::{App, AppSettings, Arg, ArgMatches};
-use env_logger;
-use log::error;
+use container_converter::process_request;
+use std::{fs, sync::LazyLock};
+
+#[cfg(platform = "nitro")]
+use container_converter::nitro as platform;
+#[cfg(platform = "snp")]
+use container_converter::snp as platform;
+
+static ABOUT: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "Converts user docker container to be able to run in {} environment",
+        platform::NAME
+    )
+});
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
 
-    let console_arguments = console_arguments();
+    let console_arguments = console_arguments(&ABOUT);
 
     let request_file_path = console_arguments
         .value_of("request-file")
@@ -24,27 +33,12 @@ async fn main() -> Result<(), String> {
     let request_file = fs::read_to_string(request_file_path)
         .map_err(|err| format!("Failed reading request file. {:?}", err))?;
 
-    let request = serde_json::from_str::<NitroEnclavesConversionRequest>(&request_file)
-        .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
-
-    match container_converter::run(request).await {
-        Ok(response) => {
-            let response_serialized = serde_json::to_string(&response)
-                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
-
-            println!("Successful nitro conversion: {:?}", response_serialized);
-            Ok(())
-        }
-        Err(err) => {
-            error!("Converter exited with error: {}", err.message);
-            Err(err.message)
-        }
-    }
+    process_request(&request_file).await
 }
 
-fn console_arguments<'a>() -> ArgMatches<'a> {
+fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
     App::new("Container converter")
-        .about("Converts user docker container to be able to run in AWS Nitro environment")
+        .about(platform)
         .setting(AppSettings::DisableVersion)
         .arg(
             Arg::with_name("request-file")

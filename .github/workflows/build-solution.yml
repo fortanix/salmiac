@@ -62,7 +62,15 @@ jobs:
         run: |
           ./sanity.sh
 
-      - name: Build Rust code
+      - name: Build Nitro converter
+        env:
+          SALMIAC_PLATFORM: nitro
+        run: |
+          ./build-converter.sh
+
+      - name: Build SNP converter
+        env:
+          SALMIAC_PLATFORM: snp
         run: |
           ./build-converter.sh
 

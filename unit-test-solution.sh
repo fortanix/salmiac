@@ -4,39 +4,40 @@ set -exo pipefail
 
 SALMIAC_PLATFORMS=(
     nitro
+    snp
 )
 
 # Run unit tests
 if [ $FLAVOR == "release" ]; then
   cargo_build_flag="--release"
-fi;
+fi
 
 if [ -z "$SKIP_RUNNING_TESTS" ]; then
   if [ -z "$FORTANIX_API_KEY" ]; then
       echo "Environment variable FORTANIX_API_KEY is unset. Unable to run dsm_key_config unit tests"
       exit 1
   fi
+  # Platform agnostic tests
+  pushd "tools/enclaveos-encrypted-fs"
+    cargo test "$cargo_build_flag" --locked
+  popd
+  # Platform specific tests
   unit_test_dirs=(
       "vsock-proxy/enclave"
       "vsock-proxy/parent"
       "tools/container-converter"
-      "tools/enclaveos-encrypted-fs"
   )
-for unit_test_dir in "${unit_test_dirs[@]}"
+  for platform in "${SALMIAC_PLATFORMS[@]}"
   do
-    pushd "$unit_test_dir"
-    if [[ "$unit_test_dir" == vsock-proxy/* ]] ; then
-      for platform in "${SALMIAC_PLATFORMS[@]}"
+      for unit_test_dir in "${unit_test_dirs[@]}"
       do
-        SALMIAC_PLATFORM="${platform}" cargo test $cargo_build_flag --locked
+          pushd "$unit_test_dir"
+            SALMIAC_PLATFORM="${platform}" cargo test "$cargo_build_flag" --locked
+          popd
       done
-    else
-      cargo test $cargo_build_flag --locked
-    fi
-    popd
+      pushd "api-model"
+        SALMIAC_PLATFORM="${platform}" cargo test "$cargo_build_flag" --features=serde --locked
+      popd
   done
 fi
 
-pushd api-model
-  cargo test $cargo_build_flag --features=serde --locked
-popd
