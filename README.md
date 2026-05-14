@@ -102,7 +102,7 @@ This guide allows you to build salmiac from source and convert your docker appli
 8. Copy converted image into your EC2 instance and run the image.
    Note the use of the environment variable which disables the use of default certificates, which allows you to skip access to Fortanix CCM. Read more about environment variables used in salmiac here - /salmiac/ENV_VARS.md
    ```bash
-      # Copy your converted image from step #7 into your EC2 isntance
+      # Copy your converted image from step #7 into your EC2 instance
       # ...       
       # Run copied image inside EC2
       docker run -it --rm --privileged -v /run/nitro_enclaves:/run/nitro_enclaves -e ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE=true hello-world-nitro
