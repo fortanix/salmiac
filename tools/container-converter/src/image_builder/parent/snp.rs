@@ -4,21 +4,202 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api_model::snp::SNPEnclavesConversionRequestOptions;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 
-use crate::{image::ImageWithDetails, Result};
+use api_model::snp::SNPEnclavesConversionRequestOptions;
+use docker_image_reference::Reference as DockerReference;
+use log::info;
+
+use crate::docker::DockerUtil;
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
+use crate::image::ImageWithDetails;
+use crate::image_builder::enclave::snp::EnclaveImageBuilder as SnpEnclaveImageBuilder;
+use crate::image_builder::enclave::EnclaveImageBuilder;
+use crate::image_builder::parent::ParentImageBuilder as GenericParentImageBuilder;
+use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
+use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: SNPEnclavesConversionRequestOptions,
 }
+
 impl<'a> ParentImageBuilder<'a> {
-    // TODO: RTE-941
+    pub(crate) const KERNEL_DISABLED_GPU: Resource<'static> = Resource {
+        name: "bzImage",
+        data: include_bytes!("../../resources/enclave/kernel_disabled_gpu/bzImage"),
+        is_executable: false,
+    };
+
+    pub(crate) const KERNEL_ENABLED_GPU: Resource<'static> = Resource {
+        name: "bzImage",
+        data: include_bytes!("../../resources/enclave/kernel_enabled_gpu/bzImage"),
+        is_executable: false,
+    };
+
+    pub(crate) const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
+        GenericParentImageBuilder::STARTUP_SCRIPT_NAME,
+        GenericParentImageBuilder::BINARY_NAME,
+        SnpEnclaveImageBuilder::INITRAMFS_FILENAME,
+        EnclaveImageBuilder::BLOCK_FILE_OUT,
+        "bzImage",
+    ];
+
     pub(crate) async fn create_image(
         &self,
-        input_repository: &crate::docker::DockerDaemon,
-        output_image: docker_image_reference::Reference<'_>,
+        docker_util: &dyn DockerUtil,
+        image_reference: DockerReference<'a>,
     ) -> Result<ImageWithDetails<'a>> {
-        todo!()
+        let build_context =
+            BuildContext::new(&self.parent_image_builder.dir.path()).map_err(|message| {
+                ConverterError {
+                    message,
+                    kind: ConverterErrorKind::RequisitesCreation,
+                }
+            })?;
+
+        self.parent_image_builder
+            .move_enclave_files_into_build_context(
+                &build_context.path(),
+                SnpEnclaveImageBuilder::INITRAMFS_FILENAME,
+            )?;
+
+        let copy_dependencies: Vec<String> = Self::IMAGE_COPY_DEPENDENCIES
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
+
+        self.create_requisites(&build_context, &copy_dependencies)
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+        info!("Parent prerequisites have been created!");
+
+        let build_context_archive_file = build_context
+            .package_into_archive(
+                &self
+                    .parent_image_builder
+                    .dir
+                    .path()
+                    .join("parent-build-context.tar"),
+            )
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
+
+        let result = docker_util
+            .create_image_from_archive(image_reference, build_context_archive_file)
+            .await
+            .map_err(|message| ConverterError {
+                message,
+                kind: ConverterErrorKind::ParentImageCreation,
+            })?;
+
+        info!("Parent image has been created!");
+
+        Ok(result)
+    }
+
+    fn create_requisites(
+        &self,
+        build_context: &BuildContext,
+        copy_dependencies: &[String],
+    ) -> std::result::Result<(), String> {
+        let docker_file = self.docker_file_contents(copy_dependencies.to_vec());
+
+        build_context.create_docker_file(&docker_file)?;
+
+        build_context.create_resources(GenericParentImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
+
+        let gpu_enabled = self.start_options.enable_gpu_passthrough.unwrap_or(false);
+
+        let kernel_resource = if gpu_enabled {
+            Self::KERNEL_ENABLED_GPU
+        } else {
+            Self::KERNEL_DISABLED_GPU
+        };
+        build_context.create_resource(kernel_resource)?;
+
+        let startup_script_path = build_context
+            .path()
+            .join(GenericParentImageBuilder::STARTUP_SCRIPT_NAME);
+
+        self.append_start_enclave_command(&startup_script_path)?;
+
+        if cfg!(debug_assertions) {
+            file::log_file(&startup_script_path)?;
+        }
+
+        Ok(())
+    }
+
+    fn docker_file_contents(&self, items: Vec<String>) -> DockerFile {
+        let add = DockerCopyArgs {
+            items,
+            destination: INSTALLATION_DIR.to_string() + "/",
+        };
+
+        let run_parent_cmd = Path::new(INSTALLATION_DIR)
+            .join("start-parent.sh")
+            .display()
+            .to_string();
+
+        let log_env = rust_log_env_var("parent");
+        let eos_debug_env = GenericParentImageBuilder::eos_debug_env_var();
+
+        let env_vars = vec![log_env, eos_debug_env];
+
+        let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
+            .join(ORIG_ENV_LIST_PATH)
+            .display()
+            .to_string();
+        let save_envs_run_command = format!("printenv > {}", abs_orig_env_list_path);
+
+        let from = self.parent_image_builder.parent_image.clone();
+
+        DockerFile {
+            from,
+            add: Some(add),
+            env: env_vars,
+            run: Some(save_envs_run_command),
+            cmd: None,
+            entrypoint: Some(run_parent_cmd),
+        }
+    }
+
+    fn append_start_enclave_command(
+        &self,
+        startup_script_path: &Path,
+    ) -> std::result::Result<(), String> {
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(startup_script_path)
+            .map_err(|err| format!("Failed to open parent startup script {:?}", err))?;
+
+        let start_enclave_command = self.start_enclave_command();
+
+        file.write_all(start_enclave_command.as_bytes())
+            .map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+        file.set_execute()
+            .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
+
+        Ok(())
+    }
+
+    fn start_enclave_command(&self) -> String {
+        let install_path = Path::new(INSTALLATION_DIR);
+        let parent_bin = install_path.join("parent");
+
+        format!(
+            "\n\
+             # Parent startup code \n\
+             {} \"$@\" ",
+            parent_bin.display()
+        )
     }
 }
