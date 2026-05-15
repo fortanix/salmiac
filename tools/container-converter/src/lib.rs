@@ -190,8 +190,11 @@ async fn run0(
             },
         };
 
-        let enclave_settings =
-            EnclaveSettings::new(&input_image, &conversion_request.request.converter_options);
+        let enclave_settings = EnclaveSettings::new(
+            &input_image,
+            &conversion_request.request.converter_options,
+            &conversion_request.enclaves_options,
+        );
         let image_env_vars =
             get_image_env(&input_image, &conversion_request.request.converter_options);
         let user_config = UserConfig {
