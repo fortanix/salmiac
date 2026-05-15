@@ -216,10 +216,7 @@ async fn run0(
             parent_image,
             dir: &temp_dir,
         },
-        #[cfg(platform = "nitro")]
-        start_options: conversion_request.nitro_enclaves_options,
-        #[cfg(platform = "snp")]
-        start_options: conversion_request.snp_enclaves_options,
+        start_options: conversion_request.enclaves_options,
     };
 
     info!("Building result image!");

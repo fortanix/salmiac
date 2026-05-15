@@ -17,7 +17,8 @@ use crate::{
 pub struct SNPEnclavesConversionRequest {
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub request: ConversionRequest, // Existing model, Refer to more details section above
-    pub snp_enclaves_options: SNPEnclavesConversionRequestOptions,
+    #[cfg_attr(feature = "serde", serde(rename = "snp_enclaves_options"))]
+    pub enclaves_options: SNPEnclavesConversionRequestOptions,
 }
 
 #[derive(Clone, PartialEq, Debug)]

@@ -19,7 +19,8 @@ use crate::{
 pub struct NitroEnclavesConversionRequest {
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub request: ConversionRequest,
-    pub nitro_enclaves_options: NitroEnclavesConversionRequestOptions,
+    #[cfg_attr(feature = "serde", serde(rename = "nitro_enclaves_options"))]
+    pub enclaves_options: NitroEnclavesConversionRequestOptions,
 }
 
 impl NitroEnclavesConversionRequest {
