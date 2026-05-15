@@ -7,6 +7,7 @@
 use std::fs;
 use std::io::{Cursor, Error, ErrorKind};
 
+use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::snp::SNPEnclavesMeasurements;
 use api_model::HexString;
 use fortanix_vme_initramfs::{FsTree, Initramfs};
@@ -45,17 +46,39 @@ impl<'a> EnclaveImageBuilder<'a> {
         &self,
         input_repository: &crate::docker::DockerDaemon,
         enclave_settings: EnclaveSettings,
-        user_config: api_model::enclave::UserConfig,
-        _image_env_vars: Vec<String>,
+        user_config: UserConfig,
+        env_vars: Vec<String>,
         _sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<SNPEnclavesMeasurements> {
         let work_dir = self.enclave_image_builder.dir.path();
 
-        let _file_system_config = self
+        let file_system_config = self
             .enclave_image_builder
             .create_block_file(input_repository, &user_config)
             .await?;
         info!("Client FS Block file has been created.");
+
+        let is_debug = enclave_settings.is_debug;
+        let enable_overlay_filesystem_persistence =
+            enclave_settings.enable_overlay_filesystem_persistence;
+        let ccm_backend_url = enclave_settings.ccm_backend_url.clone();
+        let dsm_configuration = enclave_settings.dsm_configuration.clone();
+
+        let enclave_manifest = EnclaveManifest {
+            user_config,
+            file_system_config,
+            is_debug,
+            env_vars,
+            enable_overlay_filesystem_persistence,
+            ccm_backend_url,
+            dsm_configuration,
+        };
+
+        let enclave_manifest_data =
+            serde_json::to_vec(&enclave_manifest).map_err(|err| ConverterError {
+                message: format!("Failed serializing enclave settings file. {:?}", err),
+                kind: ConverterErrorKind::RequisitesCreation,
+            })?;
 
         let output_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
         let output_file = fs::OpenOptions::new()
@@ -70,9 +93,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
 
         info!("Creating initramfs archive...");
-        create_initramfs(output_file, &enclave_settings).map_err(|e| ConverterError {
-            message: format!("Failed to create initramfs: {:?}", e),
-            kind: ConverterErrorKind::EnclaveImageCreation,
+        create_initramfs(output_file, &enclave_settings, &enclave_manifest_data).map_err(|e| {
+            ConverterError {
+                message: format!("Failed to create initramfs: {:?}", e),
+                kind: ConverterErrorKind::EnclaveImageCreation,
+            }
         })?;
 
         Ok(SNPEnclavesMeasurements {
@@ -84,7 +109,13 @@ impl<'a> EnclaveImageBuilder<'a> {
 fn create_initramfs(
     output_file: fs::File,
     enclave_settings: &EnclaveSettings,
+    enclave_manifest_data: &[u8],
 ) -> std::io::Result<()> {
+    // Build initramfs with filestructure & files
+    // required to initialize the enclave.
+    // init is main entry point then the control of
+    // execution is handed over to enclave & enclave-startup
+    // respectively.
     let mut fs_tree = FsTree::new()
         .add_directory("rootfs")
         .add_directory("rootfs/dev")
@@ -95,7 +126,14 @@ fn create_initramfs(
         .add_directory("rootfs/bin")
         .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
         .add_file("cmd", Cursor::new("/bin/enclave-startup"))
-        .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data));
+        .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data))
+        .add_file(
+            &format!(
+                "rootfs/bin/{}",
+                GenericEnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE
+            ),
+            Cursor::new(enclave_manifest_data.to_vec()),
+        );
 
     if enclave_settings.gpu_passthrough {
         for module in EnclaveImageBuilder::GPU_MODULES {
@@ -104,7 +142,6 @@ fn create_initramfs(
         }
     }
 
-    // Add enclave, enclave-startup and init from resources
     for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
         let path = format!("rootfs/bin/{}", resource.name);
         fs_tree = fs_tree.add_executable(&path, Cursor::new(resource.data));
