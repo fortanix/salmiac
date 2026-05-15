@@ -125,7 +125,7 @@ fn create_initramfs(
         .add_directory("rootfs/tmp")
         .add_directory("rootfs/bin")
         .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
-        .add_file("cmd", Cursor::new("/bin/enclave-startup"))
+        .add_file("cmd", Cursor::new("/bin/enclave"))
         .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data))
         .add_file(
             &format!(

@@ -149,9 +149,11 @@ impl<'a> ParentImageBuilder<'a> {
             .to_string();
 
         let log_env = rust_log_env_var("parent");
+        let cpu_count_env = self.cpu_count_env_var();
+        let mem_size_env = self.mem_size_env_var();
         let eos_debug_env = GenericParentImageBuilder::eos_debug_env_var();
 
-        let env_vars = vec![log_env, eos_debug_env];
+        let env_vars = vec![log_env, cpu_count_env, mem_size_env, eos_debug_env];
 
         let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
             .join(ORIG_ENV_LIST_PATH)
@@ -200,6 +202,26 @@ impl<'a> ParentImageBuilder<'a> {
              # Parent startup code \n\
              {} \"$@\" ",
             parent_bin.display()
+        )
+    }
+
+    fn cpu_count_env_var(&self) -> String {
+        let cpu_count = if self.start_options.cpu_count == 0 {
+            GenericParentImageBuilder::DEFAULT_CPU_COUNT
+        } else {
+            self.start_options.cpu_count
+        };
+        format!("CPU_COUNT={}", cpu_count)
+    }
+
+    fn mem_size_env_var(&self) -> String {
+        format!(
+            "MEM_SIZE={}",
+            self.start_options
+                .mem_size
+                .as_ref()
+                .map(|e| e.to_mb())
+                .unwrap_or(GenericParentImageBuilder::DEFAULT_MEMORY_SIZE)
         )
     }
 }
