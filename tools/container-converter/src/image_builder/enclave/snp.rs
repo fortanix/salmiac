@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::io::{Cursor, Error, ErrorKind};
+use std::path::Path;
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::snp::SNPEnclavesMeasurements;
@@ -16,6 +17,7 @@ use log::info;
 use crate::file::Resource;
 use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
+use crate::image_builder::INSTALLATION_DIR;
 use crate::{ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct EnclaveImageBuilder<'a> {
@@ -111,11 +113,12 @@ fn create_initramfs(
     enclave_settings: &EnclaveSettings,
     enclave_manifest_data: &[u8],
 ) -> std::io::Result<()> {
-    // Build initramfs with filestructure & files
-    // required to initialize the enclave.
-    // init is main entry point then the control of
-    // execution is handed over to enclave & enclave-startup
-    // respectively.
+    let run_cmd = GenericEnclaveImageBuilder::enclave_command_string(
+        enclave_settings,
+        &Path::new(INSTALLATION_DIR),
+        "enclave",
+    );
+
     let mut fs_tree = FsTree::new()
         .add_directory("rootfs")
         .add_directory("rootfs/dev")
@@ -125,26 +128,28 @@ fn create_initramfs(
         .add_directory("rootfs/tmp")
         .add_directory("rootfs/bin")
         .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
-        .add_file("cmd", Cursor::new("/bin/enclave"))
+        .add_file("cmd", Cursor::new(run_cmd))
         .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data))
         .add_file(
             &format!(
-                "rootfs/bin/{}",
+                "rootfs{}/{}",
+                INSTALLATION_DIR,
                 GenericEnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE
             ),
             Cursor::new(enclave_manifest_data.to_vec()),
         );
+
+    // Add enclave, & enclave-startup from resources
+    for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
+        let path = format!("rootfs{}/{}", INSTALLATION_DIR, resource.name);
+        fs_tree = fs_tree.add_executable(&path, Cursor::new(resource.data));
+    }
 
     if enclave_settings.gpu_passthrough {
         for module in EnclaveImageBuilder::GPU_MODULES {
             let path = format!("lib/modules/{}", module.name);
             fs_tree = fs_tree.add_file(&path, Cursor::new(module.data));
         }
-    }
-
-    for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
-        let path = format!("rootfs/bin/{}", resource.name);
-        fs_tree = fs_tree.add_executable(&path, Cursor::new(resource.data));
     }
 
     Initramfs::from_fs_tree(fs_tree, output_file).map_err(|e| Error::new(ErrorKind::Other, e))?;
