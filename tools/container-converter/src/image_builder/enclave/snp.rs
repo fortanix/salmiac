@@ -4,23 +4,112 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api_model::snp::SNPEnclavesMeasurements;
+use std::fs;
+use std::io::{Cursor, Error, ErrorKind};
 
-use crate::Result;
+use api_model::snp::SNPEnclavesMeasurements;
+use api_model::HexString;
+use fortanix_vme_initramfs::{FsTree, Initramfs};
+use log::info;
+
+use crate::file::Resource;
+use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::EnclaveSettings;
+use crate::{ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct EnclaveImageBuilder<'a> {
-    pub(crate) enclave_image_builder: crate::image_builder::enclave::EnclaveImageBuilder<'a>,
+    pub(crate) enclave_image_builder: GenericEnclaveImageBuilder<'a>,
 }
+
 impl<'a> EnclaveImageBuilder<'a> {
-    // TODO: RTE-941
+    const INIT_BIN: Resource<'static> = Resource {
+        name: "init",
+        data: include_bytes!("../../resources/enclave/init"),
+        is_executable: true,
+    };
+    const GPU_MODULES: &'static [Resource<'static>] = &[
+        Resource {
+            name: "nvidia.ko",
+            data: include_bytes!("../../resources/enclave/kernel_enabled_gpu/nvidia.ko"),
+            is_executable: false,
+        },
+        Resource {
+            name: "nvidia-uvm.ko",
+            data: include_bytes!("../../resources/enclave/kernel_enabled_gpu/nvidia-uvm.ko"),
+            is_executable: false,
+        },
+    ];
+    pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
+
     pub(crate) async fn create_image(
         &self,
         input_repository: &crate::docker::DockerDaemon,
-        enclave_settings: crate::image_builder::enclave::EnclaveSettings,
+        enclave_settings: EnclaveSettings,
         user_config: api_model::enclave::UserConfig,
-        image_env_vars: Vec<String>,
-        sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
+        _image_env_vars: Vec<String>,
+        _sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<SNPEnclavesMeasurements> {
-        todo!()
+        let work_dir = self.enclave_image_builder.dir.path();
+
+        let _file_system_config = self
+            .enclave_image_builder
+            .create_block_file(input_repository, &user_config)
+            .await?;
+        info!("Client FS Block file has been created.");
+
+        let output_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
+        let output_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&output_file_path)
+            .map_err(|e| ConverterError {
+                message: format!("Failed to create output CPIO file: {:?}", e),
+                kind: ConverterErrorKind::EnclaveImageCreation,
+            })?;
+
+        info!("Creating initramfs archive...");
+        create_initramfs(output_file, &enclave_settings).map_err(|e| ConverterError {
+            message: format!("Failed to create initramfs: {:?}", e),
+            kind: ConverterErrorKind::EnclaveImageCreation,
+        })?;
+
+        Ok(SNPEnclavesMeasurements {
+            launch_measurement: HexString::new(vec![0; 48]),
+        })
     }
+}
+
+fn create_initramfs(
+    output_file: fs::File,
+    enclave_settings: &EnclaveSettings,
+) -> std::io::Result<()> {
+    let mut fs_tree = FsTree::new()
+        .add_directory("rootfs")
+        .add_directory("rootfs/dev")
+        .add_directory("rootfs/proc")
+        .add_directory("rootfs/run")
+        .add_directory("rootfs/sys")
+        .add_directory("rootfs/tmp")
+        .add_directory("rootfs/bin")
+        .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
+        .add_file("cmd", Cursor::new("/bin/enclave-startup"))
+        .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data));
+
+    if enclave_settings.gpu_passthrough {
+        for module in EnclaveImageBuilder::GPU_MODULES {
+            let path = format!("lib/modules/{}", module.name);
+            fs_tree = fs_tree.add_file(&path, Cursor::new(module.data));
+        }
+    }
+
+    // Add enclave, enclave-startup and init from resources
+    for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
+        let path = format!("rootfs/bin/{}", resource.name);
+        fs_tree = fs_tree.add_executable(&path, Cursor::new(resource.data));
+    }
+
+    Initramfs::from_fs_tree(fs_tree, output_file).map_err(|e| Error::new(ErrorKind::Other, e))?;
+    Ok(())
 }

@@ -51,7 +51,7 @@ impl<'a> ParentImageBuilder<'a> {
                 crate::image_builder::enclave::nitro::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
             )?;
 
-        self.create_requisites(&build_context, ParentImageBuilder::IMAGE_COPY_DEPENDENCIES)
+        self.create_requisites(&build_context, Self::IMAGE_COPY_DEPENDENCIES)
             .map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::RequisitesCreation,

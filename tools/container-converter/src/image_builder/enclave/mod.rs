@@ -24,6 +24,10 @@ use std::path::Path;
 
 use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
+#[cfg(platform = "nitro")]
+use api_model::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
+#[cfg(platform = "snp")]
+use api_model::snp::SNPEnclavesConversionRequestOptions as EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
@@ -73,12 +77,16 @@ pub(crate) struct EnclaveSettings {
     pub(crate) ccm_backend_url: CcmBackendUrl,
 
     pub(crate) dsm_configuration: DsmConfiguration,
+
+    #[cfg(platform = "snp")]
+    pub(crate) gpu_passthrough: bool,
 }
 
 impl EnclaveSettings {
     pub(crate) fn new(
         input_image: &ImageWithDetails<'_>,
         converter_options: &ConverterOptions,
+        _enclaves_options: &EnclavesOptions,
     ) -> Self {
         EnclaveSettings {
             user_name: input_image.details.config.user.clone().unwrap_or_default(),
@@ -100,6 +108,8 @@ impl EnclaveSettings {
                 .dsm_configuration
                 .clone()
                 .unwrap_or_default(),
+            #[cfg(platform = "snp")]
+            gpu_passthrough: _enclaves_options.enable_gpu_passthrough.unwrap_or(false),
         }
     }
 }
