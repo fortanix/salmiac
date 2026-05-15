@@ -267,6 +267,40 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn enclave_command_string(
+        enclave_settings: &EnclaveSettings,
+        install_dir: &Path,
+        binary_name: &str,
+    ) -> String {
+        let enclave_bin = install_dir.join(binary_name);
+
+        let enclave_settings_file =
+            install_dir.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
+
+        let user_name = {
+            if let Some(pos) = enclave_settings.user_name.find(":") {
+                &enclave_settings.user_name[..pos]
+            } else {
+                &enclave_settings.user_name
+            }
+        };
+
+        // Quick fix for: https://fortanix.atlassian.net/browse/SALM-94
+        // Sets the home variable specifically for applications that require it to run
+        let switch_user_cmd = if user_name != "" && user_name != "root" {
+            format!("export HOME=/home/{};", user_name)
+        } else {
+            String::new()
+        };
+
+        format!(
+            "{} {} --vsock-port 5006 --settings-path {}",
+            switch_user_cmd,
+            enclave_bin.display(),
+            enclave_settings_file.display()
+        )
+    }
+
     fn docker_file_contents(&self, mut enclave_settings: EnclaveSettings) -> DockerFile {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
@@ -280,35 +314,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
-        let run_enclave_cmd = {
-            let enclave_bin = install_dir_path.join("enclave");
-
-            let enclave_settings_file =
-                install_dir_path.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
-
-            let user_name = {
-                if let Some(pos) = enclave_settings.user_name.find(":") {
-                    &enclave_settings.user_name[..pos]
-                } else {
-                    &enclave_settings.user_name
-                }
-            };
-
-            // Quick fix for: https://fortanix.atlassian.net/browse/SALM-94
-            // Sets the home variable specifically for applications that require it to run
-            let switch_user_cmd = if user_name != "" && user_name != "root" {
-                format!("export HOME=/home/{};", user_name)
-            } else {
-                String::new()
-            };
-
-            format!(
-                "{} {} --vsock-port 5006 --settings-path {}",
-                switch_user_cmd,
-                enclave_bin.display(),
-                enclave_settings_file.display()
-            )
-        };
+        let run_enclave_cmd = EnclaveImageBuilder::enclave_command_string(
+            &enclave_settings,
+            install_dir_path,
+            "enclave",
+        );
 
         enclave_settings.env_vars.push(rust_log_env_var("enclave"));
 
