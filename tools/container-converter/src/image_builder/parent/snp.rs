@@ -6,7 +6,7 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use api_model::snp::SNPEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
@@ -21,6 +21,8 @@ use crate::image_builder::parent::ParentImageBuilder as GenericParentImageBuilde
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
+use super::move_file;
+
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: SNPEnclavesConversionRequestOptions,
@@ -32,7 +34,6 @@ impl<'a> ParentImageBuilder<'a> {
         GenericParentImageBuilder::BINARY_NAME,
         SnpEnclaveImageBuilder::INITRAMFS_FILENAME,
         EnclaveImageBuilder::BLOCK_FILE_OUT,
-        "bzImage",
     ];
 
     pub(crate) async fn create_image(
@@ -48,16 +49,19 @@ impl<'a> ParentImageBuilder<'a> {
                 }
             })?;
 
+        // Move initramfs build by enclave image builder to build context.
         self.parent_image_builder
             .move_enclave_files_into_build_context(
-                &build_context.path(),
+                build_context.path(),
                 SnpEnclaveImageBuilder::INITRAMFS_FILENAME,
             )?;
 
-        let copy_dependencies: Vec<String> = Self::IMAGE_COPY_DEPENDENCIES
+        let blob_filenames = self.move_blobs_into_build_context(&build_context)?;
+        let mut copy_dependencies: Vec<String> = Self::IMAGE_COPY_DEPENDENCIES
             .iter()
             .map(|e| e.to_string())
             .collect();
+        copy_dependencies.extend(blob_filenames);
 
         self.create_requisites(&build_context, &copy_dependencies)
             .map_err(|message| ConverterError {
@@ -148,7 +152,11 @@ impl<'a> ParentImageBuilder<'a> {
             env: env_vars,
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(run_parent_cmd),
+            entrypoint: Some(vec![
+                run_parent_cmd,
+                "--platform".to_string(),
+                "snp".to_string(),
+            ]),
         }
     }
 
@@ -202,5 +210,65 @@ impl<'a> ParentImageBuilder<'a> {
                 .map(|e| e.to_mb())
                 .unwrap_or(GenericParentImageBuilder::DEFAULT_MEMORY_SIZE)
         )
+    }
+
+    // Moves blobs located at system to build context and returns filenames only
+    fn move_blobs_into_build_context(&self, build_context: &BuildContext) -> Result<Vec<String>> {
+        let blobs = self.collect_blob_paths()?;
+        let mut filenames = Vec::with_capacity(blobs.len());
+        for blob in blobs {
+            let filename = blob
+                .file_name()
+                .and_then(|f| f.to_str())
+                .ok_or(ConverterError {
+                    message: format!("Invalid path: {}", blob.display()),
+                    kind: ConverterErrorKind::RequisitesCreation,
+                })?;
+            let dest = build_context.path().join(filename);
+            move_file(blob.as_path(), &dest)?;
+            filenames.push(filename.to_owned());
+        }
+
+        Ok(filenames)
+    }
+
+    fn collect_blob_paths(&self) -> Result<Vec<PathBuf>> {
+        let mut ret = Vec::new();
+        let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
+
+        {
+            blobs_dir.push("OVMF.amdsev.fd");
+            let blob_path = blobs_dir.clone();
+            if !blob_path.exists() {
+                return Err(ConverterError {
+                    message: format!("OVMF file could not be found at: {}", blob_path.display()),
+                    kind: ConverterErrorKind::RequisitesCreation,
+                });
+            }
+            ret.push(blob_path);
+            blobs_dir.pop();
+        }
+
+        if self.start_options.enable_gpu_passthrough.unwrap_or(false) {
+            blobs_dir.push("kernel_enabled_gpu");
+        } else {
+            blobs_dir.push("kernel_disabled_gpu");
+        }
+
+        let kernel_blobs = vec!["bzImage", "bzImage.config"];
+        for blob in kernel_blobs {
+            blobs_dir.push(blob);
+            let blob_path = blobs_dir.clone();
+            if !blob_path.exists() {
+                return Err(ConverterError {
+                    message: format!("Blob {} could not be found!", blob_path.display()),
+                    kind: ConverterErrorKind::RequisitesCreation,
+                });
+            }
+            ret.push(blob_path);
+            blobs_dir.pop();
+        }
+
+        Ok(ret)
     }
 }

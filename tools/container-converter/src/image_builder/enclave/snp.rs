@@ -157,6 +157,7 @@ fn create_initramfs(
     // Add GPU modules if enabled
     if enclave_settings.gpu_passthrough {
         info!("Adding gpu modules to initramfs...");
+        blobs_dir.push("kernel_enabled_gpu");
         for module in EnclaveImageBuilder::GPU_MODULES {
             blobs_dir.push(module);
             let module_data = fs::read(&blobs_dir)?;
@@ -164,6 +165,7 @@ fn create_initramfs(
             let path = format!("lib/modules/{}", module);
             fs_tree = fs_tree.add_file(&path, Cursor::new(module_data));
         }
+        blobs_dir.pop();
     }
 
     info!("Building initramfs, it may take a while depending on size of it...");
@@ -219,7 +221,7 @@ fn add_enclave_base_to_initramfs(
         fs_tree = if entry_type.is_dir() {
             fs_tree.add_directory_with_permissions(&target_path, mode)
         } else if entry_type.is_symlink() || entry_type.is_hard_link() {
-            // TODO: For now we're treating hardlink as softlink.
+            // TODO: For now we're treating a hardlink as an softlink.
             // Hard link support is to be added to the fortanix-vme-initramfs.
             let link_target = entry
                 .link_name()?

@@ -144,7 +144,11 @@ impl<'a> ParentImageBuilder<'a> {
             env: env_vars.to_vec(),
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(run_parent_cmd),
+            entrypoint: Some(vec![
+                run_parent_cmd,
+                "--platform".to_string(),
+                "nitro".to_string(),
+            ]),
         }
     }
 

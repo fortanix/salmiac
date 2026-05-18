@@ -50,23 +50,13 @@ impl<'a> ParentImageBuilder<'a> {
         },
     ];
 
+    // Moves the files produced by enclave image builders
+    // into the build context.
     pub(crate) fn move_enclave_files_into_build_context(
         &self,
         build_context_dir: &Path,
         enclave_file: &str,
     ) -> Result<()> {
-        fn move_file(from: &Path, to: &Path) -> Result<()> {
-            fs::rename(from, to).map_err(|message| ConverterError {
-                message: format!(
-                    "Failed moving file {} into build context {}. {:?}",
-                    from.display(),
-                    to.display(),
-                    message
-                ),
-                kind: ConverterErrorKind::RequisitesCreation,
-            })
-        }
-
         move_file(
             &self.dir.path().join(enclave_file),
             &build_context_dir.join(enclave_file),
@@ -87,4 +77,16 @@ impl<'a> ParentImageBuilder<'a> {
             }
         })
     }
+}
+
+pub(crate) fn move_file(from: &Path, to: &Path) -> Result<()> {
+    fs::rename(from, to).map_err(|message| ConverterError {
+        message: format!(
+            "Failed moving file {} into build context {}. {:?}",
+            from.display(),
+            to.display(),
+            message
+        ),
+        kind: ConverterErrorKind::RequisitesCreation,
+    })
 }

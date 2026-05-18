@@ -85,7 +85,11 @@ impl fmt::Display for ConverterError {
 
 impl Error for ConverterError {}
 
+#[cfg(platform = "nitro")]
 const PARENT_IMAGE: &str = "parent-base";
+
+#[cfg(platform = "snp")]
+const PARENT_IMAGE: &str = "parent-base-snp";
 
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
@@ -174,9 +178,12 @@ async fn run0(
     info!("Building enclave image!");
     let image_result = {
         let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
-            if cfg!(platform = "nitro") {
+            #[cfg(platform = "nitro")]
+            {
                 ENCLAVE_IMAGE.to_string()
-            } else if cfg!(platform = "snp") {
+            }
+            #[cfg(platform = "snp")]
+            {
                 if conversion_request
                     .enclaves_options
                     .enable_gpu_passthrough
@@ -186,8 +193,6 @@ async fn run0(
                 } else {
                     ENCLAVE_IMAGE.to_string()
                 }
-            } else {
-                unreachable!("Missing platform");
             }
         });
         info!("Enclave base image is {}", enclave_base_image_str);
