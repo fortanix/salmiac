@@ -6,7 +6,7 @@
 
 use std::fs;
 use std::io::{Cursor, Error as IoError, ErrorKind as IoErrorKind, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::snp::SNPEnclavesMeasurements;
@@ -16,7 +16,6 @@ use log::{info, warn};
 use nix::sys::stat::SFlag;
 use tar::{Archive, EntryType};
 
-use crate::file::Resource;
 use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::INSTALLATION_DIR;
@@ -27,23 +26,8 @@ pub(crate) struct EnclaveImageBuilder<'a> {
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
-    const INIT_BIN: Resource<'static> = Resource {
-        name: "init",
-        data: include_bytes!("../../resources/enclave/init"),
-        is_executable: true,
-    };
-    const GPU_MODULES: &'static [Resource<'static>] = &[
-        Resource {
-            name: "nvidia.ko",
-            data: include_bytes!("../../resources/enclave/kernel_enabled_gpu/nvidia.ko"),
-            is_executable: false,
-        },
-        Resource {
-            name: "nvidia-uvm.ko",
-            data: include_bytes!("../../resources/enclave/kernel_enabled_gpu/nvidia-uvm.ko"),
-            is_executable: false,
-        },
-    ];
+    const INIT_BIN: &'static str = "init";
+    const GPU_MODULES: &'static [&'static str] = &["nvidia.ko", "nvidia-uvm.ko"];
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
 
     pub(crate) async fn create_image(
@@ -123,10 +107,18 @@ fn create_initramfs(
         "enclave",
     );
 
+    let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
+    let init = {
+        blobs_dir.push(EnclaveImageBuilder::INIT_BIN);
+        let init_data = fs::read(&blobs_dir)?;
+        blobs_dir.pop();
+        init_data
+    };
+
     let mut fs_tree = FsTree::new()
         .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
         .add_file("cmd", Cursor::new(run_cmd))
-        .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data));
+        .add_executable("init", Cursor::new(init));
 
     // Add enclave-base filesystem to rootfs
     info!("Adding enclave-base filesystem to initramfs rootfs...");
@@ -166,8 +158,11 @@ fn create_initramfs(
     if enclave_settings.gpu_passthrough {
         info!("Adding gpu modules to initramfs...");
         for module in EnclaveImageBuilder::GPU_MODULES {
-            let path = format!("lib/modules/{}", module.name);
-            fs_tree = fs_tree.add_file(&path, Cursor::new(module.data));
+            blobs_dir.push(module);
+            let module_data = fs::read(&blobs_dir)?;
+            blobs_dir.pop();
+            let path = format!("lib/modules/{}", module);
+            fs_tree = fs_tree.add_file(&path, Cursor::new(module_data));
         }
     }
 
@@ -224,7 +219,8 @@ fn add_enclave_base_to_initramfs(
         fs_tree = if entry_type.is_dir() {
             fs_tree.add_directory_with_permissions(&target_path, mode)
         } else if entry_type.is_symlink() || entry_type.is_hard_link() {
-            // TODO: For now we're treating hardlink as softlink. Hard link support is to be added.
+            // TODO: For now we're treating hardlink as softlink.
+            // Hard link support is to be added to the fortanix-vme-initramfs.
             let link_target = entry
                 .link_name()?
                 .ok_or(IoError::new(IoErrorKind::Other, "Missing link target"))?;
@@ -235,7 +231,6 @@ fn add_enclave_base_to_initramfs(
         } else {
             let mut data = Vec::new();
             entry.read_to_end(&mut data)?;
-            info!("Target path: {}, mode: {}", target_path, mode);
             fs_tree.add_file_with_permissions(&target_path, Cursor::new(data), mode)
         }
     }

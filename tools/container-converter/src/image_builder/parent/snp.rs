@@ -13,7 +13,7 @@ use docker_image_reference::Reference as DockerReference;
 use log::info;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource, UnixFile};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile, UnixFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::snp::EnclaveImageBuilder as SnpEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveImageBuilder;
@@ -27,18 +27,6 @@ pub(crate) struct ParentImageBuilder<'a> {
 }
 
 impl<'a> ParentImageBuilder<'a> {
-    pub(crate) const KERNEL_DISABLED_GPU: Resource<'static> = Resource {
-        name: "bzImage",
-        data: include_bytes!("../../resources/enclave/kernel_disabled_gpu/bzImage"),
-        is_executable: false,
-    };
-
-    pub(crate) const KERNEL_ENABLED_GPU: Resource<'static> = Resource {
-        name: "bzImage",
-        data: include_bytes!("../../resources/enclave/kernel_enabled_gpu/bzImage"),
-        is_executable: false,
-    };
-
     pub(crate) const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
         GenericParentImageBuilder::STARTUP_SCRIPT_NAME,
         GenericParentImageBuilder::BINARY_NAME,
@@ -114,15 +102,6 @@ impl<'a> ParentImageBuilder<'a> {
         build_context.create_docker_file(&docker_file)?;
 
         build_context.create_resources(GenericParentImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
-
-        let gpu_enabled = self.start_options.enable_gpu_passthrough.unwrap_or(false);
-
-        let kernel_resource = if gpu_enabled {
-            Self::KERNEL_ENABLED_GPU
-        } else {
-            Self::KERNEL_DISABLED_GPU
-        };
-        build_context.create_resource(kernel_resource)?;
 
         let startup_script_path = build_context
             .path()

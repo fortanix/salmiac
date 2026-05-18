@@ -35,8 +35,6 @@ url = "2.2.2"
 
 [build-dependencies]
 salmiac-build-support = { path = "../../build-support" }
-tar = { git = "https://github.com/alexcrichton/tar-rs" }
-ureq = "2.5"
 
 [dev-dependencies]
 chrono = "0.4.22"

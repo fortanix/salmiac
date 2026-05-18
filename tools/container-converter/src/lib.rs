@@ -89,6 +89,9 @@ const PARENT_IMAGE: &str = "parent-base";
 
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
+#[cfg(platform = "snp")]
+const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
+
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
 
@@ -170,7 +173,23 @@ async fn run0(
 
     info!("Building enclave image!");
     let image_result = {
-        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
+        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
+            if cfg!(platform = "nitro") {
+                ENCLAVE_IMAGE.to_string()
+            } else if cfg!(platform = "snp") {
+                if conversion_request
+                    .enclaves_options
+                    .enable_gpu_passthrough
+                    .unwrap_or_default()
+                {
+                    ENCLAVE_IMAGE_SNP_GPU.to_string()
+                } else {
+                    ENCLAVE_IMAGE.to_string()
+                }
+            } else {
+                unreachable!("Missing platform");
+            }
+        });
         info!("Enclave base image is {}", enclave_base_image_str);
 
         let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
