@@ -1,17 +1,58 @@
 #!/bin/bash
 # This is an entry point script for parent image.
-# Its main purpose is to setup env vars for nitro tooling and pre-setup networking.
+# Its main purpose is to setup env vars for nitro/snp tooling and pre-setup networking.
 # Enclave start and connection code is applied dynamically to the bottom of this file by the converter.
 
 # Allow job control in interactive mode. This is used by the code that is
 # appended to this script by the converter.
-set -m
+set -em
 
-# Setup nitro environment
-source /etc/profile.d/nitro-cli-env.sh
+PLATFORM="nitro"
 
-# Check if nitro-cli is properly installed
-nitro-cli --version
+show_help() {
+    echo "Usage: $0 [options]"
+    echo ""
+    echo "Options:"
+    echo "  --platform PLATFORM  Target platform: 'snp' or 'nitro' (default: nitro)"
+    echo "  --help               Show this help message"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --platform)
+            if [[ "$2" == "snp" || "$2" == "nitro" ]]; then
+                PLATFORM="$2"
+                shift 2
+            else
+                echo "Error: Invalid platform '$2'. Must be 'snp' or 'nitro'."
+                show_help
+                exit 1
+            fi
+            ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ "$PLATFORM" == "nitro" ]; then
+    # Setup nitro environment
+    source /etc/profile.d/nitro-cli-env.sh
+
+    # Check if nitro-cli is properly installed
+    nitro-cli --version
+elif [ "$PLATFORM" == "snp" ]; then
+    # Check if qemu is properly installed
+    qemu-system-x86_64 --version
+fi
 
 # Check if nbd-server is properly installed
 nbd-server -V

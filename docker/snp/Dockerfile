@@ -1,5 +1,5 @@
 # Download OVMF and EFI boot stubb
-FROM ubuntu:25.10 as apt_extract
+FROM ubuntu:25.10 AS apt_extract
 RUN DEBIAN_FRONTEND=noninteractive apt-get update
 
 RUN mkdir -p /blob
@@ -15,18 +15,29 @@ cp ovmf_dir/usr/share/ovmf/OVMF.amdsev.fd /blob
 
 FROM ubuntu:24.04
 
-RUN mkdir -p /var/log/snp_enclaves
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y cryptsetup-bin
+
+RUN mkdir -p /var/log/enclave-os
 
 WORKDIR /app
 
 COPY staging/server staging/parent-base.tar staging/enclave-base.tar staging/enclave-base-gpu.tar /app/
 
-COPY --from=apt_extract /blob /usr/share/snp_enclaves/blobs
-COPY kernel_disabled_gpu/.config /usr/share/snp_enclaves/blobs/kernel_disabled_gpu/bzImage.config
-COPY kernel_disabled_gpu/bzImage /usr/share/snp_enclaves/blobs/kernel_disabled_gpu/bzImage
-COPY kernel_enabled_gpu/.config /usr/share/snp_enclaves/blobs/kernel_enabled_gpu/bzImage.config
-COPY kernel_enabled_gpu/bzImage /usr/share/snp_enclaves/blobs/kernel_enabled_gpu/bzImage
-COPY kernel_enabled_gpu/nvidia-uvm.ko /usr/share/snp_enclaves/blobs/kernel_enabled_gpu/nvidia-uvm.ko
-COPY kernel_enabled_gpu/nvidia.ko /usr/share/snp_enclaves/blobs/kernel_enabled_gpu/nvidia.ko
+COPY --from=apt_extract /blob /opt/fortanix/enclave-os/blobs
+
+# Copy gpu disabled artifacts
+COPY kernel_disabled_gpu/init /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/init
+COPY kernel_disabled_gpu/.config /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/bzImage.config
+COPY kernel_disabled_gpu/bzImage /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/bzImage
+
+# Copy gpu enabled artifacts
+COPY kernel_enabled_gpu/init /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/init
+COPY kernel_enabled_gpu/.config /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/bzImage.config
+COPY kernel_enabled_gpu/bzImage /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/bzImage
+COPY kernel_enabled_gpu/nvidia-uvm.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia-uvm.ko
+COPY kernel_enabled_gpu/nvidia.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia.ko
 
 ENTRYPOINT [ "./server" ]

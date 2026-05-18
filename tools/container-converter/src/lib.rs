@@ -85,9 +85,16 @@ impl fmt::Display for ConverterError {
 
 impl Error for ConverterError {}
 
+#[cfg(platform = "nitro")]
 const PARENT_IMAGE: &str = "parent-base";
 
+#[cfg(platform = "snp")]
+const PARENT_IMAGE: &str = "parent-base-snp";
+
 const ENCLAVE_IMAGE: &str = "enclave-base";
+
+#[cfg(platform = "snp")]
+const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
 
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
@@ -170,7 +177,9 @@ async fn run0(
 
     info!("Building enclave image!");
     let image_result = {
-        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or(ENCLAVE_IMAGE.to_string());
+        let enclave_base_image_str = PlatformEnclaveImageBuilder::get_enclave_base_image_name(
+            &conversion_request.enclaves_options,
+        );
         info!("Enclave base image is {}", enclave_base_image_str);
 
         let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
