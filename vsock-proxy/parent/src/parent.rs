@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{env, fs};
@@ -31,6 +31,7 @@ use shared::{
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time::{sleep, Duration, Instant};
 use tokio_vsock::{VsockListener as AsyncVsockListener, VsockStream as AsyncVsockStream};
 
 use crate::network::{
@@ -60,6 +61,10 @@ const VSOCK_PARENT_PORT: u32 = 5006;
 const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
 const CLIENT_LOG_STREAMS: [StreamType; 2] = [StreamType::Stdout, StreamType::Stderr];
+
+const NBD_SERVER_READY_TIMEOUT: Duration = Duration::from_secs(5);
+const NBD_SERVER_READY_RETRY_INTERVAL: Duration = Duration::from_millis(50);
+const TCP_LISTEN_STATE: &str = "0A";
 
 async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     loop {
@@ -112,7 +117,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     let tap_l3_address = setup_result.private_tap.tap_l3_address.ip();
 
     let mut log_listeners = setup_log_listeners(tap_l3_address).await?;
-    let mut background_tasks = start_background_tasks(setup_result)?;
+    let mut background_tasks = start_background_tasks(setup_result).await?;
 
     let log_ports = get_log_sock_addrs(&mut log_listeners)?;
     info!("Client log listeners set up.");
@@ -378,6 +383,39 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
     }
 }
 
+async fn wait_for_nbd_server(address: IpAddr, port: u16) -> Result<(), String> {
+    let address = match address {
+        IpAddr::V4(address) => address,
+        IpAddr::V6(address) => return Err(format!("IPv6 NBD readiness check is not supported for {address}")),
+    };
+
+    let start = Instant::now();
+
+    while start.elapsed() < NBD_SERVER_READY_TIMEOUT {
+        if tcp_port_is_listening(address, port)? {
+            return Ok(());
+        }
+
+        sleep(NBD_SERVER_READY_RETRY_INTERVAL).await;
+    }
+
+    Err(format!(
+        "nbd-server did not start listening on {address}:{port} within {:?}",
+        NBD_SERVER_READY_TIMEOUT
+    ))
+}
+
+fn tcp_port_is_listening(address: Ipv4Addr, port: u16) -> Result<bool, String> {
+    let expected = format!("{:08X}:{port:04X}", u32::from_le_bytes(address.octets()));
+    let proc_net_tcp = fs::read_to_string("/proc/net/tcp").map_err(|err| format!("failed to read /proc/net/tcp: {err}"))?;
+
+    Ok(proc_net_tcp.lines().skip(1).any(|line| {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+
+        fields.len() > 3 && fields[1].eq_ignore_ascii_case(&expected) && fields[3] == TCP_LISTEN_STATE
+    }))
+}
+
 /// Start the dnsmasq process. dnsmasq is a DNS server/proxy. We configure dnsmasq to listen
 /// on the fortanix-tap0 device, so that device must be set up first before we start dnsmasq.
 /// dnsmasq will refuse to run if the configured interface is not present when it starts.
@@ -444,7 +482,7 @@ async fn run_log_listeners(
     Ok(tasks)
 }
 
-fn start_background_tasks(
+async fn start_background_tasks(
     parent_setup_result: ParentSetupResult,
 ) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
@@ -457,22 +495,27 @@ fn start_background_tasks(
     }
 
     let private_device = parent_setup_result.private_tap;
-    let private_tap_loops =
-        start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
+    let private_tap_l3_address = private_device.tap_l3_address.ip();
+    let private_tap_loops = start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
 
     result.push(private_tap_loops.tap_to_vsock);
     result.push(private_tap_loops.vsock_to_tap);
 
-    write_nbd_config(private_device.tap_l3_address.ip(), NBD_EXPORTS)?;
+    write_nbd_config(private_tap_l3_address, NBD_EXPORTS)?;
 
     for export_config in NBD_EXPORTS {
         let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
         info!(
-            "Started nbd server on port {} serving block file {}",
+            "Spawned nbd server on port {} serving block file {}",
             export_config.port, export_config.block_file_path
         );
 
         result.push(nbd_process);
+    }
+
+    for export_config in NBD_EXPORTS {
+        wait_for_nbd_server(private_tap_l3_address, export_config.port).await?;
+        info!("NBD server on port {} is ready.", export_config.port);
     }
 
     if parent_setup_result.start_dnsmasq {
