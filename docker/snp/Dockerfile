@@ -5,20 +5,27 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update
 RUN mkdir -p /blob
 
 RUN apt-get download systemd-boot-efi && \
-dpkg -x systemd-boot-efi*.deb system_boot_efi_dir &&\
-cp system_boot_efi_dir/usr/lib/systemd/boot/efi/linuxx64.efi.stub /blob
-
+    dpkg -x systemd-boot-efi*.deb system_boot_efi_dir && \
+    cp system_boot_efi_dir/usr/lib/systemd/boot/efi/linuxx64.efi.stub /blob
 
 RUN apt-get download ovmf && \
-dpkg -x ovmf*.deb ovmf_dir && \
-cp ovmf_dir/usr/share/ovmf/OVMF.amdsev.fd /blob
+    dpkg -x ovmf*.deb ovmf_dir && \
+    cp ovmf_dir/usr/share/ovmf/OVMF.amdsev.fd /blob
 
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
-    apt-get install -y cryptsetup-bin
+    apt-get install -y \
+        cryptsetup-bin \
+        python3 \
+        python3-pip \
+        git
+
+COPY staging/sev-snp-measure /opt/sev-snp-measure
+RUN pip install --break-system-packages -r /opt/sev-snp-measure/requirements.txt && \
+    chmod +x /opt/sev-snp-measure/measure.py
 
 RUN mkdir -p /var/log/enclave-os
 
