@@ -14,6 +14,9 @@ docker save -o ./staging/enclave-base.tar enclave-base
 docker save -o ./staging/enclave-base-gpu.tar enclave-base-snp-gpu
 docker save -o ./staging/parent-base.tar parent-base-snp
 
+# Stage sev-snp-measure tooling for the converter image
+cp -r ../../tools/sev-snp-measure ./staging/sev-snp-measure
+
 # Build the converter
 docker build -t snp-converter .
 #docker build --no-cache -t snp-converter .
