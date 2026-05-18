@@ -4,10 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::env;
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
+use api_model::nitro::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
 use serde::Deserialize;
@@ -175,5 +177,11 @@ impl<'a> EnclaveImageBuilder<'a> {
         info!("Nitro image has been created!");
 
         Ok(nitro_measurements)
+    }
+
+    pub(crate) fn get_enclave_base_image_name(
+        _enclaves_options: &NitroEnclavesConversionRequestOptions,
+    ) -> String {
+        env::var("ENCLAVE_IMAGE").unwrap_or(crate::ENCLAVE_IMAGE.to_owned())
     }
 }

@@ -15,7 +15,8 @@ clap = "2.33"
 docker-image-reference = "0.1.0"
 env_logger = "0.7"
 exitcode = "1.1.2"
-fortanix-vme-initramfs = { git = "https://github.com/fortanix/rust-sgx.git" }
+# TODO: Remove branch once https://github.com/fortanix/rust-sgx/pull/931 is merged.
+fortanix-vme-initramfs = { git = "https://github.com/fortanix/rust-sgx.git", branch = "sinan/rte-941-add-initramfs-symlink-support" }
 futures = "0.3"
 http = "0.2.8"
 lazy_static = "1.4.0"
@@ -35,8 +36,6 @@ url = "2.2.2"
 
 [build-dependencies]
 salmiac-build-support = { path = "../../build-support" }
-tar = { git = "https://github.com/alexcrichton/tar-rs" }
-ureq = "2.5"
 
 [dev-dependencies]
 chrono = "0.4.22"

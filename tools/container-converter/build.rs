@@ -23,12 +23,13 @@ const RESOURCES_PARENT_DIR: &str = "src/resources/parent";
 const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    println!("cargo:rerun-if-changed=../../vsock-proxy/src");
+    println!("cargo:rerun-if-changed=../../vsock-proxy/Cargo.toml");
+    println!("cargo:rerun-if-changed=../../enclave-startup/src");
+    println!("cargo:rerun-if-changed=../../enclave-startup/Cargo.toml");
+
     if let Err(err) = Platform::emit_cfg_from_env() {
         panic!("{}", err);
-    }
-
-    if Platform::from_env().expect("SALMIAC_PLATFORM must be set") == Platform::Snp {
-        download_snp_enclave_artifacts();
     }
 
     let (bin_dir, cargo_build_flag) = if cfg!(debug_assertions) {
@@ -57,11 +58,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let current_dir = env::current_dir().expect("Failed retrieving current directory");
 
     let status = {
+        let platform =
+            env::var(SALMIAC_PLATFORM_ENV).unwrap_or_else(|_| SALMIAC_PLATFORM.to_string());
         let mut result = Command::new("cargo");
 
         result
             .current_dir(current_dir.join("../../vsock-proxy"))
-            .env(SALMIAC_PLATFORM_ENV, SALMIAC_PLATFORM)
+            .env(SALMIAC_PLATFORM_ENV, platform)
             .arg("build");
 
         if let Some(build_flag) = cargo_build_flag {
@@ -121,38 +124,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     .expect("Failed to copy enclave-startup bin");
 
     Ok(())
-}
-
-fn download_snp_enclave_artifacts() {
-    let resources_enclave_dir = Path::new(RESOURCES_ENCLAVE_DIR);
-
-    fs::create_dir_all(resources_enclave_dir).expect(&format!(
-        "Failed creating {} dir",
-        resources_enclave_dir.display()
-    ));
-
-    let init_dest = resources_enclave_dir.join("init");
-    if init_dest.exists() {
-        fs::remove_file(&init_dest).expect("Failed to remove existing init bin");
-    }
-
-    fs::copy("/opt/fortanix/confidential-vm-blobs/init", init_dest)
-        .expect("Failed to copy init bin");
-
-    let kernel_artifacts_url = "https://s3.us-west-1.amazonaws.com/downloads.fortanix.com/salmiac/snp/kernel-artifacts-v1.tar";
-
-    let response = ureq::get(kernel_artifacts_url)
-        .call()
-        .expect("Failed to download kernel artifacts");
-
-    assert!(
-        response.status() == 200,
-        "Failed to download kernel artifacts: {}",
-        response.status()
-    );
-
-    let mut archive = tar::Archive::new(response.into_reader());
-    archive
-        .unpack(resources_enclave_dir)
-        .expect("Failed to extract kernel artifacts");
 }

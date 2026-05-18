@@ -152,6 +152,25 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         archive_path: &Path,
     ) -> Result<Archive<File>> {
+        self.export_docker_image_file_system(docker_util, archive_path, self.client_image_reference)
+            .await
+    }
+
+    pub(crate) async fn export_enclave_base_file_system(
+        &self,
+        docker_util: &dyn DockerUtil,
+        archive_path: &Path,
+    ) -> Result<Archive<File>> {
+        self.export_docker_image_file_system(docker_util, archive_path, self.enclave_base_image)
+            .await
+    }
+
+    async fn export_docker_image_file_system(
+        &self,
+        docker_util: &dyn DockerUtil,
+        archive_path: &Path,
+        docker_reference: &DockerReference<'_>,
+    ) -> Result<Archive<File>> {
         let mut archive_file = fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -168,7 +187,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
 
         docker_util
-            .export_image_file_system(&self.client_image_reference, &mut archive_file)
+            .export_image_file_system(docker_reference, &mut archive_file)
             .await
             .map_err(|message| ConverterError {
                 message,

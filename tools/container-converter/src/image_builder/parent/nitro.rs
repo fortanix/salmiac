@@ -4,8 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::fs;
-use std::io::Write;
 use std::path::Path;
 
 use api_model::nitro::NitroEnclavesConversionRequestOptions;
@@ -13,7 +11,7 @@ use docker_image_reference::Reference as DockerReference;
 use log::info;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, UnixFile};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::EnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
@@ -103,7 +101,8 @@ impl<'a> ParentImageBuilder<'a> {
             .path()
             .join(crate::image_builder::parent::ParentImageBuilder::STARTUP_SCRIPT_NAME);
 
-        self.append_start_enclave_command(&startup_script_path)?;
+        self.parent_image_builder
+            .append_start_enclave_command(&startup_script_path)?;
 
         if cfg!(debug_assertions) {
             file::log_file(&startup_script_path)?;
@@ -144,42 +143,12 @@ impl<'a> ParentImageBuilder<'a> {
             env: env_vars.to_vec(),
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(run_parent_cmd),
+            entrypoint: Some(vec![
+                run_parent_cmd,
+                "--platform".to_string(),
+                "nitro".to_string(),
+            ]),
         }
-    }
-
-    fn append_start_enclave_command(
-        &self,
-        startup_script_path: &Path,
-    ) -> std::result::Result<(), String> {
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(startup_script_path)
-            .map_err(|err| format!("Failed to open parent startup script {:?}", err))?;
-
-        let start_enclave_command = self.start_enclave_command();
-
-        file.write_all(start_enclave_command.as_bytes())
-            .map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-        file.set_execute()
-            .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
-
-        Ok(())
-    }
-
-    fn start_enclave_command(&self) -> String {
-        let install_path = Path::new(INSTALLATION_DIR);
-        let parent_bin = install_path.join("parent");
-        // We start the parent side of the vsock proxy before running the enclave because we want it running
-        // first. The nitro-cli run-enclave command exits after starting the enclave, so the parent process
-        // of our container will stay running as long as the parent process stays running.
-        format!(
-            "\n\
-             # Parent startup code \n\
-             {} \"$@\" ",
-            parent_bin.display()
-        )
     }
 
     fn cpu_count_env_var(&self) -> String {

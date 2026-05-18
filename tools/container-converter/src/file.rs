@@ -189,7 +189,7 @@ pub(crate) struct DockerFile {
 
     pub(crate) cmd: Option<String>,
 
-    pub(crate) entrypoint: Option<String>,
+    pub(crate) entrypoint: Option<Vec<String>>,
 }
 
 impl ToString for DockerFile {
@@ -213,7 +213,12 @@ impl ToString for DockerFile {
         }
 
         if let Some(entrypoint) = &self.entrypoint {
-            result.push_str(&format!("ENTRYPOINT [\"{}\"] \n", entrypoint));
+            let entrypoint_str = entrypoint
+                .iter()
+                .map(|e| format!("\"{}\"", e))
+                .collect::<Vec<String>>()
+                .join(", ");
+            result.push_str(&format!("ENTRYPOINT [{}] \n", entrypoint_str));
         }
 
         result
