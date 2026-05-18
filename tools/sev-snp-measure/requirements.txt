@@ -1,0 +1,1 @@
+sev-snp-measure @ git+https://github.com/fortanix/sev-snp-measure.git@887f3812b61943672f6d5420043192195b2584ef

@@ -10,12 +10,14 @@ use std::{env, fs};
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::snp::{SNPEnclavesConversionRequestOptions, SNPEnclavesMeasurements};
-use api_model::HexString;
 use fortanix_vme_initramfs::{FsTree, Initramfs};
 use log::{info, warn};
 use nix::sys::stat::SFlag;
 use tar::{Archive, EntryType};
 
+use crate::image_builder::enclave::snp_measurement::{
+    compute_snp_launch_measurement, SnpMeasurementInputs,
+};
 use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::parent::snp::{BLOBS_SUBDIR_GPU_DISABLED, BLOBS_SUBDIR_GPU_ENABLED};
@@ -90,9 +92,24 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::EnclaveImageCreation,
         })?;
 
-        Ok(SNPEnclavesMeasurements {
-            launch_measurement: HexString::new(vec![0; 48]),
+        let blobs_dir = Path::new(INSTALLATION_DIR).join("blobs");
+        let ovmf_path = blobs_dir.join("OVMF.amdsev.fd");
+        let kernel_path = blobs_dir
+            .join(if enclave_settings.gpu_passthrough {
+                BLOBS_SUBDIR_GPU_ENABLED
+            } else {
+                BLOBS_SUBDIR_GPU_DISABLED
+            })
+            .join("bzImage");
+
+        compute_snp_launch_measurement(&SnpMeasurementInputs {
+            ovmf: &ovmf_path,
+            kernel: &kernel_path,
+            initrd: Some(&output_file_path),
+            cmdline: None,
+            vcpus: 1,
         })
+        .await
     }
 
     pub(crate) fn get_enclave_base_image_name(
