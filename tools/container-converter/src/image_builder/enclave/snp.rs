@@ -5,14 +5,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::fs;
-use std::io::{Cursor, Error, ErrorKind};
+use std::io::{Cursor, Error as IoError, ErrorKind as IoErrorKind, Read};
 use std::path::Path;
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::snp::SNPEnclavesMeasurements;
 use api_model::HexString;
 use fortanix_vme_initramfs::{FsTree, Initramfs};
-use log::info;
+use log::{info, warn};
+use nix::sys::stat::SFlag;
+use tar::{Archive, EntryType};
 
 use crate::file::Resource;
 use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
@@ -82,24 +84,25 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
+        let enclave_base_tar_path = work_dir.join("enclave-base.tar");
+        info!("Exporting enclave-base image...");
+        let enclave_base_archive = self
+            .enclave_image_builder
+            .export_enclave_base_file_system(input_repository, &enclave_base_tar_path)
+            .await?;
+
         let output_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
-        let output_file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&output_file_path)
-            .map_err(|e| ConverterError {
-                message: format!("Failed to create output CPIO file: {:?}", e),
-                kind: ConverterErrorKind::EnclaveImageCreation,
-            })?;
 
         info!("Creating initramfs archive...");
-        create_initramfs(output_file, &enclave_settings, &enclave_manifest_data).map_err(|e| {
-            ConverterError {
-                message: format!("Failed to create initramfs: {:?}", e),
-                kind: ConverterErrorKind::EnclaveImageCreation,
-            }
+        create_initramfs(
+            &output_file_path,
+            enclave_base_archive,
+            &enclave_settings,
+            &enclave_manifest_data,
+        )
+        .map_err(|e| ConverterError {
+            message: format!("Failed to create initramfs: {}", e),
+            kind: ConverterErrorKind::EnclaveImageCreation,
         })?;
 
         Ok(SNPEnclavesMeasurements {
@@ -109,10 +112,11 @@ impl<'a> EnclaveImageBuilder<'a> {
 }
 
 fn create_initramfs(
-    output_file: fs::File,
+    output_path: &Path,
+    mut enclave_base_archive: Archive<fs::File>,
     enclave_settings: &EnclaveSettings,
     enclave_manifest_data: &[u8],
-) -> std::io::Result<()> {
+) -> std::result::Result<(), IoError> {
     let run_cmd = GenericEnclaveImageBuilder::enclave_command_string(
         enclave_settings,
         &Path::new(INSTALLATION_DIR),
@@ -120,38 +124,121 @@ fn create_initramfs(
     );
 
     let mut fs_tree = FsTree::new()
-        .add_directory("rootfs")
+        .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
+        .add_file("cmd", Cursor::new(run_cmd))
+        .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data));
+
+    // Add enclave-base filesystem to rootfs
+    info!("Adding enclave-base filesystem to initramfs rootfs...");
+    fs_tree = add_enclave_base_to_initramfs(fs_tree, &mut enclave_base_archive)?;
+
+    // Add basic rootfs structure that `init` expects regardless of enclave-base has it or not
+    fs_tree = fs_tree
         .add_directory("rootfs/dev")
         .add_directory("rootfs/proc")
         .add_directory("rootfs/run")
         .add_directory("rootfs/sys")
         .add_directory("rootfs/tmp")
-        .add_directory("rootfs/bin")
-        .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
-        .add_file("cmd", Cursor::new(run_cmd))
-        .add_executable("init", Cursor::new(EnclaveImageBuilder::INIT_BIN.data))
-        .add_file(
-            &format!(
-                "rootfs{}/{}",
-                INSTALLATION_DIR,
-                GenericEnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE
-            ),
-            Cursor::new(enclave_manifest_data.to_vec()),
-        );
+        .add_directory("rootfs/bin");
 
-    // Add enclave, & enclave-startup from resources
+    // Add dependencies available as resource
     for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
         let path = format!("rootfs{}/{}", INSTALLATION_DIR, resource.name);
-        fs_tree = fs_tree.add_executable(&path, Cursor::new(resource.data));
+        let data = Cursor::new(resource.data);
+        fs_tree = if resource.is_executable {
+            fs_tree.add_executable(&path, data)
+        } else {
+            fs_tree.add_file(&path, data)
+        };
     }
 
+    // Add enclave-settings.json generated at runtime.
+    fs_tree = fs_tree.add_file(
+        &format!(
+            "rootfs{}/{}",
+            INSTALLATION_DIR,
+            GenericEnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE
+        ),
+        Cursor::new(enclave_manifest_data.to_vec()),
+    );
+
+    // Add GPU modules if enabled
     if enclave_settings.gpu_passthrough {
+        info!("Adding gpu modules to initramfs...");
         for module in EnclaveImageBuilder::GPU_MODULES {
             let path = format!("lib/modules/{}", module.name);
             fs_tree = fs_tree.add_file(&path, Cursor::new(module.data));
         }
     }
 
-    Initramfs::from_fs_tree(fs_tree, output_file).map_err(|e| Error::new(ErrorKind::Other, e))?;
+    info!("Building initramfs, it may take a while depending on size of it...");
+    let output_file = fs::File::create(output_path)?;
+    Initramfs::from_fs_tree(fs_tree, output_file).map_err(|e| {
+        IoError::new(
+            IoErrorKind::Other,
+            format!("Failed to build initramfs: {:?}", e),
+        )
+    })?;
+
+    info!("Built initramfs.gz at {}", output_path.display());
     Ok(())
+}
+
+fn add_enclave_base_to_initramfs(
+    mut fs_tree: FsTree,
+    enclave_base_archive: &mut tar::Archive<fs::File>,
+) -> std::result::Result<FsTree, IoError> {
+    let entries = enclave_base_archive.entries()?;
+    for entry in entries {
+        let mut entry = entry?;
+        let path = entry.path()?.to_path_buf();
+        let path_str = path.to_str().ok_or(IoError::new(
+            IoErrorKind::Other,
+            format!("Invalid path in archive: {:?}", path),
+        ))?;
+
+        let target_path = format!("rootfs/{}", path_str);
+
+        let header = entry.header();
+        // Some tar archives doesn't preserve modes.
+        let mut mode = header.mode().unwrap_or(0o644);
+
+        // Tar entries do not contains file type bits of mode, instead
+        // only contains permissions part. Here, we re-set the file type
+        // related bits.
+        let file_type = match header.entry_type() {
+            EntryType::Regular | EntryType::Continuous => SFlag::S_IFREG,
+            EntryType::Directory => SFlag::S_IFDIR,
+            EntryType::Symlink | EntryType::Link => SFlag::S_IFLNK,
+            rest => {
+                warn!("Unsupported tar entry type: {:?}, file: {}", rest, path_str);
+                return Err(IoError::new(
+                    IoErrorKind::Other,
+                    format!("Unsupported tar entry: {}", path_str),
+                ));
+            }
+        };
+        mode |= file_type.bits() as u32;
+
+        let entry_type = header.entry_type();
+        fs_tree = if entry_type.is_dir() {
+            fs_tree.add_directory_with_permissions(&target_path, mode)
+        } else if entry_type.is_symlink() || entry_type.is_hard_link() {
+            // TODO: For now we're treating hardlink as softlink. Hard link support is to be added.
+            let link_target = entry
+                .link_name()?
+                .ok_or(IoError::new(IoErrorKind::Other, "Missing link target"))?;
+            let link_target_str = link_target
+                .to_str()
+                .ok_or(IoError::new(IoErrorKind::Other, "Invalid symlink target"))?;
+            fs_tree.add_symlink_with_permissions(&target_path, link_target_str, mode)
+        } else {
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            info!("Target path: {}, mode: {}", target_path, mode);
+            fs_tree.add_file_with_permissions(&target_path, Cursor::new(data), mode)
+        }
+    }
+
+    Ok(fs_tree)
 }

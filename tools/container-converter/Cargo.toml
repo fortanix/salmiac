@@ -15,7 +15,7 @@ clap = "2.33"
 docker-image-reference = "0.1.0"
 env_logger = "0.7"
 exitcode = "1.1.2"
-fortanix-vme-initramfs = { git = "https://github.com/fortanix/rust-sgx.git" }
+fortanix-vme-initramfs = { git = "https://github.com/fortanix/rust-sgx.git", branch = "sinan/rte-941-add-initramfs-symlink-support" }
 futures = "0.3"
 http = "0.2.8"
 lazy_static = "1.4.0"
