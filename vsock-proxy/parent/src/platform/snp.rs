@@ -43,6 +43,11 @@ const SERIAL: &str = "telnet:0.0.0.0:4321,server,wait";
 // containers on single host
 const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3";
 
+const IOMMUFD_ID: &str = "iommufd0";
+const IOMMUFD_OBJECT: &str = "iommufd,id=iommufd0";
+const GPU_ROOT_PORT: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
+const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
+
 pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
@@ -81,7 +86,18 @@ async fn start_snp_guest() -> Result<(), String> {
         "sev-snp-guest,id={SNP_GUEST_ID},cbitpos={cbitpos},reduced-phys-bits={reduced_phys_bits},kernel-hashes=on,policy={policy}"
     );
 
-    let args = [
+    let gpu_device = match env::var("SNP_GPU_BDF") {
+        Ok(gpu_bdf) => {
+            require_vfio_device(&gpu_bdf)?;
+            require_file("IOMMUFD device", "/dev/iommu")?;
+            Some(format!(
+                "vfio-pci,host={gpu_bdf},bus=pci.1,iommufd={IOMMUFD_ID},romfile="
+            ))
+        }
+        Err(_) => None,
+    };
+
+    let mut args = vec![
         "-enable-kvm",
         "-display",
         "none",
@@ -114,6 +130,19 @@ async fn start_snp_guest() -> Result<(), String> {
         VSOCK_DEVICE,
     ];
 
+    if let Some(gpu_device) = gpu_device.as_deref() {
+        args.extend([
+            "-object",
+            IOMMUFD_OBJECT,
+            "-device",
+            GPU_ROOT_PORT,
+            "-device",
+            gpu_device,
+            "-fw_cfg",
+            FW_CFG_MMIO64,
+        ]);
+    }
+
     run_subprocess(QEMU_BINARY, &args).await
 }
 
@@ -127,4 +156,31 @@ fn require_file(description: &str, path: &str) -> Result<(), String> {
     } else {
         Err(format!("{description} not found at {path}"))
     }
+}
+
+fn require_vfio_device(bdf: &str) -> Result<(), String> {
+    let device_path = format!("/sys/bus/pci/devices/{bdf}");
+    require_file("GPU PCI device", &device_path)?;
+
+    let driver_path = format!("{device_path}/driver");
+    let driver = std::fs::read_link(&driver_path)
+        .map_err(|e| format!("failed reading GPU driver at {driver_path}: {e}"))?;
+
+    if driver.file_name().and_then(|name| name.to_str()) != Some("vfio-pci") {
+        return Err(format!("GPU {bdf} is not bound to vfio-pci"));
+    }
+
+    require_file("VFIO control device", "/dev/vfio/vfio")?;
+
+    let iommu_group_path = format!("{device_path}/iommu_group");
+    let iommu_group = std::fs::read_link(&iommu_group_path)
+        .map_err(|e| format!("failed reading IOMMU group for GPU {bdf}: {e}"))?;
+
+    let group = iommu_group
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("invalid IOMMU group path for GPU {bdf}"))?;
+
+    let vfio_group_path = format!("/dev/vfio/{group}");
+    require_file("VFIO group device", &vfio_group_path)
 }
