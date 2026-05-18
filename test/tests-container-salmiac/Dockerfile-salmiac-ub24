@@ -63,8 +63,12 @@ COPY tests /home/zircon-tests/tests/
 COPY docker-credential-ecr-login /usr/local/bin/
 COPY docker-config.json /home/zircon-tests/.docker/config.json
 COPY container-converter /home/zircon-tests/tests/tools/converter/bin/container-converter
-COPY amzn-linux-nbd/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
-COPY amzn-linux-nbd/bzImage /usr/share/nitro_enclaves/blobs/bzImage
+COPY amzn-linux-nbd/blobs/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
+COPY amzn-linux-nbd/blobs/bzImage /usr/share/nitro_enclaves/blobs/bzImage
+COPY amzn-linux-nbd/blobs/cmdline /usr/share/nitro_enclaves/blobs/cmdline
+COPY amzn-linux-nbd/blobs/init /usr/share/nitro_enclaves/blobs/init
+COPY amzn-linux-nbd/blobs/linuxkit /usr/share/nitro_enclaves/blobs/linuxkit
+COPY amzn-linux-nbd/blobs/nsm.ko /usr/share/nitro_enclaves/blobs/nsm.ko
 RUN mkdir /home/zircon-tests/tests/codegen && mkdir /home/zircon-tests/tests/codegen/python
 COPY generated_string_table.py /home/zircon-tests/tests/codegen/python
 
