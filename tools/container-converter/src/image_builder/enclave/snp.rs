@@ -18,6 +18,7 @@ use tar::{Archive, EntryType};
 
 use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
+use crate::image_builder::parent::snp::{BLOBS_SUBDIR_GPU_DISABLED, BLOBS_SUBDIR_GPU_ENABLED};
 use crate::image_builder::INSTALLATION_DIR;
 use crate::{ConverterError, ConverterErrorKind, Result};
 
@@ -109,9 +110,15 @@ fn create_initramfs(
 
     let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
     let init = {
+        if enclave_settings.gpu_passthrough {
+            blobs_dir.push(BLOBS_SUBDIR_GPU_ENABLED);
+        } else {
+            blobs_dir.push(BLOBS_SUBDIR_GPU_DISABLED);
+        }
         blobs_dir.push(EnclaveImageBuilder::INIT_BIN);
         let init_data = fs::read(&blobs_dir)?;
-        blobs_dir.pop();
+        blobs_dir.pop(); // gpu enabled/disabled subdir
+        blobs_dir.pop(); // blobs dir
         init_data
     };
 
@@ -157,7 +164,7 @@ fn create_initramfs(
     // Add GPU modules if enabled
     if enclave_settings.gpu_passthrough {
         info!("Adding gpu modules to initramfs...");
-        blobs_dir.push("kernel_enabled_gpu");
+        blobs_dir.push(BLOBS_SUBDIR_GPU_ENABLED);
         for module in EnclaveImageBuilder::GPU_MODULES {
             blobs_dir.push(module);
             let module_data = fs::read(&blobs_dir)?;

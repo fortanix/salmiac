@@ -23,6 +23,9 @@ use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 use super::move_file;
 
+pub(crate) const BLOBS_SUBDIR_GPU_ENABLED: &'static str = "kernel_enabled_gpu";
+pub(crate) const BLOBS_SUBDIR_GPU_DISABLED: &'static str = "kernel_disabled_gpu";
+
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: SNPEnclavesConversionRequestOptions,
@@ -250,9 +253,9 @@ impl<'a> ParentImageBuilder<'a> {
         }
 
         if self.start_options.enable_gpu_passthrough.unwrap_or(false) {
-            blobs_dir.push("kernel_enabled_gpu");
+            blobs_dir.push(BLOBS_SUBDIR_GPU_ENABLED);
         } else {
-            blobs_dir.push("kernel_disabled_gpu");
+            blobs_dir.push(BLOBS_SUBDIR_GPU_DISABLED);
         }
 
         let kernel_blobs = vec!["bzImage", "bzImage.config"];
