@@ -124,7 +124,7 @@ RUN apt-get update \
 COPY --from=qemu-builder /opt/qemu /opt/qemu
 ENV PATH="/opt/qemu/bin:${PATH}"
 
-COPY --from=parent-base /etc/dnsmasq.d /etc/dnsmasq.d
+COPY --from=parent-base dnsmasq.d /etc/dnsmasq.d
 
 # Fail-fast sanity check.
 RUN qemu-system-x86_64 --version
