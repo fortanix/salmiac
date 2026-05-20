@@ -131,7 +131,7 @@ fn create_initramfs(
     info!("Adding enclave-base filesystem to initramfs rootfs...");
     fs_tree = add_enclave_base_to_initramfs(fs_tree, &mut enclave_base_archive)?;
 
-    // Add basic rootfs structure that `init` expects regardless of enclave-base has it or not
+    // Ensure basic rootfs structure exists for `init`, even if missing from enclave-base.
     fs_tree = fs_tree
         .add_directory("rootfs/dev")
         .add_directory("rootfs/proc")

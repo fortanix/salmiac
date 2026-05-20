@@ -4,8 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use api_model::snp::SNPEnclavesConversionRequestOptions;
@@ -13,7 +11,7 @@ use docker_image_reference::Reference as DockerReference;
 use log::info;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, UnixFile};
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
 use crate::image_builder::enclave::snp::EnclaveImageBuilder as SnpEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveImageBuilder;
@@ -114,7 +112,8 @@ impl<'a> ParentImageBuilder<'a> {
             .path()
             .join(GenericParentImageBuilder::STARTUP_SCRIPT_NAME);
 
-        self.append_start_enclave_command(&startup_script_path)?;
+        self.parent_image_builder
+            .append_start_enclave_command(&startup_script_path)?;
 
         if cfg!(debug_assertions) {
             file::log_file(&startup_script_path)?;
@@ -161,38 +160,6 @@ impl<'a> ParentImageBuilder<'a> {
                 "snp".to_string(),
             ]),
         }
-    }
-
-    fn append_start_enclave_command(
-        &self,
-        startup_script_path: &Path,
-    ) -> std::result::Result<(), String> {
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(startup_script_path)
-            .map_err(|err| format!("Failed to open parent startup script {:?}", err))?;
-
-        let start_enclave_command = self.start_enclave_command();
-
-        file.write_all(start_enclave_command.as_bytes())
-            .map_err(|err| format!("Failed to write to file {:?}", err))?;
-
-        file.set_execute()
-            .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
-
-        Ok(())
-    }
-
-    fn start_enclave_command(&self) -> String {
-        let install_path = Path::new(INSTALLATION_DIR);
-        let parent_bin = install_path.join("parent");
-
-        format!(
-            "\n\
-             # Parent startup code \n\
-             {} \"$@\" ",
-            parent_bin.display()
-        )
     }
 
     fn cpu_count_env_var(&self) -> String {

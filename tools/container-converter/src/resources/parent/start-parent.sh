@@ -5,7 +5,7 @@
 
 # Allow job control in interactive mode. This is used by the code that is
 # appended to this script by the converter.
-set -m
+set -em
 
 PLATFORM="nitro"
 

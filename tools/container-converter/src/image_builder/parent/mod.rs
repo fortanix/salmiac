@@ -15,12 +15,14 @@ pub(crate) mod snp;
 pub(crate) use self::snp::ParentImageBuilder as PlatformParentImageBuilder;
 
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 use tempfile::TempDir;
 
-use crate::file::Resource;
+use crate::file::{Resource, UnixFile};
 use crate::image_builder::enclave::EnclaveImageBuilder;
+use crate::image_builder::INSTALLATION_DIR;
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub struct ParentImageBuilder<'a> {
@@ -65,6 +67,38 @@ impl<'a> ParentImageBuilder<'a> {
         move_file(
             &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
             &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+        )
+    }
+
+    fn append_start_enclave_command(
+        &self,
+        startup_script_path: &Path,
+    ) -> std::result::Result<(), String> {
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(startup_script_path)
+            .map_err(|err| format!("Failed to open parent startup script {:?}", err))?;
+
+        let start_enclave_command = self.start_enclave_command();
+
+        file.write_all(start_enclave_command.as_bytes())
+            .map_err(|err| format!("Failed to write to file {:?}", err))?;
+
+        file.set_execute()
+            .map_err(|err| format!("Cannot change permissions for a file {:?}", err))?;
+
+        Ok(())
+    }
+
+    fn start_enclave_command(&self) -> String {
+        let install_path = Path::new(INSTALLATION_DIR);
+        let parent_bin = install_path.join("parent");
+
+        format!(
+            "\n\
+             # Parent startup code \n\
+             {} \"$@\" ",
+            parent_bin.display()
         )
     }
 
