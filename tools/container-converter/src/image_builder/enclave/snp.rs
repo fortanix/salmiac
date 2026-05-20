@@ -122,15 +122,16 @@ fn create_initramfs(
 
     let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
     let init = {
-        if enclave_settings.gpu_passthrough {
-            blobs_dir.push(BLOBS_SUBDIR_GPU_ENABLED);
+        let subdir = if enclave_settings.gpu_passthrough {
+            BLOBS_SUBDIR_GPU_ENABLED
         } else {
-            blobs_dir.push(BLOBS_SUBDIR_GPU_DISABLED);
-        }
+            BLOBS_SUBDIR_GPU_DISABLED
+        };
+        blobs_dir.push(subdir);
         blobs_dir.push(EnclaveImageBuilder::INIT_BIN);
         let init_data = fs::read(&blobs_dir)?;
+        blobs_dir.pop(); // init_bin
         blobs_dir.pop(); // gpu enabled/disabled subdir
-        blobs_dir.pop(); // blobs dir
         init_data
     };
 
@@ -225,7 +226,14 @@ fn add_enclave_base_to_initramfs(
         let file_type = match header.entry_type() {
             EntryType::Regular | EntryType::Continuous => SFlag::S_IFREG,
             EntryType::Directory => SFlag::S_IFDIR,
-            EntryType::Symlink | EntryType::Link => SFlag::S_IFLNK,
+            EntryType::Symlink => SFlag::S_IFLNK,
+            EntryType::Link => {
+                warn!(
+                    "Hard link detected: {}, hard links are treated it as sym links...",
+                    path_str
+                );
+                SFlag::S_IFLNK
+            }
             rest => {
                 warn!("Unsupported tar entry type: {:?}, file: {}", rest, path_str);
                 return Err(IoError::new(
