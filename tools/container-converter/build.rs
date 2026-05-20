@@ -23,6 +23,11 @@ const RESOURCES_PARENT_DIR: &str = "src/resources/parent";
 const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    println!("cargo:rerun-if-changed=../../vsock-proxy/src");
+    println!("cargo:rerun-if-changed=../../vsock-proxy/Cargo.toml");
+    println!("cargo:rerun-if-changed=../../enclave-startup/src");
+    println!("cargo:rerun-if-changed=../../enclave-startup/Cargo.toml");
+
     if let Err(err) = Platform::emit_cfg_from_env() {
         panic!("{}", err);
     }
