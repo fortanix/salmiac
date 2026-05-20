@@ -53,11 +53,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let current_dir = env::current_dir().expect("Failed retrieving current directory");
 
     let status = {
+        let platform =
+            env::var(SALMIAC_PLATFORM_ENV).unwrap_or_else(|_| SALMIAC_PLATFORM.to_string());
         let mut result = Command::new("cargo");
 
         result
             .current_dir(current_dir.join("../../vsock-proxy"))
-            .env(SALMIAC_PLATFORM_ENV, SALMIAC_PLATFORM)
+            .env(SALMIAC_PLATFORM_ENV, platform)
             .arg("build");
 
         if let Some(build_flag) = cargo_build_flag {
