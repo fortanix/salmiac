@@ -2309,6 +2309,7 @@ dependencies = [
  "ipnetwork",
  "log 0.4.14",
  "rtnetlink",
+ "salmiac-build-support",
  "serde",
  "serde_cbor",
  "threadpool",
