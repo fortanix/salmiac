@@ -24,16 +24,28 @@ fn main() {
 
     // Run a build and copy the attestation client binary to include into the system
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let repos_dir = manifest_dir.parent().unwrap().parent().unwrap();
+    // `roche/salmiac/salmiac-runner/embedded-attestation-client` is the usual location for this manifest
+    let repos_dir = manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
 
     // EMBEDDED_ATTEST_CLIENT_ROCHE_NAME allows a developer to use a Roche directory name besides "roche"
-    let roche_repo_name =
-        env::var("EMBEDDED_ATTEST_CLIENT_ROCHE_NAME").unwrap_or("roche".to_string());
-    let roche_dir = repos_dir.join(roche_repo_name);
+    let roche_repo_name = env::var("EMBED_ATTEST_CLIENT_ROCHE_NAME").unwrap_or("roche".to_string());
+    // As an alternative, if Salmiac is out of tree from Roche (standalone),
+    // the Roche location can be indicated using EMBED_ATTEST_CLIENT_ROCHE_PATH
+    let roche_dir = if let Ok(roche_path) = env::var("EMBED_ATTEST_CLIENT_ROCHE_PATH") {
+        PathBuf::from(roche_path)
+    } else {
+        repos_dir.join(roche_repo_name)
+    };
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
     // Re-run the build if any of the source files in the Attestation Client project have changed
-    for entry in walkdir::WalkDir::new("foo")
+    for entry in walkdir::WalkDir::new(&attest_client_dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -44,8 +56,6 @@ fn main() {
 
     let target_profile = env::var("PROFILE").unwrap();
     let target_dir = roche_dir.join("target").join(&target_profile);
-    let bin_name = ATTESTATION_CLIENT_BIN_NAME;
-    // Command::new("cargo").args(["build", "--release"]).current_dir(attest_client_dir).status().unwrap();
 
     // Get the toolchain version used in Roche, as we cannot use the Salmiac toolchain
     let mut buf = String::new();
@@ -84,11 +94,14 @@ fn main() {
 
     // Copy the attestation client to the output directory
     std::fs::copy(
-        target_dir.join(bin_name),
-        Path::new(&out_dir).join(bin_name),
+        target_dir.join(ATTESTATION_CLIENT_BIN_NAME),
+        Path::new(&out_dir).join(ATTESTATION_CLIENT_BIN_NAME),
     )
     .expect("Could not copy attestation client binary");
 
     // Set the ATTESTATION_CLIENT_BIN_NAME name to be used
-    println!("cargo::rustc-env=ATTESTATION_CLIENT_BIN_NAME={}", bin_name);
+    println!(
+        "cargo::rustc-env=ATTESTATION_CLIENT_BIN_NAME={}",
+        ATTESTATION_CLIENT_BIN_NAME
+    );
 }
