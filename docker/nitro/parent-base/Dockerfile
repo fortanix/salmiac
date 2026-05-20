@@ -57,11 +57,7 @@ RUN apt-get update \
         kmod \
         libpcap-dev \
         nbd-server \
-        net-tools \
-        sudo \
         systemctl \
-        strace \
-        tcpdump \
     && apt-get upgrade -y
 
 # Copy nitro-cli files
