@@ -35,11 +35,16 @@ pub struct EmbeddedSnpAttestationClient {
     app_cert_file_name: PathBuf,
     app_cert_alt_names: Option<Vec<String>>,
     appconfig_id: Option<String>,
+    work_dir: Option<PathBuf>,
 }
 
 impl EmbeddedSnpAttestationClient {
     fn attest_client_path(&self) -> PathBuf {
         self.temp_dir.path().join(ATTESTATION_CLIENT_BIN_NAME)
+    }
+
+    pub fn temp_dir_path(&self) -> PathBuf {
+        self.temp_dir.path().to_path_buf()
     }
 
     /// Create a new instance of the embedded attestation client.
@@ -55,6 +60,7 @@ impl EmbeddedSnpAttestationClient {
             app_cert_file_name: PathBuf::from(APP_CERT_FILE_NAME),
             app_cert_alt_names: None,
             appconfig_id: None,
+            work_dir: None,
         };
         // Copy the binary to the directory
         let client_file_path = client.attest_client_path();
@@ -98,6 +104,11 @@ impl EmbeddedSnpAttestationClient {
         self
     }
 
+    pub fn work_dir(&mut self, work_dir: Option<PathBuf>) -> &mut Self {
+        self.work_dir = work_dir;
+        self
+    }
+
     /// Executes the Attestation Client. This will run a child process.
     /// If successful, this will create the local and remote attestation certificates.
     pub fn run(&self) -> Result<(), String> {
@@ -127,6 +138,10 @@ impl EmbeddedSnpAttestationClient {
         // Set the app config id, if configured
         if let Some(config_id) = &self.appconfig_id {
             cmd.env(APPCONFIG_ID_VAR_NAME, config_id);
+        }
+        // Set the work directory
+        if let Some(work_dir) = &self.work_dir {
+            cmd.current_dir(work_dir);
         }
 
         cmd.status().map_err(|e| e.to_string())?;
