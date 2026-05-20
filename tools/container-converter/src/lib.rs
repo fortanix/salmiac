@@ -177,24 +177,9 @@ async fn run0(
 
     info!("Building enclave image!");
     let image_result = {
-        let enclave_base_image_str = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
-            #[cfg(platform = "nitro")]
-            {
-                ENCLAVE_IMAGE.to_string()
-            }
-            #[cfg(platform = "snp")]
-            {
-                if conversion_request
-                    .enclaves_options
-                    .enable_gpu_passthrough
-                    .unwrap_or_default()
-                {
-                    ENCLAVE_IMAGE_SNP_GPU.to_string()
-                } else {
-                    ENCLAVE_IMAGE.to_string()
-                }
-            }
-        });
+        let enclave_base_image_str = PlatformEnclaveImageBuilder::get_enclave_base_image_name(
+            &conversion_request.enclaves_options,
+        );
         info!("Enclave base image is {}", enclave_base_image_str);
 
         let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;

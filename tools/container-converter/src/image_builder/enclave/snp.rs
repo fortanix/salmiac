@@ -4,12 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::fs;
 use std::io::{Cursor, Error as IoError, ErrorKind as IoErrorKind, Read};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
-use api_model::snp::SNPEnclavesMeasurements;
+use api_model::snp::{SNPEnclavesConversionRequestOptions, SNPEnclavesMeasurements};
 use api_model::HexString;
 use fortanix_vme_initramfs::{FsTree, Initramfs};
 use log::{info, warn};
@@ -92,6 +92,18 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         Ok(SNPEnclavesMeasurements {
             launch_measurement: HexString::new(vec![0; 48]),
+        })
+    }
+
+    pub(crate) fn get_enclave_base_image_name(
+        enclaves_options: &SNPEnclavesConversionRequestOptions,
+    ) -> String {
+        env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
+            if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+                crate::ENCLAVE_IMAGE_SNP_GPU.to_owned()
+            } else {
+                crate::ENCLAVE_IMAGE.to_owned()
+            }
         })
     }
 }
