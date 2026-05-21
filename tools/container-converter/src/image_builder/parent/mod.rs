@@ -14,6 +14,11 @@ pub(crate) mod snp;
 #[cfg(platform = "snp")]
 pub(crate) use self::snp::ParentImageBuilder as PlatformParentImageBuilder;
 
+#[cfg(platform = "simulator")]
+pub(crate) mod simulator;
+#[cfg(platform = "simulator")]
+pub(crate) use self::simulator::ParentImageBuilder as PlatformParentImageBuilder;
+
 use std::fs;
 use std::io::Write;
 use std::path::Path;

@@ -7,6 +7,8 @@
 pub mod nitro;
 #[cfg(platform = "snp")]
 pub mod snp;
+#[cfg(platform = "simulator")]
+pub mod simulator;
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -43,6 +45,9 @@ use crate::nitro::create_response;
 
 #[cfg(platform = "snp")]
 use crate::snp::create_response;
+
+#[cfg(platform = "simulator")]
+use crate::simulator::create_response;
 
 pub mod docker;
 pub mod file;
@@ -91,7 +96,14 @@ const PARENT_IMAGE: &str = "parent-base";
 #[cfg(platform = "snp")]
 const PARENT_IMAGE: &str = "parent-base-snp";
 
+#[cfg(platform = "simulator")]
+const PARENT_IMAGE: &str = "parent-base-simulator";
+
+#[cfg(any(platform = "nitro", platform = "snp"))]
 const ENCLAVE_IMAGE: &str = "enclave-base";
+
+#[cfg(platform = "simulator")]
+const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
 
 #[cfg(platform = "snp")]
 const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
