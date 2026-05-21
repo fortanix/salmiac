@@ -14,6 +14,11 @@ pub(crate) mod snp;
 #[cfg(platform = "snp")]
 pub(crate) use self::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 
+#[cfg(platform = "simulator")]
+pub(crate) mod simulator;
+#[cfg(platform = "simulator")]
+pub(crate) use self::simulator::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
@@ -28,6 +33,8 @@ use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserC
 use api_model::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
 #[cfg(platform = "snp")]
 use api_model::snp::SNPEnclavesConversionRequestOptions as EnclavesOptions;
+#[cfg(platform = "simulator")]
+use api_model::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
@@ -440,6 +447,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             // Mount the filesystem on the block file read-write (without dm-verity).
             // Block file will be automatically ummounted after this variable goes out of scope because we use `into_unmount_drop`.
             let _mount = Mount::builder()
+                .explicit_loopback()
                 .fstype("ext4")
                 .mount(block_file_path, mount_path)
                 .map(|e| e.into_unmount_drop(UnmountFlags::DETACH))

@@ -12,6 +12,8 @@ use std::{fs, sync::LazyLock};
 use container_converter::nitro as platform;
 #[cfg(platform = "snp")]
 use container_converter::snp as platform;
+#[cfg(platform = "simulator")]
+use container_converter::simulator as platform;
 
 static ABOUT: LazyLock<String> = LazyLock::new(|| {
     format!(
