@@ -114,11 +114,7 @@ fn create_initramfs(
     enclave_settings: &EnclaveSettings,
     enclave_manifest_data: &[u8],
 ) -> std::result::Result<(), IoError> {
-    let run_cmd = GenericEnclaveImageBuilder::enclave_command_string(
-        enclave_settings,
-        &Path::new(INSTALLATION_DIR),
-        "enclave",
-    );
+    let run_cmd = get_run_cmd(&enclave_settings);
 
     let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
     let init = {
@@ -136,7 +132,7 @@ fn create_initramfs(
     };
 
     let mut fs_tree = FsTree::new()
-        .add_file("env", Cursor::new(enclave_settings.env_vars.join("\n")))
+        .add_file("env", Cursor::new(get_env_vars(&enclave_settings.env_vars)))
         .add_file("cmd", Cursor::new(run_cmd))
         .add_executable("init", Cursor::new(init));
 
@@ -144,14 +140,16 @@ fn create_initramfs(
     info!("Adding enclave-base filesystem to initramfs rootfs...");
     fs_tree = add_enclave_base_to_initramfs(fs_tree, &mut enclave_base_archive)?;
 
-    // Ensure basic rootfs structure exists for `init`, even if missing from enclave-base.
+    // Set up minimal runtime directories. Do not create directories that exist
+    // in the target rootfs (e.g., /bin). Since we use mount --move to transition
+    // to the new root, pre-existing directories in the initramfs can interfere
+    // with the visibility of the rootfs contents or break symbolic links.
     fs_tree = fs_tree
         .add_directory("rootfs/dev")
         .add_directory("rootfs/proc")
         .add_directory("rootfs/run")
         .add_directory("rootfs/sys")
-        .add_directory("rootfs/tmp")
-        .add_directory("rootfs/bin");
+        .add_directory("rootfs/tmp");
 
     // Add dependencies available as resource
     for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
@@ -265,4 +263,24 @@ fn add_enclave_base_to_initramfs(
     }
 
     Ok(fs_tree)
+}
+
+// Extends the env variables set in conversion request with
+// the ones expected by `init` binary.
+fn get_env_vars(enclave_env_vars: &Vec<String>) -> String {
+    let mut env_vars = enclave_env_vars.clone();
+    // Add PATH env variables.
+    env_vars.push("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_owned());
+    env_vars.join("\n")
+}
+
+// Formats the command based on the expectation of `init` binary.
+fn get_run_cmd(enclave_settings: &EnclaveSettings) -> String {
+    let run_cmd = GenericEnclaveImageBuilder::enclave_command_string(
+        enclave_settings,
+        &Path::new(INSTALLATION_DIR),
+        "enclave",
+    );
+
+    format!("/bin/sh\n-c\n{}", run_cmd)
 }
