@@ -253,7 +253,7 @@ pub(crate) async fn create_fortanix_directories() -> Result<(), String> {
 }
 
 pub(crate) async fn copy_dns_file_to_mount() -> Result<(), String> {
-    const ENCLAVE_RUN_RESOLV_FILE: &str = "/run/resolvconf/resolv.conf";
+    let enclave_resolv_file = find_resolv_conf_path()?;
 
     let nbd_run_resolv_dir: &str = &format!("{}/run/resolvconf", ENCLAVE_FS_OVERLAY_ROOT);
 
@@ -274,24 +274,45 @@ pub(crate) async fn copy_dns_file_to_mount() -> Result<(), String> {
     // We copy resolv.conf from the enclave kernel into the block file mount point
     // so that DNS will work correctly after we do a `chroot`.
     // Using `/usr/bin/mount` to accomplish the same task doesn't seem to work.
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file)
+    fs::copy(enclave_resolv_file, nbd_run_resolv_file)
         .await
         .map_err(|err| {
             format!(
                 "Failed copying resolv file from {} to {}. {:?}",
-                ENCLAVE_RUN_RESOLV_FILE, nbd_run_resolv_file, err
+                enclave_resolv_file, nbd_run_resolv_file, err
             )
         })?;
-    fs::copy(ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file)
+    fs::copy(enclave_resolv_file, nbd_etc_resolv_file)
         .await
         .map_err(|err| {
             format!(
                 "Failed copying resolv file from {} to {}. {:?}",
-                ENCLAVE_RUN_RESOLV_FILE, nbd_etc_resolv_file, err
+                enclave_resolv_file, nbd_etc_resolv_file, err
             )
         })?;
 
     Ok(())
+}
+
+fn find_resolv_conf_path() -> Result<&'static str, String> {
+    const ENCLAVE_RUN_RESOLV_FILE: &str = "/run/resolvconf/resolv.conf";
+    // On ubuntu 24 and later, `resolvconf` is replaced by `systemd-resolved`.
+    const ENCLAVE_ETC_RESOLV_FILE: &str = "/etc/resolv.conf";
+
+    fn exists(path: &str) -> Result<bool, String> {
+        std::fs::exists(path)
+            .map_err(|err| format!("Unable to check existence of {}. {:?}", path, err))
+    }
+
+    if exists(ENCLAVE_RUN_RESOLV_FILE)? {
+        return Ok(ENCLAVE_RUN_RESOLV_FILE);
+    }
+
+    if exists(ENCLAVE_ETC_RESOLV_FILE)? {
+        return Ok(ENCLAVE_ETC_RESOLV_FILE);
+    }
+
+    Err("Unable to find resolv config file".to_owned())
 }
 
 pub(crate) async fn unmount_overlay_fs() -> Result<(), String> {
