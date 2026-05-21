@@ -20,6 +20,13 @@ pub use self::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "snp")]
 pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
 
+#[cfg(platform = "simulator")]
+pub mod simulator;
+#[cfg(platform = "simulator")]
+pub use self::simulator::SimulatorEnclavesConversionRequest as PlatformConversionRequest;
+#[cfg(platform = "simulator")]
+pub use self::simulator::SimulatorEnclavesConversionResponse as PlatformConversionResponse;
+
 use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Deref;
