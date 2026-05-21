@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::app_configuration::{
     setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
+#[allow(unused_imports)]
 use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
     CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
@@ -33,7 +34,6 @@ use async_process::{Child, Command};
 use async_trait::async_trait;
 use chrono::Utc;
 use em_client::Sha256Hash;
-use embedded_attestation_client::EmbeddedSnpAttestationClient;
 use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
 use enclaveos_encrypted_fs::EncryptedVolume;
 use futures::io::{BufReader, Lines};
@@ -950,8 +950,10 @@ pub(crate) async fn setup_enclave_certifications<
     Ok(certs)
 }
 
+#[allow(unused)]
 const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
+#[allow(unused)]
 async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result<String, String> {
     info!("Requesting CCM for App Certificate, timing out after 60 sec...");
     let request = tokio::time::timeout(
@@ -994,6 +996,7 @@ pub(crate) async fn setup_enclave_certification<
     // For SNP, for the time being, an embedded attestation agent is used to create certificates.
     // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
     use embedded_attestation_client::EmbeddedSnpAttestationClient;
+    use std::ffi::CString;
 
     let mut client = EmbeddedSnpAttestationClient::new()?;
     // We will write out the key and certificate to the temporary working directory of the embedded
@@ -1031,7 +1034,15 @@ pub(crate) async fn setup_enclave_certification<
     let key_pem = fs::read_to_string(key_path)
         .map_err(|e| format!("Failed to read  embedded client key file: {}", e))?;
 
-    let key_pk = Pk::from_private_key(key_pem.as_bytes(), None).map_err(|e| {
+    // We need a CString to feed null-terminated data to Pk, as it expects this format
+    let key_pem_cstr = CString::new(key_pem.as_bytes()).map_err(|e| {
+        format!(
+            "Failed to convert embedded client key file bytes to CString: {}",
+            e
+        )
+    })?;
+
+    let key_pk = Pk::from_private_key(key_pem_cstr.as_bytes_with_nul(), None).map_err(|e| {
         format!(
             "Failed to convert embedded client key file to mbedtls PK: {}",
             e
