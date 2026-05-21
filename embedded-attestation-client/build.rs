@@ -20,6 +20,11 @@ fn main() {
         return;
     }
 
+    println!(
+        "cargo:warning=The embedded-attestation-client will only rebuild if the \
+     attestation-client source files are changed, other changes require a manual rebuild."
+    );
+
     let out_dir = env::var_os("OUT_DIR").unwrap();
 
     // Run a build and copy the attestation client binary to include into the system

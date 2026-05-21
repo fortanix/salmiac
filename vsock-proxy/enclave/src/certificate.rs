@@ -32,6 +32,7 @@ const DEFAULT_KEY_TYPE: KeyType = KeyType::Rsa;
 const DEFAULT_CERT_ISSUER: CertIssuer = CertIssuer::ManagerCa;
 const DEFAULT_RSA_KEY_SIZE_FIELD: &str =
     const_format::formatcp!("{{ \"size\" : {} }}", DEFAULT_CERT_RSA_KEY_SIZE);
+#[allow(unused)]
 const RSA_EXPONENT: u32 = 0x10001;
 
 pub struct CertificateResult {
@@ -148,6 +149,7 @@ pub(crate) fn default_certificate() -> CertificateConfig {
     }
 }
 
+#[allow(unused)]
 pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     vsock: &mut Socket,
     csr: String,
@@ -157,6 +159,7 @@ pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin +
     extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)
 }
 
+#[allow(unused)]
 pub(crate) fn create_signer_key(key_size: u32) -> Result<Pk, String> {
     let mut rng = Rdrand;
     Pk::generate_rsa(&mut rng, key_size, RSA_EXPONENT)
@@ -164,6 +167,7 @@ pub(crate) fn create_signer_key(key_size: u32) -> Result<Pk, String> {
 }
 
 pub(crate) trait CSRApi {
+    #[allow(unused)]
     fn get_remote_attestation_csr(
         &self,
         cert_config: &CertificateConfig,
