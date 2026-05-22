@@ -12,6 +12,16 @@ RUN apt-get download ovmf && \
     dpkg -x ovmf*.deb ovmf_dir && \
     cp ovmf_dir/usr/share/ovmf/OVMF.amdsev.fd /blob
 
+FROM debian:bookworm-slim AS sev_snp_measurement
+RUN apt-get update && apt-get install -y \
+        python3 \
+        python3-pip \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY staging/sev-snp-measure/requirements.txt /tmp/requirements.txt
+RUN pip install --break-system-packages --target /opt/sev-snp-dist -r /tmp/requirements.txt
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,13 +29,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
         cryptsetup-bin \
-        python3 \
-        python3-pip \
-        git
+        python3
+
+COPY --from=sev_snp_measurement /opt/sev-snp-dist /opt/sev-snp-dist
+ENV PYTHONPATH="/opt/sev-snp-dist"
 
 COPY staging/sev-snp-measure /opt/sev-snp-measure
-RUN pip install --break-system-packages -r /opt/sev-snp-measure/requirements.txt && \
-    chmod +x /opt/sev-snp-measure/measure.py
+RUN chmod +x /opt/sev-snp-measure/measure.py
 
 RUN mkdir -p /var/log/enclave-os
 
