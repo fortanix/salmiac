@@ -78,11 +78,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             .export_enclave_base_file_system(input_repository, &enclave_base_tar_path)
             .await?;
 
-        let output_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
+        let initramfs_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
 
         info!("Creating initramfs archive...");
         create_initramfs(
-            &output_file_path,
+            &initramfs_file_path,
             enclave_base_archive,
             &enclave_settings,
             &enclave_manifest_data,
@@ -105,7 +105,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         compute_snp_launch_measurement(&SnpMeasurementInputs {
             ovmf: &ovmf_path,
             kernel: &kernel_path,
-            initrd: Some(&output_file_path),
+            initrd: Some(&initramfs_file_path),
             cmdline: None,
             vcpus: 1,
         })
