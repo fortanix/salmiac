@@ -38,6 +38,8 @@ fn main() {
         .parent()
         .unwrap()
         .parent()
+        .unwrap()
+        .parent()
         .unwrap();
 
     // EMBEDDED_ATTEST_CLIENT_ROCHE_NAME allows a developer to use a Roche directory name besides "roche"
