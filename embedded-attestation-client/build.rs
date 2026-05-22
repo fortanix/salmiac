@@ -5,7 +5,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-static ATTESTATION_CLIENT_BIN_NAME: &str = "ccm-attestation-client-sevsnp";
+// Defines attestation_client_bin_name macro
+// This allows for the name to be changed in only one place
+include!("src/build_shared.rs");
 
 fn main() {
     if let Err(err) = Platform::emit_cfg_from_env() {
@@ -99,14 +101,8 @@ fn main() {
 
     // Copy the attestation client to the output directory
     std::fs::copy(
-        target_dir.join(ATTESTATION_CLIENT_BIN_NAME),
-        Path::new(&out_dir).join(ATTESTATION_CLIENT_BIN_NAME),
+        target_dir.join(attestation_client_bin_name!()),
+        Path::new(&out_dir).join(attestation_client_bin_name!()),
     )
     .expect("Could not copy attestation client binary");
-
-    // Set the ATTESTATION_CLIENT_BIN_NAME name to be used
-    println!(
-        "cargo::rustc-env=ATTESTATION_CLIENT_BIN_NAME={}",
-        ATTESTATION_CLIENT_BIN_NAME
-    );
 }

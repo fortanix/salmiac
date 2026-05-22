@@ -1,21 +1,20 @@
 //! This crate builds the SNP Attestation Client and embeds it inside the library.
 //! This allows it to be unpacked and run from a temporary directory
 
+mod build_shared;
+use build_shared::attestation_client_bin_name;
+
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
-/// This name is set in `build.rs` file, so that it does not have to be changed in more than one
-/// location in the event of a name change.
-static ATTESTATION_CLIENT_BIN_NAME: &str = env!("ATTESTATION_CLIENT_BIN_NAME");
-
 /// The executable copied from Roche repo's build output, as triggered by `build.rs`
 static ATTESTATION_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
     "/",
-    env!("ATTESTATION_CLIENT_BIN_NAME")
+    attestation_client_bin_name!()
 ));
 
 static APP_CERT_ALT_NAMES_VAR_NAME: &'static str = "APP_CERT_ALT_NAMES";
@@ -40,7 +39,7 @@ pub struct EmbeddedSnpAttestationClient {
 
 impl EmbeddedSnpAttestationClient {
     fn attest_client_path(&self) -> PathBuf {
-        self.temp_dir.path().join(ATTESTATION_CLIENT_BIN_NAME)
+        self.temp_dir.path().join(attestation_client_bin_name!())
     }
 
     pub fn temp_dir_path(&self) -> PathBuf {
