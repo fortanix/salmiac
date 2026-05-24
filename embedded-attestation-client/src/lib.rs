@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 //! This crate builds the SNP Attestation Client and embeds it inside the library.
 //! This allows it to be unpacked and run from a temporary directory
 
@@ -143,7 +144,13 @@ impl EmbeddedSnpAttestationClient {
             cmd.current_dir(work_dir);
         }
 
-        cmd.status().map_err(|e| e.to_string())?;
+        let status = cmd.status().map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!(
+                "Embedded attestation client failed with status: {}",
+                status
+            ));
+        }
         Ok(())
     }
 }
