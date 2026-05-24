@@ -124,7 +124,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kernel: &kernel_path,
             initrd: Some(&initramfs_file_path),
             cmdline: None,
-            vcpus: 1,
+            vcpus: 2,
         })
         .await
     }
