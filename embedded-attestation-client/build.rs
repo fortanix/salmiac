@@ -26,9 +26,9 @@ fn main() {
     let out_dir_path = PathBuf::from(&out_dir);
 
     // Run a build and copy the attestation client binary to include into the system
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let build_script_dir = std::env::current_dir().unwrap();
     // `roche/salmiac/salmiac-runner/embedded-attestation-client` is the usual location for this manifest
-    let repos_dir = manifest_dir
+    let repos_dir = build_script_dir
         .parent()
         .unwrap()
         .parent()
@@ -115,7 +115,7 @@ fn main() {
         );
         println!("cargo::rerun-if-changed=src/bin/dummy.c");
         let mut cmd = Command::new("gcc");
-        let src_file = manifest_dir.clone().join("src/bin/dummy.c");
+        let src_file = build_script_dir.clone().join("src/bin/dummy.c");
         cmd.args([src_file.display().to_string().as_str(), "-o", "dummy"])
             .current_dir(&out_dir_path);
         let build_status = cmd.status().unwrap();
