@@ -2,7 +2,7 @@ use build_support::Platform;
 use std::env;
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 // Defines attestation_client_bin_name macro
@@ -11,23 +11,19 @@ include!("src/build_shared.rs");
 
 fn main() {
     if let Err(err) = Platform::emit_cfg_from_env() {
-        panic!("{}", err);
-    }
-
-    // Don't do any special builds for platforms besides SNP
-    if let Platform::Snp = Platform::from_env().unwrap() {
-        // Continue to do the build
-    } else {
-        // Do not build this if not necessary
-        return;
+        panic!(
+            "This executable must be built with the correct configuration: {}",
+            err
+        );
     }
 
     println!(
-        "cargo:warning=The embedded-attestation-client will only rebuild if the \
-     attestation-client source files are changed, other changes require a manual rebuild."
+        "cargo::warning=The embedded-attestation-client will only rebuild if the \
+     attestation-client source files are changed, other changes require a manual rebuild"
     );
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
+    let out_dir_path = PathBuf::from(&out_dir);
 
     // Run a build and copy the attestation client binary to include into the system
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -53,13 +49,16 @@ fn main() {
     };
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
+    // Rebuild if this file has changed
+    println!("cargo::rerun-if-changed=build.rs");
+
     // Re-run the build if any of the source files in the Attestation Client project have changed
     for entry in walkdir::WalkDir::new(&attest_client_dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
         if entry.file_type().is_file() {
-            println!("cargo:rerun-if-changed={}", entry.path().display());
+            println!("cargo::rerun-if-changed={}", entry.path().display());
         }
     }
 
@@ -86,25 +85,49 @@ fn main() {
         panic!("Could not get roche toolchain channel");
     };
 
-    // Run the attestation client build
-    let mut cmd = Command::new("cargo");
-    cmd.args(["build"])
-        .current_dir(attest_client_dir)
-        .env_remove("RUSTC")
-        .env("RUSTUP_TOOLCHAIN", toolchain);
-    // Debug profile should not be supplied as a profile flag, other ones can be
-    if target_profile != "debug" {
-        cmd.arg(format!("--profile={}", &target_profile));
-    }
-    let build_status = cmd.status().unwrap();
-    if !build_status.success() {
-        panic!("Parent Roche repo Attestation Client build failed");
-    }
+    // We build the real agent for SNP, otherwise make a dummy
+    if let Platform::Snp = Platform::from_env().unwrap() {
+        // Run the attestation client build
+        let mut cmd = Command::new("cargo");
+        cmd.args(["build"])
+            .current_dir(attest_client_dir)
+            .env_remove("RUSTC")
+            .env("RUSTUP_TOOLCHAIN", toolchain);
+        // Debug profile should not be supplied as a profile flag, other ones can be
+        if target_profile != "debug" {
+            cmd.arg(format!("--profile={}", &target_profile));
+        }
+        let build_status = cmd.status().unwrap();
+        if !build_status.success() {
+            panic!("Parent Roche repo Attestation Client build failed");
+        }
 
-    // Copy the attestation client to the output directory
-    std::fs::copy(
-        target_dir.join(attestation_client_bin_name!()),
-        Path::new(&out_dir).join(attestation_client_bin_name!()),
-    )
-    .expect("Could not copy attestation client binary");
+        // Copy the attestation client to the output directory
+        std::fs::copy(
+            target_dir.join(attestation_client_bin_name!()),
+            out_dir_path.clone().join(attestation_client_bin_name!()),
+        )
+        .expect("Could not copy attestation client binary");
+    } else {
+        println!(
+            "cargo::warning=The embedded-attestation-client is being built with a dummy executable for \
+     a non-SNP platform, it will be non-functional"
+        );
+        println!("cargo::rerun-if-changed=src/bin/dummy.c");
+        let mut cmd = Command::new("gcc");
+        let src_file = manifest_dir.clone().join("src/bin/dummy.c");
+        cmd.args([src_file.display().to_string().as_str(), "-o", "dummy"])
+            .current_dir(&out_dir_path);
+        let build_status = cmd.status().unwrap();
+        if !build_status.success() {
+            panic!("Dummy Attestation Client build failed");
+        }
+
+        // Copy the dummy file to the output directory with the expected name
+        std::fs::copy(
+            out_dir_path.clone().join("dummy"),
+            out_dir_path.clone().join(attestation_client_bin_name!()),
+        )
+        .expect("Could not copy attestation client binary");
+    }
 }
