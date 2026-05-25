@@ -2,7 +2,7 @@
 /build/
 /build-support/target
 /artifacts
-/docker/staging
+/docker/**/staging
 /tools/container-converter/target
 vsock-proxy/target
 enclave-startup/target
