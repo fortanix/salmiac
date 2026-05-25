@@ -75,6 +75,7 @@ pub enum ConverterErrorKind {
     BadCertConfig,
     BadCcmConfiguration,
     BadDsmConfiguration,
+    DockerLoad,
 }
 
 impl fmt::Display for ConverterError {
@@ -86,15 +87,21 @@ impl fmt::Display for ConverterError {
 impl Error for ConverterError {}
 
 #[cfg(platform = "nitro")]
-const PARENT_IMAGE: &str = "parent-base";
+const PARENT_IMAGE: &str = "parent-base-nitro";
 
 #[cfg(platform = "snp")]
 const PARENT_IMAGE: &str = "parent-base-snp";
+
+const PARENT_IMAGE_PATH: &str = "parent-base.tar";
 
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
 #[cfg(platform = "snp")]
 const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
+
+const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
+
+const ENCLAVE_GPU_IMAGE_PATH: &str = "enclave-base-gpu.tar";
 
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
@@ -375,20 +382,21 @@ async fn get_enclave_base_image(image: &str) -> Result<ImageWithDetails<'_>> {
     let username = env_var_or_none("ENCLAVE_IMAGE_USERNAME");
     let password = env_var_or_none("ENCLAVE_IMAGE_PASSWORD");
 
-    get_base_image(&image, username, password).await
+    get_base_image(&image, ENCLAVE_IMAGE_PATH.to_owned(), username, password).await
 }
 
 async fn get_parent_base_image(image: &str) -> Result<()> {
     let username = env_var_or_none("PARENT_IMAGE_USERNAME");
     let password = env_var_or_none("PARENT_IMAGE_PASSWORD");
 
-    let _ = get_base_image(&image, username, password).await?;
+    let _ = get_base_image(&image, PARENT_IMAGE_PATH.to_owned(), username, password).await?;
 
     Ok(())
 }
 
 async fn get_base_image(
     image: &str,
+    base_image_tar_path: String,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<ImageWithDetails<'_>> {
@@ -406,13 +414,30 @@ async fn get_base_image(
         kind: ConverterErrorKind::BadRequest,
     })?;
 
-    let details = repository
-        .get_local_image_details(&reference)
-        .await
-        .map_err(|message| ConverterError {
-            message: format!("Failed retrieving requisite {} image. {:?}", image, message),
-            kind: ConverterErrorKind::ImageGet,
-        })?;
+    let details = match repository.get_local_image_details(&reference).await {
+        Ok(details) => details,
+        Err(message) => {
+            info!(
+                "Failed retrieving requisite {} image from local repository. {:?}",
+                image, message
+            );
+            repository
+                .load_image(&base_image_tar_path)
+                .await
+                .map_err(|message| ConverterError {
+                    message: format!("Failed to load requisite {} image. {:?}", image, message),
+                    kind: ConverterErrorKind::DockerLoad,
+                })?;
+            info!("Loaded requisite from backup tar file");
+            repository
+                .get_local_image_details(&reference)
+                .await
+                .map_err(|message| ConverterError {
+                    message: format!("Failed retrieving requisite {} image. {:?}", image, message),
+                    kind: ConverterErrorKind::ImageGet,
+                })?
+        }
+    };
 
     Ok(ImageWithDetails { reference, details })
 }
