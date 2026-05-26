@@ -52,10 +52,10 @@ This guide allows you to build salmiac from source and convert your docker appli
    docker build -t parent-base-nitro nitro/parent-base
     ```
 
-4. Build the enclave kernel. This step takes a long time and needs to be done only once. The artifacts produced by this step need not be cleaned up unless the kernel config is updated.
+4. Build the aws nitro blobs. This step takes a long time and needs to be done only once. The artifacts produced by this step need not be cleaned up unless there is an update to the kernel.
    ```bash
    cd salmiac/docker/nitro/amzn-linux-nbd
-   ./build-enclave-kernel.sh build
+   ./build-enclave-blobs.sh build
     ```
 
 5. Build the converter image. To produce a debug build of the converter, change FLAVOR to debug from the step below.

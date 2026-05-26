@@ -362,6 +362,7 @@ impl EncryptedVolume {
             &LUKS_HDR_KEYSLOT_SIZE.to_string(),
             "--type",
             "luks2",
+            "--integrity", "hmac-sha256",
             "--offset",
             &ENCRYPTED_DATA_OFFSET_IN_SECTORS.to_string(),
             "--header",
