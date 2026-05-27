@@ -38,6 +38,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         "nvidia-modeset.ko",
     ];
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
+    pub const OVMF_FILENAME: &'static str = "OVMF.amdsev.fd";
 
     pub(crate) async fn create_image(
         &self,
@@ -247,7 +248,7 @@ async fn compute_launch_measurements(
     initramfs_file_path: &Path,
 ) -> Result<SNPEnclavesMeasurements> {
     let blobs_dir = Path::new(INSTALLATION_DIR).join("blobs");
-    let ovmf_path = blobs_dir.join("OVMF.amdsev.fd");
+    let ovmf_path = blobs_dir.join(EnclaveImageBuilder::OVMF_FILENAME);
     let kernel_path = blobs_dir
         .join(if enclave_settings.gpu_passthrough {
             BLOBS_SUBDIR_GPU_ENABLED
