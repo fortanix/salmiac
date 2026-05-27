@@ -23,16 +23,17 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::fs::File;
-use std::io::{Read, Seek};
+use std::io::{ErrorKind as IoErrorKind, Read, Seek};
 use std::ops::Add;
-use std::path::Path;
+use std::os::unix::fs as unix_fs;
+use std::path::{Path, PathBuf};
 
 use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
 #[cfg(platform = "nitro")]
 use api_model::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
 #[cfg(platform = "snp")]
-use api_model::snp::SNPEnclavesConversionRequestOptions as EnclavesOptions;
+use api_model::snp::{NvidiaDriverCapability, SNPEnclavesConversionRequestOptions as EnclavesOptions};
 #[cfg(platform = "simulator")]
 use api_model::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;
@@ -49,6 +50,11 @@ use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
 use crate::image::ImageWithDetails;
 use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
+
+const NVIDIA_DRIVER_PAYLOAD_ROOT: &str = "/opt/fortanix/enclave-os/nvidia-driver-payload";
+const NVIDIA_DRIVER_TARGET_ROOT: &str = "opt/fortanix/nvidia-driver";
+const NVIDIA_DRIVER_TARGET_LIB: &str = "opt/fortanix/nvidia-driver/lib";
+const NVIDIA_DRIVER_TARGET_BIN: &str = "opt/fortanix/nvidia-driver/bin";
 
 pub(crate) fn get_image_env(
     input_image: &ImageWithDetails<'_>,
@@ -87,6 +93,9 @@ pub(crate) struct EnclaveSettings {
 
     #[cfg(platform = "snp")]
     pub(crate) gpu_passthrough: bool,
+
+    #[cfg(platform = "snp")]
+    pub(crate) nvidia_driver_capabilities: Vec<String>,
 }
 
 impl EnclaveSettings {
@@ -117,6 +126,25 @@ impl EnclaveSettings {
                 .unwrap_or_default(),
             #[cfg(platform = "snp")]
             gpu_passthrough: _enclaves_options.enable_gpu_passthrough.unwrap_or(false),
+            #[cfg(platform = "snp")]
+            nvidia_driver_capabilities: {
+                if _enclaves_options.enable_gpu_passthrough.unwrap_or(false) {
+                    _enclaves_options
+                        .nvidia_driver_capabilities
+                        .clone()
+                        .unwrap_or_else(|| {
+                            vec![
+                                NvidiaDriverCapability::Compute,
+                                NvidiaDriverCapability::Utility,
+                            ]
+                        })
+                        .into_iter()
+                        .map(|capability| capability.as_str().to_string())
+                        .collect()
+                } else {
+                    vec![]
+                }
+            },
         }
     }
 }
@@ -241,6 +269,30 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         user_config: &UserConfig,
     ) -> Result<FileSystemConfig> {
+        self.create_block_file_with_optional_nvidia_driver_payload(docker_util, user_config, None)
+            .await
+    }
+
+    pub(crate) async fn create_block_file_with_nvidia_driver_payload(
+        &self,
+        docker_util: &dyn DockerUtil,
+        user_config: &UserConfig,
+        nvidia_driver_capabilities: &[String],
+    ) -> Result<FileSystemConfig> {
+        self.create_block_file_with_optional_nvidia_driver_payload(
+            docker_util,
+            user_config,
+            Some(nvidia_driver_capabilities),
+        )
+        .await
+    }
+
+    async fn create_block_file_with_optional_nvidia_driver_payload(
+        &self,
+        docker_util: &dyn DockerUtil,
+        user_config: &UserConfig,
+        nvidia_driver_capabilities: Option<&[String]>,
+    ) -> Result<FileSystemConfig> {
         let block_file_mount_dir = self
             .dir
             .path()
@@ -261,6 +313,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             &block_file_out,
             user_config,
             docker_util,
+            nvidia_driver_capabilities,
         )
         .await
     }
@@ -364,6 +417,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         block_file_out_path: &Path,
         user_config: &UserConfig,
         docker_util: &dyn DockerUtil,
+        nvidia_driver_capabilities: Option<&[String]>,
     ) -> Result<FileSystemConfig> {
         async fn run_subprocess0<S: AsRef<OsStr> + Debug, A: AsRef<OsStr> + Debug>(
             subprocess_path: S,
@@ -440,6 +494,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             user_config: &UserConfig,
             block_file_path: &Path,
             mount_path: &Path,
+            nvidia_driver_capabilities: Option<&[String]>,
         ) -> Result<()> {
             // Create an ext4 file system inside file above
             run_subprocess0("mkfs.ext4", &[&block_file_path]).await?;
@@ -470,6 +525,11 @@ impl<'a> EnclaveImageBuilder<'a> {
                     kind: ConverterErrorKind::BlockFileFull,
                 })?;
 
+            EnclaveImageBuilder::copy_nvidia_driver_payload(
+                nvidia_driver_capabilities,
+                mount_path,
+            )?;
+
             // Make the current user the owner of the root of the filesystem on the block
             // device. This is just so we can write files to it with our own user id and not as root.
             let current_user = Uid::effective();
@@ -494,11 +554,19 @@ impl<'a> EnclaveImageBuilder<'a> {
             .export_image_file_system(docker_util, &self.dir.path().join("fs.tar"))
             .await?;
 
+        let nvidia_driver_payload_size =
+            Self::selected_nvidia_driver_payload_size(nvidia_driver_capabilities)?;
+        if nvidia_driver_payload_size > 0 {
+            info!(
+                "Selected NVIDIA driver payload size is {} MiB",
+                nvidia_driver_payload_size / MEGA_BYTE
+            );
+        }
+
         let size = client_fs_tar.size().map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
-        })?;
-
+        })? + nvidia_driver_payload_size;
         let mut size_mb_up = (size / MEGA_BYTE) as u64;
         let mut archive = client_fs_tar;
 
@@ -516,8 +584,14 @@ impl<'a> EnclaveImageBuilder<'a> {
 
             create_block_file(self.dir.path(), block_file_out_path, size_mb_up).await?;
 
-            match populate_block_file(&mut archive, user_config, block_file_out_path, mount_dir)
-                .await
+            match populate_block_file(
+                &mut archive,
+                user_config,
+                block_file_out_path,
+                mount_dir,
+                nvidia_driver_capabilities,
+            )
+            .await
             {
                 Err(ConverterError {
                     kind: ConverterErrorKind::BlockFileFull,
@@ -551,6 +625,241 @@ impl<'a> EnclaveImageBuilder<'a> {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
         })
+    }
+
+    fn selected_nvidia_driver_payload_size(
+        nvidia_driver_capabilities: Option<&[String]>,
+    ) -> Result<u64> {
+        let Some(capabilities) = nvidia_driver_capabilities else {
+            return Ok(0);
+        };
+
+        if capabilities.is_empty() {
+            return Ok(0);
+        }
+
+        let payload_root = Path::new(NVIDIA_DRIVER_PAYLOAD_ROOT);
+        if !payload_root.exists() {
+            return Err(ConverterError {
+                message: format!(
+                    "NVIDIA driver payload root {} does not exist in the converter image",
+                    payload_root.display()
+                ),
+                kind: ConverterErrorKind::BlockFileCreation,
+            });
+        }
+
+        let mut size = 0;
+        for capability in capabilities {
+            Self::validate_nvidia_driver_capability(capability)?;
+            let capability_root = payload_root.join(capability);
+            size += Self::directory_size(&capability_root.join("lib"))?;
+            size += Self::directory_size(&capability_root.join("bin"))?;
+        }
+
+        Ok(size)
+    }
+
+    fn copy_nvidia_driver_payload(
+        nvidia_driver_capabilities: Option<&[String]>,
+        mount_path: &Path,
+    ) -> Result<()> {
+        let Some(capabilities) = nvidia_driver_capabilities else {
+            return Ok(());
+        };
+
+        if capabilities.is_empty() {
+            return Ok(());
+        }
+
+        let payload_root = Path::new(NVIDIA_DRIVER_PAYLOAD_ROOT);
+        if !payload_root.exists() {
+            return Err(ConverterError {
+                message: format!(
+                    "NVIDIA driver payload root {} does not exist in the converter image",
+                    payload_root.display()
+                ),
+                kind: ConverterErrorKind::BlockFileCreation,
+            });
+        }
+
+        let target_root = mount_path.join(NVIDIA_DRIVER_TARGET_ROOT);
+        let target_lib = mount_path.join(NVIDIA_DRIVER_TARGET_LIB);
+        let target_bin = mount_path.join(NVIDIA_DRIVER_TARGET_BIN);
+
+        fs::create_dir_all(&target_lib).map_err(|err| ConverterError {
+            message: format!(
+                "Failed creating NVIDIA driver library dir {}. {:?}",
+                target_lib.display(),
+                err
+            ),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+        fs::create_dir_all(&target_bin).map_err(|err| ConverterError {
+            message: format!(
+                "Failed creating NVIDIA driver binary dir {}. {:?}",
+                target_bin.display(),
+                err
+            ),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        for capability in capabilities {
+            Self::validate_nvidia_driver_capability(capability)?;
+            let capability_root = payload_root.join(capability);
+
+            Self::copy_directory_contents(&capability_root.join("lib"), &target_lib)?;
+            Self::copy_directory_contents(&capability_root.join("bin"), &target_bin)?;
+        }
+
+        info!(
+            "Copied NVIDIA driver payload capabilities {:?} into {}",
+            capabilities,
+            target_root.display()
+        );
+
+        Ok(())
+    }
+
+    fn validate_nvidia_driver_capability(capability: &str) -> Result<()> {
+        match capability {
+            "compute" | "utility" => Ok(()),
+            other => Err(ConverterError {
+                message: format!(
+                    "Unsupported NVIDIA driver capability {}. Supported capabilities are compute and utility",
+                    other
+                ),
+                kind: ConverterErrorKind::BadRequest,
+            }),
+        }
+    }
+
+    fn directory_size(path: &Path) -> Result<u64> {
+        if !path.exists() {
+            return Ok(0);
+        }
+
+        let mut size = 0;
+        for entry in fs::read_dir(path).map_err(|err| ConverterError {
+            message: format!("Failed reading directory {}. {:?}", path.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })? {
+            let entry = entry.map_err(|err| ConverterError {
+                message: format!("Failed reading directory entry in {}. {:?}", path.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+            let entry_path = entry.path();
+            let metadata = fs::symlink_metadata(&entry_path).map_err(|err| ConverterError {
+                message: format!("Failed stat for {}. {:?}", entry_path.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+
+            if metadata.file_type().is_dir() {
+                size += Self::directory_size(&entry_path)?;
+            } else {
+                size += metadata.len();
+            }
+        }
+
+        Ok(size)
+    }
+
+    fn copy_directory_contents(from: &Path, to: &Path) -> Result<()> {
+        if !from.exists() {
+            return Ok(());
+        }
+
+        for entry in fs::read_dir(from).map_err(|err| ConverterError {
+            message: format!("Failed reading directory {}. {:?}", from.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })? {
+            let entry = entry.map_err(|err| ConverterError {
+                message: format!("Failed reading directory entry in {}. {:?}", from.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+            let entry_path = entry.path();
+            let target_path = to.join(entry.file_name());
+
+            Self::copy_path(&entry_path, &target_path)?;
+        }
+
+        Ok(())
+    }
+
+    fn copy_path(from: &Path, to: &Path) -> Result<()> {
+        let metadata = fs::symlink_metadata(from).map_err(|err| ConverterError {
+            message: format!("Failed stat for {}. {:?}", from.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        if metadata.file_type().is_dir() {
+            fs::create_dir_all(to).map_err(|err| ConverterError {
+                message: format!("Failed creating directory {}. {:?}", to.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+            Self::copy_directory_contents(from, to)?;
+            return Ok(());
+        }
+
+        Self::remove_existing_path(to)?;
+
+        if metadata.file_type().is_symlink() {
+            let link_target = fs::read_link(from).map_err(|err| ConverterError {
+                message: format!("Failed reading symlink {}. {:?}", from.display(), err),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+            unix_fs::symlink(&link_target, to).map_err(|err| ConverterError {
+                message: format!(
+                    "Failed creating symlink {} -> {}. {:?}",
+                    to.display(),
+                    link_target.display(),
+                    err
+                ),
+                kind: ConverterErrorKind::BlockFileCreation,
+            })?;
+            return Ok(());
+        }
+
+        fs::copy(from, to).map_err(|err| ConverterError {
+            message: format!(
+                "Failed copying NVIDIA driver file {} to {}. {:?}",
+                from.display(),
+                to.display(),
+                err
+            ),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+        fs::set_permissions(to, metadata.permissions()).map_err(|err| ConverterError {
+            message: format!("Failed setting permissions on {}. {:?}", to.display(), err),
+            kind: ConverterErrorKind::BlockFileCreation,
+        })?;
+
+        Ok(())
+    }
+
+    fn remove_existing_path(path: &Path) -> Result<()> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                    fs::remove_dir_all(path)
+                } else {
+                    fs::remove_file(path)
+                }
+                .map_err(|err| ConverterError {
+                    message: format!("Failed removing existing path {}. {:?}", path.display(), err),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })?;
+            }
+            Err(err) if err.kind() == IoErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(ConverterError {
+                    message: format!("Failed stat for {}. {:?}", path.display(), err),
+                    kind: ConverterErrorKind::BlockFileCreation,
+                })
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn check_path_exists(
