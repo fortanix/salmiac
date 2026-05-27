@@ -1059,7 +1059,7 @@ pub(crate) async fn setup_enclave_certification<
     ))
 }
 
-#[cfg(platform = "nitro")]
+#[cfg(not(platform = "snp"))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,

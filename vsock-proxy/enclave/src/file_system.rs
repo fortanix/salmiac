@@ -300,7 +300,8 @@ fn find_resolv_conf_path() -> Result<&'static str, String> {
     const ENCLAVE_ETC_RESOLV_FILE: &str = "/etc/resolv.conf";
 
     fn exists(path: &str) -> Result<bool, String> {
-        std::fs::exists(path)
+        Path::new(path)
+            .try_exists()
             .map_err(|err| format!("Unable to check existence of {}. {:?}", path, err))
     }
 

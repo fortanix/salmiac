@@ -28,6 +28,9 @@ COPY staging/server staging/parent-base.tar staging/enclave-base.tar staging/enc
 
 COPY --from=apt_extract /blob /opt/fortanix/enclave-os/blobs
 
+
+# These need to be pulled in from Jenkins https://jenkins.fortanix.net/job/build-salmiac-kernel/80/artifact/
+
 # Copy gpu disabled artifacts
 COPY kernel_disabled_gpu/init /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/init
 COPY kernel_disabled_gpu/.config /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/bzImage.config

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
+
+salmiac_dir="${script_dir}"
+roche_path="${salmiac_dir}/../roche-dev"
+
+echo "----- Building Container Converter executable -----"
+pushd "${salmiac_dir}/tools/container-converter" >/dev/null || exit
+
+#SALMIAC_PLATFORM="snp" \
+#EMBED_ATTEST_CLIENT_ROCHE_PATH="${roche_path}" \
+#cargo build --release
+
+# Debug build of the converter binary
+SALMIAC_PLATFORM="snp" \
+EMBED_ATTEST_CLIENT_ROCHE_PATH="${roche_path}" \
+cargo build
+
+popd > /dev/null || exit
+
+echo "----- Building Nitro parent-base -----"
+pushd "${salmiac_dir}/docker/nitro/parent-base" >/dev/null || exit
+docker build -t "parent-base" .
+popd > /dev/null || exit
+
+echo "----- Building enclave-base -----"
+pushd "${salmiac_dir}/docker/enclave-base" >/dev/null || exit
+docker build -t "enclave-base" .
+popd >/dev/null || exit
+
+echo "----- Building enclave-base-gpu -----"
+pushd "${salmiac_dir}/docker/snp/enclave-base-gpu" >/dev/null || exit
+docker build -t "enclave-base-snp-gpu" .
+popd >/dev/null || exit
+
+echo "----- Building parent-base-snp -----"
+pushd "${salmiac_dir}/docker/snp/parent-base" >/dev/null || exit
+docker build -t "parent-base-snp" .
+popd >/dev/null || exit
+
+echo "----- Building Container Converter Docker image -----"
+pushd "${salmiac_dir}/docker/snp" >/dev/null || exit
+bash -x build-conv-container.sh debug
+popd >/dev/null || exit
+
+exit

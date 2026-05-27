@@ -82,13 +82,10 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
     Ok(Ipv6Addr::from(as_array))
 }
 
-#[cfg(platform = "nitro")]
 // Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
 // Updated for SNP/TDX: https://fortanix.atlassian.net/wiki/spaces/MAL/pages/4412964867/Node+agent+address+discovery
 #[cfg(platform = "nitro")]
 pub const VSOCK_PARENT_CID: u32 = 3;
-#[cfg(platform = "snp")]
-pub const VSOCK_PARENT_CID: u32 = 2;
 
 #[cfg(any(platform = "simulator", platform = "snp"))]
 pub const VSOCK_PARENT_CID: u32 = 2;
