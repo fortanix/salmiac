@@ -13,6 +13,8 @@ pub(crate) use self::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 pub(crate) mod snp;
 #[cfg(platform = "snp")]
 pub(crate) use self::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+#[cfg(platform = "snp")]
+pub(crate) mod snp_measurement;
 
 use std::ffi::OsStr;
 use std::fmt::Debug;

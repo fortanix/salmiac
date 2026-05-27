@@ -1,0 +1,1 @@
+sev-snp-measure @ git+https://github.com/virtee/sev-snp-measure.git@5b6a79e86641a7ca1a377ba1848d1dcdc2498494

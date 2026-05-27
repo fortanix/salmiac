@@ -10,12 +10,14 @@ use std::{env, fs};
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::snp::{SNPEnclavesConversionRequestOptions, SNPEnclavesMeasurements};
-use api_model::HexString;
 use fortanix_vme_initramfs::{FsTree, Initramfs};
 use log::{info, warn};
 use nix::sys::stat::SFlag;
 use tar::{Archive, EntryType};
 
+use crate::image_builder::enclave::snp_measurement::{
+    compute_snp_launch_measurement, SnpMeasurementInputs,
+};
 use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::parent::snp::{BLOBS_SUBDIR_GPU_DISABLED, BLOBS_SUBDIR_GPU_ENABLED};
@@ -30,6 +32,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     const INIT_BIN: &'static str = "init";
     const GPU_MODULES: &'static [&'static str] = &["nvidia.ko", "nvidia-uvm.ko"];
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
+    pub const OVMF_FILENAME: &'static str = "OVMF.amdsev.fd";
 
     pub(crate) async fn create_image(
         &self,
@@ -76,11 +79,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             .export_enclave_base_file_system(input_repository, &enclave_base_tar_path)
             .await?;
 
-        let output_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
+        let initramfs_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
 
         info!("Creating initramfs archive...");
         create_initramfs(
-            &output_file_path,
+            &initramfs_file_path,
             enclave_base_archive,
             &enclave_settings,
             &enclave_manifest_data,
@@ -90,9 +93,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::EnclaveImageCreation,
         })?;
 
-        Ok(SNPEnclavesMeasurements {
-            launch_measurement: HexString::new(vec![0; 48]),
-        })
+        compute_launch_measurements(&enclave_settings, &initramfs_file_path).await
     }
 
     pub(crate) fn get_enclave_base_image_name(
@@ -197,6 +198,30 @@ fn create_initramfs(
 
     info!("Built initramfs.gz at {}", output_path.display());
     Ok(())
+}
+
+async fn compute_launch_measurements(
+    enclave_settings: &EnclaveSettings,
+    initramfs_file_path: &Path,
+) -> Result<SNPEnclavesMeasurements> {
+    let blobs_dir = Path::new(INSTALLATION_DIR).join("blobs");
+    let ovmf_path = blobs_dir.join(EnclaveImageBuilder::OVMF_FILENAME);
+    let kernel_path = blobs_dir
+        .join(if enclave_settings.gpu_passthrough {
+            BLOBS_SUBDIR_GPU_ENABLED
+        } else {
+            BLOBS_SUBDIR_GPU_DISABLED
+        })
+        .join("bzImage");
+
+    compute_snp_launch_measurement(&SnpMeasurementInputs {
+        ovmf: &ovmf_path,
+        kernel: &kernel_path,
+        initrd: Some(initramfs_file_path),
+        cmdline: None,
+        vcpus: 2,
+    })
+    .await
 }
 
 fn add_enclave_base_to_initramfs(
