@@ -21,6 +21,23 @@ pub struct SNPEnclavesConversionRequest {
     pub enclaves_options: SNPEnclavesConversionRequestOptions,
 }
 
+#[derive(Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+pub enum NvidiaDriverCapability {
+    Compute,
+    Utility,
+}
+
+impl NvidiaDriverCapability {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NvidiaDriverCapability::Compute => "compute",
+            NvidiaDriverCapability::Utility => "utility",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SNPEnclavesConversionRequestOptions {
@@ -32,6 +49,10 @@ pub struct SNPEnclavesConversionRequestOptions {
     // Option to enable/disable gpu_passthrough
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub enable_gpu_passthrough: Option<bool>,
+    /// NVIDIA driver capabilities to copy into the protected blockfile when GPU passthrough is
+    /// enabled. If omitted, compute and utility are included.
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub nvidia_driver_capabilities: Option<Vec<NvidiaDriverCapability>>,
 }
 
 impl SNPEnclavesConversionRequest {
