@@ -36,9 +36,6 @@ const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
 const SNP_GUEST_ID: &str = "sev0";
 const MEMORY_BACKEND_ID: &str = "ram1";
 
-// TODO(before merge): need to  currently like this for debugging
-const SERIAL: &str = "telnet:0.0.0.0:4321,server,wait";
-
 // TODO: We need to see how we will assign guest CID when we support multiple
 // containers on single host
 const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3";
@@ -99,10 +96,7 @@ async fn start_snp_guest() -> Result<(), String> {
 
     let mut args = vec![
         "-enable-kvm",
-        "-display",
-        "none",
-        "-serial",
-        SERIAL,
+        "-nographic",
         "-monitor",
         "none",
         "-no-reboot",

@@ -556,7 +556,7 @@ dependencies = [
 [[package]]
 name = "fortanix-vme-initramfs"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/rust-sgx.git?branch=sinan%2Frte-941-add-initramfs-symlink-support#ff9ddb14c9c72e77673cf0849f622271569f7a7f"
+source = "git+https://github.com/fortanix/rust-sgx.git?branch=mihir%2Fadd-initramfs-progress#031dc86d52590858822e7c8ce62315536ac1854c"
 dependencies = [
  "cpio",
  "derivative",

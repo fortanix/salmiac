@@ -6,6 +6,7 @@
 
 use std::io::{Cursor, Error as IoError, ErrorKind as IoErrorKind, Read};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use std::{env, fs};
 
 use api_model::enclave::{EnclaveManifest, UserConfig};
@@ -28,7 +29,12 @@ pub(crate) struct EnclaveImageBuilder<'a> {
 
 impl<'a> EnclaveImageBuilder<'a> {
     const INIT_BIN: &'static str = "init";
-    const GPU_MODULES: &'static [&'static str] = &["nvidia.ko", "nvidia-uvm.ko"];
+    const GPU_MODULES: &'static [&'static str] = &[
+        "nvidia.ko",
+        "nvidia-uvm.ko",
+        "nvidia-drm.ko",
+        "nvidia-modeset.ko",
+    ];
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
 
     pub(crate) async fn create_image(
@@ -41,12 +47,18 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> Result<SNPEnclavesMeasurements> {
         let work_dir = self.enclave_image_builder.dir.path();
 
+        let start = Instant::now();
+        info!("Creating client FS block file...");
         let file_system_config = self
             .enclave_image_builder
             .create_block_file(input_repository, &user_config)
             .await?;
-        info!("Client FS Block file has been created.");
+        info!(
+            "Client FS block file has been created in {:?}.",
+            start.elapsed()
+        );
 
+        let start = Instant::now();
         let is_debug = enclave_settings.is_debug;
         let enable_overlay_filesystem_persistence =
             enclave_settings.enable_overlay_filesystem_persistence;
@@ -68,16 +80,20 @@ impl<'a> EnclaveImageBuilder<'a> {
                 message: format!("Failed serializing enclave settings file. {:?}", err),
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
+        info!("Serialized enclave manifest in {:?}.", start.elapsed());
 
         let enclave_base_tar_path = work_dir.join("enclave-base.tar");
+        let start = Instant::now();
         info!("Exporting enclave-base image...");
         let enclave_base_archive = self
             .enclave_image_builder
             .export_enclave_base_file_system(input_repository, &enclave_base_tar_path)
             .await?;
+        info!("Exported enclave-base image in {:?}.", start.elapsed());
 
         let output_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
 
+        let start = Instant::now();
         info!("Creating initramfs archive...");
         create_initramfs(
             &output_file_path,
@@ -89,6 +105,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             message: format!("Failed to create initramfs: {}", e),
             kind: ConverterErrorKind::EnclaveImageCreation,
         })?;
+        info!("Created initramfs archive in {:?}.", start.elapsed());
 
         Ok(SNPEnclavesMeasurements {
             launch_measurement: HexString::new(vec![0; 48]),
@@ -186,16 +203,42 @@ fn create_initramfs(
         blobs_dir.pop();
     }
 
+    let start = Instant::now();
+    let start = Instant::now();
+    let mut last_percent = 0usize;
+
     info!("Building initramfs, it may take a while depending on size of it...");
     let output_file = fs::File::create(output_path)?;
-    Initramfs::from_fs_tree(fs_tree, output_file).map_err(|e| {
+    Initramfs::from_fs_tree_with_progress(fs_tree, output_file, |current, total| {
+        if total == 0 {
+            return;
+        }
+
+        let percent = current * 100 / total;
+
+        if current == 1 || percent >= last_percent + 10 {
+            info!(
+                "Building initramfs: {}% ({}/{}) entries, elapsed={:?}",
+                percent,
+                current,
+                total,
+                start.elapsed()
+            );
+            last_percent = percent;
+        }
+    })
+    .map_err(|e| {
         IoError::new(
             IoErrorKind::Other,
             format!("Failed to build initramfs: {:?}", e),
         )
     })?;
 
-    info!("Built initramfs.gz at {}", output_path.display());
+    info!(
+        "Built initramfs.gz at {} in {:?}",
+        output_path.display(),
+        start.elapsed()
+    );
     Ok(())
 }
 
@@ -203,9 +246,19 @@ fn add_enclave_base_to_initramfs(
     mut fs_tree: FsTree,
     enclave_base_archive: &mut tar::Archive<fs::File>,
 ) -> std::result::Result<FsTree, IoError> {
+    let start = Instant::now();
+    let mut entries_count = 0u64;
+    let mut files_count = 0u64;
+    let mut directories_count = 0u64;
+    let mut links_count = 0u64;
+    let mut bytes_read = 0u64;
+    let mut last_logged_bytes = 0u64;
+
     let entries = enclave_base_archive.entries()?;
     for entry in entries {
         let mut entry = entry?;
+        entries_count += 1;
+
         let path = entry.path()?.to_path_buf();
         let path_str = path.to_str().ok_or(IoError::new(
             IoErrorKind::Other,
@@ -244,10 +297,12 @@ fn add_enclave_base_to_initramfs(
 
         let entry_type = header.entry_type();
         fs_tree = if entry_type.is_dir() {
+            directories_count += 1;
             fs_tree.add_directory_with_permissions(&target_path, mode)
         } else if entry_type.is_symlink() || entry_type.is_hard_link() {
             // TODO: For now we're treating a hardlink as an softlink.
             // Hard link support is to be added to the fortanix-vme-initramfs.
+            links_count += 1;
             let link_target = entry
                 .link_name()?
                 .ok_or(IoError::new(IoErrorKind::Other, "Missing link target"))?;
@@ -256,11 +311,39 @@ fn add_enclave_base_to_initramfs(
                 .ok_or(IoError::new(IoErrorKind::Other, "Invalid symlink target"))?;
             fs_tree.add_symlink_with_permissions(&target_path, link_target_str, mode)
         } else {
+            files_count += 1;
             let mut data = Vec::new();
             entry.read_to_end(&mut data)?;
+            bytes_read += data.len() as u64;
             fs_tree.add_file_with_permissions(&target_path, Cursor::new(data), mode)
+        };
+
+        if entries_count % 1000 == 0
+            || bytes_read.saturating_sub(last_logged_bytes) >= 256 * 1024 * 1024
+        {
+            info!(
+                "Adding enclave-base to initramfs: entries={}, files={}, directories={}, links={}, bytes_read={} MiB, elapsed={:?}, latest={}",
+                entries_count,
+                files_count,
+                directories_count,
+                links_count,
+                bytes_read / 1024 / 1024,
+                start.elapsed(),
+                target_path
+            );
+            last_logged_bytes = bytes_read;
         }
     }
+
+    info!(
+        "Added enclave-base to initramfs: entries={}, files={}, directories={}, links={}, bytes_read={} MiB, elapsed={:?}",
+        entries_count,
+        files_count,
+        directories_count,
+        links_count,
+        bytes_read / 1024 / 1024,
+        start.elapsed()
+    );
 
     Ok(fs_tree)
 }
