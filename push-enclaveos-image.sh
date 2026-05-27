@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -m # For job control
-
 script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
 
 launchpad_hostname="launchpad-7"

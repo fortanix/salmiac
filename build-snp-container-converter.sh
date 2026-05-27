@@ -19,24 +19,27 @@ cargo build
 
 popd > /dev/null || exit
 
+#build_flags="--no-cache"
+build_flags=""
+
 echo "----- Building Nitro parent-base -----"
 pushd "${salmiac_dir}/docker/nitro/parent-base" >/dev/null || exit
-docker build -t "parent-base" .
+docker build "${build_flags}" -t "parent-base" .
 popd > /dev/null || exit
 
 echo "----- Building enclave-base -----"
 pushd "${salmiac_dir}/docker/enclave-base" >/dev/null || exit
-docker build -t "enclave-base" .
+docker build "${build_flags}" -t "enclave-base" .
 popd >/dev/null || exit
 
 echo "----- Building enclave-base-gpu -----"
 pushd "${salmiac_dir}/docker/snp/enclave-base-gpu" >/dev/null || exit
-docker build -t "enclave-base-snp-gpu" .
+docker build "${build_flags}" -t "enclave-base-snp-gpu" .
 popd >/dev/null || exit
 
 echo "----- Building parent-base-snp -----"
 pushd "${salmiac_dir}/docker/snp/parent-base" >/dev/null || exit
-docker build -t "parent-base-snp" .
+docker build "${build_flags}" -t "parent-base-snp" .
 popd >/dev/null || exit
 
 echo "----- Building Container Converter Docker image -----"
