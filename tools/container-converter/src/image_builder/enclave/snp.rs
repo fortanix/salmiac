@@ -92,24 +92,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::EnclaveImageCreation,
         })?;
 
-        let blobs_dir = Path::new(INSTALLATION_DIR).join("blobs");
-        let ovmf_path = blobs_dir.join("OVMF.amdsev.fd");
-        let kernel_path = blobs_dir
-            .join(if enclave_settings.gpu_passthrough {
-                BLOBS_SUBDIR_GPU_ENABLED
-            } else {
-                BLOBS_SUBDIR_GPU_DISABLED
-            })
-            .join("bzImage");
-
-        compute_snp_launch_measurement(&SnpMeasurementInputs {
-            ovmf: &ovmf_path,
-            kernel: &kernel_path,
-            initrd: Some(&initramfs_file_path),
-            cmdline: None,
-            vcpus: 2,
-        })
-        .await
+        compute_launch_measurements(&enclave_settings, &initramfs_file_path).await
     }
 
     pub(crate) fn get_enclave_base_image_name(
@@ -214,6 +197,30 @@ fn create_initramfs(
 
     info!("Built initramfs.gz at {}", output_path.display());
     Ok(())
+}
+
+async fn compute_launch_measurements(
+    enclave_settings: &EnclaveSettings,
+    initramfs_file_path: &Path,
+) -> Result<SNPEnclavesMeasurements> {
+    let blobs_dir = Path::new(INSTALLATION_DIR).join("blobs");
+    let ovmf_path = blobs_dir.join("OVMF.amdsev.fd");
+    let kernel_path = blobs_dir
+        .join(if enclave_settings.gpu_passthrough {
+            BLOBS_SUBDIR_GPU_ENABLED
+        } else {
+            BLOBS_SUBDIR_GPU_DISABLED
+        })
+        .join("bzImage");
+
+    compute_snp_launch_measurement(&SnpMeasurementInputs {
+        ovmf: &ovmf_path,
+        kernel: &kernel_path,
+        initrd: Some(initramfs_file_path),
+        cmdline: None,
+        vcpus: 2,
+    })
+    .await
 }
 
 fn add_enclave_base_to_initramfs(
