@@ -1,4 +1,6 @@
 # Download OVMF and EFI boot stubb
+ARG NVIDIA_DRIVER_BRANCH=595
+
 FROM ubuntu:25.10 AS apt_extract
 RUN DEBIAN_FRONTEND=noninteractive apt-get update
 
@@ -22,6 +24,20 @@ RUN apt-get update && apt-get install -y \
 COPY staging/sev-snp-measure/requirements.txt /tmp/requirements.txt
 RUN pip install --break-system-packages --target /opt/sev-snp-dist -r /tmp/requirements.txt
 
+FROM ubuntu:24.04 AS nvidia_userspace
+ARG NVIDIA_DRIVER_BRANCH
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libnvidia-compute-${NVIDIA_DRIVER_BRANCH} \
+        nvidia-utils-${NVIDIA_DRIVER_BRANCH} \
+        nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH} && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY stage-nvidia-driver-payload.sh /usr/local/bin/stage-nvidia-driver-payload.sh
+RUN bash -x /usr/local/bin/stage-nvidia-driver-payload.sh /nvidia-driver-payload
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -42,6 +58,7 @@ RUN mkdir -p /var/log/enclave-os
 WORKDIR /app
 
 COPY --from=apt_extract /blob /opt/fortanix/enclave-os/blobs
+COPY --from=nvidia_userspace /nvidia-driver-payload /opt/fortanix/enclave-os/nvidia-driver-payload
 
 # These need to be pulled in from Jenkins https://jenkins.fortanix.net/job/build-salmiac-kernel/80/artifact/
 
