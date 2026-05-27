@@ -15,7 +15,7 @@ from sevsnpmeasure.sev_mode import SevMode
 
 FORTANIX_VME_VCPU_SIG = 0
 # TODO: needs security hardening.
-FORTANIX_VME_GUEST_FEATURES = 0x21
+FORTANIX_VME_GUEST_FEATURES = 1
 
 
 def main() -> int:
