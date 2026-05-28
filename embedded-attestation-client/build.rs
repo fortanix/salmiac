@@ -34,8 +34,6 @@ fn main() {
         .parent()
         .unwrap()
         .parent()
-        .unwrap()
-        .parent()
         .unwrap();
 
     // EMBEDDED_ATTEST_CLIENT_ROCHE_NAME allows a developer to use a Roche directory name besides "roche"
@@ -47,6 +45,16 @@ fn main() {
     } else {
         repos_dir.join(roche_repo_name)
     };
+    build_print::info!(
+        "Roche directory for attestation client build: {}",
+        roche_dir.display()
+    );
+    if !roche_dir
+        .try_exists()
+        .expect("Roche directory does not exist")
+    {
+        panic!("Roche directory does not exist");
+    }
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
     println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_NAME");

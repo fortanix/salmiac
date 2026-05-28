@@ -3,7 +3,13 @@
 script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
 
 salmiac_dir="${script_dir}"
-roche_path="${salmiac_dir}/../roche-dev"
+
+if [ -n "${EMBED_ATTEST_CLIENT_ROCHE_PATH}" ]; then
+  roche_path="${EMBED_ATTEST_CLIENT_ROCHE_PATH}"
+else
+  # If not set, assume that salmiac is a submodule of roche (roche/salmiac/salmiac-runner)
+  roche_path="${salmiac_dir}/../roche"
+fi
 
 echo "----- Cleaning Embedded Attestation Client -----"
 pushd "${salmiac_dir}/embedded-attestation-client" >/dev/null || exit
