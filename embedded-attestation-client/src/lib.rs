@@ -11,7 +11,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::TempDir;
+use tempfile::{tempdir_in, TempDir};
 
 /// The executable copied from Roche repo's build output, as triggered by `build.rs`
 static ATTESTATION_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
@@ -77,6 +77,19 @@ impl EmbeddedSnpAttestationClient {
         Ok(())
     }
 
+    fn create_tmp_dir() -> std::io::Result<TempDir> {
+        // Change the temp directory where attestation-client
+        // will be generated.
+        // The reason is, /tmp is mounted with noexec flag
+        // therefore, the executables created within the /tmp
+        // won't be able to get executed.
+        let tmp_dir_parent = Path::new("/opt/fortanix/tmp");
+        std::fs::create_dir_all(tmp_dir_parent)?;
+
+        let tmp_dir = tempdir_in(tmp_dir_parent)?;
+        Ok(tmp_dir)
+    }
+
     pub fn temp_dir_path(&self) -> PathBuf {
         self.temp_dir.path().to_path_buf()
     }
@@ -90,8 +103,11 @@ impl EmbeddedSnpAttestationClient {
         // Create structure with temp dir to hold the binary
         debug!("Creating embedded attestation client object");
         debug!("Creating temporary directory for client");
+
+        let temp_dir = Self::create_tmp_dir().map_err(|err| err.to_string())?;
+
         let client = EmbeddedSnpAttestationClient {
-            temp_dir: TempDir::new().map_err(|e| e.to_string())?,
+            temp_dir,
             app_cert_key_file_name: PathBuf::from(APP_CERT_KEY_FILE_NAME),
             app_cert_file_name: PathBuf::from(APP_CERT_FILE_NAME),
             app_cert_alt_names: None,
