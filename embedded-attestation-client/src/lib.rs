@@ -58,7 +58,7 @@ impl EmbeddedSnpAttestationClient {
 
         let mut file = options.open(path)?;
         file.write_all(ATTESTATION_CLIENT_BYTES)?;
-        file.flush();
+        file.flush()?;
 
         Ok(())
     }

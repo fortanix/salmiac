@@ -35,6 +35,7 @@ RUN apt-get update \
         nbd-client \
         libnvidia-compute-${NVIDIA_DRIVER_BRANCH} \
         nvidia-utils-${NVIDIA_DRIVER_BRANCH} \
+        openssl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
