@@ -47,6 +47,16 @@ fn main() {
     } else {
         repos_dir.join(roche_repo_name)
     };
+    build_print::info!(
+        "Roche directory for attestation client build: {}",
+        roche_dir.display()
+    );
+    if !roche_dir
+        .try_exists()
+        .expect("Roche directory does not exist")
+    {
+        panic!("Roche directory does not exist");
+    }
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
     println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_NAME");
@@ -58,8 +68,15 @@ fn main() {
     // Re-run the build if any of the source files in the Attestation Client project have changed
     for entry in walkdir::WalkDir::new(&attest_client_dir)
         .into_iter()
+        .filter_entry(|e| {
+            // Skip target dirs
+            if e.file_type().is_dir() {
+                !e.file_name().to_string_lossy().starts_with("target")
+            } else {
+                true
+            }
+        })
         .filter_map(|e| e.ok())
-        .filter(|e| !(e.file_name() == "target" && e.file_type().is_dir()))
     {
         if entry.file_type().is_file() {
             println!("cargo::rerun-if-changed={}", entry.path().display());

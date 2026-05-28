@@ -1006,7 +1006,7 @@ pub(crate) async fn setup_enclave_certification<
 >(
     _vsock: Option<&mut Socket>,
     _node_agent: Option<String>,
-    csr_api: &Api,
+    _csr_api: &Api,
     app_config_id: &Option<String>,
     cert_config: &CertificateConfig,
     fs_root: &Path,

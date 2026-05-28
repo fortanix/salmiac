@@ -5,12 +5,13 @@
 mod build_shared;
 use build_shared::attestation_client_bin_name;
 
-use std::fs::File;
+use log::{debug, Level};
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use log::{Level, debug};
-use tempfile::TempDir;
+use tempfile::{tempdir_in, TempDir};
 
 /// The executable copied from Roche repo's build output, as triggered by `build.rs`
 static ATTESTATION_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
@@ -28,6 +29,7 @@ pub static APP_CERT_KEY_FILE_NAME: &'static str = "/opt/fortanix/attestation-cli
 pub static APP_CERT_FILE_NAME: &'static str = "/opt/fortanix/attestation-client/cert.pem";
 
 /// Helper struct for the embedded SNP Attestation client.
+#[derive(Debug)]
 pub struct EmbeddedSnpAttestationClient {
     // TODO: Consider using tempfile::SpooledTempFile to keep everything in memory
     /// Directory where the SNP Attestation Client will be unpacked to
@@ -37,12 +39,55 @@ pub struct EmbeddedSnpAttestationClient {
     app_cert_alt_names: Option<Vec<String>>,
     appconfig_id: Option<String>,
     work_dir: Option<PathBuf>,
-    log_level: Option<Level>
+    log_level: Option<Level>,
 }
 
 impl EmbeddedSnpAttestationClient {
     fn attest_client_path(&self) -> PathBuf {
         self.temp_dir.path().join(attestation_client_bin_name!())
+    }
+
+    fn create_client_file(&self) -> std::io::Result<()> {
+        let path = self.attest_client_path();
+
+        let mut options = OpenOptions::new();
+        options.create(true).write(true).truncate(true);
+
+        // 0o755 = rwxr-xr-x (Standard readable/executable file)
+        options.mode(0o755);
+
+        let mut file = options.open(path)?;
+        file.write_all(ATTESTATION_CLIENT_BYTES)?;
+        file.flush()?;
+
+        Ok(())
+    }
+
+    fn create_app_cert_dir() -> std::io::Result<()> {
+        let app_cert_key = Path::new(APP_CERT_KEY_FILE_NAME);
+        if let Some(parent) = app_cert_key.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let app_cert_file_name = Path::new(APP_CERT_FILE_NAME);
+        if let Some(parent) = app_cert_file_name.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        Ok(())
+    }
+
+    fn create_tmp_dir() -> std::io::Result<TempDir> {
+        // Change the temp directory where attestation-client
+        // will be generated.
+        // The reason is, /tmp is mounted with noexec flag
+        // therefore, the executables created within the /tmp
+        // won't be able to get executed.
+        let tmp_dir_parent = Path::new("/opt/fortanix/tmp");
+        std::fs::create_dir_all(tmp_dir_parent)?;
+
+        let tmp_dir = tempdir_in(tmp_dir_parent)?;
+        Ok(tmp_dir)
     }
 
     pub fn temp_dir_path(&self) -> PathBuf {
@@ -58,8 +103,11 @@ impl EmbeddedSnpAttestationClient {
         // Create structure with temp dir to hold the binary
         debug!("Creating embedded attestation client object");
         debug!("Creating temporary directory for client");
+
+        let temp_dir = Self::create_tmp_dir().map_err(|err| err.to_string())?;
+
         let client = EmbeddedSnpAttestationClient {
-            temp_dir: TempDir::new().map_err(|e| e.to_string())?,
+            temp_dir,
             app_cert_key_file_name: PathBuf::from(APP_CERT_KEY_FILE_NAME),
             app_cert_file_name: PathBuf::from(APP_CERT_FILE_NAME),
             app_cert_alt_names: None,
@@ -67,27 +115,12 @@ impl EmbeddedSnpAttestationClient {
             work_dir: None,
             log_level: None,
         };
-        // Copy the binary to the directory
-        let client_file_path = client.attest_client_path();
+
         debug!("Creating file for client binary");
-        let mut client_file = File::create(&client_file_path).map_err(|e| e.to_string())?;
-        debug!("Writing data to client binary file");
-        client_file
-            .write_all(ATTESTATION_CLIENT_BYTES)
-            .map_err(|e| e.to_string())?;
-        client_file.flush().map_err(|e| e.to_string())?;
-        // Make the file executable
-        debug!("Making client binary executable");
-        let chmod_status = Command::new("chmod")
-            .args(["u+x", &client_file_path.to_str().unwrap()])
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !chmod_status.success() {
-            return Err(format!(
-                "Chmod returned error status: {}",
-                chmod_status.code().unwrap_or(1)
-            ));
-        }
+        client.create_client_file().map_err(|err| err.to_string())?;
+
+        debug!("Creating app certificates directory");
+        Self::create_app_cert_dir().map_err(|err| err.to_string())?;
 
         Ok(client)
     }

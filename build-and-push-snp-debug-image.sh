@@ -24,6 +24,12 @@ popd >/dev/null || exit
 
 "${script_dir}/run-container-converter.sh" "${request_file}"
 
+exit_code="${?}"
+if [ "${exit_code}" -ne 0 ] ; then
+  echo "Conversion for image \"${input_image_name}\" failed with code ${exit_code}"
+  exit "${exit_code}"
+fi
+
 # Tag the image for a registry
 docker tag "${output_image_name}" "${registry_tagged_image_name}"
 
