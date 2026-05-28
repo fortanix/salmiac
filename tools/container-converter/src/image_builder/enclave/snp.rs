@@ -25,6 +25,12 @@ use crate::image_builder::parent::snp::{BLOBS_SUBDIR_GPU_DISABLED, BLOBS_SUBDIR_
 use crate::image_builder::INSTALLATION_DIR;
 use crate::{ConverterError, ConverterErrorKind, Result};
 
+const NVIDIA_DRIVER_LIBRARY_PATH: &str = "/opt/fortanix/nvidia-driver/lib";
+const NVIDIA_DRIVER_BINARY_PATH: &str = "/opt/fortanix/nvidia-driver/bin";
+const NVIDIA_DRIVER_FIRMWARE_PAYLOAD_ROOT: &str =
+    "/opt/fortanix/enclave-os/nvidia-driver-payload/firmware";
+const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
 pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) enclave_image_builder: GenericEnclaveImageBuilder<'a>,
 }
@@ -45,17 +51,26 @@ impl<'a> EnclaveImageBuilder<'a> {
         input_repository: &crate::docker::DockerDaemon,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        env_vars: Vec<String>,
+        mut env_vars: Vec<String>,
         _sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<SNPEnclavesMeasurements> {
         let work_dir = self.enclave_image_builder.dir.path();
 
         let start = Instant::now();
         info!("Creating client FS block file...");
-        let file_system_config = self
-            .enclave_image_builder
-            .create_block_file(input_repository, &user_config)
-            .await?;
+        let file_system_config = if enclave_settings.gpu_passthrough {
+            self.enclave_image_builder
+                .create_block_file_with_nvidia_driver_payload(
+                    input_repository,
+                    &user_config,
+                    &enclave_settings.nvidia_driver_capabilities,
+                )
+                .await?
+        } else {
+            self.enclave_image_builder
+                .create_block_file(input_repository, &user_config)
+                .await?
+        };
         info!(
             "Client FS block file has been created in {:?}.",
             start.elapsed()
@@ -67,6 +82,26 @@ impl<'a> EnclaveImageBuilder<'a> {
             enclave_settings.enable_overlay_filesystem_persistence;
         let ccm_backend_url = enclave_settings.ccm_backend_url.clone();
         let dsm_configuration = enclave_settings.dsm_configuration.clone();
+
+        if enclave_settings.gpu_passthrough {
+            prepend_env(
+                &mut env_vars,
+                "LD_LIBRARY_PATH",
+                NVIDIA_DRIVER_LIBRARY_PATH,
+                None,
+            );
+            prepend_env(
+                &mut env_vars,
+                "PATH",
+                NVIDIA_DRIVER_BINARY_PATH,
+                Some(DEFAULT_PATH),
+            );
+            upsert_env(
+                &mut env_vars,
+                "NVIDIA_DRIVER_CAPABILITIES",
+                &enclave_settings.nvidia_driver_capabilities.join(","),
+            );
+        }
 
         let enclave_manifest = EnclaveManifest {
             user_config,
@@ -124,6 +159,35 @@ impl<'a> EnclaveImageBuilder<'a> {
             }
         })
     }
+}
+
+fn get_last_env_value(env_vars: &[String], key: &str) -> Option<String> {
+    let prefix = format!("{}=", key);
+
+    env_vars.iter().rev().find_map(|env| {
+        env.strip_prefix(&prefix)
+            .map(|value| value.to_string())
+    })
+}
+
+fn prepend_env(env_vars: &mut Vec<String>, key: &str, prefix: &str, default: Option<&str>) {
+    let current = get_last_env_value(env_vars, key)
+        .or_else(|| default.map(|value| value.to_string()))
+        .unwrap_or_default();
+
+    let value = if current.is_empty() {
+        prefix.to_string()
+    } else if current.split(':').any(|entry| entry == prefix) {
+        current
+    } else {
+        format!("{}:{}", prefix, current)
+    };
+
+    upsert_env(env_vars, key, &value);
+}
+
+fn upsert_env(env_vars: &mut Vec<String>, key: &str, value: &str) {
+    env_vars.push(format!("{}={}", key, value));
 }
 
 fn create_initramfs(
@@ -202,9 +266,11 @@ fn create_initramfs(
             fs_tree = fs_tree.add_file(&path, Cursor::new(module_data));
         }
         blobs_dir.pop();
+
+        info!("Adding NVIDIA GSP firmware to initramfs...");
+        fs_tree = add_nvidia_firmware_to_initramfs(fs_tree)?;
     }
 
-    let start = Instant::now();
     let start = Instant::now();
     let mut last_percent = 0usize;
 
@@ -269,6 +335,60 @@ async fn compute_launch_measurements(
         vcpus: 2,
     })
     .await
+}
+
+fn add_nvidia_firmware_to_initramfs(fs_tree: FsTree) -> std::result::Result<FsTree, IoError> {
+    let firmware_root = Path::new(NVIDIA_DRIVER_FIRMWARE_PAYLOAD_ROOT);
+    if !firmware_root.exists() {
+        return Err(IoError::new(
+            IoErrorKind::NotFound,
+            format!(
+                "NVIDIA firmware payload root {} does not exist in the converter image",
+                firmware_root.display()
+            ),
+        ));
+    }
+
+    add_nvidia_firmware_dir_to_initramfs(fs_tree, firmware_root, firmware_root)
+}
+
+fn add_nvidia_firmware_dir_to_initramfs(
+    mut fs_tree: FsTree,
+    root: &Path,
+    dir: &Path,
+) -> std::result::Result<FsTree, IoError> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        let relative_path = path.strip_prefix(root).map_err(|err| {
+            IoError::new(
+                IoErrorKind::Other,
+                format!(
+                    "Failed to make NVIDIA firmware path {} relative to {}. {:?}",
+                    path.display(),
+                    root.display(),
+                    err
+                ),
+            )
+        })?;
+        let relative_path = relative_path.to_str().ok_or(IoError::new(
+            IoErrorKind::Other,
+            format!("Invalid NVIDIA firmware path: {}", path.display()),
+        ))?;
+
+        if file_type.is_dir() {
+            fs_tree = fs_tree.add_directory(relative_path);
+            fs_tree = add_nvidia_firmware_dir_to_initramfs(fs_tree, root, &path)?;
+        } else if file_type.is_file() {
+            let data = fs::read(&path)?;
+            fs_tree = fs_tree.add_file(relative_path, Cursor::new(data));
+        } else {
+            warn!("Skipping unsupported NVIDIA firmware entry {}", path.display());
+        }
+    }
+
+    Ok(fs_tree)
 }
 
 fn add_enclave_base_to_initramfs(
