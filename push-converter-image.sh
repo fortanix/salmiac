@@ -6,7 +6,7 @@ launchpad_hostname="launchpad-7"
 
 request_file="${script_dir}/req.json"
 
-image_name="$(jq -r '.output_image.name' "${request_file}")"
+image_name="snp-converter"
 
 registry_port="5000"
 registry_path="localhost:${registry_port}"
@@ -14,14 +14,6 @@ registry_tagged_image_name="${registry_path}/${image_name}"
 
 # Tag the image for a registry
 docker tag "${image_name}" "${registry_tagged_image_name}"
-
-#archive_path="${script_dir}/${image_name}.tar.gz"
-#
-#docker save "${image_name}" | gzip > "${archive_path}"
-#
-#rsync -auxPAX "${archive_path}" "${launchpad_hostname}:~/${image_name}.tar.gz"
-
-#exit
 
 # Push the image to the Launchpad 7 Docker registry through an SSH tunnel
 socket_name="launchpad-registry-tunnel-socket"

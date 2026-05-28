@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use log::{Level, debug};
 use tempfile::TempDir;
 
 /// The executable copied from Roche repo's build output, as triggered by `build.rs`
@@ -36,6 +37,7 @@ pub struct EmbeddedSnpAttestationClient {
     app_cert_alt_names: Option<Vec<String>>,
     appconfig_id: Option<String>,
     work_dir: Option<PathBuf>,
+    log_level: Option<Level>
 }
 
 impl EmbeddedSnpAttestationClient {
@@ -54,6 +56,8 @@ impl EmbeddedSnpAttestationClient {
     /// structure exits scope.
     pub fn new() -> Result<Self, String> {
         // Create structure with temp dir to hold the binary
+        debug!("Creating embedded attestation client object");
+        debug!("Creating temporary directory for client");
         let client = EmbeddedSnpAttestationClient {
             temp_dir: TempDir::new().map_err(|e| e.to_string())?,
             app_cert_key_file_name: PathBuf::from(APP_CERT_KEY_FILE_NAME),
@@ -61,15 +65,19 @@ impl EmbeddedSnpAttestationClient {
             app_cert_alt_names: None,
             appconfig_id: None,
             work_dir: None,
+            log_level: None,
         };
         // Copy the binary to the directory
         let client_file_path = client.attest_client_path();
+        debug!("Creating file for client binary");
         let mut client_file = File::create(&client_file_path).map_err(|e| e.to_string())?;
+        debug!("Writing data to client binary file");
         client_file
             .write_all(ATTESTATION_CLIENT_BYTES)
             .map_err(|e| e.to_string())?;
         client_file.flush().map_err(|e| e.to_string())?;
         // Make the file executable
+        debug!("Making client binary executable");
         let chmod_status = Command::new("chmod")
             .args(["u+x", &client_file_path.to_str().unwrap()])
             .status()
@@ -109,9 +117,15 @@ impl EmbeddedSnpAttestationClient {
         self
     }
 
+    pub fn log_level(&mut self, log_level: Option<Level>) -> &mut Self {
+        self.log_level = log_level;
+        self
+    }
+
     /// Executes the Attestation Client. This will run a child process.
     /// If successful, this will create the local and remote attestation certificates.
     pub fn run(&self) -> Result<(), String> {
+        debug!("Running embedded attestation client with Cert");
         let mut cmd = Command::new(self.attest_client_path());
         // Clear any existing environmental variables to prevent pollution, only values from
         // the object should be used
@@ -143,6 +157,12 @@ impl EmbeddedSnpAttestationClient {
         if let Some(work_dir) = &self.work_dir {
             cmd.current_dir(work_dir);
         }
+
+        if let Some(level) = self.log_level {
+            cmd.env("RUST_LOG", level.as_str());
+        }
+
+        debug!("Attestation client environment: {:?}", cmd.get_envs());
 
         let status = cmd.status().map_err(|e| e.to_string())?;
         if !status.success() {

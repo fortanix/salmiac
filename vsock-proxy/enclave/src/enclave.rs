@@ -234,6 +234,11 @@ pub(crate) async fn run(
         )
         .await?;
 
+        info!("Certificate setup complete:");
+        for cert in &certificate_info {
+            info!("Certificate path: {}, ", cert.certificate_path.display());
+        }
+
         let fs_setup_config = FileSystemSetupConfig {
             enclave_manifest: &setup_result.enclave_manifest,
             env_vars: &setup_result.env_vars,
@@ -988,7 +993,7 @@ pub(crate) async fn setup_enclave_certification<
 >(
     _vsock: Option<&mut Socket>,
     _node_agent: Option<String>,
-    _csr_api: &Api,
+    csr_api: &Api,
     app_config_id: &Option<String>,
     cert_config: &CertificateConfig,
     fs_root: &Path,
@@ -996,7 +1001,22 @@ pub(crate) async fn setup_enclave_certification<
     // For SNP, for the time being, an embedded attestation agent is used to create certificates.
     // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
     use embedded_attestation_client::EmbeddedSnpAttestationClient;
+    use log::Level;
     use std::ffi::CString;
+
+    // // Because the function is still called and expects to use the CsrApi, we need to get the CSR
+    // // and ignore it
+    // if let Some(kp) = &cert_config.key_param {
+    //     let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+    //     let mut key = create_signer_key(key_size as u32)?;
+    //     let _csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
+    // } else {
+    //     return Err(format!(
+    //         "key param not specified for cert config {:?}",
+    //         cert_config
+    //     ));
+    // }
+    info!("Running embedded attestation client to obtain certificates");
 
     let mut client = EmbeddedSnpAttestationClient::new()?;
     // We will write out the key and certificate to the temporary working directory of the embedded
@@ -1008,11 +1028,14 @@ pub(crate) async fn setup_enclave_certification<
         .app_cert_key_file_name(&key_path)
         .app_cert_file_name(&cert_path)
         .app_config_id(app_config_id.clone())
-        .work_dir(Some(temp_dir));
+        .work_dir(Some(temp_dir))
+        .log_level(Some(Level::Debug));
     if !cert_config.alt_names.is_empty() {
         client.app_cert_alt_names(Some(cert_config.alt_names.clone()));
     }
     client.run()?;
+
+    info!("Embedded attestation client finished.");
 
     // Check if the key and cert have been created
     if !&cert_path.exists() {

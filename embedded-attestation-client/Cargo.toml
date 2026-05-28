@@ -7,8 +7,11 @@ edition = "2021"
 tempfile = "3"
 mbedtls = { version = "0.13.5", features = ["rdrand", "std", "ssl"], default-features = false }
 clap = {  version = "4.5", features = ["derive"] }
+log = "0.4"
+env_logger = "0.7"
 
 [build-dependencies]
 build-support = { path = "../build-support", package = "salmiac-build-support" }
 toml = "0.5"
 walkdir = "2"
+build-print = "0.1"

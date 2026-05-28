@@ -24,10 +24,7 @@ RUN mkdir -p /var/log/enclave-os
 
 WORKDIR /app
 
-COPY staging/server staging/parent-base.tar staging/enclave-base.tar staging/enclave-base-gpu.tar /app/
-
 COPY --from=apt_extract /blob /opt/fortanix/enclave-os/blobs
-
 
 # These need to be pulled in from Jenkins https://jenkins.fortanix.net/job/build-salmiac-kernel/80/artifact/
 
@@ -45,5 +42,7 @@ COPY kernel_enabled_gpu/nvidia.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_
 COPY kernel_enabled_gpu/nvidia-drm.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia-drm.ko
 COPY kernel_enabled_gpu/nvidia-modeset.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia-modeset.ko
 
+# Copy the parts that change often last to reuse layers
+COPY staging/server staging/parent-base.tar staging/enclave-base.tar staging/enclave-base-gpu.tar /app/
 
 ENTRYPOINT [ "./server" ]

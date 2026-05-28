@@ -51,6 +51,7 @@ pkix = "0.1.2"
 serde_cbor = "0.11.2"
 salmiac-build-support = { path = "../../build-support" }
 toml = "0.5"
+walkdir = "2"
 
 [dev-dependencies]
 lazy_static = "1.0"

@@ -49,6 +49,9 @@ fn main() {
     };
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
+    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_NAME");
+    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_PATH");
+
     // Rebuild if this file has changed
     println!("cargo::rerun-if-changed=build.rs");
 
@@ -56,6 +59,7 @@ fn main() {
     for entry in walkdir::WalkDir::new(&attest_client_dir)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| !(e.file_name() == "target" && e.file_type().is_dir()))
     {
         if entry.file_type().is_file() {
             println!("cargo::rerun-if-changed={}", entry.path().display());

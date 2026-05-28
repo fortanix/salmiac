@@ -138,6 +138,8 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
+
     let args = Args::parse();
 
     // Only run the embedded client, without the vsock-proxy enclave flow

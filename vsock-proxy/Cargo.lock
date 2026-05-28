@@ -349,6 +349,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "build-print"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a2128d00b7061b82b72844a351e80acd29e05afc60e9261e2ac90dca9ecc2ac"
+
+[[package]]
 name = "bumpalo"
 version = "3.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -774,7 +780,10 @@ dependencies = [
 name = "embedded-attestation-client"
 version = "0.1.0"
 dependencies = [
+ "build-print",
  "clap 4.5.61",
+ "env_logger",
+ "log 0.4.14",
  "mbedtls",
  "salmiac-build-support",
  "tempfile",
@@ -826,6 +835,7 @@ dependencies = [
  "tun",
  "url 2.3.1",
  "uuid 0.7.4",
+ "walkdir",
 ]
 
 [[package]]
@@ -880,7 +890,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

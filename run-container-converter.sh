@@ -2,21 +2,25 @@
 
 script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
 
-parent_image="parent-base-snp"
-enclave_image="enclave-base"
+converter_name="snp-converter"
+req_file="${script_dir}/req.json"
+
+if [ -z "$1" ]; then
+  echo "Using default request file path \"${req_file}\""
+else
+  req_file="${1}"
+  echo "Using request file \"${req_file}\""
+fi
 
 docker run \
   --rm \
-  -e SALMIAC_PLATFORM=snp \
   -e RUST_LOG=debug \
   -e ENCLAVEOS_DEBUG=debug \
-  -e "PARENT_IMAGE=${parent_image}" \
-  -e "ENCLAVE_IMAGE=${enclave_image}" \
-  --name snp-converter \
+  --name "${converter_name}" \
   --user 0 \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e PRESERVE_IMAGES=input,result \
-  -v ./req.json:/app/req.json \
-  snp-converter \
-  --request-file /app/req.json
+  -v "${req_file}:/app/req.json" \
+  "${converter_name}" \
+  --request-file "/app/req.json"

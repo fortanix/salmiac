@@ -60,9 +60,9 @@ impl CertificatePaths for CertificateConfig {
 pub(crate) struct CertificateWithPath {
     pub(crate) certificate_result: CertificateResult,
 
-    key_path: PathBuf,
+    pub(crate) key_path: PathBuf,
 
-    certificate_path: PathBuf,
+    pub(crate) certificate_path: PathBuf,
 }
 
 impl CertificateWithPath {

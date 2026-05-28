@@ -36,6 +36,8 @@ url = "2.2.2"
 
 [build-dependencies]
 salmiac-build-support = { path = "../../build-support" }
+walkdir = "2"
+build-print = "0.1"
 
 [dev-dependencies]
 chrono = "0.4.22"

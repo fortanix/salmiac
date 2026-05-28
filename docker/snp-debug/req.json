@@ -1,9 +1,9 @@
 {
   "input_image": {
-    "name": "nginx:latest"
+    "name": "snp-debug:latest"
   },
   "output_image": {
-    "name": "nginx-snp:latest"
+    "name": "snp-debug-converted:latest"
   },
   "converter_options": {
     "allow_cmdline_args": false,
