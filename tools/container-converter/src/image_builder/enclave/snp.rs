@@ -261,7 +261,11 @@ async fn compute_launch_measurements(
         ovmf: &ovmf_path,
         kernel: &kernel_path,
         initrd: Some(initramfs_file_path),
-        cmdline: None,
+        // TODO: hardcoded for now so the pre-computed measurement matches
+        // the kernel cmdline QEMU passes at launch. Revisit once the proper
+        // cmdline source is wired up (e.g., a shared constant from parent_lib
+        // when RTE-917 lands).
+        cmdline: Some("console=ttyS0 rdinit=/init loglevel=7"),
         vcpus: 2,
     })
     .await
