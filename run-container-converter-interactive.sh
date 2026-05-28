@@ -14,6 +14,7 @@ fi
 
 docker run \
   --rm \
+  -it \
   -e RUST_LOG=debug \
   -e ENCLAVEOS_DEBUG=debug \
   --name "${converter_name}" \
@@ -22,8 +23,11 @@ docker run \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e PRESERVE_IMAGES=input,result \
   -v "${req_file}:/app/req.json" \
-  "${converter_name}" \
-  --request-file "/app/req.json"
+  --entrypoint="/usr/bin/bash" \
+  "${converter_name}"
+
+# Run the following command to do the conversion:
+# RUST_LOG=debug ./server --request-file ./req.json
 
 exit_code="${?}"
 if [ "${exit_code}" -ne 0 ] ; then

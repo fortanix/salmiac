@@ -3,7 +3,13 @@
 script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
 
 salmiac_dir="${script_dir}"
-roche_path="${salmiac_dir}/../roche-dev"
+
+if [ -n "${EMBED_ATTEST_CLIENT_ROCHE_PATH}" ]; then
+  roche_path="${EMBED_ATTEST_CLIENT_ROCHE_PATH}"
+else
+  # If not set, assume that salmiac is a submodule of roche (roche/salmiac/salmiac-runner)
+  roche_path="${salmiac_dir}/../roche"
+fi
 
 echo "----- Cleaning Embedded Attestation Client -----"
 pushd "${salmiac_dir}/embedded-attestation-client" >/dev/null || exit
@@ -12,10 +18,15 @@ cargo clean -p "embedded-attestation-client"
 
 popd > /dev/null || exit
 
+echo "----- Cleaning Vsock Proxy -----"
+pushd "${salmiac_dir}/vsock-proxy" >/dev/null || exit
+
+cargo clean -p "enclave" -p "parent" -p "parent_lib" -p "shared" -p "embedded-attestation-client"
+
+popd > /dev/null || exit
+
 echo "----- Building Container Converter executable -----"
 pushd "${salmiac_dir}/tools/container-converter" >/dev/null || exit
-
-cargo clean
 
 #SALMIAC_PLATFORM="snp" \
 #EMBED_ATTEST_CLIENT_ROCHE_PATH="${roche_path}" \
@@ -43,17 +54,17 @@ build_flags=""
 
 echo "----- Building enclave-base -----"
 pushd "${salmiac_dir}/docker/enclave-base" >/dev/null || exit
-docker build ${build_flags:+} -t "enclave-base" .
+docker build ${build_flags} -t "enclave-base" .
 popd >/dev/null || exit
 
 echo "----- Building enclave-base-gpu -----"
 pushd "${salmiac_dir}/docker/snp/enclave-base-gpu" >/dev/null || exit
-docker build ${build_flags:+} -t "enclave-base-snp-gpu" .
+docker build ${build_flags} -t "enclave-base-snp-gpu" .
 popd >/dev/null || exit
 
 echo "----- Building parent-base-snp -----"
 pushd "${salmiac_dir}/docker/snp/parent-base" >/dev/null || exit
-docker build ${build_flags:+} -t "parent-base" .
+docker build ${build_flags} -t "parent-base" .
 docker tag "parent-base" "parent-base-snp"
 popd >/dev/null || exit
 
