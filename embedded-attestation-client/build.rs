@@ -68,8 +68,15 @@ fn main() {
     // Re-run the build if any of the source files in the Attestation Client project have changed
     for entry in walkdir::WalkDir::new(&attest_client_dir)
         .into_iter()
+        .filter_entry(|e| {
+            // Skip target dirs
+            if e.file_type().is_dir() {
+                !e.file_name().to_string_lossy().starts_with("target")
+            } else {
+                true
+            }
+        })
         .filter_map(|e| e.ok())
-        .filter(|e| !(e.file_name() == "target" && e.file_type().is_dir()))
     {
         if entry.file_type().is_file() {
             println!("cargo::rerun-if-changed={}", entry.path().display());
