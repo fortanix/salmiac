@@ -91,33 +91,24 @@ fn main() {
     let target_profile = env::var("PROFILE").unwrap();
     let target_dir = roche_dir.join("target").join(&target_profile);
 
-    // The toolchain can be provided by either an environmental variable, EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN,
-    // or by the toolchain file in Roche; the latter is preferable
-    let toolchain = if let Ok(env_roche_toolchain) = env::var("EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN")
-    {
-        env_roche_toolchain
-    } else {
-        // Get the toolchain version used in Roche, as we cannot use the Salmiac toolchain
-        let mut buf = String::new();
-        File::open(roche_dir.join("rust-toolchain.toml"))
-            .expect("Could not find rust-toolchain.toml file")
-            .read_to_string(&mut buf)
-            .expect("Failed to read rust-toolchain.toml file");
-        let table =
-            toml::from_str::<toml::Value>(&buf).expect("Could not parse rust-toolchain.toml");
-        let toml_roche_toolchain = if let toml::Value::Table(table) = table {
-            if let toml::Value::Table(toolchain_table) = table.get("toolchain").unwrap() {
-                toolchain_table["channel"]
-                    .as_str()
-                    .expect("Could not find channel")
-                    .to_string()
-            } else {
-                panic!("Could not \"toolchain\" table in rust-toolchain.toml");
-            }
+    // Get the toolchain version used in Roche, as we cannot use the Salmiac toolchain
+    let mut buf = String::new();
+    File::open(roche_dir.join("rust-toolchain.toml"))
+        .expect("Could not find rust-toolchain.toml file")
+        .read_to_string(&mut buf)
+        .expect("Failed to read rust-toolchain.toml file");
+    let table = toml::from_str::<toml::Value>(&buf).expect("Could not parse rust-toolchain.toml");
+    let toolchain = if let toml::Value::Table(table) = table {
+        if let toml::Value::Table(toolchain_table) = table.get("toolchain").unwrap() {
+            toolchain_table["channel"]
+                .as_str()
+                .expect("Could not find channel")
+                .to_string()
         } else {
-            panic!("Could not get roche toolchain channel");
-        };
-        toml_roche_toolchain
+            panic!("Could not \"toolchain\" table in rust-toolchain.toml");
+        }
+    } else {
+        panic!("Could not get roche toolchain channel");
     };
 
     // We build the real agent for SNP, otherwise make a dummy
