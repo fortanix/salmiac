@@ -22,6 +22,11 @@ Note - Application certificates can't be issued by CCM when ENCLAVEOS_DEBUG is
 set i.e. when the enclave is running in debug mode. Unless the build/app is
 registered as a debug build in a test-only deployment account.
 
+##### Environmental variables that relate to workflows
+- APPCONFIG_ID - A 256-bit hash of the workflow runtime configuration,
+  represented as a 64-character lower-case hexadecimal string. This is only
+  necessary to set if using a workflow with an app that expects one to be present.
+
 ##### Logging related variables
 - ENCLAVEOS_DEBUG - Set to debug to run the enclave in debug mode.
 - RUST_LOG - Set to debug to enable generic Rust debug logging for the enclave parent.
