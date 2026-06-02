@@ -23,8 +23,13 @@ const RESOURCES_PARENT_DIR: &str = "src/resources/parent";
 const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_NAME");
-    println!("cargo::rerun-if-env-changed=EMBED_ATTEST_CLIENT_ROCHE_PATH");
+    for env_var in [
+        "EMBED_ATTEST_CLIENT_ROCHE_NAME",
+        "EMBED_ATTEST_CLIENT_ROCHE_PATH",
+        "EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN",
+    ] {
+        println!("cargo::rerun-if-env-changed={}", env_var);
+    }
 
     for dir in &[
         PathBuf::from("../../vsock-proxy"),
