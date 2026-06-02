@@ -5,6 +5,25 @@ an SEV-SNP capable host.
 
 ## Image Conversion
 
+Image conversion requires certain base images to be available in the local Docker cache. If you are not building the
+base images separately, they need to be extracted from the converter image. The following steps can be taken to do so:
+
+```bash
+# Create a converter container without starting it
+docker create --name converter-temp "${converter_image_name}"
+# Extract the base image archives
+docker cp converter-temp:/app/enclave-base-gpu.tar .
+docker cp converter-temp:/app/enclave-base.tar .
+docker cp converter-temp:/app/parent-base.tar .
+# Remove the converter container
+docker rm converter-temp
+
+# Load the base images into the local cache
+docker load <enclave-base-gpu.tar
+docker load <enclave-base.tar
+docker load <parent-base.tar
+```
+
 To convert a input image, the image converter must be run. The following command is an example:
 
 ```bash
@@ -12,13 +31,13 @@ docker run \
   --rm \
   -e RUST_LOG=debug \
   -e ENCLAVEOS_DEBUG=debug \
-  --name "${converter_name}" \
+  --name "${converter_image_name}" \
   --user 0 \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e PRESERVE_IMAGES=input,result \
   -v "${req_file}:/app/req.json" \
-  "${converter_name}" \
+  "${converter_image_name}" \
   --request-file "/app/req.json"
 ```
 
@@ -29,7 +48,11 @@ The conversion request payload looks like this:
 ```json
 {
   "input_image": {
-    "name": "example:tag"
+    "name": "private-registry/example:tag",
+    "auth_config": {
+      "username": "user",
+      "password": "password"
+    }
   },
   "output_image": {
     "name": "private-registry/example-converted:tag",
@@ -45,8 +68,7 @@ The conversion request payload looks like this:
         "issuer": "ManagerCa",
         "key_type": "Rsa",
         "alt_names": [
-          "name_1",
-          "name_2"
+          "alt_name"
         ],
         "cert_path": "/path/to/certificate.pem",
         "key_path": "/path/to/private_key.pem"
@@ -71,10 +93,14 @@ The conversion request payload looks like this:
 ```
 
 When launched, the converter will pull the `input_image` (using the optional `auth_config`), and once the process
-completes, will place the resulting EnclaveOs image as specified in `output_image`.
+completes, will place the resulting EnclaveOs image as specified in `output_image` (also with an optional `auth_config`
+field).
 
 If needed, zero or more certificates can be configured to be provisioned by CCM during container startup. The mandatory
 parameters are the `issuer` and `key_type`. The provided example uses good defaults.
+
+The `alt_name` field accepts a string array as input, but at present, only _one_
+alt name is usable in the system.
 
 In order to use the GPU in the converted container, the `enable_gpu_passthrough` option must be set to `true`.
 
@@ -122,8 +148,15 @@ echo 10de 2330 | sudo tee /sys/bus/pci/drivers/vfio-pci/new_id
 
 Execute `lspci -nnk -d 10de:` again, and if all is correct, it will be shown that the `vfio-pci` driver is in use.
 
-To run the container, execute the following command, setting `SNP_GPU_BDF`, and
-`APPCONFIG_ID` if one has been created for this instance:
+To run the container, execute the following command, setting `SNP_GPU_BDF`
+using the value obtained previously, and set
+`APPCONFIG_ID` if one has been created for this instance.
+
+The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is
+only necessary for workflows, and not needed if only the application is to be run in the container.
+
+The variables `ENCLAVEOS_DEBUG` and `RUST_LOG` help with debugging any issues, and can be excluded if more detailed
+logging is not required.
 
 ```bash
 docker run \
