@@ -184,12 +184,14 @@ async fn run0(
 
     info!("Building enclave image!");
     let image_result = {
-        let enclave_base_image_str = PlatformEnclaveImageBuilder::get_enclave_base_image_name(
-            &conversion_request.enclaves_options,
-        );
+        let (enclave_base_image_str, enclave_base_image_path_str) =
+            PlatformEnclaveImageBuilder::get_enclave_base_details(
+                &conversion_request.enclaves_options,
+            );
         info!("Enclave base image is {}", enclave_base_image_str);
 
-        let enclave_base_image = get_enclave_base_image(&enclave_base_image_str).await?;
+        let enclave_base_image =
+            get_enclave_base_image(&enclave_base_image_str, enclave_base_image_path_str).await?;
 
         let user_program_config = create_user_program_config(
             &conversion_request.request.converter_options,
@@ -378,11 +380,11 @@ fn hex_response(arg: &str) -> Result<HexString> {
     })
 }
 
-async fn get_enclave_base_image(image: &str) -> Result<ImageWithDetails<'_>> {
+async fn get_enclave_base_image(image: &str, image_path: String) -> Result<ImageWithDetails<'_>> {
     let username = env_var_or_none("ENCLAVE_IMAGE_USERNAME");
     let password = env_var_or_none("ENCLAVE_IMAGE_PASSWORD");
 
-    get_base_image(&image, ENCLAVE_IMAGE_PATH.to_owned(), username, password).await
+    get_base_image(&image, image_path, username, password).await
 }
 
 async fn get_parent_base_image(image: &str) -> Result<()> {

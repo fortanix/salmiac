@@ -69,7 +69,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::RequisitesCreation,
             })?;
 
-        let enclave_base_tar_path = work_dir.join("enclave-base.tar");
+        let enclave_base_tar_path = work_dir.join(crate::ENCLAVE_IMAGE_PATH);
         info!("Exporting enclave-base image...");
         let enclave_base_archive = self
             .enclave_image_builder
@@ -95,16 +95,24 @@ impl<'a> EnclaveImageBuilder<'a> {
         })
     }
 
-    pub(crate) fn get_enclave_base_image_name(
+    pub(crate) fn get_enclave_base_details(
         enclaves_options: &SNPEnclavesConversionRequestOptions,
-    ) -> String {
-        env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
-            if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
-                crate::ENCLAVE_IMAGE_SNP_GPU.to_owned()
-            } else {
-                crate::ENCLAVE_IMAGE.to_owned()
-            }
-        })
+    ) -> (String, String) {
+        env::var("ENCLAVE_IMAGE")
+            .map(|img| (img, crate::ENCLAVE_IMAGE_PATH.to_owned()))
+            .unwrap_or_else(|_| {
+                if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+                    (
+                        crate::ENCLAVE_IMAGE_SNP_GPU.to_owned(),
+                        crate::ENCLAVE_GPU_IMAGE_PATH.to_owned(),
+                    )
+                } else {
+                    (
+                        crate::ENCLAVE_IMAGE.to_owned(),
+                        crate::ENCLAVE_IMAGE_PATH.to_owned(),
+                    )
+                }
+            })
     }
 }
 
