@@ -46,7 +46,6 @@ impl<'a> EnclaveImageBuilder<'a> {
     ];
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
     pub const OVMF_FILENAME: &'static str = "OVMF.amdsev.fd";
-    pub const ENCLAVE_BASE_FILENAME: &'static str = "enclave-base.tar";
 
     pub(crate) async fn create_image(
         &self,
@@ -122,7 +121,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
         info!("Serialized enclave manifest in {:?}.", start.elapsed());
 
-        let enclave_base_tar_path = work_dir.join(Self::ENCLAVE_BASE_FILENAME);
+        let enclave_base_tar_path = work_dir.join(crate::ENCLAVE_IMAGE_PATH);
         let start = Instant::now();
         info!("Exporting enclave-base image...");
         let enclave_base_archive = self
@@ -148,16 +147,24 @@ impl<'a> EnclaveImageBuilder<'a> {
         compute_launch_measurements(&enclave_settings, &initramfs_file_path).await
     }
 
-    pub(crate) fn get_enclave_base_image_name(
+    pub(crate) fn get_enclave_base_details(
         enclaves_options: &SNPEnclavesConversionRequestOptions,
-    ) -> String {
-        env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
-            if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
-                crate::ENCLAVE_IMAGE_SNP_GPU.to_owned()
-            } else {
-                crate::ENCLAVE_IMAGE.to_owned()
-            }
-        })
+    ) -> (String, String) {
+        env::var("ENCLAVE_IMAGE")
+            .map(|img| (img, crate::ENCLAVE_IMAGE_PATH.to_owned()))
+            .unwrap_or_else(|_| {
+                if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+                    (
+                        crate::ENCLAVE_IMAGE_SNP_GPU.to_owned(),
+                        crate::ENCLAVE_GPU_IMAGE_PATH.to_owned(),
+                    )
+                } else {
+                    (
+                        crate::ENCLAVE_IMAGE.to_owned(),
+                        crate::ENCLAVE_IMAGE_PATH.to_owned(),
+                    )
+                }
+            })
     }
 }
 
