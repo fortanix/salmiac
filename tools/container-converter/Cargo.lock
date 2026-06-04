@@ -563,8 +563,9 @@ dependencies = [
 
 [[package]]
 name = "fortanix-vme-initramfs"
-version = "0.1.0"
-source = "git+https://github.com/fortanix/rust-sgx.git?branch=mihir%2Fadd-initramfs-progress#031dc86d52590858822e7c8ce62315536ac1854c"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3e7322642097ea425750edb043b106b58157f4c9fafaecb58a42aaaaef61c79"
 dependencies = [
  "cpio",
  "derivative",
