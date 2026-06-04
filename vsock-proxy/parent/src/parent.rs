@@ -358,9 +358,11 @@ fn tcp_port_is_listening(address: Ipv4Addr, port: u16) -> Result<bool, String> {
     let proc_net_tcp = fs::read_to_string("/proc/net/tcp").map_err(|err| format!("failed to read /proc/net/tcp: {err}"))?;
 
     Ok(proc_net_tcp.lines().skip(1).any(|line| {
-        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let mut fields = line.split_whitespace();
+        let Some(listen_addr) = fields.nth(1) else { return false };
+        let Some(listen_state) = fields.nth(1) else { return false };
 
-        fields.len() > 3 && fields[1].eq_ignore_ascii_case(&expected) && fields[3] == TCP_LISTEN_STATE
+        listen_addr.eq_ignore_ascii_case(&expected) && listen_state == TCP_LISTEN_STATE
     }))
 }
 
