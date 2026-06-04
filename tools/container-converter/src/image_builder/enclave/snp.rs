@@ -19,10 +19,11 @@ use tar::{Archive, EntryType};
 use crate::image_builder::enclave::snp_measurement::{
     compute_snp_launch_measurement, SnpMeasurementInputs,
 };
-use crate::image_builder::enclave::EnclaveImageBuilder as GenericEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
+use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::image_builder::parent::snp::{BLOBS_SUBDIR_GPU_DISABLED, BLOBS_SUBDIR_GPU_ENABLED};
 use crate::image_builder::INSTALLATION_DIR;
+use crate::DockerUtil;
 use crate::{ConverterError, ConverterErrorKind, Result};
 
 const NVIDIA_DRIVER_LIBRARY_PATH: &str = "/opt/fortanix/nvidia-driver/lib";
@@ -45,10 +46,11 @@ impl<'a> EnclaveImageBuilder<'a> {
     ];
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
     pub const OVMF_FILENAME: &'static str = "OVMF.amdsev.fd";
+    pub const ENCLAVE_BASE_FILENAME: &'static str = "enclave-base.tar";
 
     pub(crate) async fn create_image(
         &self,
-        input_repository: &crate::docker::DockerDaemon,
+        docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
         mut env_vars: Vec<String>,
@@ -61,14 +63,14 @@ impl<'a> EnclaveImageBuilder<'a> {
         let file_system_config = if enclave_settings.gpu_passthrough {
             self.enclave_image_builder
                 .create_block_file_with_nvidia_driver_payload(
-                    input_repository,
+                    docker_util,
                     &user_config,
                     &enclave_settings.nvidia_driver_capabilities,
                 )
                 .await?
         } else {
             self.enclave_image_builder
-                .create_block_file(input_repository, &user_config)
+                .create_block_file(docker_util, &user_config)
                 .await?
         };
         info!(
@@ -120,18 +122,17 @@ impl<'a> EnclaveImageBuilder<'a> {
             })?;
         info!("Serialized enclave manifest in {:?}.", start.elapsed());
 
-        let enclave_base_tar_path = work_dir.join("enclave-base.tar");
+        let enclave_base_tar_path = work_dir.join(Self::ENCLAVE_BASE_FILENAME);
         let start = Instant::now();
         info!("Exporting enclave-base image...");
         let enclave_base_archive = self
             .enclave_image_builder
-            .export_enclave_base_file_system(input_repository, &enclave_base_tar_path)
+            .export_enclave_base_file_system(docker_util, &enclave_base_tar_path)
             .await?;
         info!("Exported enclave-base image in {:?}.", start.elapsed());
 
         let initramfs_file_path = work_dir.join(Self::INITRAMFS_FILENAME);
 
-        let start = Instant::now();
         info!("Creating initramfs archive...");
         create_initramfs(
             &initramfs_file_path,
@@ -143,7 +144,6 @@ impl<'a> EnclaveImageBuilder<'a> {
             message: format!("Failed to create initramfs: {}", e),
             kind: ConverterErrorKind::EnclaveImageCreation,
         })?;
-        info!("Created initramfs archive in {:?}.", start.elapsed());
 
         compute_launch_measurements(&enclave_settings, &initramfs_file_path).await
     }
@@ -164,10 +164,10 @@ impl<'a> EnclaveImageBuilder<'a> {
 fn get_last_env_value(env_vars: &[String], key: &str) -> Option<String> {
     let prefix = format!("{}=", key);
 
-    env_vars.iter().rev().find_map(|env| {
-        env.strip_prefix(&prefix)
-            .map(|value| value.to_string())
-    })
+    env_vars
+        .iter()
+        .rev()
+        .find_map(|env| env.strip_prefix(&prefix).map(|value| value.to_string()))
 }
 
 fn prepend_env(env_vars: &mut Vec<String>, key: &str, prefix: &str, default: Option<&str>) {
@@ -198,18 +198,15 @@ fn create_initramfs(
 ) -> std::result::Result<(), IoError> {
     let run_cmd = get_run_cmd(&enclave_settings);
 
-    let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
+    let blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
     let init = {
         let subdir = if enclave_settings.gpu_passthrough {
             BLOBS_SUBDIR_GPU_ENABLED
         } else {
             BLOBS_SUBDIR_GPU_DISABLED
         };
-        blobs_dir.push(subdir);
-        blobs_dir.push(EnclaveImageBuilder::INIT_BIN);
-        let init_data = fs::read(&blobs_dir)?;
-        blobs_dir.pop(); // init_bin
-        blobs_dir.pop(); // gpu enabled/disabled subdir
+        let init_path = blobs_dir.join(subdir).join(EnclaveImageBuilder::INIT_BIN);
+        let init_data = fs::read(&init_path)?;
         init_data
     };
 
@@ -222,20 +219,10 @@ fn create_initramfs(
     info!("Adding enclave-base filesystem to initramfs rootfs...");
     fs_tree = add_enclave_base_to_initramfs(fs_tree, &mut enclave_base_archive)?;
 
-    // Set up minimal runtime directories. Do not create directories that exist
-    // in the target rootfs (e.g., /bin). Since we use mount --move to transition
-    // to the new root, pre-existing directories in the initramfs can interfere
-    // with the visibility of the rootfs contents or break symbolic links.
-    fs_tree = fs_tree
-        .add_directory("rootfs/dev")
-        .add_directory("rootfs/proc")
-        .add_directory("rootfs/run")
-        .add_directory("rootfs/sys")
-        .add_directory("rootfs/tmp");
-
+    let rootfs_installation_dir = PathBuf::from(format!("rootfs{}", INSTALLATION_DIR));
     // Add dependencies available as resource
     for resource in GenericEnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES {
-        let path = format!("rootfs{}/{}", INSTALLATION_DIR, resource.name);
+        let path = rootfs_installation_dir.join(resource.name);
         let data = Cursor::new(resource.data);
         fs_tree = if resource.is_executable {
             fs_tree.add_executable(&path, data)
@@ -246,63 +233,44 @@ fn create_initramfs(
 
     // Add enclave-settings.json generated at runtime.
     fs_tree = fs_tree.add_file(
-        &format!(
-            "rootfs{}/{}",
-            INSTALLATION_DIR,
-            GenericEnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE
-        ),
+        rootfs_installation_dir.join(GenericEnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE),
         Cursor::new(enclave_manifest_data.to_vec()),
     );
 
     // Add GPU modules if enabled
     if enclave_settings.gpu_passthrough {
         info!("Adding gpu modules to initramfs...");
-        blobs_dir.push(BLOBS_SUBDIR_GPU_ENABLED);
+        let module_dir = blobs_dir.join(BLOBS_SUBDIR_GPU_ENABLED);
+        let initramfs_module_path = Path::new("lib/modules");
+
         for module in EnclaveImageBuilder::GPU_MODULES {
-            blobs_dir.push(module);
-            let module_data = fs::read(&blobs_dir)?;
-            blobs_dir.pop();
-            let path = format!("lib/modules/{}", module);
-            fs_tree = fs_tree.add_file(&path, Cursor::new(module_data));
+            let module_path = module_dir.join(module);
+            let module_data = fs::read(module_path)?;
+
+            // Add gpu drivers to initramfs root as they are loaded
+            // by init
+            fs_tree =
+                fs_tree.add_file(initramfs_module_path.join(module), Cursor::new(module_data));
         }
-        blobs_dir.pop();
 
         info!("Adding NVIDIA GSP firmware to initramfs...");
         fs_tree = add_nvidia_firmware_to_initramfs(fs_tree)?;
     }
 
     let start = Instant::now();
-    let mut last_percent = 0usize;
 
     info!("Building initramfs, it may take a while depending on size of it...");
     let output_file = fs::File::create(output_path)?;
-    Initramfs::from_fs_tree_with_progress(fs_tree, output_file, |current, total| {
-        if total == 0 {
-            return;
-        }
-
-        let percent = current * 100 / total;
-
-        if current == 1 || percent >= last_percent + 10 {
-            info!(
-                "Building initramfs: {}% ({}/{}) entries, elapsed={:?}",
-                percent,
-                current,
-                total,
-                start.elapsed()
-            );
-            last_percent = percent;
-        }
-    })
-    .map_err(|e| {
+    Initramfs::from_fs_tree(fs_tree, output_file).map_err(|e| {
         IoError::new(
             IoErrorKind::Other,
-            format!("Failed to build initramfs: {:?}", e),
+            format!("failed to build initramfs: {:?}", e),
         )
     })?;
 
     info!(
-        "Built initramfs.gz at {} in {:?}",
+        "Built {} at {} in {:?}",
+        EnclaveImageBuilder::INITRAMFS_FILENAME,
         output_path.display(),
         start.elapsed()
     );
@@ -365,7 +333,7 @@ fn add_nvidia_firmware_dir_to_initramfs(
             IoError::new(
                 IoErrorKind::Other,
                 format!(
-                    "Failed to make NVIDIA firmware path {} relative to {}. {:?}",
+                    "failed to make NVIDIA firmware path {} relative to {}. {:?}",
                     path.display(),
                     root.display(),
                     err
@@ -374,7 +342,7 @@ fn add_nvidia_firmware_dir_to_initramfs(
         })?;
         let relative_path = relative_path.to_str().ok_or(IoError::new(
             IoErrorKind::Other,
-            format!("Invalid NVIDIA firmware path: {}", path.display()),
+            format!("invalid NVIDIA firmware path: {}", path.display()),
         ))?;
 
         if file_type.is_dir() {
@@ -384,7 +352,10 @@ fn add_nvidia_firmware_dir_to_initramfs(
             let data = fs::read(&path)?;
             fs_tree = fs_tree.add_file(relative_path, Cursor::new(data));
         } else {
-            warn!("Skipping unsupported NVIDIA firmware entry {}", path.display());
+            warn!(
+                "Skipping unsupported NVIDIA firmware entry {}",
+                path.display()
+            );
         }
     }
 
@@ -408,17 +379,12 @@ fn add_enclave_base_to_initramfs(
         let mut entry = entry?;
         entries_count += 1;
 
-        let path = entry.path()?.to_path_buf();
-        let path_str = path.to_str().ok_or(IoError::new(
-            IoErrorKind::Other,
-            format!("Invalid path in archive: {:?}", path),
-        ))?;
-
-        let target_path = format!("rootfs/{}", path_str);
+        let path = entry.path()?;
+        let target_path = Path::new("rootfs").join(&path);
 
         let header = entry.header();
         // Some tar archives doesn't preserve modes.
-        let mut mode = header.mode().unwrap_or(0o644);
+        let mut mode = header.mode()?;
 
         // Tar entries do not contains file type bits of mode, instead
         // only contains permissions part. Here, we re-set the file type
@@ -430,15 +396,19 @@ fn add_enclave_base_to_initramfs(
             EntryType::Link => {
                 warn!(
                     "Hard link detected: {}, hard links are treated it as sym links...",
-                    path_str
+                    path.display(),
                 );
                 SFlag::S_IFLNK
             }
             rest => {
-                warn!("Unsupported tar entry type: {:?}, file: {}", rest, path_str);
+                warn!(
+                    "Unsupported tar entry type: {:?}, file: {}",
+                    rest,
+                    path.display()
+                );
                 return Err(IoError::new(
                     IoErrorKind::Other,
-                    format!("Unsupported tar entry: {}", path_str),
+                    format!("unsupported tar entry: {}", path.display()),
                 ));
             }
         };
@@ -454,11 +424,8 @@ fn add_enclave_base_to_initramfs(
             links_count += 1;
             let link_target = entry
                 .link_name()?
-                .ok_or(IoError::new(IoErrorKind::Other, "Missing link target"))?;
-            let link_target_str = link_target
-                .to_str()
-                .ok_or(IoError::new(IoErrorKind::Other, "Invalid symlink target"))?;
-            fs_tree.add_symlink_with_permissions(&target_path, link_target_str, mode)
+                .ok_or(IoError::new(IoErrorKind::Other, "missing link target"))?;
+            fs_tree.add_symlink_with_permissions(&target_path, link_target, mode)
         } else {
             files_count += 1;
             let mut data = Vec::new();
@@ -478,7 +445,7 @@ fn add_enclave_base_to_initramfs(
                 links_count,
                 bytes_read / 1024 / 1024,
                 start.elapsed(),
-                target_path
+                target_path.display(),
             );
             last_logged_bytes = bytes_read;
         }

@@ -119,8 +119,8 @@ fn create_initramfs(
         .add_file(
             "cmd",
             Cursor::new(format!(
-                    "{}\n",
-                    run_cmd.split_whitespace().collect::<Vec<_>>().join("\n")
+                "{}\n",
+                run_cmd.split_whitespace().collect::<Vec<_>>().join("\n")
             )),
         )
         .add_executable("init", Cursor::new(init));
