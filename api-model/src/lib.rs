@@ -11,18 +11,18 @@ pub mod nitro;
 #[cfg(platform = "nitro")]
 pub use self::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "nitro")]
-pub use self::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
-#[cfg(platform = "nitro")]
 pub use self::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
+#[cfg(platform = "nitro")]
+pub use self::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
 
 #[cfg(platform = "snp")]
 pub mod snp;
 #[cfg(platform = "snp")]
 pub use self::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "snp")]
-pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
-#[cfg(platform = "snp")]
 pub use self::snp::SNPEnclavesConversionRequestOptions as EnclavesOptions;
+#[cfg(platform = "snp")]
+pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
 
 #[cfg(platform = "simulator")]
 pub mod simulator;
