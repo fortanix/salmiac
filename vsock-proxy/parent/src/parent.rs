@@ -26,8 +26,9 @@ use shared::models::{
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
-    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks, AppLogPortInfo,
-    CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_LISTENER_CID,
+    cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
+    AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE,
+    NS_SWITCH_FILE, VSOCK_LISTENER_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -386,7 +387,11 @@ async fn run_nbd_server(port: u16) -> Result<(), String> {
 async fn wait_for_nbd_server(address: IpAddr, port: u16) -> Result<(), String> {
     let address = match address {
         IpAddr::V4(address) => address,
-        IpAddr::V6(address) => return Err(format!("IPv6 NBD readiness check is not supported for {address}")),
+        IpAddr::V6(address) => {
+            return Err(format!(
+                "IPv6 NBD readiness check is not supported for {address}"
+            ))
+        }
     };
 
     let start = Instant::now();
@@ -407,12 +412,15 @@ async fn wait_for_nbd_server(address: IpAddr, port: u16) -> Result<(), String> {
 
 fn tcp_port_is_listening(address: Ipv4Addr, port: u16) -> Result<bool, String> {
     let expected = format!("{:08X}:{port:04X}", u32::from_le_bytes(address.octets()));
-    let proc_net_tcp = fs::read_to_string("/proc/net/tcp").map_err(|err| format!("failed to read /proc/net/tcp: {err}"))?;
+    let proc_net_tcp = fs::read_to_string("/proc/net/tcp")
+        .map_err(|err| format!("failed to read /proc/net/tcp: {err}"))?;
 
     Ok(proc_net_tcp.lines().skip(1).any(|line| {
         let fields = line.split_whitespace().collect::<Vec<_>>();
 
-        fields.len() > 3 && fields[1].eq_ignore_ascii_case(&expected) && fields[3] == TCP_LISTEN_STATE
+        fields.len() > 3
+            && fields[1].eq_ignore_ascii_case(&expected)
+            && fields[3] == TCP_LISTEN_STATE
     }))
 }
 
@@ -496,7 +504,8 @@ async fn start_background_tasks(
 
     let private_device = parent_setup_result.private_tap;
     let private_tap_l3_address = private_device.tap_l3_address.ip();
-    let private_tap_loops = start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
+    let private_tap_loops =
+        start_tap_loops(private_device.tap, private_device.vsock, PRIVATE_TAP_MTU);
 
     result.push(private_tap_loops.tap_to_vsock);
     result.push(private_tap_loops.vsock_to_tap);
@@ -756,8 +765,12 @@ async fn create_vsock_stream(port: u32) -> Result<AsyncVsockStream, String> {
 }
 
 pub(crate) fn listen_to_parent(port: u32) -> Result<AsyncVsockListener, String> {
-    AsyncVsockListener::bind(VSOCK_LISTENER_CID, port)
-        .map_err(|_| format!("Could not bind to cid: {}, port: {}", VSOCK_LISTENER_CID, port))
+    AsyncVsockListener::bind(VSOCK_LISTENER_CID, port).map_err(|_| {
+        format!(
+            "Could not bind to cid: {}, port: {}",
+            VSOCK_LISTENER_CID, port
+        )
+    })
 }
 
 pub(crate) async fn accept(listener: &mut AsyncVsockListener) -> Result<AsyncVsockStream, String> {
