@@ -34,10 +34,12 @@ use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
 #[cfg(platform = "nitro")]
 use api_model::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
-#[cfg(platform = "snp")]
-use api_model::snp::{NvidiaDriverCapability, SNPEnclavesConversionRequestOptions as EnclavesOptions};
 #[cfg(platform = "simulator")]
 use api_model::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
+#[cfg(platform = "snp")]
+use api_model::snp::{
+    NvidiaDriverCapability, SNPEnclavesConversionRequestOptions as EnclavesOptions,
+};
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
@@ -747,7 +749,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })? {
             let entry = entry.map_err(|err| ConverterError {
-                message: format!("Failed reading directory entry in {}. {:?}", path.display(), err),
+                message: format!(
+                    "Failed reading directory entry in {}. {:?}",
+                    path.display(),
+                    err
+                ),
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
             let entry_path = entry.path();
@@ -776,7 +782,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })? {
             let entry = entry.map_err(|err| ConverterError {
-                message: format!("Failed reading directory entry in {}. {:?}", from.display(), err),
+                message: format!(
+                    "Failed reading directory entry in {}. {:?}",
+                    from.display(),
+                    err
+                ),
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
             let entry_path = entry.path();
@@ -848,7 +858,11 @@ impl<'a> EnclaveImageBuilder<'a> {
                     fs::remove_file(path)
                 }
                 .map_err(|err| ConverterError {
-                    message: format!("Failed removing existing path {}. {:?}", path.display(), err),
+                    message: format!(
+                        "Failed removing existing path {}. {:?}",
+                        path.display(),
+                        err
+                    ),
                     kind: ConverterErrorKind::BlockFileCreation,
                 })?;
             }

@@ -5,10 +5,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #[cfg(platform = "nitro")]
 pub mod nitro;
-#[cfg(platform = "snp")]
-pub mod snp;
 #[cfg(platform = "simulator")]
 pub mod simulator;
+#[cfg(platform = "snp")]
+pub mod snp;
 
 use std::collections::HashSet;
 use std::error::Error;

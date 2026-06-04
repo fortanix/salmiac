@@ -2,11 +2,11 @@ name: Build and publish Docker Images
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "beta" ]
     paths:
       - 'docker/**'
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "beta" ]
     types:
       - closed
       - opened
