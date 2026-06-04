@@ -17,7 +17,7 @@ const MEMORY_SIZE: &str = "8192M";
 ///   See: https://www.amd.com/content/dam/amd/en/documents/resources/bulletin/technical-guidance-for-mitigating-transient-scheduler-attacks.pdf
 ///   "the SEV-SNP FW will not allow the hypervisor to set the TSA_L1_NO or TSA_SQ_NO CPUID bits"
 /// - TODO(before merge): Confirm family=0,model=0,stepping=0
-const DEFAULT_CPU: &str = "host,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0";
+const DEFAULT_CPU: &str = "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0";
 
 // https://docs.amd.com/v/u/en-US/58207-using-sev-with-amd-epyc-processors
 //
@@ -30,8 +30,8 @@ const DEFAULT_POLICY: &str = "0x20000";
 
 // TODO(before merge): Make UKI instead, and need to check on final kernel cmdline
 const KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
-const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/kernel";
-const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.cpio.gz";
+const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
+const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
 
 const SNP_GUEST_ID: &str = "sev0";
 const MEMORY_BACKEND_ID: &str = "ram1";
