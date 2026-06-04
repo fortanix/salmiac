@@ -92,8 +92,7 @@ pub const VSOCK_PARENT_CID: u32 = 2;
 pub const VSOCK_LISTENER_CID: u32 = VSOCK_PARENT_CID;
 
 #[cfg(any(platform = "simulator", platform = "snp"))]
-// TODO(before merge): don't hardcode u32::MAX
-pub const VSOCK_LISTENER_CID: u32 = u32::MAX; // VMADDR_CID_ANY
+pub const VSOCK_LISTENER_CID: u32 = tokio_vsock::VMADDR_CID_ANY;
 
 pub fn parse_console_argument<T: NumArg>(args: &ArgMatches, name: &str) -> T {
     parse_optional_console_argument(args, name).expect(format!("{} must be specified", name).as_str())
