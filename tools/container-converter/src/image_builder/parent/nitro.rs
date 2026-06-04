@@ -13,7 +13,7 @@ use log::info;
 use crate::docker::DockerUtil;
 use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
-use crate::image_builder::enclave::EnclaveImageBuilder;
+use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
@@ -27,7 +27,7 @@ impl<'a> ParentImageBuilder<'a> {
         crate::image_builder::parent::ParentImageBuilder::STARTUP_SCRIPT_NAME,
         crate::image_builder::parent::ParentImageBuilder::BINARY_NAME,
         crate::image_builder::enclave::nitro::EnclaveImageBuilder::ENCLAVE_FILE_NAME,
-        EnclaveImageBuilder::BLOCK_FILE_OUT,
+        GenericEnclaveImageBuilder::BLOCK_FILE_OUT,
     ];
 
     pub(crate) async fn create_image(

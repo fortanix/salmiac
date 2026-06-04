@@ -1,7 +1,5 @@
-use salmiac_build_support::Platform;
+use salmiac_build_support::{Platform, DEFAULT_PLATFORM};
 
 fn main() {
-    if let Err(err) = Platform::emit_cfg_from_env() {
-        panic!("{}", err);
-    }
+    Platform::emit_cfg_from_env_or(*DEFAULT_PLATFORM);
 }

@@ -16,7 +16,7 @@ docker-image-reference = "0.1.0"
 env_logger = "0.7"
 exitcode = "1.1.2"
 # TODO: Remove branch once https://github.com/fortanix/rust-sgx/pull/931 is merged.
-fortanix-vme-initramfs = { git = "https://github.com/fortanix/rust-sgx.git", branch = "mihir/add-initramfs-progress" }
+fortanix-vme-initramfs = "0.2"
 futures = "0.3"
 http = "0.2.8"
 lazy_static = "1.4.0"

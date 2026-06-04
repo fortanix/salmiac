@@ -51,7 +51,7 @@ mod tests {
 
     use crate::docker::DockerUtil;
     use crate::image::ImageWithDetails;
-    use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder};
+    use crate::image_builder::enclave::{get_image_env, GenericEnclaveImageBuilder};
 
     struct TestDockerDaemon {}
 
@@ -133,7 +133,7 @@ mod tests {
             DockerReference::from_str("test").expect("Failed creating docker reference");
         let enclave_base_image =
             &DockerReference::from_str("test").expect("Failed creating docker reference");
-        let enclave_builder = EnclaveImageBuilder {
+        let enclave_builder = GenericEnclaveImageBuilder {
             client_image_reference: &client_image_reference,
             dir: &temp_dir,
             enclave_base_image,
