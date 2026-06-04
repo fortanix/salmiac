@@ -28,7 +28,6 @@ const DEFAULT_REDUCED_PHYS_BITS: &str = "1";
 // We want SMT disabled
 const DEFAULT_POLICY: &str = "0x20000";
 
-// TODO(before merge): Make UKI instead, and need to check on final kernel cmdline
 const KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
 const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
 const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
