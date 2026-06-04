@@ -164,10 +164,10 @@ impl<'a> EnclaveImageBuilder<'a> {
 fn get_last_env_value(env_vars: &[String], key: &str) -> Option<String> {
     let prefix = format!("{}=", key);
 
-    env_vars.iter().rev().find_map(|env| {
-        env.strip_prefix(&prefix)
-            .map(|value| value.to_string())
-    })
+    env_vars
+        .iter()
+        .rev()
+        .find_map(|env| env.strip_prefix(&prefix).map(|value| value.to_string()))
 }
 
 fn prepend_env(env_vars: &mut Vec<String>, key: &str, prefix: &str, default: Option<&str>) {
@@ -384,7 +384,10 @@ fn add_nvidia_firmware_dir_to_initramfs(
             let data = fs::read(&path)?;
             fs_tree = fs_tree.add_file(relative_path, Cursor::new(data));
         } else {
-            warn!("Skipping unsupported NVIDIA firmware entry {}", path.display());
+            warn!(
+                "Skipping unsupported NVIDIA firmware entry {}",
+                path.display()
+            );
         }
     }
 

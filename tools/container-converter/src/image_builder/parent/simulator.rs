@@ -207,7 +207,10 @@ impl<'a> ParentImageBuilder<'a> {
         let kernel_path = Path::new(INSTALLATION_DIR).join("blobs").join("kernel");
         if !kernel_path.exists() {
             return Err(ConverterError {
-                message: format!("Simulator kernel could not be found at: {}", kernel_path.display()),
+                message: format!(
+                    "Simulator kernel could not be found at: {}",
+                    kernel_path.display()
+                ),
                 kind: ConverterErrorKind::RequisitesCreation,
             });
         }
