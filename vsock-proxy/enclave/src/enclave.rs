@@ -190,7 +190,8 @@ pub(crate) async fn run(
     {
         // Check that the value is true or zero
         let val = val.trim(); // Remove any whitespace
-        if let Ok(_i @ 0) = val.parse::<i64>() {
+        if let Ok(_i @ 1..) = val.parse::<i64>() {
+            // Values of 1 or greater are considered logically true
             true
         } else if val.to_lowercase() == "true" {
             true
