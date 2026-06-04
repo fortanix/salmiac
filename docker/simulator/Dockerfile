@@ -9,7 +9,7 @@ RUN apt-get update && \
         sudo \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /var/log/enclave-os /opt/fortanix/enclave-os/blobs
+RUN mkdir -p /opt/fortanix/enclave-os/blobs
 
 WORKDIR /app
 

@@ -53,8 +53,6 @@ ENV PYTHONPATH="/opt/sev-snp-dist"
 COPY staging/sev-snp-measure /opt/sev-snp-measure
 RUN chmod +x /opt/sev-snp-measure/measure.py
 
-RUN mkdir -p /var/log/enclave-os
-
 WORKDIR /app
 
 COPY --from=apt_extract /blob /opt/fortanix/enclave-os/blobs

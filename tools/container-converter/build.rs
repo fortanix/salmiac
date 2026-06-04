@@ -4,15 +4,13 @@ use std::process::Command;
 use std::result::Result;
 use std::{env, fs};
 
-use salmiac_build_support::Platform;
+use salmiac_build_support::{Platform, DEFAULT_PLATFORM};
 
 // Enclave startup is statically linked to musl instead of glibc
 // to avoid problems runtime linking errors with libnss
 const ENCLAVE_STARTUP_TARGET: &str = "x86_64-unknown-linux-musl";
 
 const SALMIAC_PLATFORM_ENV: &str = "SALMIAC_PLATFORM";
-
-const SALMIAC_PLATFORM: &str = "nitro";
 
 const VSOCK_PROXY_BIN_DIR: &str = "../../vsock-proxy/target";
 
@@ -49,9 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if let Err(err) = Platform::emit_cfg_from_env() {
-        panic!("{}", err);
-    }
+    let platform = Platform::emit_cfg_from_env_or(*DEFAULT_PLATFORM);
 
     let (bin_dir, cargo_build_flag) = if cfg!(debug_assertions) {
         (Path::new("debug"), None)
@@ -80,13 +76,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     build_print::info!("Building vsock-proxy");
     let status = {
-        let platform =
-            env::var(SALMIAC_PLATFORM_ENV).unwrap_or_else(|_| SALMIAC_PLATFORM.to_string());
         let mut result = Command::new("cargo");
 
         result
             .current_dir(current_dir.join("../../vsock-proxy"))
-            .env(SALMIAC_PLATFORM_ENV, platform)
+            .env(SALMIAC_PLATFORM_ENV, platform.as_ref())
             .arg("build");
 
         if let Some(build_flag) = cargo_build_flag {

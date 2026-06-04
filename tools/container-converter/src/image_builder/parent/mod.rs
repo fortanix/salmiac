@@ -26,7 +26,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use crate::file::{Resource, UnixFile};
-use crate::image_builder::enclave::EnclaveImageBuilder;
+use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::image_builder::INSTALLATION_DIR;
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
@@ -70,8 +70,11 @@ impl<'a> ParentImageBuilder<'a> {
         )?;
 
         move_file(
-            &self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT),
-            &build_context_dir.join(EnclaveImageBuilder::BLOCK_FILE_OUT),
+            &self
+                .dir
+                .path()
+                .join(GenericEnclaveImageBuilder::BLOCK_FILE_OUT),
+            &build_context_dir.join(GenericEnclaveImageBuilder::BLOCK_FILE_OUT),
         )
     }
 

@@ -12,6 +12,8 @@ pub mod nitro;
 pub use self::nitro::NitroEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "nitro")]
 pub use self::nitro::NitroEnclavesConversionResponse as PlatformConversionResponse;
+#[cfg(platform = "nitro")]
+pub use self::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
 
 #[cfg(platform = "snp")]
 pub mod snp;
@@ -19,6 +21,8 @@ pub mod snp;
 pub use self::snp::SNPEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "snp")]
 pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
+#[cfg(platform = "snp")]
+pub use self::snp::SNPEnclavesConversionRequestOptions as EnclavesOptions;
 
 #[cfg(platform = "simulator")]
 pub mod simulator;
@@ -26,6 +30,8 @@ pub mod simulator;
 pub use self::simulator::SimulatorEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "simulator")]
 pub use self::simulator::SimulatorEnclavesConversionResponse as PlatformConversionResponse;
+#[cfg(platform = "simulator")]
+use api_model::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
 
 use std::convert::TryFrom;
 use std::fmt;
