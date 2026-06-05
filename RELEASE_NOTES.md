@@ -2,7 +2,7 @@
 
 ## Version
 
-The release version is `0.44.2933`.
+The release version is `0.44`.
 
 ## SEV-SNP enclave support
 
