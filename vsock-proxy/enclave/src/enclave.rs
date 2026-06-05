@@ -183,11 +183,24 @@ pub(crate) async fn run(
     // execution and it is considered an error if they do.
     let mut background_tasks = start_background_tasks(networking_setup_result.tap_devices);
 
-    let skip_def_cert_req = setup_result
+    let skip_def_cert_req = if let Some((_, val)) = setup_result
         .env_vars
         .iter()
-        .find(|(k, v)| k == "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE" && !v.trim().is_empty())
-        .is_some();
+        .find(|(k, _)| k == "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE")
+    {
+        // Check that the value is true or zero
+        let val = val.trim(); // Remove any whitespace
+        if let Ok(_i @ 1..) = val.parse::<i64>() {
+            // Values of 1 or greater are considered logically true
+            true
+        } else if val.to_lowercase() == "true" {
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
 
     let environment_setup_completed = Arc::new(Notify::new());
     let mut parent_stream = ParentStream::new(parent_port);
