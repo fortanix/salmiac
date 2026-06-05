@@ -138,14 +138,17 @@ impl DockerDaemon {
         }
 
         debug!("image_size >= {} B", image_size);
-        const MAX_COMPRESSED_IMAGE_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
-
+        const DEFAULT_MAX_COMPRESSED_IMAGE_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB is the default value
+        let max_compressed_image_bytes: u64 = option_env!("MAX_COMPRESSED_IMAGE_BYTES")
+            .and_then(|size| size.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_MAX_COMPRESSED_IMAGE_BYTES);
+        debug!("max compresses image size {}", max_compressed_image_bytes);
         // Heuristic: subject to change.
-        let hazard = image_size > MAX_COMPRESSED_IMAGE_BYTES;
+        let hazard = image_size > max_compressed_image_bytes;
 
         if hazard {
             let image_size_mb = bytes_to_mebibytes(image_size);
-            let max_mb = bytes_to_mebibytes(MAX_COMPRESSED_IMAGE_BYTES);
+            let max_mb = bytes_to_mebibytes(max_compressed_image_bytes);
             return Err(format!(
                 "compressed image size >= {:.3} MiB > {:.3} MiB maximum",
                 image_size_mb, max_mb
