@@ -28,29 +28,34 @@ use std::fs::File;
 use std::io::{ErrorKind as IoErrorKind, Read, Seek};
 use std::ops::Add;
 use std::os::unix::fs as unix_fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
-use api_model::enclave::{CcmBackendUrl, EnclaveManifest, FileSystemConfig, UserConfig};
 #[cfg(platform = "nitro")]
-use api_model::nitro::NitroEnclavesConversionRequestOptions as EnclavesOptions;
+use api_model::enclave::EnclaveManifest;
+use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
 #[cfg(platform = "snp")]
-use api_model::snp::{NvidiaDriverCapability, SNPEnclavesConversionRequestOptions as EnclavesOptions};
-#[cfg(platform = "simulator")]
-use api_model::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
+use api_model::snp::NvidiaDriverCapability;
+#[cfg(platform = "snp")]
+use api_model::EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
 use nix::unistd::{chown, Uid};
+#[cfg(platform = "nitro")]
 use rand::distributions::{Alphanumeric, DistString};
 use sys_mount::{Mount, Unmount, UnmountFlags};
 use tar::Archive;
 use tempfile::TempDir;
 
 use crate::docker::DockerUtil;
-use crate::file::{BuildContext, DockerCopyArgs, DockerFile, Resource};
+use crate::file::Resource;
+#[cfg(platform = "nitro")]
+use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
-use crate::image_builder::{path_as_str, rust_log_env_var, INSTALLATION_DIR, MEGA_BYTE};
+#[cfg(platform = "nitro")]
+use crate::image_builder::INSTALLATION_DIR;
+use crate::image_builder::{path_as_str, rust_log_env_var, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 const NVIDIA_DRIVER_PAYLOAD_ROOT: &str = "/opt/fortanix/enclave-os/nvidia-driver-payload";
@@ -104,7 +109,7 @@ impl EnclaveSettings {
     pub(crate) fn new(
         input_image: &ImageWithDetails<'_>,
         converter_options: &ConverterOptions,
-        _enclaves_options: &EnclavesOptions,
+        #[cfg(platform = "snp")] enclaves_options: &EnclavesOptions,
     ) -> Self {
         EnclaveSettings {
             user_name: input_image.details.config.user.clone().unwrap_or_default(),
@@ -127,11 +132,11 @@ impl EnclaveSettings {
                 .clone()
                 .unwrap_or_default(),
             #[cfg(platform = "snp")]
-            gpu_passthrough: _enclaves_options.enable_gpu_passthrough.unwrap_or(false),
+            gpu_passthrough: enclaves_options.enable_gpu_passthrough.unwrap_or(false),
             #[cfg(platform = "snp")]
             nvidia_driver_capabilities: {
-                if _enclaves_options.enable_gpu_passthrough.unwrap_or(false) {
-                    _enclaves_options
+                if enclaves_options.enable_gpu_passthrough.unwrap_or(false) {
+                    enclaves_options
                         .nvidia_driver_capabilities
                         .clone()
                         .unwrap_or_else(|| {
@@ -151,7 +156,7 @@ impl EnclaveSettings {
     }
 }
 
-pub(crate) struct EnclaveImageBuilder<'a> {
+pub(crate) struct GenericEnclaveImageBuilder<'a> {
     pub(crate) client_image_reference: &'a DockerReference<'a>,
 
     pub(crate) dir: &'a TempDir,
@@ -159,7 +164,7 @@ pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) enclave_base_image: &'a DockerReference<'a>,
 }
 
-impl<'a> EnclaveImageBuilder<'a> {
+impl<'a> GenericEnclaveImageBuilder<'a> {
     pub(crate) const DEFAULT_ENCLAVE_SETTINGS_FILE: &'static str = "enclave-settings.json";
 
     pub(crate) const BLOCK_FILE_MOUNT_DIR: &'static str = "block-file-mount";
@@ -181,6 +186,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         },
     ];
 
+    #[cfg(platform = "nitro")]
     pub(crate) const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] =
         &["enclave", "enclave-settings.json", "enclave-startup"];
 
@@ -193,6 +199,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             .await
     }
 
+    #[cfg(platform = "snp")]
     pub(crate) async fn export_enclave_base_file_system(
         &self,
         docker_util: &dyn DockerUtil,
@@ -243,6 +250,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         Ok(Archive::new(archive_file))
     }
 
+    #[cfg(platform = "nitro")]
     pub(crate) fn create_manifest_file(
         enclave_manifest: EnclaveManifest,
         build_context: &BuildContext,
@@ -275,6 +283,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             .await
     }
 
+    #[cfg(platform = "snp")]
     pub(crate) async fn create_block_file_with_nvidia_driver_payload(
         &self,
         docker_util: &dyn DockerUtil,
@@ -295,11 +304,8 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: &UserConfig,
         nvidia_driver_capabilities: Option<&[String]>,
     ) -> Result<FileSystemConfig> {
-        let block_file_mount_dir = self
-            .dir
-            .path()
-            .join(EnclaveImageBuilder::BLOCK_FILE_MOUNT_DIR);
-        let block_file_out = self.dir.path().join(EnclaveImageBuilder::BLOCK_FILE_OUT);
+        let block_file_mount_dir = self.dir.path().join(Self::BLOCK_FILE_MOUNT_DIR);
+        let block_file_out = self.dir.path().join(Self::BLOCK_FILE_OUT);
 
         fs::create_dir(&block_file_mount_dir).map_err(|err| ConverterError {
             message: format!(
@@ -320,10 +326,12 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
     }
 
+    #[cfg(platform = "nitro")]
     pub(crate) fn enclave_image(&self) -> String {
         self.retag_client_image(&Alphanumeric.sample_string(&mut rand::thread_rng(), 16))
     }
 
+    #[cfg(platform = "nitro")]
     fn retag_client_image(&self, tag: &str) -> String {
         let new_tag = self
             .client_image_reference
@@ -334,6 +342,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         self.client_image_reference.name().to_string() + ":" + &new_tag
     }
 
+    #[cfg(platform = "nitro")]
     pub(crate) fn create_requisites(
         &self,
         enclave_settings: EnclaveSettings,
@@ -343,7 +352,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
         build_context.create_docker_file(&docker_file)?;
 
-        build_context.create_resources(EnclaveImageBuilder::IMAGE_BUILD_DEPENDENCIES)?;
+        build_context.create_resources(Self::IMAGE_BUILD_DEPENDENCIES)?;
 
         Ok(())
     }
@@ -355,8 +364,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     ) -> String {
         let enclave_bin = install_dir.join(binary_name);
 
-        let enclave_settings_file =
-            install_dir.join(EnclaveImageBuilder::DEFAULT_ENCLAVE_SETTINGS_FILE);
+        let enclave_settings_file = install_dir.join(Self::DEFAULT_ENCLAVE_SETTINGS_FILE);
 
         let user_name = {
             if let Some(pos) = enclave_settings.user_name.find(":") {
@@ -382,10 +390,11 @@ impl<'a> EnclaveImageBuilder<'a> {
         )
     }
 
+    #[cfg(platform = "nitro")]
     fn docker_file_contents(&self, mut enclave_settings: EnclaveSettings) -> DockerFile {
         let install_dir_path = Path::new(INSTALLATION_DIR);
 
-        let items = EnclaveImageBuilder::IMAGE_COPY_DEPENDENCIES
+        let items = Self::IMAGE_COPY_DEPENDENCIES
             .iter()
             .map(|e| e.to_string())
             .collect();
@@ -395,11 +404,8 @@ impl<'a> EnclaveImageBuilder<'a> {
             destination: INSTALLATION_DIR.to_string() + "/",
         };
 
-        let run_enclave_cmd = EnclaveImageBuilder::enclave_command_string(
-            &enclave_settings,
-            install_dir_path,
-            "enclave",
-        );
+        let run_enclave_cmd =
+            Self::enclave_command_string(&enclave_settings, install_dir_path, "enclave");
 
         enclave_settings.env_vars.push(rust_log_env_var("enclave"));
 
@@ -527,7 +533,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                     kind: ConverterErrorKind::BlockFileFull,
                 })?;
 
-            EnclaveImageBuilder::copy_nvidia_driver_payload(
+            GenericEnclaveImageBuilder::copy_nvidia_driver_payload(
                 nvidia_driver_capabilities,
                 mount_path,
             )?;
@@ -547,7 +553,7 @@ impl<'a> EnclaveImageBuilder<'a> {
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
 
-            EnclaveImageBuilder::check_path_exists(user_config, mount_path)?;
+            GenericEnclaveImageBuilder::check_path_exists(user_config, mount_path)?;
 
             Ok(())
         }
@@ -576,9 +582,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         // as it's hard to precisely compute the size required to describe all entities in the file system.
         // The total size includes file and directory metadata which varies based on the number of directories and files present in the client image.
         loop {
-            size_mb_up = (size_mb_up as f64
-                * EnclaveImageBuilder::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE)
-                as u64;
+            size_mb_up = (size_mb_up as f64 * Self::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE) as u64;
             archive = archive.rewind().map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::BlockFileCreation,
@@ -747,7 +751,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })? {
             let entry = entry.map_err(|err| ConverterError {
-                message: format!("Failed reading directory entry in {}. {:?}", path.display(), err),
+                message: format!(
+                    "Failed reading directory entry in {}. {:?}",
+                    path.display(),
+                    err
+                ),
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
             let entry_path = entry.path();
@@ -776,7 +784,11 @@ impl<'a> EnclaveImageBuilder<'a> {
             kind: ConverterErrorKind::BlockFileCreation,
         })? {
             let entry = entry.map_err(|err| ConverterError {
-                message: format!("Failed reading directory entry in {}. {:?}", from.display(), err),
+                message: format!(
+                    "Failed reading directory entry in {}. {:?}",
+                    from.display(),
+                    err
+                ),
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
             let entry_path = entry.path();
@@ -848,7 +860,11 @@ impl<'a> EnclaveImageBuilder<'a> {
                     fs::remove_file(path)
                 }
                 .map_err(|err| ConverterError {
-                    message: format!("Failed removing existing path {}. {:?}", path.display(), err),
+                    message: format!(
+                        "Failed removing existing path {}. {:?}",
+                        path.display(),
+                        err
+                    ),
                     kind: ConverterErrorKind::BlockFileCreation,
                 })?;
             }
@@ -1077,7 +1093,9 @@ mod tests {
     use tar::{Archive, Builder};
     use tempfile::{NamedTempFile, TempDir};
 
-    use crate::image_builder::enclave::{ArchiveExtensions, ArchiveSize, EnclaveImageBuilder};
+    use crate::image_builder::enclave::{
+        ArchiveExtensions, ArchiveSize, GenericEnclaveImageBuilder,
+    };
 
     #[test]
     fn archive_size_add_zero_correct_pass() {
@@ -1271,7 +1289,8 @@ mod tests {
 
         for config in &configs {
             assert!(
-                EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_err(),
+                GenericEnclaveImageBuilder::check_path_exists(config, block_file_valid_path)
+                    .is_err(),
                 "Config used: {:?}",
                 config
             )
@@ -1281,8 +1300,11 @@ mod tests {
 
         for config in &configs {
             assert!(
-                EnclaveImageBuilder::check_path_exists(config, Path::new(&block_file_invalid_path))
-                    .is_err(),
+                GenericEnclaveImageBuilder::check_path_exists(
+                    config,
+                    Path::new(&block_file_invalid_path)
+                )
+                .is_err(),
                 "Config used: {:?}",
                 config
             )
@@ -1294,7 +1316,9 @@ mod tests {
         let configs = vec![user_config(None, None), no_certs_user_config()];
 
         for config in &configs {
-            assert!(EnclaveImageBuilder::check_path_exists(config, Path::new("/tmp")).is_ok())
+            assert!(
+                GenericEnclaveImageBuilder::check_path_exists(config, Path::new("/tmp")).is_ok()
+            )
         }
     }
 
@@ -1357,7 +1381,8 @@ mod tests {
 
         for config in &configs {
             assert!(
-                EnclaveImageBuilder::check_path_exists(config, block_file_valid_path).is_ok(),
+                GenericEnclaveImageBuilder::check_path_exists(config, block_file_valid_path)
+                    .is_ok(),
                 "Config used: {:?}",
                 config
             )

@@ -17,7 +17,7 @@ use serde::Deserialize;
 use crate::docker::DockerUtil;
 use crate::file::BuildContext;
 use crate::image::{ImageKind, ImageToClean};
-use crate::image_builder::enclave::EnclaveSettings;
+use crate::image_builder::enclave::{EnclaveSettings, GenericEnclaveImageBuilder};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 #[derive(Deserialize)]
@@ -74,7 +74,7 @@ async fn create_nitro_image(
 }
 
 pub(crate) struct EnclaveImageBuilder<'a> {
-    pub(crate) enclave_image_builder: crate::image_builder::enclave::EnclaveImageBuilder<'a>,
+    pub(crate) enclave_image_builder: GenericEnclaveImageBuilder<'a>,
 }
 
 impl<'a> EnclaveImageBuilder<'a> {
@@ -125,10 +125,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             dsm_configuration,
         };
 
-        crate::image_builder::enclave::EnclaveImageBuilder::create_manifest_file(
-            enclave_manifest,
-            &build_context,
-        )?;
+        GenericEnclaveImageBuilder::create_manifest_file(enclave_manifest, &build_context)?;
 
         info!("Enclave build prerequisites have been created!");
 

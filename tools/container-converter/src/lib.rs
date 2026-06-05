@@ -5,10 +5,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #[cfg(platform = "nitro")]
 pub mod nitro;
-#[cfg(platform = "snp")]
-pub mod snp;
 #[cfg(platform = "simulator")]
 pub mod simulator;
+#[cfg(platform = "snp")]
+pub mod snp;
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -32,7 +32,7 @@ use crate::docker::{DockerDaemon, DockerUtil};
 use crate::image::{
     docker_reference, output_docker_reference, ImageKind, ImageToClean, ImageWithDetails,
 };
-use crate::image_builder::enclave::{get_image_env, EnclaveImageBuilder, EnclaveSettings};
+use crate::image_builder::enclave::{get_image_env, EnclaveSettings, GenericEnclaveImageBuilder};
 use crate::image_builder::parent::ParentImageBuilder;
 
 use crate::image_builder::enclave::PlatformEnclaveImageBuilder;
@@ -204,7 +204,7 @@ async fn run0(
         debug!("User program config is: {:?}", user_program_config);
 
         let enclave_builder = PlatformEnclaveImageBuilder {
-            enclave_image_builder: EnclaveImageBuilder {
+            enclave_image_builder: GenericEnclaveImageBuilder {
                 client_image_reference: &input_image.image.reference,
                 dir: &temp_dir,
                 enclave_base_image: &enclave_base_image.reference,
@@ -214,6 +214,7 @@ async fn run0(
         let enclave_settings = EnclaveSettings::new(
             &input_image,
             &conversion_request.request.converter_options,
+            #[cfg(platform = "snp")]
             &conversion_request.enclaves_options,
         );
         let image_env_vars =

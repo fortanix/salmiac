@@ -36,6 +36,7 @@ impl BuildContext {
         self.temp_dir.path()
     }
 
+    #[cfg(platform = "nitro")]
     pub(crate) fn create_resource(&self, resource: Resource) -> Result<(), String> {
         self.create_resources(&[resource])
     }

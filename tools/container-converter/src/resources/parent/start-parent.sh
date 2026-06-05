@@ -44,9 +44,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ "$PLATFORM" == "nitro" ]; then
-    # Setup nitro environment
-    source /etc/profile.d/nitro-cli-env.sh
-
     # Check if nitro-cli is properly installed
     nitro-cli --version
 elif [ "$PLATFORM" == "snp" ] || [ "$PLATFORM" == "simulator" ]; then
