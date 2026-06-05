@@ -24,7 +24,7 @@ docker load <enclave-base.tar
 docker load <parent-base.tar
 ```
 
-To convert a input image, the image converter must be run. The following command is an example:
+To convert an input image, the image converter must be run. The following command is an example:
 
 ```bash
 docker run \
@@ -40,6 +40,29 @@ docker run \
   "${converter_image_name}" \
   --request-file "/app/req.json"
 ```
+
+If custom parent and enclave images are required, the following Docker environmental variables may be added to the
+`docker run` command:
+
+```bash
+docker run \
+  -e PARENT_IMAGE=parent-base \
+  -e ENCLAVE_IMAGE=enclave-base \
+  # ----- snip -----
+```
+
+The following can be used if the custom base images are for a GPU-enabled output image:
+
+```bash
+docker run \
+  -e PARENT_IMAGE=parent-base \
+  -e ENCLAVE_IMAGE=enclave-base-gpu \
+  # ----- snip -----
+```
+
+The `parent-base`, `enclave-base`, and `enclave-base-gpu` image names should be substituted for the correct custom
+names, as they are the defaults, as indicated by the `docker load` step done previously. These custom images must be
+present in the local Docker cache to be usable.
 
 The `req.json` file can be substituted with any JSON file containing an SNP Conversion Request.
 

@@ -1,12 +1,29 @@
-# AWS Nitro enclaves #
+# AWS Nitro/AMD SEV-SNP enclaves #
 
-TODO: Make a complete list of environment variables used by the project
+This is a reference for the environmental variables used throughout the project.
 
 ## Environment variables
 
 Format used to describe the variables - key name -- description -- example (optional)
 
-The following list of variables are used while running the converted salmiac image.
+### Container Converter Variables
+
+The following list of variables is used while running the image converter
+
+##### Logging related variables
+- RUST_LOG - Set to `debug` to enable generic Rust debug logging for the converter.
+
+##### Base image-related variables
+
+- PARENT_IMAGE - Image name for the parent base image, defaults to `parent-base`.
+  Image must be present in Docker cache
+- ENCLAVE_IMAGE - Image name for the enclave base image, defaults to `enclave-base`,
+  or `enclave-base-gpu` if converting a GPU-enabled image.
+  Image must be present in Docker cache.
+
+### EnclaveOS Runtime variables
+
+The following list of variables is used while running the converted salmiac image.
 
 ##### Filesystem related variables
 - FS_API_KEY - API key used for authenticating with DSM if the salmiac app is not converted with app
@@ -28,8 +45,8 @@ registered as a debug build in a test-only deployment account.
   necessary to set if using a workflow with an app that expects one to be present.
 
 ##### Logging related variables
-- ENCLAVEOS_DEBUG - Set to debug to run the enclave in debug mode.
-- RUST_LOG - Set to debug to enable generic Rust debug logging for the enclave parent.
+- ENCLAVEOS_DEBUG - Set to `debug` to run the enclave in debug mode.
+- RUST_LOG - Set to `debug` to enable generic Rust debug logging for the enclave parent.
 
 ##### Nitro enclaves settings variables
 - CPU_COUNT - Override the --cpu-count param passed while running the enclave i.e.
