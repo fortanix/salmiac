@@ -1,4 +1,4 @@
-FROM fortanix/parent-base-nitro:3.0.0 as nitro-cli
+FROM fortanix/parent-base-nitro:4.0.0 as nitro-cli
 
 FROM ubuntu:24.04
 
@@ -13,7 +13,6 @@ RUN apt-get update && \
 COPY --from=nitro-cli /etc/nitro_enclaves /etc/nitro_enclaves
 COPY --from=nitro-cli /usr/bin/nitro-cli /usr/bin
 COPY --from=nitro-cli /usr/bin/nitro-enclaves-allocator /usr/bin
-COPY --from=nitro-cli /usr/share/nitro_enclaves /usr/share/nitro_enclaves
 
 RUN mkdir -p /var/log/nitro_enclaves
 
