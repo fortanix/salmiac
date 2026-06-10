@@ -68,8 +68,6 @@ RUN apt-get update \
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/etc/nitro_enclaves /etc/nitro_enclaves
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/bin /usr/bin
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/lib/systemd/system /usr/lib/systemd/system
-COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/share /usr/share
-COPY --from=nitro-cli aws-nitro-enclaves-cli/blobs/x86_64 /usr/share/nitro_enclaves/blobs
 
 COPY dnsmasq.d /etc/dnsmasq.d
 # Setup the env for nitro-cli
