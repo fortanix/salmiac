@@ -150,21 +150,21 @@ impl<'a> EnclaveImageBuilder<'a> {
     pub(crate) fn get_enclave_base_details(
         enclaves_options: &SNPEnclavesConversionRequestOptions,
     ) -> (String, String) {
-        env::var("ENCLAVE_IMAGE")
-            .map(|img| (img, crate::ENCLAVE_IMAGE_PATH.to_owned()))
-            .unwrap_or_else(|_| {
-                if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
-                    (
-                        crate::ENCLAVE_IMAGE_SNP_GPU.to_owned(),
-                        crate::ENCLAVE_GPU_IMAGE_PATH.to_owned(),
-                    )
-                } else {
-                    (
-                        crate::ENCLAVE_IMAGE.to_owned(),
-                        crate::ENCLAVE_IMAGE_PATH.to_owned(),
-                    )
-                }
-            })
+        let image_name = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
+            if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+                crate::ENCLAVE_IMAGE_SNP_GPU.to_owned()
+            } else {
+                crate::ENCLAVE_IMAGE.to_owned()
+            }
+        });
+
+        let image_path = if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+            crate::ENCLAVE_GPU_IMAGE_PATH.to_owned()
+        } else {
+            crate::ENCLAVE_IMAGE_PATH.to_owned()
+        };
+
+        (image_name, image_path)
     }
 }
 
