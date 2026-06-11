@@ -55,7 +55,7 @@ use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
 #[cfg(platform = "nitro")]
 use crate::image_builder::INSTALLATION_DIR;
-use crate::image_builder::{path_as_str, rust_log_env_var, MEGA_BYTE};
+use crate::image_builder::{bytes_to_mb_ceil, path_as_str, rust_log_env_var, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 const NVIDIA_DRIVER_PAYLOAD_ROOT: &str = "/opt/fortanix/enclave-os/nvidia-driver-payload";
@@ -485,7 +485,7 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
                 })?;
 
             block_file
-                .set_len(size_bytes)
+                .set_len(bytes_to_mb_ceil(size_bytes))
                 .map_err(|err| ConverterError {
                     message: format!(
                         "Failed truncating block file {} to size {} bytes. {:?}",
@@ -613,7 +613,7 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
         // The first time it's the filesystem block file. The second time it's the
         // device to use for the hashes. With --hash-offset, we're placing the hashes
         // in the same file, after the filesystem data.
-        let hash_offset = (size as f64 / MEGA_BYTE as f64).ceil() as u64 * MEGA_BYTE;
+        let hash_offset = bytes_to_mb_ceil(size);
         let block_file_out_as_str = path_as_str(block_file_out_path)?;
         let result = run_subprocess0(
             "veritysetup",
