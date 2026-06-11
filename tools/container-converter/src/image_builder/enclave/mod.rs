@@ -55,7 +55,7 @@ use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
 #[cfg(platform = "nitro")]
 use crate::image_builder::INSTALLATION_DIR;
-use crate::image_builder::{path_as_str, rust_log_env_var, MEGA_BYTE};
+use crate::image_builder::{bytes_to_mb_ceil, path_as_str, rust_log_env_var, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 const NVIDIA_DRIVER_PAYLOAD_ROOT: &str = "/opt/fortanix/enclave-os/nvidia-driver-payload";
@@ -456,22 +456,22 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
         async fn create_block_file(
             working_dir: &Path,
             block_file_out_path: &Path,
-            size_mb: u64,
+            size_bytes: u64,
         ) -> Result<()> {
             let available_disc_space = get_available_disc_space(working_dir).await?;
 
-            if available_disc_space < size_mb {
+            if available_disc_space < size_bytes {
                 return Err(ConverterError {
                     message: format!(
                         "Available disk space: {} Required disk space: {}",
-                        available_disc_space, size_mb
+                        available_disc_space, size_bytes
                     )
                     .to_string(),
                     kind: ConverterErrorKind::BlockFileCreation,
                 });
             }
 
-            info!("Creating block file of size {}MB", size_mb);
+            info!("Creating block file of size {} bytes", size_bytes);
             let block_file =
                 fs::File::create(block_file_out_path).map_err(|err| ConverterError {
                     message: format!(
@@ -484,12 +484,12 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
                 })?;
 
             block_file
-                .set_len(size_mb * MEGA_BYTE)
+                .set_len(bytes_to_mb_ceil(size_bytes))
                 .map_err(|err| ConverterError {
                     message: format!(
-                        "Failed truncating block file {} to size {}. {:?}",
+                        "Failed truncating block file {} to size {} bytes. {:?}",
                         block_file_out_path.display(),
-                        size_mb,
+                        size_bytes,
                         err
                     )
                     .to_string(),
@@ -571,24 +571,23 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
             );
         }
 
-        let size = client_fs_tar.size().map_err(|message| ConverterError {
+        let mut size = client_fs_tar.size().map_err(|message| ConverterError {
             message,
             kind: ConverterErrorKind::BlockFileCreation,
         })? + nvidia_driver_payload_size;
-        let mut size_mb_up = (size / MEGA_BYTE) as u64;
         let mut archive = client_fs_tar;
 
         // We retry image extraction below with a bigger block file size on every iteration
         // as it's hard to precisely compute the size required to describe all entities in the file system.
         // The total size includes file and directory metadata which varies based on the number of directories and files present in the client image.
         loop {
-            size_mb_up = (size_mb_up as f64 * Self::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE) as u64;
+            size = (size as f64 * Self::BLOCK_FILE_SIZE_MULTIPLIER_INCREASE) as u64;
             archive = archive.rewind().map_err(|message| ConverterError {
                 message,
                 kind: ConverterErrorKind::BlockFileCreation,
             })?;
 
-            create_block_file(self.dir.path(), block_file_out_path, size_mb_up).await?;
+            create_block_file(self.dir.path(), block_file_out_path, size).await?;
 
             match populate_block_file(
                 &mut archive,
@@ -613,7 +612,7 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
         // The first time it's the filesystem block file. The second time it's the
         // device to use for the hashes. With --hash-offset, we're placing the hashes
         // in the same file, after the filesystem data.
-        let hash_offset = size_mb_up * MEGA_BYTE;
+        let hash_offset = bytes_to_mb_ceil(size);
         let block_file_out_as_str = path_as_str(block_file_out_path)?;
         let result = run_subprocess0(
             "veritysetup",
