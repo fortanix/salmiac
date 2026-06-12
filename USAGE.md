@@ -31,8 +31,6 @@ docker run \
   --rm \
   -e RUST_LOG=debug \
   -e ENCLAVEOS_DEBUG=debug \
-  --name "${converter_image_name}" \
-  --user 0 \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e PRESERVE_IMAGES=input,result \
