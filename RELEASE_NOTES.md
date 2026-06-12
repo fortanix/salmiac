@@ -1,10 +1,18 @@
 # Release Notes
 
-## Version
-
-The release version is `0.44`.
-
 ## SEV-SNP enclave support
+
+## Release version `0.45`.
+Commit: `185af18`
+
+### Changed
+
+- Maximum compressed image size limit for conversion is now configurable at build time.
+
+========================
+
+## Release version `0.44`.
+Commit: `2d52d86`
 
 ### Added
 
