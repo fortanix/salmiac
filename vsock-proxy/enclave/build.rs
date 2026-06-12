@@ -64,7 +64,6 @@ fn main() -> io::Result<()> {
     }
 
     for env_var in [
-        "EMBED_ATTEST_CLIENT_ROCHE_NAME",
         "EMBED_ATTEST_CLIENT_ROCHE_PATH",
         "EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN",
     ] {

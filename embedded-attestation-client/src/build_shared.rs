@@ -2,11 +2,29 @@
 /// location in the event of a binary name change.
 /// A macro is used due to the requirements of compile time concatenation.
 
-macro_rules! attestation_client_bin_name {
+macro_rules! attestation_client_target_bin_name {
+    () => {
+        "ccm-attestation-client"
+    };
+}
+
+macro_rules! attestation_client_sevsnp_bin_name {
     () => {
         "ccm-attestation-client-sevsnp"
     };
 }
 
+macro_rules! attestation_client_tdx_bin_name {
+    () => {
+        "ccm-attestation-client-tdx"
+    };
+}
+
 #[allow(unused)]
-pub(crate) use attestation_client_bin_name;
+pub(crate) use attestation_client_target_bin_name;
+
+#[allow(unused)]
+pub(crate) use attestation_client_sevsnp_bin_name;
+
+#[allow(unused)]
+pub(crate) use attestation_client_tdx_bin_name;
