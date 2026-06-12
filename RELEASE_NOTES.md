@@ -7,7 +7,7 @@ Commit: `185af18`
 
 ### Added
 
-- Added support for converting container images up to 500 GB in size.
+- Maximum compressed image size limit for conversion is now configurable at build time.
 
 ================
 
