@@ -442,7 +442,6 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
         async fn get_available_disc_space(block_file_dir: &Path) -> Result<u64> {
             statfs(block_file_dir)
                 .map(|e| e.block_size() as u64 * e.blocks_available())
-                .map(|size_mb| size_mb * MEGA_BYTE)
                 .map_err(|err| ConverterError {
                     message: format!(
                         "Failure retrieving available disc space using `statfs` for path {}. {:?}",
