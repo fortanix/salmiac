@@ -67,9 +67,9 @@ mod debug {
     ) -> Result<CertificateWithPath, String> {
         // For SNP, for the time being, an embedded attestation agent is used to create certificates.
         // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
-        use embedded_attestation_client::EmbeddedSnpAttestationClient;
+        use embedded_attestation_client::EmbeddedAttestationClient;
 
-        let mut client = EmbeddedSnpAttestationClient::new()?;
+        let mut client = EmbeddedAttestationClient::new()?;
         // We will write out the key and certificate to the temporary working directory of the embedded
         // client, and read them into memory
         let temp_dir = client.temp_dir_path();
@@ -144,8 +144,8 @@ fn main() {
 
     // Only run the embedded client, without the vsock-proxy enclave flow
     if args.basic {
-        use embedded_attestation_client::EmbeddedSnpAttestationClient;
-        let client = EmbeddedSnpAttestationClient::new()
+        use embedded_attestation_client::EmbeddedAttestationClient;
+        let client = EmbeddedAttestationClient::new()
             .expect("Could not set up embedded SNP attestation client");
         client.run().expect("Attestation client execution failed");
         return;
