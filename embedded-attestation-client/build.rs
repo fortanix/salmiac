@@ -121,48 +121,63 @@ fn main() {
     };
 
     // We build the real agent for SNP, otherwise make a dummy
-    if let Platform::Snp = Platform::from_env().unwrap() {
-        // Run the attestation client build
-        let mut cmd = Command::new("cargo");
-        cmd.args(["build"])
-            .current_dir(attest_client_dir)
-            .env_remove("RUSTC")
-            .env("RUSTUP_TOOLCHAIN", toolchain);
-        // Debug profile should not be supplied as a profile flag, other ones can be
-        if target_profile != "debug" {
-            cmd.arg(format!("--profile={}", &target_profile));
-        }
-        let build_status = cmd.status().unwrap();
-        if !build_status.success() {
-            panic!("Parent Roche repo Attestation Client build failed");
-        }
+    let platform = Platform::from_env().unwrap();
+    match platform {
+        Platform::Snp | Platform::Tdx => {
+            // Run the attestation client build
+            let mut cmd = Command::new("cargo");
+            cmd.args(["build"])
+                .current_dir(attest_client_dir)
+                .env_remove("RUSTC")
+                .env("RUSTUP_TOOLCHAIN", toolchain);
+            // Debug profile should not be supplied as a profile flag, other ones can be
+            if target_profile != "debug" {
+                cmd.arg(format!("--profile={}", &target_profile));
+            }
+            let build_status = cmd.status().unwrap();
+            if !build_status.success() {
+                panic!("Parent Roche repo Attestation Client build failed");
+            }
 
-        // Copy the attestation client to the output directory
-        std::fs::copy(
-            target_dir.join(attestation_client_bin_name!()),
-            out_dir_path.clone().join(attestation_client_bin_name!()),
-        )
-        .expect("Could not copy attestation client binary");
-    } else {
-        println!(
-            "cargo::warning=The embedded-attestation-client is being built with a dummy executable for \
-     a non-SNP platform, it will be non-functional"
-        );
-        println!("cargo::rerun-if-changed=src/bin/dummy.c");
-        let mut cmd = Command::new("gcc");
-        let src_file = build_script_dir.clone().join("src/bin/dummy.c");
-        cmd.args([src_file.display().to_string().as_str(), "-o", "dummy"])
-            .current_dir(&out_dir_path);
-        let build_status = cmd.status().unwrap();
-        if !build_status.success() {
-            panic!("Dummy Attestation Client build failed");
-        }
+            // Copy the attestation client to the output directory
+            let attestation_client_bin = match platform {
+                Platform::Snp => attestation_client_bin_name!(),
+                Platform::Tdx => attestation_client_tdx_bin_name!(),
+                _ => panic!("Unreachable platform pattern matching")
+            };
 
-        // Copy the dummy file to the output directory with the expected name
-        std::fs::copy(
-            out_dir_path.clone().join("dummy"),
-            out_dir_path.clone().join(attestation_client_bin_name!()),
-        )
-        .expect("Could not copy attestation client binary");
+            std::fs::copy(
+                target_dir.join(attestation_client_bin),
+                out_dir_path.clone().join(attestation_client_bin_name!()),
+            )
+            .expect("Could not copy attestation client binary");
+
+            build_print::info!(
+                "Attestation client copied to: {}",
+                out_dir_path.display()
+            );
+        }
+        _ => {
+            println!(
+                "cargo::warning=The embedded-attestation-client is being built with a dummy executable for \
+        a non-SNP platform, it will be non-functional"
+            );
+            println!("cargo::rerun-if-changed=src/bin/dummy.c");
+            let mut cmd = Command::new("gcc");
+            let src_file = build_script_dir.clone().join("src/bin/dummy.c");
+            cmd.args([src_file.display().to_string().as_str(), "-o", "dummy"])
+                .current_dir(&out_dir_path);
+            let build_status = cmd.status().unwrap();
+            if !build_status.success() {
+                panic!("Dummy Attestation Client build failed");
+            }
+
+            // Copy the dummy file to the output directory with the expected name
+            std::fs::copy(
+                out_dir_path.clone().join("dummy"),
+                out_dir_path.clone().join(attestation_client_bin_name!()),
+            )
+            .expect("Could not copy attestation client binary");
+        }
     }
 }

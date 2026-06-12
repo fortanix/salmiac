@@ -8,5 +8,14 @@ macro_rules! attestation_client_bin_name {
     };
 }
 
+macro_rules! attestation_client_tdx_bin_name {
+    () => {
+        "ccm-attestation-client-tdx"
+    };
+}
+
 #[allow(unused)]
 pub(crate) use attestation_client_bin_name;
+
+#[allow(unused)]
+pub(crate) use attestation_client_tdx_bin_name;
