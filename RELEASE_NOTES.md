@@ -1,9 +1,9 @@
 # Release Notes
 
-# Release version `0.45`.
-Commit: `185af18`
-
 ## SEV-SNP enclave support
+
+## Release version `0.45`.
+Commit: `185af18`
 
 ### Changed
 
@@ -11,10 +11,8 @@ Commit: `185af18`
 
 ========================
 
-# Release version `0.44`.
+## Release version `0.44`.
 Commit: `2d52d86`
-
-## SEV-SNP enclave support
 
 ### Added
 
