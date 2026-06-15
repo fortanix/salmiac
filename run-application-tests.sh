@@ -51,7 +51,7 @@ ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker load -i parent-base.tar.gz
 ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker load -i enclave-base.tar.gz
 ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker load -i salmiac-tests-container.tar.gz
 ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS rm salmiac-tests-container.tar.gz enclave-base.tar.gz parent-base.tar.gz
-ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker tag $PARENT_IMAGE parent-base
+ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker tag $PARENT_IMAGE parent-base-nitro
 ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker tag $ENCLAVE_IMAGE enclave-base
 
 ssh $SSH_OPTS $SSH_USERNAME_AWS@$VM_ADDRESS docker run --privileged --env-file docker-env -v /var/run/docker.sock:/var/run/docker.sock --network host $TESTS_CONTAINER
