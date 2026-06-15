@@ -999,7 +999,7 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     }
 }
 
-#[cfg(platform = "snp")]
+#[cfg(any(platform = "snp", platform = "tdx"))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,
@@ -1095,7 +1095,7 @@ pub(crate) async fn setup_enclave_certification<
     ))
 }
 
-#[cfg(not(platform = "snp"))]
+#[cfg(not(any(platform = "snp", platform = "tdx")))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,

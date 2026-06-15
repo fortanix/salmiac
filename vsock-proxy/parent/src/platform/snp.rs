@@ -1,15 +1,14 @@
+/* Copyright (c) Fortanix, Inc.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use std::env;
-use std::path::Path;
-
-use shared::run_subprocess;
 
 use super::{GuestLaunchResult, GuestTasks};
-
-const QEMU_BINARY: &str = "qemu-system-x86_64";
+use crate::platform::qemu::{env_or_default, QemuPlatform};
 
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.amdsev.fd";
-
-const CPU_COUNT: &str = "2";
 const MEMORY_SIZE: &str = "8192M";
 
 /// - Use host passthrough, see https://www.qemu.org/docs/master/system/i386/cpu.html
@@ -28,22 +27,62 @@ const DEFAULT_REDUCED_PHYS_BITS: &str = "1";
 // We want SMT disabled
 const DEFAULT_POLICY: &str = "0x20000";
 
-// TODO(before merge): Make UKI instead, and need to check on final kernel cmdline
-const KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
-const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
-const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
-
 const SNP_GUEST_ID: &str = "sev0";
 const MEMORY_BACKEND_ID: &str = "ram1";
 
-// TODO: We need to see how we will assign guest CID when we support multiple
-// containers on single host
-const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3";
+struct SnpPlatform;
 
-const IOMMUFD_ID: &str = "iommufd0";
-const IOMMUFD_OBJECT: &str = "iommufd,id=iommufd0";
-const GPU_ROOT_PORT: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
-const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
+impl SnpPlatform {
+    fn memory_backend() -> String {
+        let memory_backend = format!(
+            "memory-backend-memfd,id={MEMORY_BACKEND_ID},size={MEMORY_SIZE},share=true,prealloc=false"
+        );
+        memory_backend
+    }
+
+    fn snp_guest() -> String {
+        let cbitpos = env_or_default("SNP_CBITPOS", DEFAULT_CBITPOS);
+        let reduced_phys_bits = env_or_default("SNP_REDUCED_PHYS_BITS", DEFAULT_REDUCED_PHYS_BITS);
+        let policy = env_or_default("SNP_POLICY", DEFAULT_POLICY);
+        let snp_guest = format!(
+            "sev-snp-guest,id={SNP_GUEST_ID},cbitpos={cbitpos},reduced-phys-bits={reduced_phys_bits},kernel-hashes=on,policy={policy}"
+        );
+        snp_guest
+    }
+}
+
+impl QemuPlatform for SnpPlatform {
+    fn firmware_path(&self) -> Option<&'static str> {
+        Some(OVMF_PATH)
+    }
+
+    fn guest_device_path(&self) -> Option<&'static str> {
+        Some("/dev/sev")
+    }
+
+    fn cpu(&self) -> String {
+        env::var("SNP_CPU").unwrap_or_else(|_| DEFAULT_CPU.to_owned())
+    }
+
+    fn memory_size(&self) -> &'static str {
+        MEMORY_SIZE
+    }
+
+    fn machine(&self) -> Option<String> {
+        let machine = format!(
+            "q35,confidential-guest-support={SNP_GUEST_ID},vmport=off,memory-backend={MEMORY_BACKEND_ID}"
+        );
+        Some(machine)
+    }
+
+    fn objects(&self) -> Vec<String> {
+        vec![Self::memory_backend(), Self::snp_guest()]
+    }
+
+    fn gpu(&self) -> Option<String> {
+        env::var("SNP_GPU_BDF").ok()
+    }
+}
 
 pub(crate) fn should_forward_client_logs() -> bool {
     true
@@ -60,121 +99,50 @@ pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
 }
 
 async fn start_snp_guest() -> Result<(), String> {
-    require_file("SNP kernel", KERNEL_PATH)?;
-    require_file("SNP initramfs", INITRAMFS_PATH)?;
-    require_file("SNP OVMF firmware", OVMF_PATH)?;
-    require_file("KVM device", "/dev/kvm")?;
-    require_file("SEV device", "/dev/sev")?;
+    SnpPlatform.run().await
+}
 
-    let cpu = env_or_default("SNP_CPU", DEFAULT_CPU);
-    let cbitpos = env_or_default("SNP_CBITPOS", DEFAULT_CBITPOS);
-    let reduced_phys_bits = env_or_default("SNP_REDUCED_PHYS_BITS", DEFAULT_REDUCED_PHYS_BITS);
-    let policy = env_or_default("SNP_POLICY", DEFAULT_POLICY);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
 
-    let machine = format!(
-        "q35,confidential-guest-support={SNP_GUEST_ID},vmport=off,memory-backend={MEMORY_BACKEND_ID}"
-    );
-
-    let memory_backend = format!(
-        "memory-backend-memfd,id={MEMORY_BACKEND_ID},size={MEMORY_SIZE},share=true,prealloc=false"
-    );
-
-    let snp_guest = format!(
-        "sev-snp-guest,id={SNP_GUEST_ID},cbitpos={cbitpos},reduced-phys-bits={reduced_phys_bits},kernel-hashes=on,policy={policy}"
-    );
-
-    let gpu_device = match env::var("SNP_GPU_BDF") {
-        Ok(gpu_bdf) => {
-            require_vfio_device(&gpu_bdf)?;
-            require_file("IOMMUFD device", "/dev/iommu")?;
-            Some(format!(
-                "vfio-pci,host={gpu_bdf},bus=pci.1,iommufd={IOMMUFD_ID},romfile="
-            ))
-        }
-        Err(_) => None,
-    };
-
-    let mut args = vec![
-        "-enable-kvm",
-        "-nographic",
-        "-monitor",
-        "none",
-        "-no-reboot",
-        "-machine",
-        &machine,
-        "-cpu",
-        &cpu,
-        "-smp",
-        CPU_COUNT,
-        "-m",
-        MEMORY_SIZE,
-        "-object",
-        &memory_backend,
-        "-object",
-        &snp_guest,
-        "-bios",
-        OVMF_PATH,
-        "-kernel",
-        KERNEL_PATH,
-        "-initrd",
-        INITRAMFS_PATH,
-        "-append",
-        KERNEL_CMDLINE,
-        "-device",
-        VSOCK_DEVICE,
-    ];
-
-    if let Some(gpu_device) = gpu_device.as_deref() {
-        args.extend([
+    #[test]
+    fn test_build_qemu_snp_args() {
+        // Captured before QemuPlatform refactoring
+        let expected = vec![
+            "-enable-kvm",
+            "-nographic",
+            "-monitor",
+            "none",
+            "-no-reboot",
+            "-machine",
+            "q35,confidential-guest-support=sev0,vmport=off,memory-backend=ram1",
+            "-cpu",
+            "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0",
+            "-smp",
+            "2",
+            "-m",
+            "8192M",
             "-object",
-            IOMMUFD_OBJECT,
+            "memory-backend-memfd,id=ram1,size=8192M,share=true,prealloc=false",
+            "-object",
+            "sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,kernel-hashes=on,policy=0x20000",
+            "-bios",
+            "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
+            "-kernel",
+            "/opt/fortanix/enclave-os/bzImage",
+            "-initrd",
+            "/opt/fortanix/enclave-os/initramfs.gz",
+            "-append",
+            "console=ttyS0 rdinit=/init loglevel=7",
             "-device",
-            GPU_ROOT_PORT,
-            "-device",
-            gpu_device,
-            "-fw_cfg",
-            FW_CFG_MMIO64,
-        ]);
+            "vhost-vsock-pci,guest-cid=3",
+        ];
+        let expected: Vec<String> = expected.into_iter().map(String::from).collect();
+        let expected: HashSet<String> = expected.into_iter().collect();
+        let platform = SnpPlatform {};
+        let args: HashSet<String> = platform.build_qemu_args().into_iter().collect();
+        assert_eq!(expected, args, "QEMU args mismatch",);
     }
-
-    run_subprocess(QEMU_BINARY, &args).await
-}
-
-fn env_or_default(name: &str, default: &str) -> String {
-    env::var(name).unwrap_or_else(|_| default.to_string())
-}
-
-fn require_file(description: &str, path: &str) -> Result<(), String> {
-    if Path::new(path).exists() {
-        Ok(())
-    } else {
-        Err(format!("{description} not found at {path}"))
-    }
-}
-
-fn require_vfio_device(bdf: &str) -> Result<(), String> {
-    let device_path = format!("/sys/bus/pci/devices/{bdf}");
-    require_file("GPU PCI device", &device_path)?;
-
-    let driver_path = format!("{device_path}/driver");
-    let driver = std::fs::read_link(&driver_path)
-        .map_err(|e| format!("failed reading GPU driver at {driver_path}: {e}"))?;
-
-    if driver.file_name().and_then(|name| name.to_str()) != Some("vfio-pci") {
-        return Err(format!("GPU {bdf} is not bound to vfio-pci"));
-    }
-
-    require_file("VFIO control device", "/dev/vfio/vfio")?;
-
-    let iommu_group_path = format!("{device_path}/iommu_group");
-    let iommu_group = std::fs::read_link(&iommu_group_path)
-        .map_err(|e| format!("failed reading IOMMU group for GPU {bdf}: {e}"))?;
-
-    let group = iommu_group
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("invalid IOMMU group path for GPU {bdf}"))?;
-
-    let vfio_group_path = format!("/dev/vfio/{group}");
-    require_file("VFIO group device", &vfio_group_path)
 }
