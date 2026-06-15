@@ -110,34 +110,19 @@ mod tests {
     #[test]
     fn test_build_qemu_snp_args() {
         // Captured before QemuPlatform refactoring
+        // Ignore formatting to keep logical key/value pairs align better in a single line.
+        #[rustfmt::skip]
         let expected = vec![
-            "-enable-kvm",
-            "-nographic",
-            "-monitor",
-            "none",
-            "-no-reboot",
-            "-machine",
-            "q35,confidential-guest-support=sev0,vmport=off,memory-backend=ram1",
-            "-cpu",
-            "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0",
-            "-smp",
-            "2",
-            "-m",
-            "8192M",
-            "-object",
-            "memory-backend-memfd,id=ram1,size=8192M,share=true,prealloc=false",
-            "-object",
-            "sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,kernel-hashes=on,policy=0x20000",
-            "-bios",
-            "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
-            "-kernel",
-            "/opt/fortanix/enclave-os/bzImage",
-            "-initrd",
-            "/opt/fortanix/enclave-os/initramfs.gz",
-            "-append",
-            "console=ttyS0 rdinit=/init loglevel=7",
-            "-device",
-            "vhost-vsock-pci,guest-cid=3",
+            "-enable-kvm", "-nographic", "-monitor", "none", "-no-reboot",
+            "-machine", "q35,confidential-guest-support=sev0,vmport=off,memory-backend=ram1",
+            "-cpu", "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0", "-smp", "2", "-m", "8192M",
+            "-object", "memory-backend-memfd,id=ram1,size=8192M,share=true,prealloc=false",
+            "-object", "sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,kernel-hashes=on,policy=0x20000",
+            "-bios", "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
+            "-kernel", "/opt/fortanix/enclave-os/bzImage",
+            "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
+            "-append", "console=ttyS0 rdinit=/init loglevel=7",
+            "-device", "vhost-vsock-pci,guest-cid=3",
         ];
         let expected: Vec<String> = expected.into_iter().map(String::from).collect();
         let expected: HashSet<String> = expected.into_iter().collect();

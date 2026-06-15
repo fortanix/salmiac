@@ -90,41 +90,24 @@ mod tests {
 
     #[test]
     fn test_build_qemu_snp_args() {
+        // Ignore formatting to keep logical key/value pairs align better in a single line.
+        #[rustfmt::skip]
         let expected = vec![
-            "-enable-kvm",
-            "-nographic",
-            "-monitor",
-            "none",
-            "-no-reboot",
-            "-machine",
-            "q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0",
-            "-cpu",
-            "host",
-            "-smp",
-            "2",
-            "-m",
-            "8G",
-            "-object",
-            "memory-backend-ram,id=mem0,size=8G",
-            "-object",
-            r#"{"qom-type":"tdx-guest","id":"tdx"}"#,
-            "-bios",
-            "/opt/fortanix/enclave-os/OVMF.tdx.fd",
-            "-kernel",
-            "/opt/fortanix/enclave-os/bzImage",
-            "-initrd",
-            "/opt/fortanix/enclave-os/initramfs.gz",
-            "-append",
-            "console=ttyS0 rdinit=/init loglevel=7",
-            "-device",
-            "vhost-vsock-pci,guest-cid=3",
+            "-enable-kvm", "-nographic", "-monitor", "none", "-no-reboot",
+            "-machine", "q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0",
+            "-cpu", "host", "-smp", "2", "-m", "8G",
+            "-object", "memory-backend-ram,id=mem0,size=8G",
+            "-object", r#"{"qom-type":"tdx-guest","id":"tdx"}"#,
+            "-bios", "/opt/fortanix/enclave-os/OVMF.tdx.fd",
+            "-kernel", "/opt/fortanix/enclave-os/bzImage",
+            "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
+            "-append", "console=ttyS0 rdinit=/init loglevel=7",
+            "-device", "vhost-vsock-pci,guest-cid=3",
         ];
         let expected: Vec<String> = expected.into_iter().map(String::from).collect();
         let expected: HashSet<String> = expected.into_iter().collect();
         let platform = TdxPlatform {};
         let args: HashSet<String> = platform.build_qemu_args().into_iter().collect();
-        println!("Expected has additional: {:?}", expected.difference(&args));
-        println!("Args has additional: {:?}", args.difference(&expected));
         assert_eq!(expected, args, "QEMU args mismatched",);
     }
 }
