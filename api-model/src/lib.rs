@@ -31,7 +31,7 @@ pub use self::simulator::SimulatorEnclavesConversionRequest as PlatformConversio
 #[cfg(platform = "simulator")]
 pub use self::simulator::SimulatorEnclavesConversionResponse as PlatformConversionResponse;
 #[cfg(platform = "simulator")]
-use api_model::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
+pub use self::simulator::SimulatorEnclavesConversionRequestOptions as EnclavesOptions;
 
 use std::convert::TryFrom;
 use std::fmt;
