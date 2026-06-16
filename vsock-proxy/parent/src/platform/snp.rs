@@ -9,7 +9,6 @@ use super::{GuestLaunchResult, GuestTasks};
 use crate::platform::qemu::{env_or_default, QemuPlatform};
 
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.amdsev.fd";
-const MEMORY_SIZE: &str = "8192M";
 
 /// - Use host passthrough, see https://www.qemu.org/docs/master/system/i386/cpu.html
 /// - Unset TSA_L1_NO and TSA_SQ_NO:
@@ -33,9 +32,10 @@ const MEMORY_BACKEND_ID: &str = "ram1";
 struct SnpPlatform;
 
 impl SnpPlatform {
-    fn memory_backend() -> String {
+    fn memory_backend(&self) -> String {
+        let memory_size = self.memory_size();
         let memory_backend = format!(
-            "memory-backend-memfd,id={MEMORY_BACKEND_ID},size={MEMORY_SIZE},share=true,prealloc=false"
+            "memory-backend-memfd,id={MEMORY_BACKEND_ID},size={memory_size},share=true,prealloc=false",
         );
         memory_backend
     }
@@ -61,11 +61,7 @@ impl QemuPlatform for SnpPlatform {
     }
 
     fn cpu(&self) -> String {
-        env::var("SNP_CPU").unwrap_or_else(|_| DEFAULT_CPU.to_owned())
-    }
-
-    fn memory_size(&self) -> &'static str {
-        MEMORY_SIZE
+        env_or_default("SNP_CPU", DEFAULT_CPU)
     }
 
     fn machine(&self) -> Option<String> {
@@ -76,7 +72,7 @@ impl QemuPlatform for SnpPlatform {
     }
 
     fn objects(&self) -> Vec<String> {
-        vec![Self::memory_backend(), Self::snp_guest()]
+        vec![self.memory_backend(), Self::snp_guest()]
     }
 
     fn gpu(&self) -> Option<String> {
@@ -109,14 +105,14 @@ mod tests {
 
     #[test]
     fn test_build_qemu_snp_args() {
-        // Captured before QemuPlatform refactoring
+        // Captured before the QemuPlatform refactoring, with modifications to the memory size.
         // Ignore formatting to keep logical key/value pairs align better in a single line.
         #[rustfmt::skip]
         let expected = vec![
             "-enable-kvm", "-nographic", "-monitor", "none", "-no-reboot",
             "-machine", "q35,confidential-guest-support=sev0,vmport=off,memory-backend=ram1",
-            "-cpu", "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0", "-smp", "2", "-m", "8192M",
-            "-object", "memory-backend-memfd,id=ram1,size=8192M,share=true,prealloc=false",
+            "-cpu", "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0", "-smp", "2", "-m", "8G",
+            "-object", "memory-backend-memfd,id=ram1,size=8G,share=true,prealloc=false",
             "-object", "sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,kernel-hashes=on,policy=0x20000",
             "-bios", "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
             "-kernel", "/opt/fortanix/enclave-os/bzImage",

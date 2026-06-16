@@ -43,10 +43,6 @@ impl QemuPlatform for TdxPlatform {
         env::var("TDX_CPU").unwrap_or_else(|_| "host".to_owned())
     }
 
-    fn memory_size(&self) -> &'static str {
-        MEMORY_SIZE
-    }
-
     fn machine(&self) -> Option<String> {
         let machine = format!(
             "q35,kernel_irqchip=split,confidential-guest-support={},memory-backend={}",

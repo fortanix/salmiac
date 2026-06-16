@@ -10,6 +10,9 @@ use shared::run_subprocess;
 
 pub(super) mod constants {
     pub const CPU_COUNT: &str = "2";
+    pub const MEM_SIZE: &str = "8G";
+    pub const CPU_COUNT_ENV_VAR: &str = "CPU_COUNT";
+    pub const MEM_SIZE_ENV_VAR: &str = "MEM_SIZE";
 
     pub const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
     pub const KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
@@ -35,7 +38,6 @@ pub(super) trait QemuPlatform {
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
     fn gpu(&self) -> Option<String>;
-    fn memory_size(&self) -> &'static str;
 
     fn build_vfio_iommu_arg(bdf: &String) -> String {
         format!(
@@ -66,14 +68,24 @@ pub(super) trait QemuPlatform {
         Ok(())
     }
 
+    fn cpu_count(&self) -> String {
+        env_or_default(constants::CPU_COUNT_ENV_VAR, constants::CPU_COUNT)
+    }
+
+    fn memory_size(&self) -> String {
+        env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
+    }
+
     fn build_qemu_args(&self) -> Vec<String> {
         let cpu = self.cpu();
+        let cpu_count = self.cpu_count();
+        let memory_size = self.memory_size();
         let mut args: Vec<&str> = vec![
             "-enable-kvm",
             "-m",
-            self.memory_size(),
+            &memory_size,
             "-smp",
-            constants::CPU_COUNT,
+            &cpu_count,
             "-cpu",
             &cpu,
             "-nographic",

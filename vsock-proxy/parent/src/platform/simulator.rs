@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use super::{GuestLaunchResult, GuestTasks};
-use crate::platform::qemu::QemuPlatform;
+use crate::platform::qemu::{constants, env_or_default, QemuPlatform};
 
 const DEFAULT_MEMORY_SIZE: &str = "2048";
 
@@ -23,8 +23,9 @@ impl QemuPlatform for SimulatorPlatform {
         "host".to_owned()
     }
 
-    fn memory_size(&self) -> &'static str {
-        DEFAULT_MEMORY_SIZE
+    // Simulator is mostly used locally; setting a reasonable default.
+    fn memory_size(&self) -> String {
+        env_or_default(constants::CPU_COUNT_ENV_VAR, DEFAULT_MEMORY_SIZE)
     }
 
     fn machine(&self) -> Option<String> {
