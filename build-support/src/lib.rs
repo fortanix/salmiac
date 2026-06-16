@@ -12,6 +12,7 @@ pub enum Platform {
     Nitro,
     Simulator,
     Snp,
+    Tdx,
 }
 
 impl Platform {

@@ -87,14 +87,14 @@ pub fn vec_to_ip6(vec: &[u16]) -> Result<Ipv6Addr, String> {
 #[cfg(platform = "nitro")]
 pub const VSOCK_PARENT_CID: u32 = 3;
 
-#[cfg(any(platform = "simulator", platform = "snp"))]
+#[cfg(any(platform = "simulator", platform = "snp", platform = "tdx"))]
 pub const VSOCK_PARENT_CID: u32 = 2;
 
 #[cfg(platform = "nitro")]
 // Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
 pub const VSOCK_LISTENER_CID: u32 = VSOCK_PARENT_CID;
 
-#[cfg(any(platform = "simulator", platform = "snp"))]
+#[cfg(any(platform = "simulator", platform = "snp", platform = "tdx"))]
 // TODO(before merge): don't hardcode u32::MAX
 pub const VSOCK_LISTENER_CID: u32 = u32::MAX; // VMADDR_CID_ANY
 

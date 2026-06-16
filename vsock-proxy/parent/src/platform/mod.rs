@@ -13,6 +13,11 @@ mod nitro;
 mod simulator;
 #[cfg(platform = "snp")]
 mod snp;
+#[cfg(platform = "tdx")]
+mod tdx;
+
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+mod qemu;
 
 pub(crate) type GuestTasks = FuturesUnordered<JoinHandle<Result<(), String>>>;
 
@@ -23,6 +28,9 @@ pub(crate) use simulator::{
 
 #[cfg(platform = "snp")]
 pub(crate) use snp::{launch_guest, should_forward_client_logs, start_post_connect_guest_tasks};
+
+#[cfg(platform = "tdx")]
+pub(crate) use tdx::{launch_guest, should_forward_client_logs, start_post_connect_guest_tasks};
 
 #[cfg(platform = "nitro")]
 pub(crate) use nitro::{launch_guest, should_forward_client_logs, start_post_connect_guest_tasks};

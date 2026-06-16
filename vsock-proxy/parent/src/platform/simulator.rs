@@ -3,24 +3,43 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-use std::env;
-use std::path::Path;
-
-use shared::run_subprocess;
-
 use super::{GuestLaunchResult, GuestTasks};
+use crate::platform::qemu::{constants, env_or_default, QemuPlatform};
 
-const QEMU_BINARY: &str = "qemu-system-x86_64";
-
-const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/kernel";
-const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.cpio.gz";
-
-const DEFAULT_CPU_COUNT: &str = "2";
 const DEFAULT_MEMORY_SIZE: &str = "2048";
 
-const KERNEL_CMDLINE: &str =
-    "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 rdinit=/init loglevel=7";
+struct SimulatorPlatform;
+
+impl QemuPlatform for SimulatorPlatform {
+    fn firmware_path(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn guest_device_path(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn cpu(&self) -> String {
+        "host".to_owned()
+    }
+
+    // Simulator is mostly used locally; setting a reasonable default.
+    fn memory_size(&self) -> String {
+        env_or_default(constants::CPU_COUNT_ENV_VAR, DEFAULT_MEMORY_SIZE)
+    }
+
+    fn machine(&self) -> Option<String> {
+        None
+    }
+
+    fn objects(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn gpu(&self) -> Option<String> {
+        None
+    }
+}
 
 pub(crate) fn should_forward_client_logs() -> bool {
     true
@@ -37,46 +56,5 @@ pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
 }
 
 async fn start_simulator_guest() -> Result<(), String> {
-    require_file("simulator kernel", KERNEL_PATH)?;
-    require_file("simulator initramfs", INITRAMFS_PATH)?;
-    require_file("KVM device", "/dev/kvm")?;
-
-    let cpu_count = env_or_default("CPU_COUNT", DEFAULT_CPU_COUNT);
-    let memory_size = env_or_default("MEM_SIZE", DEFAULT_MEMORY_SIZE);
-
-    let args = [
-        "-enable-kvm",
-        "-cpu",
-        "host",
-        "-m",
-        &memory_size,
-        "-smp",
-        &cpu_count,
-        "-nographic",
-        "-monitor",
-        "none",
-        "-no-reboot",
-        "-kernel",
-        KERNEL_PATH,
-        "-initrd",
-        INITRAMFS_PATH,
-        "-append",
-        KERNEL_CMDLINE,
-        "-device",
-        "vhost-vsock-pci,guest-cid=3",
-    ];
-
-    run_subprocess(QEMU_BINARY, &args).await
-}
-
-fn env_or_default(name: &str, default: &str) -> String {
-    env::var(name).unwrap_or_else(|_| default.to_string())
-}
-
-fn require_file(description: &str, path: &str) -> Result<(), String> {
-    if Path::new(path).exists() {
-        Ok(())
-    } else {
-        Err(format!("{description} not found at {path}"))
-    }
+    SimulatorPlatform.run().await
 }
