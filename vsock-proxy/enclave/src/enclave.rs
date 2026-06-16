@@ -13,20 +13,20 @@ use std::string::ToString;
 use std::sync::Arc;
 
 use crate::app_configuration::{
-    setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
+    EmAppApplicationConfiguration, EmAppCredentials, setup_application_configuration,
 };
 #[allow(unused_imports)]
 use crate::certificate::{
-    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
-    CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
-    DEFAULT_CERT_RSA_KEY_SIZE,
+    self, CSRApi, CertificatePaths, CertificateResult, CertificateWithPath, DEFAULT_CERT_DIR,
+    DEFAULT_CERT_RSA_KEY_SIZE, EmAppCSRApi, create_signer_key, default_certificate,
+    request_certificate, write_certificate,
 };
 use crate::file_system::{
-    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
-    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
-    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
-    unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
+    DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, FileSystemNode, close_dm_verity_volume,
+    copy_dns_file_to_mount, copy_startup_binary_to_mount, create_fortanix_directories,
+    create_overlay_dirs, fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs,
+    mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity,
+    unmount_file_system_nodes, unmount_overlay_fs,
 };
 use api_model::converter::CertificateConfig;
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
@@ -34,8 +34,8 @@ use async_process::{Child, Command};
 use async_trait::async_trait;
 use chrono::Utc;
 use em_client::Sha256Hash;
-use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
 use enclaveos_encrypted_fs::EncryptedVolume;
+use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
@@ -52,8 +52,8 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
-    cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType,
-    HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
+    AppLogPortInfo, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, StreamType, VSOCK_PARENT_CID,
+    cleanup_tokio_tasks, extract_enum_value, with_background_tasks,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -166,6 +166,36 @@ async fn auto_cert_renewals(
 
         tokio_time::sleep(sleep_duration).await;
     }
+}
+
+#[cfg(any(platform = "snp", platform = "tdx"))]
+pub(crate) async fn run_attestation_client_only(vsock_port: u32) -> Result<(), String> {
+    let parent_port = connect_to_parent_async(vsock_port).await?;
+    let parent_stream = ParentStream::new(parent_port);
+    let mut parent_guard = parent_stream.lock().await;
+
+    let cert_config = CertificateConfig {
+        issuer: api_model::converter::CertIssuer::Node,
+        subject: Some("test.salmiac.fortanix.com".to_string()),
+        alt_names: vec![],
+        key_type: api_model::converter::KeyType::Rsa,
+        key_param: None,
+        key_path: None,
+        cert_path: None,
+        chain_path: None,
+    };
+
+    setup_enclave_certification(
+        Some(parent_guard.deref_mut()),
+        None,
+        &EmAppCSRApi {},
+        &None,
+        &cert_config,
+        Path::new("/tmp/vsock-proxy-test"),
+    )
+    .await?;
+
+    Ok(())
 }
 
 pub(crate) async fn run(
@@ -314,7 +344,7 @@ fn enable_loopback_network_interface() -> Result<(), String> {
             return Err(format!(
                 "Failed accessing loopback network interface. {:?}",
                 err
-            ))
+            ));
         }
     };
 
@@ -1013,7 +1043,7 @@ pub(crate) async fn setup_enclave_certification<
 ) -> Result<CertificateWithPath, String> {
     // For SNP, for the time being, an embedded attestation agent is used to create certificates.
     // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
-    use embedded_attestation_client::EmbeddedSnpAttestationClient;
+    use embedded_attestation_client::EmbeddedAttestationClient;
     use log::Level;
     use std::ffi::CString;
 
@@ -1031,7 +1061,7 @@ pub(crate) async fn setup_enclave_certification<
     // }
     info!("Running embedded attestation client to obtain certificates");
 
-    let mut client = EmbeddedSnpAttestationClient::new()?;
+    let mut client = EmbeddedAttestationClient::new()?;
     // We will write out the key and certificate to the temporary working directory of the embedded
     // client, and read them into memory
     let temp_dir = client.temp_dir_path();

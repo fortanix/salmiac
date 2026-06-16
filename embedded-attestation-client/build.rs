@@ -141,14 +141,14 @@ fn main() {
 
             // Copy the attestation client to the output directory
             let attestation_client_bin = match platform {
-                Platform::Snp => attestation_client_bin_name!(),
+                Platform::Snp => attestation_client_sevsnp_bin_name!(),
                 Platform::Tdx => attestation_client_tdx_bin_name!(),
                 _ => panic!("Unreachable platform pattern matching")
             };
 
             std::fs::copy(
                 target_dir.join(attestation_client_bin),
-                out_dir_path.clone().join(attestation_client_bin_name!()),
+                out_dir_path.clone().join(attestation_client_target_bin_name!()),
             )
             .expect("Could not copy attestation client binary");
 
@@ -175,7 +175,7 @@ fn main() {
             // Copy the dummy file to the output directory with the expected name
             std::fs::copy(
                 out_dir_path.clone().join("dummy"),
-                out_dir_path.clone().join(attestation_client_bin_name!()),
+                out_dir_path.clone().join(attestation_client_target_bin_name!()),
             )
             .expect("Could not copy attestation client binary");
         }

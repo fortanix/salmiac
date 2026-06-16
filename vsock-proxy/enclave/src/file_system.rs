@@ -8,7 +8,7 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use enclaveos_encrypted_fs::dsm_key_config::{ClientConnectionInfo, DsmFsOps};
-use enclaveos_encrypted_fs::{EncryptedVolume, DEVICE_MAPPER};
+use enclaveos_encrypted_fs::{DEVICE_MAPPER, EncryptedVolume};
 use log::info;
 use nix::sys::statvfs::FsFlags;
 use shared::run_subprocess;

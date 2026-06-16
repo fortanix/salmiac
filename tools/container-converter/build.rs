@@ -22,7 +22,6 @@ const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
     for env_var in [
-        "EMBED_ATTEST_CLIENT_ROCHE_NAME",
         "EMBED_ATTEST_CLIENT_ROCHE_PATH",
         "EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN",
     ] {
