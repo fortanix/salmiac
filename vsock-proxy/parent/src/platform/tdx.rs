@@ -22,10 +22,6 @@ impl TdxPlatform {
     }
 
     fn tdx_guest() -> String {
-        // At the moment the host does not run quote-generation service.
-        // With quote-generation service enablement, we can either connect to it via vsock or socket file
-        // See https://github.com/intel/confidential-computing.tee.dcap/blob/3aa24f6df004f092556aef10e0ab422cb0395e38/QuoteGeneration/quote_wrapper/qgs/test_client.c#L21
-        // Example of passing vsock information for quote-generation daemon: '"quote-generation-socket":{{"type":"vsock","cid":"2","port":"4050"}}'
         format!(r#"{{"qom-type":"tdx-guest","id":"{}"}}"#, TDX_ID)
     }
 }
@@ -85,7 +81,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_qemu_snp_args() {
+    fn test_build_qemu_tdx_args() {
         // Ignore formatting to keep logical key/value pairs align better in a single line.
         #[rustfmt::skip]
         let expected = vec![
