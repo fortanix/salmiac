@@ -15,6 +15,9 @@ const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 const ORIG_ENV_LIST_PATH: &'static str = "original-parent.env";
 
 const MEGA_BYTE: u64 = 1024 * 1024;
+const fn bytes_to_mb_ceil(bytes: u64) -> u64 {
+    bytes.div_ceil(MEGA_BYTE) * MEGA_BYTE
+}
 
 fn rust_log_env_var(project_name: &str) -> String {
     let log_level = if cfg!(debug_assertions) {
