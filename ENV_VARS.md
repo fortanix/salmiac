@@ -1,4 +1,4 @@
-# AWS Nitro/AMD SEV-SNP enclaves #
+# AWS Nitro/AMD SEV-SNP/Intel TDX enclaves #
 
 This is a reference for the environmental variables used throughout the project.
 

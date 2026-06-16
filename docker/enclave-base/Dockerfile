@@ -2,9 +2,9 @@
 # It contains the minimum possible amount of tools needed to produce a working environment for a client application.
 # The size of this image should be kept as small as possible to minimize the amount of RAM needed for the enclave to run.
 #
-# This image is backend-agnostic and is used for both AWS Nitro Enclaves
-# and SEV-SNP confidential VMs without GPU passthrough. The SEV-SNP path
-# with GPU passthrough uses docker/enclave-base-snp-gpu/ instead, which
+# This image is backend-agnostic and is used for AWS Nitro Enclaves, SEV-SNP
+# confidential VMs and TDX confidential VMs without GPU passthrough. The SEV-SNP and TDX paths
+# with GPU passthrough uses docker/enclave-base-gpu/ instead, which
 # adds the userspace NVIDIA driver bits.
 
 FROM ubuntu:24.04

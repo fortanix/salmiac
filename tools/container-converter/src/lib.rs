@@ -94,7 +94,7 @@ impl Error for ConverterError {}
 #[cfg(platform = "nitro")]
 const PARENT_IMAGE: &str = "parent-base-nitro";
 
-#[cfg(platform = "snp")]
+#[cfg(any(platform = "snp", platform = "tdx"))]
 const PARENT_IMAGE: &str = "parent-base-snp";
 
 #[cfg(platform = "simulator")]
@@ -102,18 +102,18 @@ const PARENT_IMAGE: &str = "parent-base-simulator";
 
 const PARENT_IMAGE_PATH: &str = "parent-base.tar";
 
-#[cfg(any(platform = "nitro", platform = "snp"))]
+#[cfg(any(platform = "nitro", platform = "snp", platform = "tdx"))]
 const ENCLAVE_IMAGE: &str = "enclave-base";
 
 #[cfg(platform = "simulator")]
 const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
 
-#[cfg(platform = "snp")]
-const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
+#[cfg(any(platform = "snp", platform = "tdx"))]
+const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-gpu";
 
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
-#[cfg(platform = "snp")]
+#[cfg(any(platform = "snp", platform = "tdx"))]
 const ENCLAVE_GPU_IMAGE_PATH: &str = "enclave-base-gpu.tar";
 
 const DEFAULT_RSA_SIZE: u32 = 3072;
