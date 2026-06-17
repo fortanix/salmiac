@@ -33,4 +33,8 @@ jobs:
             --build-context parent-base=docker/nitro/parent-base \
             -t parent-base-snp \
             docker/snp/parent-base
-          docker rmi enclave-base enclave-base-snp-gpu parent-base-nitro parent-base-snp
+          docker build \
+            --build-context parent-base=docker/nitro/parent-base \
+            -t parent-base-tdx \
+            docker/tdx/parent-base
+          docker rmi enclave-base enclave-base-snp-gpu parent-base-nitro parent-base-snp parent-base-tdx

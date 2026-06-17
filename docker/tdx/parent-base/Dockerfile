@@ -72,7 +72,7 @@ RUN apt-get update  \
     && apt-get install -y  --no-install-recommends qemu-system-x86=${QEMU_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./dnsmasq.d /etc/dnsmasq.d
+COPY --from=parent-base dnsmasq.d /etc/dnsmasq.d
 
 # Fail-fast sanity check.
 RUN qemu-system-x86_64 --version
