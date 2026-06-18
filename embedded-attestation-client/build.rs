@@ -27,10 +27,8 @@ fn main() {
 
     // Run a build and copy the attestation client binary to include into the system
     let build_script_dir = std::env::current_dir().unwrap();
-    // `roche/salmiac/salmiac-runner/embedded-attestation-client` is the usual location for this manifest
+    // `[root_repo]/salmiac/salmiac-runner/embedded-attestation-client` is the usual location for this manifest
     let repos_dir = build_script_dir
-        .parent()
-        .unwrap()
         .parent()
         .unwrap()
         .parent()
@@ -38,14 +36,12 @@ fn main() {
         .parent()
         .unwrap();
 
-    // EMBEDDED_ATTEST_CLIENT_ROCHE_NAME allows a developer to use a Roche directory name besides "roche"
-    let roche_repo_name = env::var("EMBED_ATTEST_CLIENT_ROCHE_NAME").unwrap_or("roche".to_string());
     // As an alternative, if Salmiac is out of tree from Roche (standalone),
     // the Roche location can be indicated using EMBED_ATTEST_CLIENT_ROCHE_PATH
     let roche_dir = if let Ok(roche_path) = env::var("EMBED_ATTEST_CLIENT_ROCHE_PATH") {
         PathBuf::from(roche_path)
     } else {
-        repos_dir.join(roche_repo_name)
+        repos_dir.to_path_buf()
     };
     build_print::info!(
         "Roche directory for attestation client build: {}",
@@ -60,7 +56,6 @@ fn main() {
     let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
 
     for env_var in [
-        "EMBED_ATTEST_CLIENT_ROCHE_NAME",
         "EMBED_ATTEST_CLIENT_ROCHE_PATH",
         "EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN",
     ] {
