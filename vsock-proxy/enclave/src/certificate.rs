@@ -234,15 +234,14 @@ mod tests {
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use chrono::NaiveDate;
     use mbedtls::pk::Pk;
-    use parent_lib::{CertificateApi, communicate_certificates};
+    use parent_lib::{communicate_certificates, CertificateApi};
     use serde_json::value::Value;
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
 
     use crate::certificate::{
-        CSRApi, CertificateResult, CertificateWithPath, DEFAULT_CERT_FILE,
-        DEFAULT_CERT_RSA_KEY_SIZE, DEFAULT_KEY_FILE, create_signer_key, get_certificate_expiry,
-        write_certificate,
+        create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult,
+        CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_CERT_RSA_KEY_SIZE, DEFAULT_KEY_FILE,
     };
     use crate::enclave::setup_enclave_certifications;
 

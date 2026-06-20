@@ -13,20 +13,20 @@ use std::string::ToString;
 use std::sync::Arc;
 
 use crate::app_configuration::{
-    EmAppApplicationConfiguration, EmAppCredentials, setup_application_configuration,
+    setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
 #[allow(unused_imports)]
 use crate::certificate::{
-    self, CSRApi, CertificatePaths, CertificateResult, CertificateWithPath, DEFAULT_CERT_DIR,
-    DEFAULT_CERT_RSA_KEY_SIZE, EmAppCSRApi, create_signer_key, default_certificate,
-    request_certificate, write_certificate,
+    self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
+    CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
+    DEFAULT_CERT_RSA_KEY_SIZE,
 };
 use crate::file_system::{
-    DMVerityConfig, ENCLAVE_FS_OVERLAY_ROOT, FileSystemNode, close_dm_verity_volume,
-    copy_dns_file_to_mount, copy_startup_binary_to_mount, create_fortanix_directories,
-    create_overlay_dirs, fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs,
-    mount_read_only_file_system, mount_read_write_file_system, run_nbd_client, setup_dm_verity,
-    unmount_file_system_nodes, unmount_overlay_fs,
+    close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
+    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options,
+    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
+    unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::converter::CertificateConfig;
 use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
@@ -34,8 +34,8 @@ use async_process::{Child, Command};
 use async_trait::async_trait;
 use chrono::Utc;
 use em_client::Sha256Hash;
-use enclaveos_encrypted_fs::EncryptedVolume;
 use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
+use enclaveos_encrypted_fs::EncryptedVolume;
 use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
@@ -52,8 +52,8 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
-    AppLogPortInfo, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, StreamType, VSOCK_PARENT_CID,
-    cleanup_tokio_tasks, extract_enum_value, with_background_tasks,
+    cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType,
+    HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;

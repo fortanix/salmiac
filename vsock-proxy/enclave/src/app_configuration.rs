@@ -490,9 +490,9 @@ mod tests {
     use sdkms::api_model::Blob;
 
     use crate::app_configuration::{
+        normalize_path_and_make_relative, setup_app_configs, setup_datasets,
         ApplicationConfiguration, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset, Sha256Hash, normalize_path_and_make_relative,
-        setup_app_configs, setup_datasets,
+        RuntimeConfiguration, SdkmsDataset, Sha256Hash,
     };
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
