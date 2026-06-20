@@ -168,36 +168,6 @@ async fn auto_cert_renewals(
     }
 }
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
-pub(crate) async fn run_attestation_client_only(vsock_port: u32) -> Result<(), String> {
-    let parent_port = connect_to_parent_async(vsock_port).await?;
-    let parent_stream = ParentStream::new(parent_port);
-    let mut parent_guard = parent_stream.lock().await;
-
-    let cert_config = CertificateConfig {
-        issuer: api_model::converter::CertIssuer::Node,
-        subject: Some("test.salmiac.fortanix.com".to_string()),
-        alt_names: vec![],
-        key_type: api_model::converter::KeyType::Rsa,
-        key_param: None,
-        key_path: None,
-        cert_path: None,
-        chain_path: None,
-    };
-
-    setup_enclave_certification(
-        Some(parent_guard.deref_mut()),
-        None,
-        &EmAppCSRApi {},
-        &None,
-        &cert_config,
-        Path::new("/tmp/vsock-proxy-test"),
-    )
-    .await?;
-
-    Ok(())
-}
-
 pub(crate) async fn run(
     vsock_port: u32,
     settings_path: &Path,
