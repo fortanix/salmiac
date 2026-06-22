@@ -3,7 +3,6 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use std::env;
 
 use super::{GuestLaunchResult, GuestTasks};
 use crate::platform::qemu::{env_or_default, QemuPlatform};
@@ -52,6 +51,8 @@ impl SnpPlatform {
 }
 
 impl QemuPlatform for SnpPlatform {
+    const GPU_BDF_ENV_VAR_NAME: Option<&str> = Some("SNP_GPU_BDF");
+
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
     }
@@ -73,10 +74,6 @@ impl QemuPlatform for SnpPlatform {
 
     fn objects(&self) -> Vec<String> {
         vec![self.memory_backend(), Self::snp_guest()]
-    }
-
-    fn gpu(&self) -> Option<String> {
-        env::var("SNP_GPU_BDF").ok()
     }
 }
 

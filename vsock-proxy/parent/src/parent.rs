@@ -99,10 +99,25 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
     info!("Spawning enclave process.");
     let guest_launch_result = crate::platform::launch_guest();
-    // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
     let _enclave_process = guest_launch_result.enclave_process;
 
     info!("Awaiting confirmation from enclave.");
+    // nitro-cli command is non-blocking so the select logic below will not work for nitro
+    #[cfg(not(platform = "nitro"))]
+    let mut enclave_port = tokio::select! {
+        accept = create_vsock_stream(VSOCK_PARENT_PORT) => accept,
+
+        join_res = _enclave_process => {
+            match join_res {
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(format!("Enclave task panicked or was cancelled: {:?}", e)),
+                Ok(_) => Err(String::from("Enclave task exited unexpectedly")),
+            }
+        }
+        // TODO: Add configurable timeout
+    }?;
+    // TODO: Monitor nitro enclave state
+    #[cfg(platform = "nitro")]
     let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;
 
     info!("Connected to enclave.");
