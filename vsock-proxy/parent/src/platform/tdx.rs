@@ -29,6 +29,8 @@ impl TdxPlatform {
 }
 
 impl QemuPlatform for TdxPlatform {
+    const GPU_BDF_ENV_VAR_NAME: Option<&str> = Some("TDX_GPU_BDF");
+
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
     }
@@ -50,10 +52,6 @@ impl QemuPlatform for TdxPlatform {
 
     fn objects(&self) -> Vec<String> {
         vec![self.memory_backend(), Self::tdx_guest()]
-    }
-
-    fn gpu(&self) -> Option<String> {
-        env::var("TDX_GPU_BDF").ok()
     }
 }
 

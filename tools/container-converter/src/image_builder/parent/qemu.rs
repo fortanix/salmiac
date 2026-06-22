@@ -131,10 +131,17 @@ pub(crate) trait QemuParentImageBuilder<'a> {
 
         let log_env = rust_log_env_var("parent");
         let cpu_count_env = self.cpu_count_env_var();
+        let enable_gpu_passthrough_env = self.enable_gpu_passthrough_env_var();
         let mem_size_env = self.mem_size_env_var();
         let eos_debug_env = GenericParentImageBuilder::eos_debug_env_var();
 
-        let env_vars = vec![log_env, cpu_count_env, mem_size_env, eos_debug_env];
+        let env_vars = vec![
+            log_env,
+            cpu_count_env,
+            enable_gpu_passthrough_env,
+            mem_size_env,
+            eos_debug_env,
+        ];
 
         let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
             .join(ORIG_ENV_LIST_PATH)
@@ -165,6 +172,13 @@ pub(crate) trait QemuParentImageBuilder<'a> {
             self.cpu_count()
         };
         format!("CPU_COUNT={}", cpu_count)
+    }
+
+    fn enable_gpu_passthrough_env_var(&self) -> String {
+        format!(
+            "ENABLE_GPU_PASSTHROUGH={}",
+            self.enable_gpu_passthrough().unwrap_or_default()
+        )
     }
 
     fn mem_size_env_var(&self) -> String {
