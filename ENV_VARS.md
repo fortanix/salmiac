@@ -55,6 +55,8 @@ registered as a debug build in a test-only deployment account.
   passed to the nitro-cli run command.
 
 ##### AMD SEV-SNP enclaves settings variables
+- CPU_COUNT - Override the `-smp` param passed while running the enclave i.e.
+  passed to the qemu run command.
 - MEM_SIZE - Override the `-m` param & memory backend object passed while running
   the enclave i.e. passed to the qemu run command.
 - SNP_GPU_BDF - For use with EnclaveOS containers with GPU passthrough.
