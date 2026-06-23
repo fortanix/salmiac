@@ -11,14 +11,17 @@ use crate::platform::qemu::QemuPlatform;
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.inteltdx.fd";
 const GUEST_DEV_PATH: &str = "/dev/tdx_guest";
 const MEMORY_BACKEND_ID: &str = "mem0";
-const MEMORY_SIZE: &str = "8G";
 const TDX_ID: &str = "tdx0";
 
 struct TdxPlatform;
 
 impl TdxPlatform {
-    fn memory_backend() -> String {
-        format!("memory-backend-ram,id={MEMORY_BACKEND_ID},size={MEMORY_SIZE}")
+    fn memory_backend(&self) -> String {
+        let memory_size = self.memory_size();
+        format!(
+            "memory-backend-ram,id={},size={}",
+            MEMORY_BACKEND_ID, memory_size
+        )
     }
 
     fn tdx_guest() -> String {
@@ -47,7 +50,7 @@ impl QemuPlatform for TdxPlatform {
     }
 
     fn objects(&self) -> Vec<String> {
-        vec![Self::memory_backend(), Self::tdx_guest()]
+        vec![self.memory_backend(), Self::tdx_guest()]
     }
 
     fn gpu(&self) -> Option<String> {
