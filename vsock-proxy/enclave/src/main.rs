@@ -64,7 +64,7 @@ fn console_arguments<'a>() -> ArgMatches<'a> {
                 .long("settings-path")
                 .help("Path to a settings file")
                 .takes_value(true)
-                .required_unless("attestation-test"),
+                .required(true),
         )
         .get_matches()
 }
