@@ -8,11 +8,11 @@ use std::env;
 use super::{GuestLaunchResult, GuestTasks};
 use crate::platform::qemu::QemuPlatform;
 
-const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.tdx.fd";
+const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.inteltdx.fd";
 const GUEST_DEV_PATH: &str = "/dev/tdx_guest";
 const MEMORY_BACKEND_ID: &str = "mem0";
 const MEMORY_SIZE: &str = "8G";
-const TDX_ID: &str = "tdx";
+const TDX_ID: &str = "tdx0";
 
 struct TdxPlatform;
 
@@ -22,7 +22,7 @@ impl TdxPlatform {
     }
 
     fn tdx_guest() -> String {
-        format!(r#"{{"qom-type":"tdx-guest","id":"{}"}}"#, TDX_ID)
+        format!("tdx-guest,id={TDX_ID}")
     }
 }
 
@@ -41,8 +41,7 @@ impl QemuPlatform for TdxPlatform {
 
     fn machine(&self) -> Option<String> {
         let machine = format!(
-            "q35,kernel_irqchip=split,confidential-guest-support={},memory-backend={}",
-            TDX_ID, MEMORY_BACKEND_ID
+            "q35,kernel_irqchip=split,confidential-guest-support={TDX_ID},memory-backend={MEMORY_BACKEND_ID},hpet=off,smm=off,pic=off",
         );
         Some(machine)
     }
@@ -86,11 +85,11 @@ mod tests {
         #[rustfmt::skip]
         let expected = vec![
             "-enable-kvm", "-nographic", "-monitor", "none", "-no-reboot",
-            "-machine", "q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0",
+            "-machine", "q35,kernel_irqchip=split,confidential-guest-support=tdx0,memory-backend=mem0,hpet=off,smm=off,pic=off",
             "-cpu", "host", "-smp", "2", "-m", "8G",
             "-object", "memory-backend-ram,id=mem0,size=8G",
-            "-object", r#"{"qom-type":"tdx-guest","id":"tdx"}"#,
-            "-bios", "/opt/fortanix/enclave-os/OVMF.tdx.fd",
+            "-object", "tdx-guest,id=tdx0",
+            "-bios", "/opt/fortanix/enclave-os/OVMF.inteltdx.fd",
             "-kernel", "/opt/fortanix/enclave-os/bzImage",
             "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
             "-append", "console=ttyS0 rdinit=/init loglevel=7",
