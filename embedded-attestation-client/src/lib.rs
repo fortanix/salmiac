@@ -3,7 +3,7 @@
 //! This allows it to be unpacked and run from a temporary directory
 
 mod build_shared;
-use build_shared::attestation_client_bin_name;
+use build_shared::attestation_client_target_bin_name;
 
 use log::{debug, Level};
 use std::fs::OpenOptions;
@@ -17,7 +17,7 @@ use tempfile::{tempdir_in, TempDir};
 static ATTESTATION_CLIENT_BYTES: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
     "/",
-    attestation_client_bin_name!()
+    attestation_client_target_bin_name!()
 ));
 
 static APP_CERT_ALT_NAMES_VAR_NAME: &'static str = "APP_CERT_ALT_NAMES";
@@ -30,7 +30,7 @@ pub static APP_CERT_FILE_NAME: &'static str = "/opt/fortanix/attestation-client/
 
 /// Helper struct for the embedded SNP Attestation client.
 #[derive(Debug)]
-pub struct EmbeddedSnpAttestationClient {
+pub struct EmbeddedAttestationClient {
     // TODO: Consider using tempfile::SpooledTempFile to keep everything in memory
     /// Directory where the SNP Attestation Client will be unpacked to
     temp_dir: TempDir,
@@ -42,9 +42,9 @@ pub struct EmbeddedSnpAttestationClient {
     log_level: Option<Level>,
 }
 
-impl EmbeddedSnpAttestationClient {
+impl EmbeddedAttestationClient {
     fn attest_client_path(&self) -> PathBuf {
-        self.temp_dir.path().join(attestation_client_bin_name!())
+        self.temp_dir.path().join(attestation_client_target_bin_name!())
     }
 
     fn create_client_file(&self) -> std::io::Result<()> {
@@ -106,7 +106,7 @@ impl EmbeddedSnpAttestationClient {
 
         let temp_dir = Self::create_tmp_dir().map_err(|err| err.to_string())?;
 
-        let client = EmbeddedSnpAttestationClient {
+        let client = EmbeddedAttestationClient {
             temp_dir,
             app_cert_key_file_name: PathBuf::from(APP_CERT_KEY_FILE_NAME),
             app_cert_file_name: PathBuf::from(APP_CERT_FILE_NAME),
