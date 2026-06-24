@@ -63,7 +63,7 @@ docker build ${build_flags} -t "enclave-base-snp-gpu" .
 popd >/dev/null || exit
 
 echo "----- Building parent-base-snp -----"
-pushd "${salmiac_dir}/docker/snp/parent-base" >/dev/null || exit
+pushd "${salmiac_dir}/docker/qemu/parent-base" >/dev/null || exit
 docker build ${build_flags} -t "parent-base" .
 docker tag "parent-base" "parent-base-snp"
 popd >/dev/null || exit

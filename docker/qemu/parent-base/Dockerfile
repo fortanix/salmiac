@@ -1,4 +1,4 @@
-# Host-side toolbox image for launching SEV-SNP confidential VMs.
+# Host-side toolbox image for launching SEV-SNP and TDX confidential VMs.
 ARG UBUNTU_VERSION=24.04
 ARG QEMU_VERSION=v10.2.2
 ARG QEMU_TARBALL_SHA256=784b296ff29c1417aa72323abcb2d2ea9ab9771724f577dcd785c3b04f21e176

@@ -31,10 +31,6 @@ jobs:
           docker build docker/nitro/parent-base -t parent-base-nitro
           docker build \
             --build-context parent-base=docker/nitro/parent-base \
-            -t parent-base-snp \
-            docker/snp/parent-base
-          docker build \
-            --build-context parent-base=docker/nitro/parent-base \
-            -t parent-base-tdx \
-            docker/tdx/parent-base
-          docker rmi enclave-base enclave-base-snp-gpu parent-base-nitro parent-base-snp parent-base-tdx
+            -t parent-base-qemu \
+            docker/qemu/parent-base
+          docker rmi enclave-base enclave-base-snp-gpu parent-base-nitro parent-base-qemu
