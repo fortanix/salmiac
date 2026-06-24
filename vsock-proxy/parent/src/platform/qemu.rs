@@ -30,6 +30,8 @@ pub(super) mod constants {
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
     pub const GPU_ROOT_PORT: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
     pub const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
+
+    pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
 }
 
 pub(super) trait QemuPlatform {
@@ -58,6 +60,10 @@ pub(super) trait QemuPlatform {
         if let Some(gpu) = self.gpu() {
             require_vfio_device(&gpu)?;
             require_file("IOMMUFD device", constants::IOMMU_DEVICE_PATH)?;
+        } else if env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR).is_ok_and(|v| v == "true") {
+            return Err(String::from(
+                "GPU passthrough was enabled at conversion time but SNP_GPU_BDF env var is not set",
+            ));
         }
 
         if let Some(firmware_path) = self.firmware_path() {
