@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 
 script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
 
@@ -44,8 +45,7 @@ fi
 
 popd > /dev/null || exit
 
-#build_flags="--no-cache"
-build_flags=""
+build_flags="--no-cache"
 
 #echo "----- Building Nitro parent-base -----"
 #pushd "${salmiac_dir}/docker/nitro/parent-base" >/dev/null || exit
@@ -64,7 +64,7 @@ popd >/dev/null || exit
 
 echo "----- Building parent-base-snp -----"
 pushd "${salmiac_dir}/docker/qemu/parent-base" >/dev/null || exit
-docker build ${build_flags} -t "parent-base" .
+docker build --build-context "parent-base=${salmiac_dir}/docker/nitro/parent-base" ${build_flags} -t "parent-base" .
 docker tag "parent-base" "parent-base-snp"
 popd >/dev/null || exit
 
