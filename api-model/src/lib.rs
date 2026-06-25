@@ -24,6 +24,15 @@ pub use self::snp::SNPEnclavesConversionRequestOptions as EnclavesOptions;
 #[cfg(platform = "snp")]
 pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
 
+#[cfg(platform = "tdx")]
+pub mod tdx;
+#[cfg(platform = "tdx")]
+pub use self::tdx::TDXEnclaveConversionRequest as PlatformConversionRequest;
+#[cfg(platform = "tdx")]
+pub use self::tdx::TDXEnclaveConversionRequestOptions as EnclavesOptions;
+#[cfg(platform = "tdx")]
+pub use self::tdx::TDXEnclaveConversionResponse as PlatformConversionResponse;
+
 #[cfg(platform = "simulator")]
 pub mod simulator;
 #[cfg(platform = "simulator")]
@@ -249,6 +258,23 @@ impl From<u64> for ByteUnit {
 impl From<ByteUnit> for u64 {
     fn from(h: ByteUnit) -> u64 {
         h.to_inner()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+pub enum NvidiaDriverCapability {
+    Compute,
+    Utility,
+}
+
+impl NvidiaDriverCapability {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NvidiaDriverCapability::Compute => "compute",
+            NvidiaDriverCapability::Utility => "utility",
+        }
     }
 }
 

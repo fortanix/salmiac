@@ -1,30 +1,21 @@
-/* Copyright (c) Fortanix, Inc.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
-use crate::NvidiaDriverCapability;
+use crate::HexString;
 use crate::{
     converter::{ConversionRequest, ConvertedImageInfo},
-    ByteUnit, HexString,
+    ByteUnit, NvidiaDriverCapability,
 };
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SNPEnclavesConversionRequest {
+pub struct TDXEnclaveConversionRequest {
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub request: ConversionRequest, // Existing model, Refer to more details section above
     #[cfg_attr(feature = "serde", serde(rename = "snp_enclaves_options"))]
-    pub enclaves_options: SNPEnclavesConversionRequestOptions,
+    pub enclaves_options: TDXEnclaveConversionRequestOptions,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SNPEnclavesConversionRequestOptions {
+pub struct TDXEnclaveConversionRequestOptions {
     // number of (v)CPUs to be used
     pub cpu_count: u8,
     /// Override the enclave VM size, e.g. 2048M. Suffixes K, M, and G are supported.
@@ -39,32 +30,30 @@ pub struct SNPEnclavesConversionRequestOptions {
     pub nvidia_driver_capabilities: Option<Vec<NvidiaDriverCapability>>,
 }
 
-impl SNPEnclavesConversionRequest {
-    pub fn is_debug(&self) -> bool {
-        self.request.converter_options.debug.unwrap_or(false)
-    }
-}
-
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SNPEnclavesConversionResponse {
-    /// Converted image details                                                    
+pub struct TDXEnclaveConversionResponse {
+    /// Converted image details
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub converted_image: ConvertedImageInfo,
 
-    /// SNPEnclaves configuration of the converted image                         
-    pub config: SNPEnclavesConfig,
+    /// TDXEnclave configuration of the converted image
+    pub config: TDXEnclaveConfig,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SNPEnclavesConfig {
-    /// SNPEnclaves measurements of the converted image
-    pub measurements: SNPEnclavesMeasurements,
+pub struct TDXEnclaveConfig {
+    /// TDXEnclave measurements of the converted image
+    pub measurements: TDXEnclaveMeasurements,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SNPEnclavesMeasurements {
-    pub launch_measurement: HexString,
+pub struct TDXEnclaveMeasurements {
+    pub mrtd: HexString,
+    pub rtmr0: HexString,
+    pub rtmr1: HexString,
+    pub rtmr2: HexString,
+    pub rtmr3: HexString,
 }
