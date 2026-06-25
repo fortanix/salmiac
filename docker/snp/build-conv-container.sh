@@ -11,8 +11,8 @@ mv ./staging/container-converter ./staging/server
 
 # Package the enclave and parent base images for the converter
 docker save -o ./staging/enclave-base.tar enclave-base
-docker save -o ./staging/enclave-base-gpu.tar enclave-base-snp-gpu
-docker save -o ./staging/parent-base.tar parent-base-snp
+docker save -o ./staging/enclave-base-gpu.tar enclave-base-gpu
+docker save -o ./staging/parent-base.tar parent-base-qemu
 
 # Stage sev-snp-measure tooling for the converter image
 cp -r ../../tools/sev-snp-measure ./staging/sev-snp-measure

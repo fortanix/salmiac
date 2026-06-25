@@ -58,8 +58,8 @@ docker build ${build_flags} -t "enclave-base" .
 popd >/dev/null || exit
 
 echo "----- Building enclave-base-gpu -----"
-pushd "${salmiac_dir}/docker/snp/enclave-base-gpu" >/dev/null || exit
-docker build ${build_flags} -t "enclave-base-snp-gpu" .
+pushd "${salmiac_dir}/docker/enclave-base-gpu" >/dev/null || exit
+docker build ${build_flags} -t "enclave-base-gpu" .
 popd >/dev/null || exit
 
 echo "----- Building parent-base-snp -----"

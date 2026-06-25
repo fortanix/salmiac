@@ -62,7 +62,7 @@ RUN ./configure \
     && /opt/qemu/bin/qemu-system-x86_64 --version
 
 # Final runtime image.
-FROM ubuntu:${UBUNTU_VERSION} AS parent-base-snp
+FROM ubuntu:${UBUNTU_VERSION} AS parent-base-qemu
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Runtime packages. Groups:
