@@ -9,7 +9,7 @@ use crate::{
 pub struct TDXEnclaveConversionRequest {
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub request: ConversionRequest, // Existing model, Refer to more details section above
-    #[cfg_attr(feature = "serde", serde(rename = "snp_enclaves_options"))]
+    #[cfg_attr(feature = "serde", serde(rename = "tdx_enclave_options"))]
     pub enclaves_options: TDXEnclaveConversionRequestOptions,
 }
 
