@@ -15,6 +15,8 @@ use container_converter::nitro as platform;
 use container_converter::simulator as platform;
 #[cfg(platform = "snp")]
 use container_converter::snp as platform;
+#[cfg(platform = "tdx")]
+use container_converter::tdx as platform;
 
 static ABOUT: LazyLock<String> = LazyLock::new(|| {
     format!(

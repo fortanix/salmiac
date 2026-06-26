@@ -7,13 +7,14 @@
 use std::env;
 use std::path::Path;
 
-use api_model::enclave::{FileSystemConfig, UserConfig};
-use api_model::simulator::SimulatorEnclavesConversionRequestOptions;
+use api_model::enclave::UserConfig;
+use api_model::tdx::{TDXEnclavesConversionRequestOptions, TDXEnclavesMeasurements};
+use api_model::HexString;
 
-use crate::image_builder::enclave::initramfs::BasicInitramfsBuilder;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::INSTALLATION_DIR;
 use crate::DockerUtil;
 use crate::Result;
 
@@ -23,6 +24,7 @@ pub(crate) struct EnclaveImageBuilder<'a> {
 
 impl<'a> EnclaveImageBuilder<'a> {
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
+    pub const OVMF_FILENAME: &'static str = "OVMF.inteltdx.fd";
 
     pub(crate) async fn create_image(
         &self,
@@ -31,7 +33,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: UserConfig,
         env_vars: Vec<String>,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
-    ) -> Result<()> {
+    ) -> Result<TDXEnclavesMeasurements> {
         QemuEnclaveImageBuilder::create_image(
             self,
             docker_util,
@@ -44,44 +46,37 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     pub(crate) fn get_enclave_base_details(
-        _enclaves_options: &SimulatorEnclavesConversionRequestOptions,
+        enclaves_options: &TDXEnclavesConversionRequestOptions,
     ) -> (String, String) {
-        (
-            env::var("ENCLAVE_IMAGE").unwrap_or(crate::ENCLAVE_IMAGE.to_owned()),
-            crate::ENCLAVE_IMAGE_PATH.to_owned(),
-        )
+        let image_name = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
+            if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+                crate::ENCLAVE_IMAGE_TDX_GPU.to_owned()
+            } else {
+                crate::ENCLAVE_IMAGE.to_owned()
+            }
+        });
+
+        let image_path = if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
+            crate::ENCLAVE_GPU_IMAGE_PATH.to_owned()
+        } else {
+            crate::ENCLAVE_IMAGE_PATH.to_owned()
+        };
+
+        (image_name, image_path)
     }
 }
 
 #[async_trait::async_trait]
 impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
-    type Measurements = ();
-    type InitramfsBuilder = BasicInitramfsBuilder;
+    type Measurements = TDXEnclavesMeasurements;
+    const gpu_passthrough_supported: bool = true;
 
     fn enclave_image_builder(&self) -> &GenericEnclaveImageBuilder<'a> {
         &self.enclave_image_builder
     }
 
-    #[allow(unused)]
     fn ovmf_filename(&self) -> &'static str {
-        ""
-    }
-
-    fn initramfs_filename(&self) -> &'static str {
-        Self::INITRAMFS_FILENAME
-    }
-
-    async fn create_block_file(
-        &self,
-        docker_util: &dyn DockerUtil,
-        user_config: &UserConfig,
-        _enclave_settings: &EnclaveSettings,
-    ) -> Result<FileSystemConfig> {
-        let file_system_config = self
-            .enclave_image_builder()
-            .create_block_file(docker_util, &user_config)
-            .await?;
-        Ok(file_system_config)
+        Self::OVMF_FILENAME
     }
 
     async fn compute_launch_measurements(
@@ -89,6 +84,13 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         _enclave_settings: &EnclaveSettings,
         _initramfs_file_path: &Path,
     ) -> Result<Self::Measurements> {
-        Ok(())
+        // TODO (RTE-998): Implement actual measurements call.
+        Ok(TDXEnclavesMeasurements {
+            mrtd: HexString::new([0]),
+            rtmr0: HexString::new([0]),
+            rtmr1: HexString::new([0]),
+            rtmr2: HexString::new([0]),
+            rtmr3: HexString::new([0]),
+        })
     }
 }

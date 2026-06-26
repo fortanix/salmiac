@@ -14,6 +14,11 @@ pub(crate) mod snp;
 #[cfg(platform = "snp")]
 pub(crate) use self::snp::ParentImageBuilder as PlatformParentImageBuilder;
 
+#[cfg(platform = "tdx")]
+pub(crate) mod tdx;
+#[cfg(platform = "tdx")]
+pub(crate) use self::tdx::ParentImageBuilder as PlatformParentImageBuilder;
+
 #[cfg(platform = "simulator")]
 pub(crate) mod simulator;
 #[cfg(platform = "simulator")]

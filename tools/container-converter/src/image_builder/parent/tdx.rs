@@ -6,14 +6,14 @@
 
 use std::path::{Path, PathBuf};
 
-use api_model::simulator::SimulatorEnclavesConversionRequestOptions;
+use api_model::tdx::TDXEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::info;
 
 use crate::docker::DockerUtil;
 use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
-use crate::image_builder::enclave::simulator::EnclaveImageBuilder as SimulatorEnclaveImageBuilder;
+use crate::image_builder::enclave::tdx::EnclaveImageBuilder as TdxEnclaveImageBuilder;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::image_builder::parent::ParentImageBuilder as GenericParentImageBuilder;
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
@@ -21,16 +21,19 @@ use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 use super::move_file;
 
+pub(crate) const BLOBS_SUBDIR_GPU_ENABLED: &'static str = "kernel_enabled_gpu";
+pub(crate) const BLOBS_SUBDIR_GPU_DISABLED: &'static str = "kernel_disabled_gpu";
+
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
-    pub(crate) start_options: SimulatorEnclavesConversionRequestOptions,
+    pub(crate) start_options: TDXEnclavesConversionRequestOptions,
 }
 
 impl<'a> ParentImageBuilder<'a> {
     pub(crate) const IMAGE_COPY_DEPENDENCIES: &'static [&'static str] = &[
         GenericParentImageBuilder::STARTUP_SCRIPT_NAME,
         GenericParentImageBuilder::BINARY_NAME,
-        SimulatorEnclaveImageBuilder::INITRAMFS_FILENAME,
+        TdxEnclaveImageBuilder::INITRAMFS_FILENAME,
         GenericEnclaveImageBuilder::BLOCK_FILE_OUT,
     ];
 
@@ -47,11 +50,11 @@ impl<'a> ParentImageBuilder<'a> {
                 }
             })?;
 
-        // Move initramfs built by enclave image builder to build context.
+        // Move initramfs build by enclave image builder to build context.
         self.parent_image_builder
             .move_enclave_files_into_build_context(
                 build_context.path(),
-                SimulatorEnclaveImageBuilder::INITRAMFS_FILENAME,
+                TdxEnclaveImageBuilder::INITRAMFS_FILENAME,
             )?;
 
         let blob_filenames = self.move_blobs_into_build_context(&build_context)?;
@@ -154,7 +157,7 @@ impl<'a> ParentImageBuilder<'a> {
             entrypoint: Some(vec![
                 run_parent_cmd,
                 "--platform".to_string(),
-                "simulator".to_string(),
+                "tdx".to_string(),
             ]),
         }
     }
@@ -179,11 +182,10 @@ impl<'a> ParentImageBuilder<'a> {
         )
     }
 
-    // Moves blobs located at system to build context and returns filenames only.
+    // Moves blobs located at system to build context and returns filenames only
     fn move_blobs_into_build_context(&self, build_context: &BuildContext) -> Result<Vec<String>> {
         let blobs = self.collect_blob_paths()?;
         let mut filenames = Vec::with_capacity(blobs.len());
-
         for blob in blobs {
             let filename = blob
                 .file_name()
@@ -192,7 +194,6 @@ impl<'a> ParentImageBuilder<'a> {
                     message: format!("Invalid path: {}", blob.display()),
                     kind: ConverterErrorKind::RequisitesCreation,
                 })?;
-
             let dest = build_context.path().join(filename);
             move_file(blob.as_path(), &dest)?;
             filenames.push(filename.to_owned());
@@ -203,19 +204,40 @@ impl<'a> ParentImageBuilder<'a> {
 
     fn collect_blob_paths(&self) -> Result<Vec<PathBuf>> {
         let mut ret = Vec::new();
+        let mut blobs_dir = PathBuf::from(format!("{}/blobs", INSTALLATION_DIR));
 
-        let kernel_path = Path::new(INSTALLATION_DIR).join("blobs").join("kernel");
-        if !kernel_path.exists() {
-            return Err(ConverterError {
-                message: format!(
-                    "Simulator kernel could not be found at: {}",
-                    kernel_path.display()
-                ),
-                kind: ConverterErrorKind::RequisitesCreation,
-            });
+        {
+            blobs_dir.push("OVMF.amdsev.fd");
+            let blob_path = blobs_dir.clone();
+            if !blob_path.exists() {
+                return Err(ConverterError {
+                    message: format!("OVMF file could not be found at: {}", blob_path.display()),
+                    kind: ConverterErrorKind::RequisitesCreation,
+                });
+            }
+            ret.push(blob_path);
+            blobs_dir.pop();
         }
 
-        ret.push(kernel_path);
+        if self.start_options.enable_gpu_passthrough.unwrap_or(false) {
+            blobs_dir.push(BLOBS_SUBDIR_GPU_ENABLED);
+        } else {
+            blobs_dir.push(BLOBS_SUBDIR_GPU_DISABLED);
+        }
+
+        let kernel_blobs = vec!["bzImage", "bzImage.config"];
+        for blob in kernel_blobs {
+            blobs_dir.push(blob);
+            let blob_path = blobs_dir.clone();
+            if !blob_path.exists() {
+                return Err(ConverterError {
+                    message: format!("Blob {} could not be found!", blob_path.display()),
+                    kind: ConverterErrorKind::RequisitesCreation,
+                });
+            }
+            ret.push(blob_path);
+            blobs_dir.pop();
+        }
 
         Ok(ret)
     }

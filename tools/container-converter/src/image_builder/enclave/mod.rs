@@ -16,10 +16,22 @@ pub(crate) use self::snp::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 #[cfg(platform = "snp")]
 pub(crate) mod snp_measurement;
 
+#[cfg(platform = "tdx")]
+pub(crate) mod tdx;
+#[cfg(platform = "tdx")]
+pub(crate) use self::tdx::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+
 #[cfg(platform = "simulator")]
 pub(crate) mod simulator;
 #[cfg(platform = "simulator")]
 pub(crate) use self::simulator::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+pub(crate) mod initramfs;
+#[cfg(any(platform = "snp", platform = "tdx"))]
+pub(crate) mod nvidia;
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+pub(crate) mod qemu;
 
 use std::ffi::OsStr;
 use std::fmt::Debug;
@@ -34,9 +46,11 @@ use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration
 #[cfg(platform = "nitro")]
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
-#[cfg(any(platform = "snp", platform = "tdx"))]
-use api_model::NvidiaDriverCapability;
 #[cfg(platform = "snp")]
+use api_model::snp::NvidiaDriverCapability;
+#[cfg(platform = "tdx")]
+use api_model::tdx::NvidiaDriverCapability;
+#[cfg(any(platform = "snp", platform = "tdx"))]
 use api_model::EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
@@ -98,10 +112,10 @@ pub(crate) struct EnclaveSettings {
 
     pub(crate) dsm_configuration: DsmConfiguration,
 
-    #[cfg(platform = "snp")]
+    #[cfg(any(platform = "snp", platform = "tdx"))]
     pub(crate) gpu_passthrough: bool,
 
-    #[cfg(platform = "snp")]
+    #[cfg(any(platform = "snp", platform = "tdx"))]
     pub(crate) nvidia_driver_capabilities: Vec<String>,
 }
 
@@ -109,7 +123,7 @@ impl EnclaveSettings {
     pub(crate) fn new(
         input_image: &ImageWithDetails<'_>,
         converter_options: &ConverterOptions,
-        #[cfg(platform = "snp")] enclaves_options: &EnclavesOptions,
+        #[cfg(any(platform = "snp", platform = "tdx"))] enclaves_options: &EnclavesOptions,
     ) -> Self {
         EnclaveSettings {
             user_name: input_image.details.config.user.clone().unwrap_or_default(),
@@ -131,9 +145,9 @@ impl EnclaveSettings {
                 .dsm_configuration
                 .clone()
                 .unwrap_or_default(),
-            #[cfg(platform = "snp")]
+            #[cfg(any(platform = "snp", platform = "tdx"))]
             gpu_passthrough: enclaves_options.enable_gpu_passthrough.unwrap_or(false),
-            #[cfg(platform = "snp")]
+            #[cfg(any(platform = "snp", platform = "tdx"))]
             nvidia_driver_capabilities: {
                 if enclaves_options.enable_gpu_passthrough.unwrap_or(false) {
                     enclaves_options
@@ -199,7 +213,7 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
             .await
     }
 
-    #[cfg(platform = "snp")]
+    #[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
     pub(crate) async fn export_enclave_base_file_system(
         &self,
         docker_util: &dyn DockerUtil,
@@ -283,7 +297,7 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
             .await
     }
 
-    #[cfg(platform = "snp")]
+    #[cfg(any(platform = "snp", platform = "tdx"))]
     pub(crate) async fn create_block_file_with_nvidia_driver_payload(
         &self,
         docker_util: &dyn DockerUtil,
