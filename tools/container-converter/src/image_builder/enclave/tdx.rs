@@ -8,8 +8,8 @@ use std::env;
 use std::path::Path;
 
 use api_model::enclave::{FileSystemConfig, UserConfig};
-use api_model::tdx::{TDXEnclavesConversionRequestOptions, TDXEnclavesMeasurements};
-use api_model::HexString;
+use api_model::tdx::TDXEnclaveMeasurements;
+use api_model::{EnclavesOptions, HexString};
 
 use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
 use crate::image_builder::enclave::nvidia::insert_nvidia_env_vars;
@@ -34,7 +34,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: UserConfig,
         env_vars: Vec<String>,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
-    ) -> Result<TDXEnclavesMeasurements> {
+    ) -> Result<TDXEnclaveMeasurements> {
         QemuEnclaveImageBuilder::create_image(
             self,
             docker_util,
@@ -47,7 +47,7 @@ impl<'a> EnclaveImageBuilder<'a> {
     }
 
     pub(crate) fn get_enclave_base_details(
-        enclaves_options: &TDXEnclavesConversionRequestOptions,
+        enclaves_options: &EnclavesOptions,
     ) -> (String, String) {
         let image_name = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
             if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
@@ -69,7 +69,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
 #[async_trait::async_trait]
 impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
-    type Measurements = TDXEnclavesMeasurements;
+    type Measurements = TDXEnclaveMeasurements;
     type InitramfsBuilder = GpuSupportedInitramfsBuilder;
 
     fn enclave_image_builder(&self) -> &GenericEnclaveImageBuilder<'a> {
@@ -120,7 +120,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         // TODO (RTE-998): Implement actual measurements call.
         let _ovmf = self.ovmf_filename();
 
-        Ok(TDXEnclavesMeasurements {
+        Ok(TDXEnclaveMeasurements {
             mrtd: HexString::new([0]),
             rtmr0: HexString::new([0]),
             rtmr1: HexString::new([0]),

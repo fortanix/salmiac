@@ -46,10 +46,8 @@ use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration
 #[cfg(platform = "nitro")]
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
-#[cfg(platform = "snp")]
-use api_model::snp::NvidiaDriverCapability;
-#[cfg(platform = "tdx")]
-use api_model::tdx::NvidiaDriverCapability;
+#[cfg(any(platform = "snp", platform = "tdx"))]
+use api_model::NvidiaDriverCapability;
 #[cfg(any(platform = "snp", platform = "tdx"))]
 use api_model::EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;

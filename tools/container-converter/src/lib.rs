@@ -98,7 +98,7 @@ impl Error for ConverterError {}
 #[cfg(platform = "nitro")]
 const PARENT_IMAGE: &str = "parent-base-nitro";
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
+#[cfg(platform = "snp")]
 const PARENT_IMAGE: &str = "parent-base-snp";
 #[cfg(platform = "tdx")]
 const PARENT_IMAGE: &str = "parent-base-tdx";

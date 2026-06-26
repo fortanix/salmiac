@@ -6,7 +6,8 @@
 
 use api_model::{
     converter::ConvertedImageInfo,
-    tdx::{TDXEnclavesConfig, TDXEnclavesConversionResponse, TDXEnclavesMeasurements},
+    PlatformConversionResponse,
+    tdx::{TDXEnclaveMeasurements, TDXEnclaveConfig},
 };
 
 use crate::{hex_response, image::ImageWithDetails, Result};
@@ -15,16 +16,16 @@ pub const NAME: &str = "Intel TDX";
 
 pub(crate) fn create_response(
     image: &ImageWithDetails,
-    measurements: TDXEnclavesMeasurements,
-) -> Result<TDXEnclavesConversionResponse> {
-    let result = TDXEnclavesConversionResponse {
+    measurements: TDXEnclaveMeasurements,
+) -> Result<PlatformConversionResponse> {
+    let result = PlatformConversionResponse {
         converted_image: ConvertedImageInfo {
             name: image.reference.to_string(),
             sha: hex_response(image.short_id())?,
             size: image.details.size as usize,
         },
 
-        config: TDXEnclavesConfig { measurements },
+        config: TDXEnclaveConfig { measurements },
     };
     Ok(result)
 }
