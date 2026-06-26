@@ -8,6 +8,8 @@ use std::path::Path;
 
 use crate::{ConverterError, ConverterErrorKind};
 
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+pub(crate) mod blob_finder;
 pub(crate) mod enclave;
 pub(crate) mod parent;
 
