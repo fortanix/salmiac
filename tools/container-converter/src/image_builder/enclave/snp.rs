@@ -93,7 +93,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         enclave_settings: &EnclaveSettings,
     ) -> Result<FileSystemConfig> {
         let file_system_config = if enclave_settings.gpu_passthrough {
-            self.enclave_image_builder()
+            self.enclave_image_builder
                 .create_block_file_with_nvidia_driver_payload(
                     docker_util,
                     &user_config,
@@ -101,7 +101,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
                 )
                 .await?
         } else {
-            self.enclave_image_builder()
+            self.enclave_image_builder
                 .create_block_file(docker_util, &user_config)
                 .await?
         };

@@ -78,7 +78,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         _enclave_settings: &EnclaveSettings,
     ) -> Result<FileSystemConfig> {
         let file_system_config = self
-            .enclave_image_builder()
+            .enclave_image_builder
             .create_block_file(docker_util, &user_config)
             .await?;
         Ok(file_system_config)

@@ -7,14 +7,15 @@
 use std::env;
 use std::path::Path;
 
-use api_model::enclave::UserConfig;
+use api_model::enclave::{FileSystemConfig, UserConfig};
 use api_model::tdx::{TDXEnclavesConversionRequestOptions, TDXEnclavesMeasurements};
 use api_model::HexString;
 
+use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
+use crate::image_builder::enclave::nvidia::insert_nvidia_env_vars;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
-use crate::image_builder::INSTALLATION_DIR;
 use crate::DockerUtil;
 use crate::Result;
 
@@ -69,7 +70,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 #[async_trait::async_trait]
 impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
     type Measurements = TDXEnclavesMeasurements;
-    const gpu_passthrough_supported: bool = true;
+    type InitramfsBuilder = GpuSupportedInitramfsBuilder;
 
     fn enclave_image_builder(&self) -> &GenericEnclaveImageBuilder<'a> {
         &self.enclave_image_builder
@@ -79,12 +80,46 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         Self::OVMF_FILENAME
     }
 
+    fn initramfs_filename(&self) -> &'static str {
+        Self::INITRAMFS_FILENAME
+    }
+
+    async fn create_block_file(
+        &self,
+        docker_util: &dyn DockerUtil,
+        user_config: &UserConfig,
+        enclave_settings: &EnclaveSettings,
+    ) -> Result<FileSystemConfig> {
+        let file_system_config = if enclave_settings.gpu_passthrough {
+            self.enclave_image_builder
+                .create_block_file_with_nvidia_driver_payload(
+                    docker_util,
+                    &user_config,
+                    &enclave_settings.nvidia_driver_capabilities,
+                )
+                .await?
+        } else {
+            self.enclave_image_builder
+                .create_block_file(docker_util, &user_config)
+                .await?
+        };
+        Ok(file_system_config)
+    }
+
+    fn update_env_vars(&self, enclave_settings: &EnclaveSettings, env_vars: &mut Vec<String>) {
+        if enclave_settings.gpu_passthrough {
+            insert_nvidia_env_vars(env_vars, &enclave_settings.nvidia_driver_capabilities)
+        }
+    }
+
     async fn compute_launch_measurements(
         &self,
         _enclave_settings: &EnclaveSettings,
         _initramfs_file_path: &Path,
     ) -> Result<Self::Measurements> {
         // TODO (RTE-998): Implement actual measurements call.
+        let _ovmf = self.ovmf_filename();
+
         Ok(TDXEnclavesMeasurements {
             mrtd: HexString::new([0]),
             rtmr0: HexString::new([0]),
