@@ -1,4 +1,4 @@
-# Host-side toolbox image for launching SEV-SNP confidential VMs.
+# Host-side toolbox image for launching SEV-SNP and TDX confidential VMs.
 ARG UBUNTU_VERSION=24.04
 ARG QEMU_VERSION=v10.2.2
 ARG QEMU_TARBALL_SHA256=784b296ff29c1417aa72323abcb2d2ea9ab9771724f577dcd785c3b04f21e176
@@ -62,7 +62,7 @@ RUN ./configure \
     && /opt/qemu/bin/qemu-system-x86_64 --version
 
 # Final runtime image.
-FROM ubuntu:${UBUNTU_VERSION} AS parent-base-snp
+FROM ubuntu:${UBUNTU_VERSION} AS parent-base-qemu
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Runtime packages. Groups:
@@ -124,7 +124,7 @@ RUN apt-get update \
 COPY --from=qemu-builder /opt/qemu /opt/qemu
 ENV PATH="/opt/qemu/bin:${PATH}"
 
-COPY ./dnsmasq.d /etc/dnsmasq.d
+COPY --from=parent-base dnsmasq.d /etc/dnsmasq.d
 
 # Fail-fast sanity check.
 RUN qemu-system-x86_64 --version
