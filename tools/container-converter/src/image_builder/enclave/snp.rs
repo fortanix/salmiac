@@ -10,7 +10,7 @@ use std::path::Path;
 use api_model::enclave::{FileSystemConfig, UserConfig};
 use api_model::snp::{SNPEnclavesConversionRequestOptions, SNPEnclavesMeasurements};
 
-use crate::image_builder::enclave::initramfs::{GpuSupportedInitramfsBuilder, InitramfsBuilder};
+use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
 use crate::image_builder::enclave::nvidia::insert_nvidia_env_vars;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
 use crate::image_builder::enclave::snp_measurement::{
@@ -20,6 +20,7 @@ use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::DockerUtil;
 use crate::Result;
+use crate::image_builder::blob_finder::BlobFinder;
 
 pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) enclave_image_builder: GenericEnclaveImageBuilder<'a>,
@@ -119,9 +120,8 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         enclave_settings: &EnclaveSettings,
         initramfs_file_path: &Path,
     ) -> Result<Self::Measurements> {
-        let ovmf_path = Self::InitramfsBuilder::blobs_dir().join(self.ovmf_filename());
-        let kernel_path =
-            Self::InitramfsBuilder::kernel_blobs_dir(&enclave_settings).join("bzImage");
+        let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
+        let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
 
         compute_snp_launch_measurement(&SnpMeasurementInputs {
             ovmf: &ovmf_path,

@@ -10,6 +10,7 @@ use crate::{ConverterError, ConverterErrorKind};
 
 pub(crate) mod enclave;
 pub(crate) mod parent;
+pub(crate) mod blob_finder;
 
 const INSTALLATION_DIR: &'static str = "/opt/fortanix/enclave-os";
 const ORIG_ENV_LIST_PATH: &'static str = "original-parent.env";
