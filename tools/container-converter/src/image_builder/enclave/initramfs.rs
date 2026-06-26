@@ -20,9 +20,9 @@ use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::image_builder::INSTALLATION_DIR;
 
+use crate::image_builder::blob_finder::BlobFinder;
 #[cfg(any(platform = "snp", platform = "tdx"))]
 pub(crate) use gpu_supported::GpuSupportedInitramfsBuilder;
-use crate::image_builder::blob_finder::BlobFinder;
 
 const INIT_BIN: &str = "init";
 
@@ -33,7 +33,6 @@ pub(crate) trait InitramfsBuilder {
         blobs_dir: &Path,
         enclave_settings: &EnclaveSettings,
     ) -> StdResult<FsTree, IoError>;
-
 
     fn read_init(blobs_dir: &Path) -> StdResult<Vec<u8>, IoError> {
         let init_path = blobs_dir.join(INIT_BIN);
@@ -121,11 +120,11 @@ mod gpu_supported {
     use super::*;
 
     pub(crate) struct GpuSupportedInitramfsBuilder;
- 
-     impl InitramfsBuilder for GpuSupportedInitramfsBuilder {
-         fn kernel_blobs_dir(enclave_settings: &EnclaveSettings) -> PathBuf {
-             BlobFinder::kernel_blobs_dir(enclave_settings.gpu_passthrough)
-         }
+
+    impl InitramfsBuilder for GpuSupportedInitramfsBuilder {
+        fn kernel_blobs_dir(enclave_settings: &EnclaveSettings) -> PathBuf {
+            BlobFinder::kernel_blobs_dir(enclave_settings.gpu_passthrough)
+        }
 
         // Adds nvidia kernel modules and firmwares
         // if gpu passthrough is enabled.
@@ -219,7 +218,7 @@ pub(crate) struct BasicInitramfsBuilder;
 #[cfg(platform = "simulator")]
 impl InitramfsBuilder for BasicInitramfsBuilder {
     fn kernel_blobs_dir(_enclave_settings: &EnclaveSettings) -> PathBuf {
-        Self::blobs_dir()
+        BlobFinder::blobs_dir()
     }
 
     fn add_kernel_modules(

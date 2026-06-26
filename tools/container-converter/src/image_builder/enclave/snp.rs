@@ -10,6 +10,7 @@ use std::path::Path;
 use api_model::enclave::{FileSystemConfig, UserConfig};
 use api_model::snp::{SNPEnclavesConversionRequestOptions, SNPEnclavesMeasurements};
 
+use crate::image_builder::blob_finder::BlobFinder;
 use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
 use crate::image_builder::enclave::nvidia::insert_nvidia_env_vars;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
@@ -20,7 +21,6 @@ use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::DockerUtil;
 use crate::Result;
-use crate::image_builder::blob_finder::BlobFinder;
 
 pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) enclave_image_builder: GenericEnclaveImageBuilder<'a>,

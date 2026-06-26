@@ -24,7 +24,7 @@ pub(crate) mod simulator;
 #[cfg(platform = "simulator")]
 pub(crate) use self::simulator::ParentImageBuilder as PlatformParentImageBuilder;
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
 pub(crate) mod qemu;
 
 use std::fs;

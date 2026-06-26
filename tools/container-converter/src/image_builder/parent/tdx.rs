@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api_model::tdx::TDXEnclavesConversionRequestOptions;
+use api_model::EnclavesOptions;
 use docker_image_reference::Reference as DockerReference;
 
 use crate::docker::DockerUtil;
@@ -17,7 +17,7 @@ use super::qemu::QemuParentImageBuilder;
 
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
-    pub(crate) start_options: TDXEnclavesConversionRequestOptions,
+    pub(crate) start_options: EnclavesOptions,
 }
 
 impl<'a> ParentImageBuilder<'a> {

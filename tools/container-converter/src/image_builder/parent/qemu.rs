@@ -217,7 +217,10 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         let kernel_path = BlobFinder::kernel_path(gpu_passthrough);
         if !kernel_path.exists() {
             return Err(ConverterError {
-                message: format!("Blob bzImage could not be found at: {}!", kernel_path.display()),
+                message: format!(
+                    "Blob bzImage could not be found at: {}!",
+                    kernel_path.display()
+                ),
                 kind: ConverterErrorKind::RequisitesCreation,
             });
         }
@@ -226,7 +229,10 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         let kernel_config_path = BlobFinder::kernel_config_path(gpu_passthrough);
         if !kernel_config_path.exists() {
             return Err(ConverterError {
-                message: format!("Blob bzImage.config could not be found at: {}!", kernel_config_path.display()),
+                message: format!(
+                    "Blob bzImage.config could not be found at: {}!",
+                    kernel_config_path.display()
+                ),
                 kind: ConverterErrorKind::RequisitesCreation,
             });
         }

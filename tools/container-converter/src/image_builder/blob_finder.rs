@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::path::PathBuf;
 use crate::image_builder::INSTALLATION_DIR;
+use std::path::PathBuf;
 
 const BLOBS_SUBDIR_GPU_ENABLED: &'static str = "kernel_enabled_gpu";
 const BLOBS_SUBDIR_GPU_DISABLED: &'static str = "kernel_disabled_gpu";
