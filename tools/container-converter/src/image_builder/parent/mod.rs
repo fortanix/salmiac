@@ -14,10 +14,18 @@ pub(crate) mod snp;
 #[cfg(platform = "snp")]
 pub(crate) use self::snp::ParentImageBuilder as PlatformParentImageBuilder;
 
+#[cfg(platform = "tdx")]
+pub(crate) mod tdx;
+#[cfg(platform = "tdx")]
+pub(crate) use self::tdx::ParentImageBuilder as PlatformParentImageBuilder;
+
 #[cfg(platform = "simulator")]
 pub(crate) mod simulator;
 #[cfg(platform = "simulator")]
 pub(crate) use self::simulator::ParentImageBuilder as PlatformParentImageBuilder;
+
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+pub(crate) mod qemu;
 
 use std::fs;
 use std::io::Write;
@@ -38,6 +46,8 @@ pub struct ParentImageBuilder<'a> {
 impl<'a> ParentImageBuilder<'a> {
     pub(crate) const DEFAULT_CPU_COUNT: u8 = 2;
 
+    // Note that, the following must be in Megabytes unit
+    // otherwise it may break qemu invocation
     pub(crate) const DEFAULT_MEMORY_SIZE: u64 = 2048;
 
     pub(crate) const STARTUP_SCRIPT_NAME: &'static str = "start-parent.sh";

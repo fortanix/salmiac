@@ -8,15 +8,12 @@ use std::env;
 use std::path::Path;
 
 use api_model::enclave::{FileSystemConfig, UserConfig};
-use api_model::snp::{SNPEnclavesConversionRequestOptions, SNPEnclavesMeasurements};
+use api_model::tdx::TDXEnclaveMeasurements;
+use api_model::{EnclavesOptions, HexString};
 
-use crate::image_builder::blob_finder::BlobFinder;
 use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
 use crate::image_builder::enclave::nvidia::insert_nvidia_env_vars;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
-use crate::image_builder::enclave::snp_measurement::{
-    compute_snp_launch_measurement, SnpMeasurementInputs,
-};
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::DockerUtil;
@@ -28,7 +25,7 @@ pub(crate) struct EnclaveImageBuilder<'a> {
 
 impl<'a> EnclaveImageBuilder<'a> {
     pub const INITRAMFS_FILENAME: &'static str = "initramfs.gz";
-    pub const OVMF_FILENAME: &'static str = "OVMF.amdsev.fd";
+    pub const OVMF_FILENAME: &'static str = "OVMF.inteltdx.fd";
 
     pub(crate) async fn create_image(
         &self,
@@ -37,7 +34,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: UserConfig,
         env_vars: Vec<String>,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
-    ) -> Result<SNPEnclavesMeasurements> {
+    ) -> Result<TDXEnclaveMeasurements> {
         QemuEnclaveImageBuilder::create_image(
             self,
             docker_util,
@@ -49,12 +46,10 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
     }
 
-    pub(crate) fn get_enclave_base_details(
-        enclaves_options: &SNPEnclavesConversionRequestOptions,
-    ) -> (String, String) {
+    pub(crate) fn get_enclave_base_details(enclaves_options: &EnclavesOptions) -> (String, String) {
         let image_name = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
             if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
-                crate::ENCLAVE_IMAGE_SNP_GPU.to_owned()
+                crate::ENCLAVE_IMAGE_TDX_GPU.to_owned()
             } else {
                 crate::ENCLAVE_IMAGE.to_owned()
             }
@@ -72,7 +67,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
 #[async_trait::async_trait]
 impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
-    type Measurements = SNPEnclavesMeasurements;
+    type Measurements = TDXEnclaveMeasurements;
     type InitramfsBuilder = GpuSupportedInitramfsBuilder;
 
     fn enclave_image_builder(&self) -> &GenericEnclaveImageBuilder<'a> {
@@ -117,19 +112,18 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
 
     async fn compute_launch_measurements(
         &self,
-        enclave_settings: &EnclaveSettings,
-        initramfs_file_path: &Path,
+        _enclave_settings: &EnclaveSettings,
+        _initramfs_file_path: &Path,
     ) -> Result<Self::Measurements> {
-        let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
-        let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
+        // TODO (RTE-998): Implement actual measurements call.
+        let _ovmf = self.ovmf_filename();
 
-        compute_snp_launch_measurement(&SnpMeasurementInputs {
-            ovmf: &ovmf_path,
-            kernel: &kernel_path,
-            initrd: Some(initramfs_file_path),
-            cmdline: Some("console=ttyS0 rdinit=/init loglevel=7"),
-            vcpus: 2,
+        Ok(TDXEnclaveMeasurements {
+            mrtd: HexString::new([0]),
+            rtmr0: HexString::new([0]),
+            rtmr1: HexString::new([0]),
+            rtmr2: HexString::new([0]),
+            rtmr3: HexString::new([0]),
         })
-        .await
     }
 }

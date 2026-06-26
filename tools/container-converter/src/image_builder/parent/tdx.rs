@@ -9,7 +9,7 @@ use docker_image_reference::Reference as DockerReference;
 
 use crate::docker::DockerUtil;
 use crate::image::ImageWithDetails;
-use crate::image_builder::enclave::snp::EnclaveImageBuilder as SnpEnclaveImageBuilder;
+use crate::image_builder::enclave::tdx::EnclaveImageBuilder as TdxEnclaveImageBuilder;
 use crate::image_builder::parent::ParentImageBuilder as GenericParentImageBuilder;
 use crate::Result;
 
@@ -49,14 +49,14 @@ impl<'a> QemuParentImageBuilder<'a> for ParentImageBuilder<'a> {
     }
 
     fn platform_name(&self) -> &'static str {
-        "snp"
+        "tdx"
     }
 
     fn initramfs_filename(&self) -> &'static str {
-        SnpEnclaveImageBuilder::INITRAMFS_FILENAME
+        TdxEnclaveImageBuilder::INITRAMFS_FILENAME
     }
 
     fn ovmf_filename(&self) -> &'static str {
-        SnpEnclaveImageBuilder::OVMF_FILENAME
+        TdxEnclaveImageBuilder::OVMF_FILENAME
     }
 }
