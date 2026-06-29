@@ -29,10 +29,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
     fn enable_gpu_passthrough(&self) -> Option<bool>;
     fn platform_name(&self) -> &'static str;
     fn initramfs_filename(&self) -> &'static str;
-
-    fn ovmf_filename(&self) -> &'static str {
-        "OVMF.amdsev.fd"
-    }
+    fn ovmf_filename(&self) -> &'static str;
 
     async fn create_image(
         &self,
@@ -171,13 +168,15 @@ pub(crate) trait QemuParentImageBuilder<'a> {
     }
 
     fn mem_size_env_var(&self) -> String {
-        format!(
-            "MEM_SIZE={}",
-            self.mem_size()
-                .as_ref()
-                .map(|e| e.to_mb())
-                .unwrap_or(GenericParentImageBuilder::DEFAULT_MEMORY_SIZE)
-        )
+        let mem_size = self
+            .mem_size()
+            .as_ref()
+            .map(|e| e.to_mb())
+            .unwrap_or(GenericParentImageBuilder::DEFAULT_MEMORY_SIZE);
+
+        // Note that: we explictly add suffix to make it consistent between
+        // different qemu argument such as memory size & memory backend.
+        format!("MEM_SIZE={}M", mem_size)
     }
 
     // Moves blobs located at system to build context and returns filenames only

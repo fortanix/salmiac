@@ -58,6 +58,11 @@ impl<'a> QemuParentImageBuilder<'a> for ParentImageBuilder<'a> {
         SimulatorEnclaveImageBuilder::INITRAMFS_FILENAME
     }
 
+    // Not used in simulator mode
+    fn ovmf_filename(&self) -> &'static str {
+        ""
+    }
+
     fn collect_blob_paths(&self) -> Result<Vec<PathBuf>> {
         use crate::image_builder::INSTALLATION_DIR;
         use crate::{ConverterError, ConverterErrorKind};

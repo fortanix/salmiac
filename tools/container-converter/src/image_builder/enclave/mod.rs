@@ -47,9 +47,9 @@ use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
 #[cfg(any(platform = "snp", platform = "tdx"))]
-use api_model::NvidiaDriverCapability;
-#[cfg(any(platform = "snp", platform = "tdx"))]
 use api_model::EnclavesOptions;
+#[cfg(any(platform = "snp", platform = "tdx"))]
+use api_model::NvidiaDriverCapability;
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
 use nix::sys::statfs::statfs;

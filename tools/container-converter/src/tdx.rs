@@ -6,8 +6,8 @@
 
 use api_model::{
     converter::ConvertedImageInfo,
+    tdx::{TDXEnclaveConfig, TDXEnclaveMeasurements},
     PlatformConversionResponse,
-    tdx::{TDXEnclaveMeasurements, TDXEnclaveConfig},
 };
 
 use crate::{hex_response, image::ImageWithDetails, Result};

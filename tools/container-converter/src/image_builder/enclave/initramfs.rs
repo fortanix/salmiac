@@ -287,7 +287,7 @@ fn add_enclave_base_to_initramfs(
             directories_count += 1;
             fs_tree.add_directory_with_permissions(&target_path, mode)
         } else if entry_type.is_symlink() || entry_type.is_hard_link() {
-            // TODO: For now we're treating a hardlink as an softlink.
+            // TODO: For now we're treating a hardlink as a softlink.
             // Hard link support is to be added to the fortanix-vme-initramfs.
             links_count += 1;
             let link_target = entry

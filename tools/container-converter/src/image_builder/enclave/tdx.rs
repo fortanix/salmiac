@@ -46,9 +46,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         .await
     }
 
-    pub(crate) fn get_enclave_base_details(
-        enclaves_options: &EnclavesOptions,
-    ) -> (String, String) {
+    pub(crate) fn get_enclave_base_details(enclaves_options: &EnclavesOptions) -> (String, String) {
         let image_name = env::var("ENCLAVE_IMAGE").unwrap_or_else(|_| {
             if enclaves_options.enable_gpu_passthrough.unwrap_or_default() {
                 crate::ENCLAVE_IMAGE_TDX_GPU.to_owned()
