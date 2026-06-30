@@ -6,7 +6,7 @@
 
 use api_model::{
     converter::ConvertedImageInfo,
-    tdx::{TDXEnclaveConfig, TDXEnclaveMeasurements},
+    tdx::{TdxEnclavesConfig, TdxEnclavesMeasurements},
     PlatformConversionResponse,
 };
 
@@ -16,7 +16,7 @@ pub const NAME: &str = "Intel TDX";
 
 pub(crate) fn create_response(
     image: &ImageWithDetails,
-    measurements: TDXEnclaveMeasurements,
+    measurements: TdxEnclavesMeasurements,
 ) -> Result<PlatformConversionResponse> {
     let result = PlatformConversionResponse {
         converted_image: ConvertedImageInfo {
@@ -25,7 +25,7 @@ pub(crate) fn create_response(
             size: image.details.size as usize,
         },
 
-        config: TDXEnclaveConfig { measurements },
+        config: TdxEnclavesConfig { measurements },
     };
     Ok(result)
 }
