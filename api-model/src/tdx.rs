@@ -18,7 +18,7 @@ use crate::{
 pub struct TdxEnclavesConversionRequest {
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub request: ConversionRequest, // Existing model, Refer to more details section above
-    #[cfg_attr(feature = "serde", serde(rename = "tdx_enclave_options"))]
+    #[cfg_attr(feature = "serde", serde(rename = "tdx_enclaves_options"))]
     pub enclaves_options: TdxEnclavesConversionRequestOptions,
 }
 
