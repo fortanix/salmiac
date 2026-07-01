@@ -28,9 +28,9 @@ jobs:
         run: |
           docker build --no-cache docker/enclave-base -t enclave-base
           docker build --no-cache docker/enclave-base-gpu -t enclave-base-gpu
-          docker build --no-cache docker/nitro/parent-base -t parent-base-nitro
+          docker build --no-cache --build-context common-build-context=docker/common-build-context docker/nitro/parent-base -t parent-base-nitro
           docker build --no-cache \
-            --build-context parent-base=docker/nitro/parent-base \
+            --build-context --build-context common-build-context=docker/common-build-context \
             -t parent-base-qemu \
             docker/qemu/parent-base
           docker rmi enclave-base enclave-base-gpu parent-base-nitro parent-base-qemu
