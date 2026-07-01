@@ -20,6 +20,8 @@ pub(crate) mod snp_measurement;
 pub(crate) mod tdx;
 #[cfg(platform = "tdx")]
 pub(crate) use self::tdx::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+#[cfg(platform = "tdx")]
+pub(crate) mod tdx_measurement;
 
 #[cfg(platform = "simulator")]
 pub(crate) mod simulator;
@@ -47,7 +49,7 @@ use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
 #[cfg(any(platform = "snp", platform = "tdx"))]
-use api_model::EnclavesOptions;
+use api_model::{ByteUnit, EnclavesOptions};
 #[cfg(any(platform = "snp", platform = "tdx"))]
 use api_model::NvidiaDriverCapability;
 use docker_image_reference::Reference as DockerReference;
@@ -115,6 +117,12 @@ pub(crate) struct EnclaveSettings {
 
     #[cfg(any(platform = "snp", platform = "tdx"))]
     pub(crate) nvidia_driver_capabilities: Vec<String>,
+
+    #[cfg(any(platform = "snp", platform = "tdx"))]
+    pub(crate) cpu_count: u8,
+
+    #[cfg(any(platform = "snp", platform = "tdx"))]
+    pub(crate) mem_size: Option<ByteUnit>,
 }
 
 impl EnclaveSettings {
@@ -164,6 +172,11 @@ impl EnclaveSettings {
                     vec![]
                 }
             },
+            #[cfg(any(platform = "snp", platform = "tdx"))]
+            cpu_count: enclaves_options.cpu_count,
+            #[cfg(any(platform = "snp", platform = "tdx"))]
+            mem_size: enclaves_options.mem_size.clone(),
+
         }
     }
 }
