@@ -45,7 +45,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
         cryptsetup-bin \
-        python3
+        python3 \
+        docker-cli
 
 COPY --from=sev_snp_measurement /opt/sev-snp-dist /opt/sev-snp-dist
 ENV PYTHONPATH="/opt/sev-snp-dist"
