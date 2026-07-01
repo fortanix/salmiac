@@ -99,17 +99,11 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
     info!("Spawning enclave process.");
     let guest_launch_result = crate::platform::launch_guest();
-    // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
     let enclave_process = guest_launch_result.enclave_process;
 
     info!("Awaiting confirmation from enclave.");
     let mut enclave_port = tokio::select! {
-        accept = create_vsock_stream(VSOCK_PARENT_PORT) => {
-            match accept {
-                Ok(port) => Ok(port),
-                Err(e) => Err(e),
-            }
-        }
+        accept = create_vsock_stream(VSOCK_PARENT_PORT) => accept,
 
         join_res = enclave_process => {
             match join_res {
