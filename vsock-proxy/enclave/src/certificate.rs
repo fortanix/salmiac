@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
 use chrono::NaiveDateTime;
 use log::debug;
+use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use mbedtls::x509::Certificate;
@@ -224,6 +225,20 @@ pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, St
     let not_after = cert.not_after().map_err(|e| e.to_string())?;
     NaiveDateTime::try_from(not_after)
         .map_err(|_e| String::from("Couldn't convert cert expiry date"))
+}
+
+pub(crate) fn read_root_certificates() -> MbedtlsList<Certificate> {
+    let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
+
+    let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
+        .expect("Failed deserializing root certificate list");
+
+    let mut result = MbedtlsList::<Certificate>::new();
+    for i in ca_cert_list {
+        result.push(Certificate::from_der(&i).expect("Failed parsing ca certificate"));
+    }
+
+    result
 }
 
 #[cfg(test)]
