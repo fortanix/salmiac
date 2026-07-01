@@ -305,17 +305,109 @@ components:
             description: "Converted image size"
           config:
             $ref: "#/components/schemas/SNPEnclavesConfig"
-            description: "SNPEnclaves configuration of the converted image"
+            description: "SNP Enclaves configuration of the converted image"
       SNPEnclavesConfig:
         type: object
         required:
           - measurements
         properties:
           measurements:
-            description: "SNPEnclaves Measurements of the converted image"
+            description: "SNP Enclaves Measurements of the converted image"
             $ref: "#/components/schemas/SNPEnclavesMeasurements"
       SNPEnclavesMeasurements:
         type: "object"
+        required:
+          - launch_measurement
         properties:
           launch_measurement:
+            type: "string"
+      TdxEnclavesConversionRequest:
+        type: "object"
+        required:
+        - "input_image"
+        - "output_image"
+        - "converter_options"
+        - "tdx_enclaves_options"
+        properties:
+          input_image:
+            $ref: "#/components/schemas/ConversionRequestImageInfo"
+            description: "Input docker image name"
+          output_image:
+            $ref: "#/components/schemas/ConversionRequestImageInfo"
+            description: "Output docker image name"
+          converter_options:
+            $ref: "#/components/schemas/ConverterOptions"
+            description: "Converter options"
+          tdx_enclaves_options:
+            $ref: "#/components/schemas/TdxEnclavesConversionRequestOptions"
+            description: "Tdx enclaves conversion options"
+      TdxEnclavesConversionRequestOptions:
+        type: "object"
+        properties:
+          cpu_count:
+            type: "integer"
+            format: "int32"
+            description: "number of (v)CPUs to be used"
+          mem_size:
+            type: "string"
+            description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
+          enable_overlay_filesystem_persistence:
+            type: "boolean"
+            default: true
+            description: "Flag to enable file persistence, on by default"
+          enable_gpu_passthrough:
+            type: "boolean"
+            default: false
+            description: "Flag to enable/disable gpu_passthrough, off by default"
+          nvidia_driver_capabilities:
+            type: "array"
+            items:
+              $ref: "#/components/schemas/NvidiaDriverCapability"      
+      TdxEnclavesConversionResponse:
+        type: "object"
+        required:
+          - name
+          - sha
+          - size
+          - config
+        properties:
+          name:
+            type: "string"
+            description: "Converted image name (with tag)"
+          sha:
+            type: "string"
+            description: "Converted image sha"
+          size:
+            type: "integer"
+            format: "int64"
+            description: "Converted image size"
+          config:
+            $ref: "#/components/schemas/TdxEnclavesConfig"
+            description: "Tdx Enclaves configuration of the converted image"
+      TdxEnclavesConfig:
+        type: object
+        required:
+          - measurements
+        properties:
+          measurements:
+            description: "Tdx Enclaves Measurements of the converted image"
+            $ref: "#/components/schemas/TdxEnclavesMeasurements"
+      TdxEnclavesMeasurements:
+        type: "object"
+        required:
+          - mrtd
+          - rtmr0
+          - rtmr1
+          - rtmr2
+          - rtmr3
+        properties:
+          mrtd:
+            type: "string"
+          rtmr0:
+            type: "string"
+          rtmr1:
+            type: "string"
+          rtmr2:
+            type: "string"
+          rtmr3:
             type: "string"
