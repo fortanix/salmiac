@@ -8,7 +8,7 @@ use std::env;
 use std::path::Path;
 
 use api_model::enclave::{FileSystemConfig, UserConfig};
-use api_model::tdx::TDXEnclaveMeasurements;
+use api_model::tdx::TdxEnclavesMeasurements;
 use api_model::{EnclavesOptions, HexString};
 
 use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
@@ -34,7 +34,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         user_config: UserConfig,
         env_vars: Vec<String>,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
-    ) -> Result<TDXEnclaveMeasurements> {
+    ) -> Result<TdxEnclavesMeasurements> {
         QemuEnclaveImageBuilder::create_image(
             self,
             docker_util,
@@ -67,7 +67,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
 #[async_trait::async_trait]
 impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
-    type Measurements = TDXEnclaveMeasurements;
+    type Measurements = TdxEnclavesMeasurements;
     type InitramfsBuilder = GpuSupportedInitramfsBuilder;
 
     fn enclave_image_builder(&self) -> &GenericEnclaveImageBuilder<'a> {
@@ -118,7 +118,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         // TODO (RTE-998): Implement actual measurements call.
         let _ovmf = self.ovmf_filename();
 
-        Ok(TDXEnclaveMeasurements {
+        Ok(TdxEnclavesMeasurements {
             mrtd: HexString::new([0]),
             rtmr0: HexString::new([0]),
             rtmr1: HexString::new([0]),
