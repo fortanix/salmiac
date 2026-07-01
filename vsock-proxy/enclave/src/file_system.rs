@@ -14,7 +14,9 @@ use nix::sys::statvfs::FsFlags;
 use shared::run_subprocess;
 use tokio::fs;
 
+use crate::certificate::read_root_certificates;
 use crate::certificate::DEFAULT_CERT_DIR;
+use std::sync::Arc;
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
 const ENCLAVE_FS_UPPER: &str = "/mnt/overlayfs/upper";
@@ -111,6 +113,8 @@ pub(crate) async fn mount_read_write_file_system(
             conn_info,
             OVERLAY_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
+            Some(Arc::new(read_root_certificates())),
+            None,
         )?;
         dsm_ops_handler = Some(dsm_fs_ops);
     }

@@ -4,25 +4,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::ffi::CString;
-use std::string::ToString;
-use std::sync::{Arc, Mutex};
-
 use em_app::mbedtls_hyper::MbedSSLClient;
 use hyper::client::Pool;
 use hyper::net::HttpsConnector;
 use hyper::Client;
 use log::info;
+use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::ssl::config::{AuthMode, Endpoint, Preset, Transport};
 use mbedtls::ssl::{Config, Version};
 use mbedtls::x509::Certificate;
+use mbedtls::x509::Crl;
 use sdkms::api_model::{
     Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DeriveKeyMechanism, DeriveKeyRequest,
     DigestAlgorithm, EncryptRequest, KeyOperations, ListSobjectsParams, MacRequest, ObjectType,
     Sobject, SobjectDescriptor, VerifyMacRequest,
 };
 use sdkms::SdkmsClient;
+use std::ffi::CString;
+use std::string::ToString;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::utils::find_env_or_err;
@@ -57,7 +58,11 @@ pub struct DsmFsOps {
 }
 
 impl DsmFsOps {
-    fn create_client(conn_info: ClientConnectionInfo) -> Result<SdkmsClient, String> {
+    fn create_client(
+        conn_info: ClientConnectionInfo,
+        ca_cert_list: Option<Arc<MbedtlsList<Certificate>>>,
+        ca_crl: Option<Arc<Crl>>,
+    ) -> Result<SdkmsClient, String> {
         info!("Looking for API key needed to create DSM client.");
         let api_key = conn_info.fs_api_key.unwrap_or_default();
 
@@ -78,6 +83,8 @@ impl DsmFsOps {
                 conn_info
                     .auth_cert
                     .ok_or_else(|| format!("Unable to get auth cert for connection to DSM"))?,
+                ca_cert_list,
+                ca_crl,
             )?;
 
             Ok(SdkmsClient::builder()
@@ -104,9 +111,18 @@ impl DsmFsOps {
     fn create_hyper_client_with_cert(
         host: String,
         auth_cert: &mut ClientCertificate,
+        ca_cert_list: Option<Arc<MbedtlsList<Certificate>>>,
+        ca_crl: Option<Arc<Crl>>,
     ) -> Result<Arc<Client>, String> {
         let mut config = Config::new(Endpoint::Client, Transport::Stream, Preset::Default);
-        config.set_authmode(AuthMode::Optional);
+
+        if let Some(ca_cert_list) = ca_cert_list {
+            config.set_ca_list(ca_cert_list, ca_crl);
+            config.set_authmode(AuthMode::Required);
+        } else {
+            config.set_authmode(AuthMode::Optional);
+        }
+
         config.set_rng(Arc::new(mbedtls::rng::Rdrand));
         config
             .set_min_version(Self::TLS_MIN_VERSION)
@@ -382,8 +398,10 @@ impl DsmFsOps {
         conn_info: ClientConnectionInfo<'_>,
         sobject_prefix: String,
         derivation_data_iv: String,
+        ca_cert_list: Option<Arc<MbedtlsList<Certificate>>>,
+        ca_crl: Option<Arc<Crl>>,
     ) -> Result<DsmFsOps, String> {
-        let cli = Self::create_client(conn_info)?;
+        let cli = Self::create_client(conn_info, ca_cert_list, ca_crl)?;
         let client = Arc::new(Mutex::new(cli));
         Ok(DsmFsOps {
             client,
@@ -578,6 +596,8 @@ mod tests {
             conn_info,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
+            None,
+            None,
         )
         .unwrap();
         let version = dsm_fs
@@ -648,6 +668,8 @@ mod tests {
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
+                None,
+                None,
             )
             .unwrap();
             let resp = dsm_fs_enc
@@ -664,6 +686,8 @@ mod tests {
                 conn_info_dec,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
+                None,
+                None,
             )
             .unwrap();
             let dec_resp = dsm_fs_dec.dsm_decrypt_passphrase(resp).await.unwrap();
@@ -682,6 +706,8 @@ mod tests {
             conn_info_enc,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
+            None,
+            None,
         )
         .unwrap();
         let wrapped_passhrase = dsm_fs_enc
@@ -698,6 +724,8 @@ mod tests {
             conn_info_dec,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
+            None,
+            None,
         )
         .unwrap();
         let unwrapped_passphrase = dsm_fs_dec
@@ -719,6 +747,8 @@ mod tests {
             conn_info_mac,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
+            None,
+            None,
         )
         .unwrap();
         let mac = dsm_fs_mac
@@ -735,6 +765,8 @@ mod tests {
             conn_info_macv,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
+            None,
+            None,
         )
         .unwrap();
         dsm_fs_macv
@@ -750,7 +782,7 @@ mod tests {
             auth_cert: None,
             dsm_url: DEFAULT_DSM_ENDPOINT.to_string(),
         };
-        let client = DsmFsOps::create_client(conn_info).unwrap();
+        let client = DsmFsOps::create_client(conn_info, None, None).unwrap();
         match DsmFsOps::get_key_by_prefix(&client, SALM_FS_SECURITY_OBJECT_PREFIX) {
             Ok(_) => {
                 assert!(false);
