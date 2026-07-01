@@ -1,7 +1,7 @@
 ---
 openapi: 3.1.0
 info:
-  title: Salmiac Convert Input Output Models
+  title: Salmiac Converter Input Output Models
   version: 0.1.0
 components:
   schemas:
@@ -424,3 +424,28 @@ components:
           type: "string"
         rtmr3:
           type: "string"
+
+paths:
+  /convert:
+    post:
+      tags:
+        - "Tools"
+      description: "This endpoint represents the logical conversion performed by the CLI. The CLI does not expose an HTTP interface. The request and response schema shown here correspond to the JSON input and output models consumed via --request-file flag"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/NitroEnclavesConversionRequest"
+                - $ref: "#/components/schemas/SNPEnclavesConversionRequest"
+                - $ref: "#/components/schemas/TdxEnclavesConversionRequest"
+      responses:
+        2XX:
+          description: "Success Result"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/NitroEnclavesConversionResponse"
+                  - $ref: "#/components/schemas/SNPEnclavesConversionResponse"
+                  - $ref: "#/components/schemas/TdxEnclavesConversionResponse"
