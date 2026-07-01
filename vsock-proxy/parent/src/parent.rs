@@ -118,8 +118,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
                 Ok(_) => Err(String::from("Enclave exited unexpectedly")),
             }
         }
-
-        _ = sleep(Duration::from_secs(60)) => Err(String::from("Parent timed out waiting for connection from enclave")),
+        // TODO: Add configurable timeout
     }?;
 
     info!("Connected to enclave.");
