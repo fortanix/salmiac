@@ -9,6 +9,8 @@ pub mod nitro;
 pub mod simulator;
 #[cfg(platform = "snp")]
 pub mod snp;
+#[cfg(platform = "tdx")]
+pub mod tdx;
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -45,6 +47,8 @@ use crate::nitro::create_response;
 
 #[cfg(platform = "snp")]
 use crate::snp::create_response;
+#[cfg(platform = "tdx")]
+use crate::tdx::create_response;
 
 #[cfg(platform = "simulator")]
 use crate::simulator::create_response;
@@ -94,8 +98,10 @@ impl Error for ConverterError {}
 #[cfg(platform = "nitro")]
 const PARENT_IMAGE: &str = "parent-base-nitro";
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
+#[cfg(platform = "snp")]
 const PARENT_IMAGE: &str = "parent-base-snp";
+#[cfg(platform = "tdx")]
+const PARENT_IMAGE: &str = "parent-base-tdx";
 
 #[cfg(platform = "simulator")]
 const PARENT_IMAGE: &str = "parent-base-simulator";
@@ -108,8 +114,10 @@ const ENCLAVE_IMAGE: &str = "enclave-base";
 #[cfg(platform = "simulator")]
 const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
-const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-gpu";
+#[cfg(platform = "snp")]
+const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
+#[cfg(platform = "tdx")]
+const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-tdx-gpu";
 
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
@@ -224,7 +232,7 @@ async fn run0(
         let enclave_settings = EnclaveSettings::new(
             &input_image,
             &conversion_request.request.converter_options,
-            #[cfg(platform = "snp")]
+            #[cfg(any(platform = "snp", platform = "tdx"))]
             &conversion_request.enclaves_options,
         );
         let image_env_vars =

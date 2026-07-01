@@ -6,7 +6,7 @@
 use super::{GuestLaunchResult, GuestTasks};
 use crate::platform::qemu::{constants, env_or_default, QemuPlatform};
 
-const DEFAULT_MEMORY_SIZE: &str = "2048";
+const DEFAULT_MEMORY_SIZE: &str = "2048M";
 
 struct SimulatorPlatform;
 
@@ -25,7 +25,7 @@ impl QemuPlatform for SimulatorPlatform {
 
     // Simulator is mostly used locally; setting a reasonable default.
     fn memory_size(&self) -> String {
-        env_or_default(constants::CPU_COUNT_ENV_VAR, DEFAULT_MEMORY_SIZE)
+        env_or_default(constants::MEM_SIZE_ENV_VAR, DEFAULT_MEMORY_SIZE)
     }
 
     fn machine(&self) -> Option<String> {

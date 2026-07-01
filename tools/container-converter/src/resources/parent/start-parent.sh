@@ -1,6 +1,6 @@
 #!/bin/bash
 # This is an entry point script for parent image.
-# Its main purpose is to setup env vars for nitro/snp/simulator tooling and pre-setup networking.
+# Its main purpose is to setup env vars for nitro/snp/tdx/simulator tooling and pre-setup networking.
 # Enclave start and connection code is applied dynamically to the bottom of this file by the converter.
 
 # Allow job control in interactive mode. This is used by the code that is
@@ -8,23 +8,25 @@
 set -em
 
 PLATFORM="nitro"
+PLATFORMS=("nitro" "simulator" "snp" "tdx")
 
 show_help() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  --platform PLATFORM  Target platform: 'snp', 'simulator', or 'nitro' (default: nitro)"
+    echo "  --platform PLATFORM  Target platform: 'snp', 'tdx', 'simulator', or 'nitro' (default: nitro)"
     echo "  --help               Show this help message"
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --platform)
-            if [[ "$2" == "snp" || "$2" == "simulator" || "$2" == "nitro" ]]; then
+            pattern=" ${2} "
+            if [[ " ${PLATFORMS[*]} " =~ $pattern ]]; then
                 PLATFORM="$2"
                 shift 2
             else
-                echo "Error: Invalid platform '$2'. Must be 'snp', 'simulator', or 'nitro'."
+                echo "Error: Invalid platform '$2'. Must be 'snp', 'tdx', 'simulator', or 'nitro'."
                 show_help
                 exit 1
             fi
@@ -46,8 +48,8 @@ done
 if [ "$PLATFORM" == "nitro" ]; then
     # Check if nitro-cli is properly installed
     nitro-cli --version
-elif [ "$PLATFORM" == "snp" ] || [ "$PLATFORM" == "simulator" ]; then
-    # Check if qemu is properly installed
+else
+    # Check if qemu is properly installed for the rest of platforms
     qemu-system-x86_64 --version
 fi
 

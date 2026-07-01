@@ -31,8 +31,8 @@ if [ ! -f "$artifact_dir/init" ]; then
   exit 1
 fi
 
-if [ ! -f "$artifact_dir/kernel" ]; then
-  echo "error: kernel not found at $artifact_dir/kernel"
+if [ ! -f "$artifact_dir/bzImage" ]; then
+  echo "error: bzImage not found at $artifact_dir/bzImage"
   exit 1
 fi
 
@@ -41,7 +41,7 @@ mkdir -p "$script_dir/staging/blobs"
 
 cp "$converter_bin" "$script_dir/staging/server"
 cp "$artifact_dir/init" "$script_dir/staging/blobs/init"
-cp "$artifact_dir/kernel" "$script_dir/staging/blobs/kernel"
+cp "$artifact_dir/bzImage" "$script_dir/staging/blobs/bzImage"
 
 docker save -o "$script_dir/staging/enclave-base.tar" enclave-base-simulator:latest
 docker save -o "$script_dir/staging/parent-base.tar" parent-base-simulator:latest
