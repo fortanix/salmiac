@@ -4,410 +4,423 @@ info:
   title: Salmiac Convert Input Output Models
   version: 0.1.0
 components:
-    schemas:
-      AuthConfig:
-        description: Credentials for authenticating to a docker registry
-        type: "object"
-        required:
-          - username
-          - password
-        properties:
-          username:
-            type: "string"
-            description: "User name for docker registry authentication"
-          password:
-            type: "string"
-            description: "Password for docker registry authentication"
-      CaCertificateConfig:
-        type: "object"
-        properties:
-          caPath:
-            type: "string"
-            description: "Path to expose the CA cert in the application filesystem"
-          caCert:
-            type: "string"
-            description: >
-              Base64-encoded CA certificate contents. Not required when
-              converting applications via Enclave Manager. Required when calling
-              the converter directly, or if you wish to override the Enclave
-              Manager CA certificate.
-          system:
-            type: "string"
-            description: "Request to install CA cert in the system trust store"
-      CertificateConfig:
-        properties:
-          issuer:
-            type: "string"
-            description: "Certificate issuance strategy"
-            default: MANAGER_CA
-            enum:
+  schemas:
+    AuthConfig:
+      description: Credentials for authenticating to a docker registry
+      type: "object"
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: "string"
+          description: "User name for docker registry authentication"
+        password:
+          type: "string"
+          description: "Password for docker registry authentication"
+    CaCertificateConfig:
+      type: "object"
+      properties:
+        caPath:
+          type: "string"
+          description: "Path to expose the CA cert in the application filesystem"
+        caCert:
+          type: "string"
+          description: >
+            Base64-encoded CA certificate contents. Not required when
+            converting applications via Enclave Manager. Required when calling
+            the converter directly, or if you wish to override the Enclave
+            Manager CA certificate.
+        system:
+          type: "string"
+          description: "Request to install CA cert in the system trust store"
+    CertificateConfig:
+      properties:
+        issuer:
+          type: "string"
+          description: "Certificate issuance strategy"
+          default: MANAGER_CA
+          enum:
             - MANAGER_CA
             - NODE
             - SELF_IAS
-          subject:
+        subject:
+          type: "string"
+          description: "Certificate subject common name, typically a DNS name"
+        altNames:
+          type: "array"
+          items:
             type: "string"
-            description: "Certificate subject common name, typically a DNS name"
-          altNames:
-            type: "array"
-            items:
-              type: "string"
-            description: "Subject alternate names to include in the certificate (e.g. DNS:example.com)"
-          keyType:
-            type: "string"
-            description: "Type of key to generate"
-            default: RSA
-            enum:
+          description: "Subject alternate names to include in the certificate (e.g. DNS:example.com)"
+        keyType:
+          type: "string"
+          description: "Type of key to generate"
+          default: RSA
+          enum:
             - RSA
-            # Not yet supported:
-            #- EC
-          keyParam:
-            type: "object"
-            description: >
-              Key parameters. Currently must be an instance of RsaKeyParam, but
-              other types may be supported in the future.
-          keyPath:
+          # Not yet supported:
+          #- EC
+        keyParam:
+          type: "object"
+          description: >
+            Key parameters. Currently must be an instance of RsaKeyParam, but
+            other types may be supported in the future.
+        keyPath:
+          type: "string"
+          description: "Path to expose the key in the application filesystem"
+        certPath:
+          type: "string"
+          description: "Path to expose the certificate in the application filesystem"
+        chainPath:
+          type: "string"
+          description: "Path to expose the complete certificate chain in the application filesystem"
+    ConvertedImageInfo:
+      type: object
+      required:
+        - name
+        - sha
+        - size
+      properties:
+        name:
+          type: "string"
+          description: "Converted image name (with tag)"
+        sha:
+          type: "string"
+          description: "Converted image sha"
+        size:
+          type: "integer"
+          format: "int64"
+          description: "Converted image size"
+    ConverterOptions:
+      type: "object"
+      properties:
+        allow_cmdline_args:
+          type: "boolean"
+          description: "Allow command line arguments to EnclaveOS application"
+        allow_docker_pull_failure:
+          type: "boolean"
+          description: "Allow Docker Pull failure."
+        app: #TODO: Check this
+          type: "object"
+        certificates:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/CertificateConfig"
+        ca_certificates:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/CaCertificateConfig"
+        debug:
+          type: "boolean"
+          description: "Enables debug logging from EnclaveOS"
+        entrypoint:
+          type: "array"
+          items:
             type: "string"
-            description: "Path to expose the key in the application filesystem"
-          certPath:
+          description: "Override the entrypoint of the original container"
+        entrypoint_args:
+          type: "array"
+          items:
             type: "string"
-            description: "Path to expose the certificate in the application filesystem"
-          chainPath:
-            type: "string"
-            description: "Path to expose the complete certificate chain in the application filesystem"
-      ConvertedImageInfo:
-        type: object
-        required:
-          - name
-          - sha
-          - size
-        properties:
-          name:
-            type: "string"
-            description: "Converted image name (with tag)"
-          sha:
-            type: "string"
-            description: "Converted image sha"
-          size:
-            type: "integer"
-            format: "int64"
-            description: "Converted image size"
-      ConverterOptions:
-        type: "object"
-        properties:
-          allow_cmdline_args:
-            type: "boolean"
-            description: "Allow command line arguments to EnclaveOS application"
-          allow_docker_pull_failure:
-            type: "boolean"
-            description: "Allow Docker Pull failure."
-          app: #TODO: Check this 
-            type: "object"
-          certificates:
-            type: "array"
-            items:
-              $ref: "#/components/schemas/CertificateConfig"
-          ca_certificates:
-            type: "array"
-            items:
-              $ref: "#/components/schemas/CaCertificateConfig"
-          debug:
-            type: "boolean"
-            description: "Enables debug logging from EnclaveOS"
-          entrypoint:
-            type: "array"
-            items:
-              type: "string"
-            description: "Override the entrypoint of the original container"
-          entrypoint_args:
-            type: "array"
-            items:
-              type: "string"
-            description: "Override additional arguments to the container entrypoint"
-          push_converted_image:
-            type: "boolean"
-            description: "Enables Pushing Converted Image"
-          env_vars:
-            description: |
-              List of manifest environment variables.
-              For ACI, these fixed values become part of the security policy.
-            items:
-              type: string
-            type: array
-          java_mode:
-            type: "string"
-            description: "Type of the Java JVM used"
-      ConversionRequestImageInfo:
-        type: "object"
-        required:
+          description: "Override additional arguments to the container entrypoint"
+        push_converted_image:
+          type: "boolean"
+          description: "Enables Pushing Converted Image"
+        env_vars:
+          description: |
+            List of manifest environment variables.
+            For ACI, these fixed values become part of the security policy.
+          items:
+            type: string
+          type: array
+        java_mode:
+          type: "string"
+          description: "Type of the Java JVM used"
+        enable_overlay_filesystem_persistence:
+          type: "boolean"
+          default: true
+          description: "Flag to enable file persistence, on by default"
+        ccm_configuration:
+          $ref: "#/components/schemas/CCMConfiguration"
+          description: "CCM Configuration"
+        dsm_configuration:
+          $ref: "#/components/schemas/DSMConfiguration"
+    ConversionRequestImageInfo:
+      type: "object"
+      required:
         - "name"
-        properties:
-          name:
-            type: "string"
-            description: "Docker image name"
-          auth_config:
-            $ref: "#/components/schemas/AuthConfig"
-            description: "Docker credentials"
-      NvidiaDriverCapability:
-        enum:
-            - Compute
-            - Utility
-      NitroEnclavesConversionRequest:
-        type: "object"
-        required:
+      properties:
+        name:
+          type: "string"
+          description: "Docker image name"
+        auth_config:
+          $ref: "#/components/schemas/AuthConfig"
+          description: "Docker credentials"
+    CCMConfiguration:
+      type: "object"
+      required:
+        - ccm_url
+      properties:
+        "ccm_url":
+          type: "string"
+          description: "CCM Endpoint, Eg: ccm.fortanix.com:443"
+    DSMConfiguration:
+      type: "object"
+      required:
+        - dsm_url
+      properties:
+        "dsm_url":
+          type: "string"
+          description: " DSM Endpoint, where Key is created. Eg: https://apps.smartkey.io/"
+    NvidiaDriverCapability:
+      enum:
+        - Compute
+        - Utility
+    NitroEnclavesConversionRequest:
+      type: "object"
+      required:
         - "input_image"
         - "output_image"
         - "converter_options"
         - "nitro_enclaves_options"
-        properties:
-          input_image:
-            $ref: "#/components/schemas/ConversionRequestImageInfo"
-            description: "Input docker image name"
-          output_image:
-            $ref: "#/components/schemas/ConversionRequestImageInfo"
-            description: "Output docker image name"
-          converter_options:
-            $ref: "#/components/schemas/ConverterOptions"
-            description: "Converter options"
-          nitro_enclaves_options:
-            $ref: "#/components/schemas/NitroEnclavesConversionRequestOptions"
-            description: "Nitro enclaves conversion options"
-      NitroEnclavesConversionRequestOptions:
-        type: "object"
-        properties:
-          cpu_count:
-            type: "integer"
-            format: "int32"
-            description: "CPU count"
-          mem_size:
-            type: "string"
-            description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
-          enable_overlay_filesystem_persistence:
-            type: "boolean"
-            default: true
-            description: "Flag to enable file persistence, on by default."
-      NitroEnclavesConversionResponse:
-        type: "object"
-        required:
-          - name
-          - sha
-          - size
-          - config
-        properties:
-          name:
-            type: "string"
-            description: "Converted image name (with tag)"
-          sha:
-            type: "string"
-            description: "Converted image sha"
-          size:
-            type: "integer"
-            format: "int64"
-            description: "Converted image size"
-          config:
-            $ref: "#/components/schemas/NitroEnclavesConfig"
-            description: "NitroEnclaves Configuration of the converted image"
-      NitroEnclavesConfig:
-        type: object
-        required:
-          - measurements
-          - pcr8
-        properties:
-          measurements:
-            type: "object"
-            description: "Nitro enclave Measurements"
-            additionalProperties:
-              $ref: "#/components/schemas/NitroEnclaveAttributes"
-          pcr8:
-            type: "string"
-      NitroEnclaveAttributes:
-        type: "object"
-        required:
-          - hash_algorithm
-          - pcr0
-          - pcr1
-          - pcr2
-        properties:
-          hash_algorithm:
-            $ref: "#/components/schemas/NitroEnclaveHashAlgorithm"
-          pcr0:
-            type: "string"
-            description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
-          pcr1:
-            type: "string"
-            description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
-          pcr2:
-            type: "string"
-            description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
-      NitroEnclaveHashAlgorithm:
-        type: "string"
-        description: "Nitro enclave hash algorithm"
-        enum:
-          - Sha384
-      SNPEnclavesConversionRequest:
-        type: "object"
-        required:
+      properties:
+        input_image:
+          $ref: "#/components/schemas/ConversionRequestImageInfo"
+          description: "Input docker image name"
+        output_image:
+          $ref: "#/components/schemas/ConversionRequestImageInfo"
+          description: "Output docker image name"
+        converter_options:
+          $ref: "#/components/schemas/ConverterOptions"
+          description: "Converter options"
+        nitro_enclaves_options:
+          $ref: "#/components/schemas/NitroEnclavesConversionRequestOptions"
+          description: "Nitro enclaves conversion options"
+    NitroEnclavesConversionRequestOptions:
+      type: "object"
+      properties:
+        cpu_count:
+          type: "integer"
+          format: "int32"
+          description: "CPU count"
+        mem_size:
+          type: "string"
+          description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
+    NitroEnclavesConversionResponse:
+      type: "object"
+      required:
+        - name
+        - sha
+        - size
+        - config
+      properties:
+        name:
+          type: "string"
+          description: "Converted image name (with tag)"
+        sha:
+          type: "string"
+          description: "Converted image sha"
+        size:
+          type: "integer"
+          format: "int64"
+          description: "Converted image size"
+        config:
+          $ref: "#/components/schemas/NitroEnclavesConfig"
+          description: "NitroEnclaves Configuration of the converted image"
+    NitroEnclavesConfig:
+      type: object
+      required:
+        - measurements
+        - pcr8
+      properties:
+        measurements:
+          type: "object"
+          description: "Nitro enclave Measurements"
+          additionalProperties:
+            $ref: "#/components/schemas/NitroEnclaveAttributes"
+        pcr8:
+          type: "string"
+    NitroEnclaveAttributes:
+      type: "object"
+      required:
+        - hash_algorithm
+        - pcr0
+        - pcr1
+        - pcr2
+      properties:
+        hash_algorithm:
+          $ref: "#/components/schemas/NitroEnclaveHashAlgorithm"
+        pcr0:
+          type: "string"
+          description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
+        pcr1:
+          type: "string"
+          description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
+        pcr2:
+          type: "string"
+          description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
+    NitroEnclaveHashAlgorithm:
+      type: "string"
+      description: "Nitro enclave hash algorithm"
+      enum:
+        - Sha384
+    SNPEnclavesConversionRequest:
+      type: "object"
+      required:
         - "input_image"
         - "output_image"
         - "converter_options"
         - "snp_enclaves_options"
-        properties:
-          input_image:
-            $ref: "#/components/schemas/ConversionRequestImageInfo"
-            description: "Input docker image name"
-          output_image:
-            $ref: "#/components/schemas/ConversionRequestImageInfo"
-            description: "Output docker image name"
-          converter_options:
-            $ref: "#/components/schemas/ConverterOptions"
-            description: "Converter options"
-          snp_enclaves_options:
-            $ref: "#/components/schemas/SNPEnclavesConversionRequestOptions"
-            description: "SNP enclaves conversion options"
-      SNPEnclavesConversionRequestOptions:
-        type: "object"
-        properties:
-          cpu_count:
-            type: "integer"
-            format: "int32"
-            description: "number of (v)CPUs to be used"
-          mem_size:
-            type: "string"
-            description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
-          enable_overlay_filesystem_persistence:
-            type: "boolean"
-            default: true
-            description: "Flag to enable file persistence, on by default"
-          enable_gpu_passthrough:
-            type: "boolean"
-            default: false
-            description: "Flag to enable/disable gpu_passthrough, off by default"
-          nvidia_driver_capabilities:
-            type: "array"
-            items:
-              $ref: "#/components/schemas/NvidiaDriverCapability"      
-      SNPEnclavesConversionResponse:
-        type: "object"
-        required:
-          - name
-          - sha
-          - size
-          - config
-        properties:
-          name:
-            type: "string"
-            description: "Converted image name (with tag)"
-          sha:
-            type: "string"
-            description: "Converted image sha"
-          size:
-            type: "integer"
-            format: "int64"
-            description: "Converted image size"
-          config:
-            $ref: "#/components/schemas/SNPEnclavesConfig"
-            description: "SNP Enclaves configuration of the converted image"
-      SNPEnclavesConfig:
-        type: object
-        required:
-          - measurements
-        properties:
-          measurements:
-            description: "SNP Enclaves Measurements of the converted image"
-            $ref: "#/components/schemas/SNPEnclavesMeasurements"
-      SNPEnclavesMeasurements:
-        type: "object"
-        required:
-          - launch_measurement
-        properties:
-          launch_measurement:
-            type: "string"
-      TdxEnclavesConversionRequest:
-        type: "object"
-        required:
+      properties:
+        input_image:
+          $ref: "#/components/schemas/ConversionRequestImageInfo"
+          description: "Input docker image name"
+        output_image:
+          $ref: "#/components/schemas/ConversionRequestImageInfo"
+          description: "Output docker image name"
+        converter_options:
+          $ref: "#/components/schemas/ConverterOptions"
+          description: "Converter options"
+        snp_enclaves_options:
+          $ref: "#/components/schemas/SNPEnclavesConversionRequestOptions"
+          description: "SNP enclaves conversion options"
+    SNPEnclavesConversionRequestOptions:
+      type: "object"
+      properties:
+        cpu_count:
+          type: "integer"
+          format: "int32"
+          description: "number of (v)CPUs to be used"
+        mem_size:
+          type: "string"
+          description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
+        enable_gpu_passthrough:
+          type: "boolean"
+          default: false
+          description: "Flag to enable/disable gpu_passthrough, off by default"
+        nvidia_driver_capabilities:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/NvidiaDriverCapability"
+    SNPEnclavesConversionResponse:
+      type: "object"
+      required:
+        - name
+        - sha
+        - size
+        - config
+      properties:
+        name:
+          type: "string"
+          description: "Converted image name (with tag)"
+        sha:
+          type: "string"
+          description: "Converted image sha"
+        size:
+          type: "integer"
+          format: "int64"
+          description: "Converted image size"
+        config:
+          $ref: "#/components/schemas/SNPEnclavesConfig"
+          description: "SNP Enclaves configuration of the converted image"
+    SNPEnclavesConfig:
+      type: object
+      required:
+        - measurements
+      properties:
+        measurements:
+          description: "SNP Enclaves Measurements of the converted image"
+          $ref: "#/components/schemas/SNPEnclavesMeasurements"
+    SNPEnclavesMeasurements:
+      type: "object"
+      required:
+        - launch_measurement
+      properties:
+        launch_measurement:
+          type: "string"
+    TdxEnclavesConversionRequest:
+      type: "object"
+      required:
         - "input_image"
         - "output_image"
         - "converter_options"
         - "tdx_enclaves_options"
-        properties:
-          input_image:
-            $ref: "#/components/schemas/ConversionRequestImageInfo"
-            description: "Input docker image name"
-          output_image:
-            $ref: "#/components/schemas/ConversionRequestImageInfo"
-            description: "Output docker image name"
-          converter_options:
-            $ref: "#/components/schemas/ConverterOptions"
-            description: "Converter options"
-          tdx_enclaves_options:
-            $ref: "#/components/schemas/TdxEnclavesConversionRequestOptions"
-            description: "Tdx enclaves conversion options"
-      TdxEnclavesConversionRequestOptions:
-        type: "object"
-        properties:
-          cpu_count:
-            type: "integer"
-            format: "int32"
-            description: "number of (v)CPUs to be used"
-          mem_size:
-            type: "string"
-            description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
-          enable_overlay_filesystem_persistence:
-            type: "boolean"
-            default: true
-            description: "Flag to enable file persistence, on by default"
-          enable_gpu_passthrough:
-            type: "boolean"
-            default: false
-            description: "Flag to enable/disable gpu_passthrough, off by default"
-          nvidia_driver_capabilities:
-            type: "array"
-            items:
-              $ref: "#/components/schemas/NvidiaDriverCapability"      
-      TdxEnclavesConversionResponse:
-        type: "object"
-        required:
-          - name
-          - sha
-          - size
-          - config
-        properties:
-          name:
-            type: "string"
-            description: "Converted image name (with tag)"
-          sha:
-            type: "string"
-            description: "Converted image sha"
-          size:
-            type: "integer"
-            format: "int64"
-            description: "Converted image size"
-          config:
-            $ref: "#/components/schemas/TdxEnclavesConfig"
-            description: "Tdx Enclaves configuration of the converted image"
-      TdxEnclavesConfig:
-        type: object
-        required:
-          - measurements
-        properties:
-          measurements:
-            description: "Tdx Enclaves Measurements of the converted image"
-            $ref: "#/components/schemas/TdxEnclavesMeasurements"
-      TdxEnclavesMeasurements:
-        type: "object"
-        required:
-          - mrtd
-          - rtmr0
-          - rtmr1
-          - rtmr2
-          - rtmr3
-        properties:
-          mrtd:
-            type: "string"
-          rtmr0:
-            type: "string"
-          rtmr1:
-            type: "string"
-          rtmr2:
-            type: "string"
-          rtmr3:
-            type: "string"
+      properties:
+        input_image:
+          $ref: "#/components/schemas/ConversionRequestImageInfo"
+          description: "Input docker image name"
+        output_image:
+          $ref: "#/components/schemas/ConversionRequestImageInfo"
+          description: "Output docker image name"
+        converter_options:
+          $ref: "#/components/schemas/ConverterOptions"
+          description: "Converter options"
+        tdx_enclaves_options:
+          $ref: "#/components/schemas/TdxEnclavesConversionRequestOptions"
+          description: "Tdx enclaves conversion options"
+    TdxEnclavesConversionRequestOptions:
+      type: "object"
+      properties:
+        cpu_count:
+          type: "integer"
+          format: "int32"
+          description: "number of (v)CPUs to be used"
+        mem_size:
+          type: "string"
+          description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
+        enable_gpu_passthrough:
+          type: "boolean"
+          default: false
+          description: "Flag to enable/disable gpu_passthrough, off by default"
+        nvidia_driver_capabilities:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/NvidiaDriverCapability"
+    TdxEnclavesConversionResponse:
+      type: "object"
+      required:
+        - name
+        - sha
+        - size
+        - config
+      properties:
+        name:
+          type: "string"
+          description: "Converted image name (with tag)"
+        sha:
+          type: "string"
+          description: "Converted image sha"
+        size:
+          type: "integer"
+          format: "int64"
+          description: "Converted image size"
+        config:
+          $ref: "#/components/schemas/TdxEnclavesConfig"
+          description: "Tdx Enclaves configuration of the converted image"
+    TdxEnclavesConfig:
+      type: object
+      required:
+        - measurements
+      properties:
+        measurements:
+          description: "Tdx Enclaves Measurements of the converted image"
+          $ref: "#/components/schemas/TdxEnclavesMeasurements"
+    TdxEnclavesMeasurements:
+      type: "object"
+      required:
+        - mrtd
+        - rtmr0
+        - rtmr1
+        - rtmr2
+        - rtmr3
+      properties:
+        mrtd:
+          type: "string"
+        rtmr0:
+          type: "string"
+        rtmr1:
+          type: "string"
+        rtmr2:
+          type: "string"
+        rtmr3:
+          type: "string"
