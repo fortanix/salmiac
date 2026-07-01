@@ -175,7 +175,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
             .unwrap_or(GenericParentImageBuilder::DEFAULT_MEMORY_SIZE);
 
         // Note that: we explictly add suffix to make it consistent between
-        // different qemu argument such as memory size & memory backend.
+        // different qemu arguments such as memory size & memory backend.
         format!("MEM_SIZE={}M", mem_size)
     }
 
