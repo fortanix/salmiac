@@ -1,0 +1,16 @@
+{
+    "name": "hello-world-nitro",
+    "sha": "f79d704ba77de15e9e0795928d9e88834a133d9f96ed977c780d6c9808ae2f6a",
+    "size": 519146336,
+    "config": {
+        "measurements": {
+            "nitro_enclave": {
+                "hash_algorithm": "Sha384",
+                "pcr0": "016040e2e876f3022fef074fec639eeeef187f50abbaf0bb1e9ef7a4204f1240dba1608454269a7e5d1b6634c2e8cdd5",
+                "pcr1": "db2bc2f209f5a6269c8a3931f968c293d106be9fba4fa12808870116848977a2a9461f1d485cee9fb80389c282c19839",
+                "pcr2": "01682db92c421521b4c8c3b05fd0b9e49275dba4181a7505e99643e7b7fb9615f6227a7c9a476655e8158be59ed6fd43"
+            }
+        },
+        "pcr8": ""
+    }
+}

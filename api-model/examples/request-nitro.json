@@ -1,0 +1,16 @@
+{
+   "input_image": {
+      "name": "hello-world"
+   },
+   "output_image": {
+      "name": "hello-world-nitro"
+   },
+   "converter_options": {
+      "push_converted_image": false,
+      "enable_overlay_filesystem_persistence": false
+   },
+   "nitro_enclaves_options": {
+      "cpu_count": 2,
+      "mem_size": "4096M"
+   }
+}
