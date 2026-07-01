@@ -15,16 +15,16 @@ use crate::{
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TDXEnclaveConversionRequest {
+pub struct TdxEnclavesConversionRequest {
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub request: ConversionRequest, // Existing model, Refer to more details section above
-    #[cfg_attr(feature = "serde", serde(rename = "tdx_enclave_options"))]
-    pub enclaves_options: TDXEnclaveConversionRequestOptions,
+    #[cfg_attr(feature = "serde", serde(rename = "tdx_enclaves_options"))]
+    pub enclaves_options: TdxEnclavesConversionRequestOptions,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TDXEnclaveConversionRequestOptions {
+pub struct TdxEnclavesConversionRequestOptions {
     // number of (v)CPUs to be used
     pub cpu_count: u8,
     /// Override the enclave VM size, e.g. 2048M. Suffixes K, M, and G are supported.
@@ -41,25 +41,25 @@ pub struct TDXEnclaveConversionRequestOptions {
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TDXEnclaveConversionResponse {
+pub struct TdxEnclavesConversionResponse {
     /// Converted image details
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub converted_image: ConvertedImageInfo,
 
-    /// TDXEnclave configuration of the converted image
-    pub config: TDXEnclaveConfig,
+    /// TdxEnclaves configuration of the converted image
+    pub config: TdxEnclavesConfig,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TDXEnclaveConfig {
-    /// TDXEnclave measurements of the converted image
-    pub measurements: TDXEnclaveMeasurements,
+pub struct TdxEnclavesConfig {
+    /// TdxEnclaves measurements of the converted image
+    pub measurements: TdxEnclavesMeasurements,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TDXEnclaveMeasurements {
+pub struct TdxEnclavesMeasurements {
     pub mrtd: HexString,
     pub rtmr0: HexString,
     pub rtmr1: HexString,

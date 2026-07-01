@@ -27,11 +27,11 @@ pub use self::snp::SNPEnclavesConversionResponse as PlatformConversionResponse;
 #[cfg(platform = "tdx")]
 pub mod tdx;
 #[cfg(platform = "tdx")]
-pub use self::tdx::TDXEnclaveConversionRequest as PlatformConversionRequest;
+pub use self::tdx::TdxEnclavesConversionRequest as PlatformConversionRequest;
 #[cfg(platform = "tdx")]
-pub use self::tdx::TDXEnclaveConversionRequestOptions as EnclavesOptions;
+pub use self::tdx::TdxEnclavesConversionRequestOptions as EnclavesOptions;
 #[cfg(platform = "tdx")]
-pub use self::tdx::TDXEnclaveConversionResponse as PlatformConversionResponse;
+pub use self::tdx::TdxEnclavesConversionResponse as PlatformConversionResponse;
 
 #[cfg(platform = "simulator")]
 pub mod simulator;
