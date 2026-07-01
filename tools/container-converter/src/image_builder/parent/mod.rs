@@ -38,8 +38,6 @@ use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::image_builder::INSTALLATION_DIR;
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
-const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
-
 pub struct ParentImageBuilder<'a> {
     pub(crate) parent_image: String,
     pub(crate) dir: &'a TempDir,
@@ -130,10 +128,6 @@ impl<'a> ParentImageBuilder<'a> {
                 ""
             }
         })
-    }
-
-    pub(crate) fn gpu_passthrough_env_var(gpu_passthrough: bool) -> String {
-        format!("{}={}", ENABLE_GPU_PASSTHROUGH_ENV_VAR, gpu_passthrough)
     }
 }
 

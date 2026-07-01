@@ -35,13 +35,19 @@ pub(super) mod constants {
 }
 
 pub(super) trait QemuPlatform {
+    const GPU_BDF_ENV_VAR_NAME: Option<&str> = None;
+
     fn firmware_path(&self) -> Option<&'static str>;
     // Device paths related to confidential-computing
     fn host_cc_device_paths(&self) -> Vec<&'static str>;
     fn cpu(&self) -> String;
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
-    fn gpu(&self) -> Option<String>;
+
+    fn gpu(&self) -> Option<String> {
+        Self::GPU_BDF_ENV_VAR_NAME
+            .map(|gpu_bdf_env_var_name| env::var(gpu_bdf_env_var_name).ok())?
+    }
 
     fn build_vfio_iommu_arg(bdf: &String) -> String {
         format!(
@@ -60,10 +66,13 @@ pub(super) trait QemuPlatform {
         if let Some(gpu) = self.gpu() {
             require_vfio_device(&gpu)?;
             require_file("IOMMUFD device", constants::IOMMU_DEVICE_PATH)?;
-        } else if env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR).is_ok_and(|v| v == "true") {
-            return Err(String::from(
-                "GPU passthrough was enabled at conversion time but SNP_GPU_BDF env var is not set",
-            ));
+        } else if let Some(gpu_bdf_env_var) = Self::GPU_BDF_ENV_VAR_NAME {
+            if env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR).is_ok_and(|v| v == "true") {
+                return Err(format!(
+                    "GPU passthrough was enabled at conversion time but {} env var is not set",
+                    gpu_bdf_env_var
+                ));
+            }
         }
 
         if let Some(firmware_path) = self.firmware_path() {
