@@ -9,7 +9,6 @@ use super::{GuestLaunchResult, GuestTasks};
 use crate::platform::qemu::QemuPlatform;
 
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.inteltdx.fd";
-const GUEST_DEV_PATH: &str = "/dev/tdx_guest";
 const MEMORY_BACKEND_ID: &str = "mem0";
 const TDX_ID: &str = "tdx0";
 
@@ -34,8 +33,8 @@ impl QemuPlatform for TdxPlatform {
         Some(OVMF_PATH)
     }
 
-    fn guest_device_path(&self) -> Option<&'static str> {
-        Some(GUEST_DEV_PATH)
+    fn host_device_paths(&self) -> Vec<&'static str> {
+        vec!["/dev/sgx_enclave", "/dev/sgx_provision", "/dev/sgx_vepc"]
     }
 
     fn cpu(&self) -> String {

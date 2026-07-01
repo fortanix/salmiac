@@ -15,8 +15,8 @@ impl QemuPlatform for SimulatorPlatform {
         None
     }
 
-    fn guest_device_path(&self) -> Option<&'static str> {
-        None
+    fn host_device_paths(&self) -> Vec<&'static str> {
+        Vec::new()
     }
 
     fn cpu(&self) -> String {

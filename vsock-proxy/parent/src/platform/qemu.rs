@@ -33,7 +33,7 @@ pub(super) mod constants {
 
 pub(super) trait QemuPlatform {
     fn firmware_path(&self) -> Option<&'static str>;
-    fn guest_device_path(&self) -> Option<&'static str>;
+    fn host_device_paths(&self) -> Vec<&'static str>;
     fn cpu(&self) -> String;
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
@@ -61,8 +61,8 @@ pub(super) trait QemuPlatform {
             require_file("Firmware", firmware_path)?;
         }
 
-        if let Some(guest_dev) = self.guest_device_path() {
-            require_file("Guest device", guest_dev)?;
+        for host_dev in self.host_device_paths() {
+            require_file("Host device", host_dev)?;
         }
 
         Ok(())
