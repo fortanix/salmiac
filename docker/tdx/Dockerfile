@@ -10,9 +10,9 @@ RUN apt-get download systemd-boot-efi && \
     dpkg -x systemd-boot-efi*.deb system_boot_efi_dir && \
     cp system_boot_efi_dir/usr/lib/systemd/boot/efi/linuxx64.efi.stub /blob
 
-RUN apt-get download ovmf && \
+RUN apt-get download ovmf-tdx && \
     dpkg -x ovmf*.deb ovmf_dir && \
-    cp ovmf_dir/usr/share/ovmf/OVMF.fd /blob
+    cp ovmf_dir/usr/share/ovmf/OVMF.inteltdx.fd /blob
 
 FROM ubuntu:24.04 AS nvidia_userspace
 ARG NVIDIA_DRIVER_BRANCH
