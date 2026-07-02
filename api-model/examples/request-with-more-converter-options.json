@@ -1,0 +1,34 @@
+{
+    "input_image": {
+        "name": "hello-world"
+    },
+    "output_image": {
+        "name": "hello-world-snp"
+    },
+    "converter_options": {
+        "push_converted_image": false,
+        "enable_overlay_filesystem_persistence": false,
+        "certificates": [
+            {
+                "issuer": "ManagerCa",
+                "key_type": "Rsa",
+                "alt_names": [
+                    "abc.com"
+                ],
+                "cert_path": "/path/to/certificate.pem",
+                "key_path": "/path/to/private_key.pem"
+            }
+        ],
+        "ccm_configuration": {
+            "ccm_url": "ccm.fortanix.com:443"
+        },
+        "dsm_configuration": {
+            "dsm_url": "https://apps.smartkey.io/"
+        }
+    },
+    "snp_enclaves_options": {
+        "cpu_count": 2,
+        "mem_size": "4096M",
+        "enable_gpu_passthrough": true
+    }
+}

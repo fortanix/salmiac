@@ -1,0 +1,10 @@
+{
+    "name": "hello-world-nitro",
+    "sha": "f79d704ba77de15e9e0795928d9e88834a133d9f96ed977c780d6c9808ae2f6a",
+    "size": 519146336,
+    "config": {
+        "measurements": {
+            "launch_measurement": "c1f10d5b011daa7c195490ce16e82f9b6558e3f00c909ce8baa78e814add1acbfe63b1c7f73d27d88a9bea942b0ecb4f"
+        }
+    }
+}
