@@ -121,13 +121,13 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
     ) -> Result<Self::Measurements> {
         let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
         let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
-        static CMDLINE: &str = "earlyprintk=serial console=ttyS0 rdinit=/init loglevel=7";
+        static KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
 
         compute_tdx_launch_measurement(&TdxMeasurementInputs {
             ovmf: &ovmf_path,
             kernel: &kernel_path,
             initrd: initramfs_file_path,
-            cmdline: Some(CMDLINE),
+            cmdline: Some(KERNEL_CMDLINE),
             vcpus: enclave_settings.cpu_count,
             memory: enclave_settings.mem_size.clone().ok_or(ConverterError {
                 message: "Tdx Image conversion requires mem_size in the \"tdx_enclaves_options\""
