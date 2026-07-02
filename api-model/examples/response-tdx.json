@@ -1,0 +1,14 @@
+{
+    "name": "hello-world-tdx",
+    "sha": "f79d704ba77de15e9e0795928d9e88834a133d9f96ed977c780d6c9808ae2f6a",
+    "size": 519146336,
+    "config": {
+        "measurements": {
+            "mrtd": "7610ddef489f661ba79e83eba7241d4172d8029c43d51850baf7bf22d7589c3a8d5b193dca66f9a3be0660cc376807f6",
+            "rtmr0": "2dfa6f68853be6005126b3f032019292ed810fa321eef5dbbaed995659e361da41086720f5c0e77cdf3cccfd35f41014",
+            "rtmr1": "db01cbc1122c9b4de9dc1e9a5b26be552de064c7fad864dad0678c5905260373d970250a55379968c02d0091974177ea",
+            "rtmr2": "7746d7dc15e5f0029ec54e452aae6aeae6850c56c3c97ac5693de600ed4c622b5007f55066855d5ac195e321f659c6f8",
+            "rtmr3": "62849662019ba6b3e231928c8b3e676c694abdb12b4b2a608d8bc1b14c220afe543a9285639b5d6751f2c0e3186d1bae"
+        }
+    }
+}
