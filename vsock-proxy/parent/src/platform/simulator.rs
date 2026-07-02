@@ -15,7 +15,7 @@ impl QemuPlatform for SimulatorPlatform {
         None
     }
 
-    fn host_device_paths(&self) -> Vec<&'static str> {
+    fn host_cc_device_paths(&self) -> Vec<&'static str> {
         Vec::new()
     }
 

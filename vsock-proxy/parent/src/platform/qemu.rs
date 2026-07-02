@@ -17,6 +17,7 @@ pub(super) mod constants {
     pub const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
     pub const KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
     pub const KVM_DEVICE_PATH: &str = "/dev/kvm";
+    pub const VSOCK_HOST_DEVICE_PATH: &str = "/dev/vhost-vsock";
     pub const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
 
     pub const IOMMU_DEVICE_PATH: &str = "/dev/iommu";
@@ -33,7 +34,8 @@ pub(super) mod constants {
 
 pub(super) trait QemuPlatform {
     fn firmware_path(&self) -> Option<&'static str>;
-    fn host_device_paths(&self) -> Vec<&'static str>;
+    // Device paths related to confidential-computing
+    fn host_cc_device_paths(&self) -> Vec<&'static str>;
     fn cpu(&self) -> String;
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
@@ -51,6 +53,7 @@ pub(super) trait QemuPlatform {
         require_file("Kernel", constants::KERNEL_PATH)?;
         require_file("Initramfs", constants::INITRAMFS_PATH)?;
         require_file("KVM device", constants::KVM_DEVICE_PATH)?;
+        require_file("vhost-vsock device", constants::VSOCK_HOST_DEVICE_PATH)?;
 
         if let Some(gpu) = self.gpu() {
             require_vfio_device(&gpu)?;
@@ -61,7 +64,7 @@ pub(super) trait QemuPlatform {
             require_file("Firmware", firmware_path)?;
         }
 
-        for host_dev in self.host_device_paths() {
+        for host_dev in self.host_cc_device_paths() {
             require_file("Host device", host_dev)?;
         }
 

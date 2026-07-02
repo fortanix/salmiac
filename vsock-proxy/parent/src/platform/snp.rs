@@ -56,7 +56,7 @@ impl QemuPlatform for SnpPlatform {
         Some(OVMF_PATH)
     }
 
-    fn host_device_paths(&self) -> Vec<&'static str> {
+    fn host_cc_device_paths(&self) -> Vec<&'static str> {
         vec!["/dev/sev"]
     }
 
