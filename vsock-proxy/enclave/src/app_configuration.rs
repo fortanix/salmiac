@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+use crate::certificate::read_root_certificates;
 use api_model::enclave::CcmBackendUrl;
 use em_app::utils::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials,
@@ -228,20 +229,6 @@ impl ApplicationFiles {
             location_file,
         }
     }
-}
-
-fn read_root_certificates() -> MbedtlsList<Certificate> {
-    let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
-
-    let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
-        .expect("Failed deserializing root certificate list");
-
-    let mut result = MbedtlsList::<Certificate>::new();
-    for i in ca_cert_list {
-        result.push(Certificate::from_der(&i).expect("Failed parsing ca certificate"));
-    }
-
-    result
 }
 
 fn normalize_path_and_make_relative(raw_path: &str) -> Result<PathBuf, String> {
