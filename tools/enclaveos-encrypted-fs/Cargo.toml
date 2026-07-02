@@ -13,7 +13,7 @@ hyper = "0.10.16"
 log = "0.4"
 mbedtls = { version = "0.13.5", features = ["std", "x509", "ssl", "rdrand"] }
 rand = "0.8"
-sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"]}
+sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
 serde = "1.0"
 serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
 sha2 = "0.10"
@@ -25,6 +25,7 @@ uuid = "0.8.2"
 
 [dev-dependencies]
 lazy_static = "1.4.0"
+rustls-native-certs = "0.8"
 
 [[example]]
 name = "setup-using-dsm"

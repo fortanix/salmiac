@@ -39,11 +39,13 @@ async fn main() -> Result<()> {
         conn_info,
         SECURITY_OBJECT_PREFIX.into(),
         DERIVATION_DATA_IV.into(),
+        None,
+        None,
     )
     .map_err(|e| Error::GenericError(e.to_string()))?;
 
     // Create a test blockfile of size 1GB
-    let mut file = fs::File::create(TEST_RW_DEVICE)
+    let file = fs::File::create(TEST_RW_DEVICE)
         .await
         .map_err(|e| Error::GenericError(e.to_string()))?;
     file.set_len(RW_DEVICE_SIZE)
@@ -98,6 +100,8 @@ async fn main() -> Result<()> {
         conn_info,
         SECURITY_OBJECT_PREFIX.into(),
         DERIVATION_DATA_IV.into(),
+        None,
+        None,
     )
     .map_err(|e| Error::GenericError(e.to_string()))?;
 
