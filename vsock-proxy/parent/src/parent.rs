@@ -40,7 +40,6 @@ use crate::network::{
     setup_network_devices, PairedPcapDevice, PairedTapDevice,
 };
 use crate::packet_capture::start_pcap_loops;
-use crate::platform::GuestLaunchResult;
 use crate::ParentConsoleArguments;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
@@ -99,25 +98,12 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     }
 
     info!("Spawning enclave process.");
-    let GuestLaunchResult { enclave_process } = crate::platform::launch_guest();
-    let vsock_stream = create_vsock_stream(VSOCK_PARENT_PORT);
+    let guest_launch_result = crate::platform::launch_guest();
+    // todo: will be used in https://fortanix.atlassian.net/browse/SALM-300
+    let _enclave_process = guest_launch_result.enclave_process;
 
     info!("Awaiting confirmation from enclave.");
-    let mut enclave_port = tokio::select! {
-        res = enclave_process => {
-            match res {
-                Ok(enclave_res) => {
-                    let err_msg = match enclave_res {
-                        Ok(_) => "unexpectedly exited".to_owned(),
-                        Err(err) => err,
-                    };
-                    return Err(format!("Enclave failed: {}", err_msg));
-                }
-                Err(err) => return Err(format!("Unable to join enclave process: {:?}", err)),
-            }
-        }
-        stream_res = vsock_stream => stream_res,
-    }?;
+    let mut enclave_port = create_vsock_stream(VSOCK_PARENT_PORT).await?;
 
     info!("Connected to enclave.");
     // Add enclave processes to a separate list of futures. They will be cleaned up
