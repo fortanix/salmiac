@@ -1843,6 +1843,7 @@ dependencies = [
 [[package]]
 name = "tdx-measure"
 version = "0.1.0"
+source = "git+https://github.com/fortanix/tdx-measure.git?branch=origin%2FRTE-1069#832d2be10766f9c0a17c661902b89058b0dcd9a1"
 dependencies = [
  "anyhow",
  "bon",
