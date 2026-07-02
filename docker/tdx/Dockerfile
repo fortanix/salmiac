@@ -10,7 +10,7 @@ RUN apt-get download systemd-boot-efi && \
     dpkg -x systemd-boot-efi*.deb system_boot_efi_dir && \
     cp system_boot_efi_dir/usr/lib/systemd/boot/efi/linuxx64.efi.stub /blob
 
-RUN apt-get download ovmf-tdx && \
+RUN apt-get download ovmf-inteltdx && \
     dpkg -x ovmf*.deb ovmf_dir && \
     cp ovmf_dir/usr/share/ovmf/OVMF.inteltdx.fd /blob
 
