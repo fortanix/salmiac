@@ -25,6 +25,7 @@ uuid = "0.8.2"
 
 [dev-dependencies]
 lazy_static = "1.4.0"
+rustls-native-certs = "0.8"
 
 [[example]]
 name = "setup-using-dsm"

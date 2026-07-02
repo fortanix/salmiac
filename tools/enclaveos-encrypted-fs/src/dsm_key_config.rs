@@ -120,7 +120,10 @@ impl DsmFsOps {
             config.set_ca_list(ca_cert_list, ca_crl);
             config.set_authmode(AuthMode::Required);
         } else {
+            #[cfg(debug_assertions)]
             config.set_authmode(AuthMode::Optional);
+            #[cfg(not(debug_assertions))]
+            return Err("CA list is required when connecting to DSM".to_string());
         }
 
         config.set_rng(Arc::new(mbedtls::rng::Rdrand));
@@ -560,7 +563,10 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use std::{env, println as info};
+
+    use mbedtls::{alloc::List as MbedtlsList, x509::Certificate};
 
     use lazy_static::lazy_static;
     use mbedtls::pk::Pk;
@@ -583,6 +589,20 @@ mod tests {
         static ref DSM_TEST_API_KEY: String = env::var("OVERLAYFS_UNIT_TEST_API_KEY").expect(
             "The environment variable OVERLAYFS_UNIT_TEST_API_KEY must be set for this unit test"
         );
+    }
+
+    fn load_ca_list() -> MbedtlsList<Certificate> {
+        let native = rustls_native_certs::load_native_certs();
+
+        let mut ca_list = MbedtlsList::<Certificate>::new();
+
+        for cert in native.certs {
+            if let Ok(parsed) = Certificate::from_der(cert.as_ref()) {
+                ca_list.push(parsed);
+            }
+        }
+
+        ca_list
     }
 
     #[test]
@@ -611,6 +631,85 @@ mod tests {
 
         info!("SDKMS api version is {:?}", version);
         assert!(!is_version_empty);
+    }
+
+    #[tokio::test]
+    async fn test_incorrect_auth_to_dsm_with_appcert() {
+        let key_path = "salmiac-overlayfs-ca-signed.key";
+        let cert_path = "salmiac-overlayfs-ca-signed-cert.pem";
+
+        let sobject_prefix = SALM_FS_SECURITY_OBJECT_PREFIX;
+        let mut test_resource = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_resource.push("resources/test");
+
+        let mut keypath = PathBuf::from(test_resource.clone());
+        keypath.push(key_path);
+        let mut key_contents: Vec<u8> = Vec::new();
+        let _key_size = File::open(keypath)
+            .unwrap()
+            .read_to_end(&mut key_contents)
+            .unwrap();
+        key_contents.push(0);
+
+        let mut certpath = PathBuf::from(test_resource.clone());
+        certpath.push(cert_path);
+        let mut cert_contents: Vec<u8> = Vec::new();
+        let _cert_size = File::open(certpath)
+            .unwrap()
+            .read_to_end(&mut cert_contents)
+            .unwrap();
+
+        let mut key = Pk::from_private_key(key_contents.as_slice(), None).unwrap();
+        let mut cert_res = ClientCertificate {
+            certificate: String::from_utf8(cert_contents.clone()).unwrap(),
+            key: key.write_private_der_vec().unwrap(),
+        };
+
+        // Note - Do not pass api key here otherwise the API key will be used for auth to DSM
+        // rather than use the appcert
+        let conn_info_enc = ClientConnectionInfo {
+            fs_api_key: None,
+            auth_cert: Some(&mut cert_res),
+            dsm_url: DEFAULT_DSM_APPS_ENDPOINT.to_string(),
+        };
+        let dsm_fs_enc;
+        // Tests that passing an incorrect CA list results in an error
+        #[cfg(debug_assertions)]
+        {
+            let ca_path = "some_ca.crt";
+            let mut capath = PathBuf::from(test_resource.clone());
+            capath.push(ca_path);
+
+            let mut ca_contents: Vec<u8> = Vec::new();
+            let _ca_size = File::open(capath)
+                .unwrap()
+                .read_to_end(&mut ca_contents)
+                .unwrap();
+            ca_contents.push(0);
+
+            let ca_list = Certificate::from_pem_multiple(&ca_contents).unwrap();
+
+            dsm_fs_enc = DsmFsOps::new(
+                conn_info_enc,
+                sobject_prefix.to_string(),
+                DERIVATION_DATA_IV.to_string(),
+                Some(Arc::new(ca_list)),
+                None,
+            );
+        }
+        // Tests that a CA list must be passed in non-debug builds
+        #[cfg(not(debug_assertions))]
+        {
+            dsm_fs_enc = DsmFsOps::new(
+                conn_info_enc,
+                sobject_prefix.to_string(),
+                DERIVATION_DATA_IV.to_string(),
+                None,
+                None,
+            );
+        }
+
+        assert!(dsm_fs_enc.is_err());
     }
 
     #[tokio::test]
@@ -657,6 +756,8 @@ mod tests {
                 key: key.write_private_der_vec().unwrap(),
             };
 
+            let ca_list = load_ca_list();
+
             // Note - Do not pass api key here otherwise the API key will be used for auth to DSM
             // rather than use the appcert
             let conn_info_enc = ClientConnectionInfo {
@@ -668,7 +769,7 @@ mod tests {
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
-                None,
+                Some(Arc::new(ca_list.clone())),
                 None,
             )
             .unwrap();
@@ -682,11 +783,12 @@ mod tests {
                 auth_cert: Some(&mut cert_res),
                 dsm_url: DEFAULT_DSM_APPS_ENDPOINT.to_string(),
             };
+
             let dsm_fs_dec = DsmFsOps::new(
                 conn_info_dec,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
-                None,
+                Some(Arc::new(ca_list)),
                 None,
             )
             .unwrap();
