@@ -32,18 +32,6 @@ pub(crate) struct TdxMeasurementInputs<'a> {
     pub memory: ByteUnit,
 }
 
-/*
-inputs:
-- ovmf
-- kernel
-- initrd
-- cmdline
-- vcpus
-- devices??
-- serial
--
-*/
-
 pub(crate) async fn compute_tdx_launch_measurement(
     inputs: &TdxMeasurementInputs<'_>,
 ) -> Result<TdxEnclavesMeasurements> {
