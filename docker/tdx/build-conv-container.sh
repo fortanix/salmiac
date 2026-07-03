@@ -15,4 +15,4 @@ docker save -o ./staging/enclave-base-gpu.tar enclave-base-gpu
 docker save -o ./staging/parent-base.tar parent-base-tdx
 
 # Build the converter
-docker build --no-cache -t snp-converter .
+docker build --no-cache -t tdx-converter .
