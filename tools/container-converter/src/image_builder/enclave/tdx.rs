@@ -134,7 +134,12 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
                     .to_string(),
                 kind: crate::ConverterErrorKind::EnclaveImageCreation,
             })?,
+            gpu_passthrough: enclave_settings.gpu_passthrough,
         })
         .await
+        .map_err(|err| ConverterError {
+            message: format!("Unable to compute measurements: {}", err),
+            kind: crate::ConverterErrorKind::EnclaveImageCreation,
+        })
     }
 }

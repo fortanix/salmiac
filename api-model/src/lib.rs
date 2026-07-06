@@ -203,6 +203,11 @@ impl ByteUnit {
     pub fn to_mb(&self) -> u64 {
         self.0 / 1024 / 1024
     }
+
+    /// Returns memory size in giga bytes
+    pub fn to_gb(&self) -> u64 {
+        self.0 / 1024 / 1024 / 1024
+    }
 }
 
 impl fmt::Display for ByteUnit {

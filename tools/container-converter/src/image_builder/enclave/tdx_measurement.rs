@@ -8,10 +8,9 @@ use std::path::Path;
 
 use api_model::HexString;
 use api_model::{tdx::TdxEnclavesMeasurements, ByteUnit};
-use log::debug;
+use log::info;
 use tdx_measure::{BootConfig, ImageConfig, Machine, QemuShape};
-
-use crate::Result;
+use tdxguest_acpi_tables::BuildOptions;
 
 const QEMU_SOURCE_TAR_HASH: &str =
     "784b296ff29c1417aa72323abcb2d2ea9ab9771724f577dcd785c3b04f21e176";
@@ -30,14 +29,34 @@ pub(crate) struct TdxMeasurementInputs<'a> {
     pub cmdline: Option<&'a str>,
     pub vcpus: u8,
     pub memory: ByteUnit,
+    pub gpu_passthrough: bool,
 }
 
 pub(crate) async fn compute_tdx_launch_measurement(
     inputs: &TdxMeasurementInputs<'_>,
-) -> Result<TdxEnclavesMeasurements> {
+) -> Result<TdxEnclavesMeasurements, String> {
     let ovmf = inputs.ovmf.display().to_string();
     let kernel = inputs.kernel.display().to_string();
 
+    let acpi_tables_temp = {
+        let tempfile = tempfile::NamedTempFile::with_prefix("acpi_tables")
+            .map_err(|err| format!("Failed to create tempfile: {}", err.to_string()))?;
+        let mut build_options = BuildOptions {
+            cpu_count: inputs.vcpus as usize,
+            mem_size_gb: inputs.memory.to_gb(),
+            pci_count: 1,
+            ..Default::default()
+        };
+        if inputs.gpu_passthrough {
+            build_options.pcie = true;
+            build_options.nvram_gb = 256;
+            build_options.pci64_size_mb = 131120;
+        }
+        info!("ACPI table build options: {:?}", build_options);
+        tdxguest_acpi_tables::build(tempfile.path(), build_options)
+            .map_err(|err| format!("Faild to build acpi tables: {}", err.to_string()))?;
+        tempfile
+    };
     let mut vm_objects = Vec::new();
     let memory_backend_device = format!(
         "memory-backend-ram,id={},size={}M",
@@ -53,42 +72,46 @@ pub(crate) async fn compute_tdx_launch_measurement(
     );
 
     let initrd = inputs.initrd.display().to_string();
+    let cmdline = inputs.cmdline.ok_or("missing cmdline")?;
+    let acpi_tables_path = acpi_tables_temp.path().to_str()
+        .ok_or("Unable to convert acpi tables path")?;
+
     let machine = Machine::builder()
         .cpu_count(inputs.vcpus)
         .memory_size(inputs.memory.to_inner())
         .firmware(&ovmf)
         .kernel(&kernel)
-        .acpi_tables(ACPI_TABLES_PATH)
-        .kernel_cmdline(inputs.cmdline.unwrap_or(""))
+        .acpi_tables(acpi_tables_path)
+        .kernel_cmdline(cmdline)
         .direct_boot(true)
         .initrd(&initrd)
         .distribution(GUEST_OS)
-        .qemu_source_url(QEMU_SOURCE_TAR_URL)
-        .qemu_source_sha256(QEMU_SOURCE_TAR_HASH)
-        .create_acpi_table(true)
-        .image_config(
-            ImageConfig::builder()
-                .boot_config(
-                    BootConfig::builder()
-                        .acpi_tables(ACPI_TABLES_PATH.to_string()) // Pass empty string as this is ignored
-                        .cpus(inputs.vcpus)
-                        .memory(format!("{}M", inputs.memory.to_mb()))
-                        .bios(inputs.ovmf.display().to_string())
-                        .qemu(QemuShape {
-                            machine: machine_arg,
-                            accel: QEMU_ACCEL_MODE.to_string(),
-                            globals: vec![],
-                            objects: vm_objects,
-                            netdevs: vec![],
-                            devices: vm_devices,
-                            fw_cfg: vec![],
-                            cpu: QEMU_CPU_TYPE.to_string(),
-                            serial: None,
-                        })
-                        .build(),
-                )
-                .build(),
-        )
+        // .qemu_source_url(QEMU_SOURCE_TAR_URL)
+        // .qemu_source_sha256(QEMU_SOURCE_TAR_HASH)
+        .create_acpi_table(false)
+        // .image_config(
+        //     ImageConfig::builder()
+        //         .boot_config(
+        //             BootConfig::builder()
+        //                 .acpi_tables(ACPI_TABLES_PATH.to_string()) // Pass empty string as this is ignored
+        //                 .cpus(inputs.vcpus)
+        //                 .memory(format!("{}M", inputs.memory.to_mb()))
+        //                 .bios(inputs.ovmf.display().to_string())
+        //                 .qemu(QemuShape {
+        //                     machine: machine_arg,
+        //                     accel: QEMU_ACCEL_MODE.to_string(),
+        //                     globals: vec![],
+        //                     objects: vm_objects,
+        //                     netdevs: vec![],
+        //                     devices: vm_devices,
+        //                     fw_cfg: vec![],
+        //                     cpu: QEMU_CPU_TYPE.to_string(),
+        //                     serial: None,
+        //                 })
+        //                 .build(),
+        //         )
+        //         .build(),
+        // )
         .metadata_path(Path::new(""))
         .patch_kernel(false)
         .path_boot_xxxx("")
@@ -105,11 +128,11 @@ pub(crate) async fn compute_tdx_launch_measurement(
         rtmr2: HexString::new(measurements.rtmr2),
         rtmr3: HexString::new(Vec::new()),
     };
-    debug!("TDX Machine measurements:");
-    debug!("MRTD: {}", &measurements.mrtd);
-    debug!("RTMR0: {}", &measurements.rtmr0);
-    debug!("RTMR1: {}", &measurements.rtmr1);
-    debug!("RTMR2: {}", &measurements.rtmr2);
+    info!("TDX Machine measurements:");
+    info!("MRTD: {}", &measurements.mrtd);
+    info!("RTMR0: {}", &measurements.rtmr0);
+    info!("RTMR1: {}", &measurements.rtmr1);
+    info!("RTMR2: {}", &measurements.rtmr2);
 
     Ok(measurements)
 }
