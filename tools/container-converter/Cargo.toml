@@ -33,6 +33,7 @@ tempfile = "3.2.0"
 tokio = { version = "1.0.1", features = ["macros", "rt"] }
 toml = "0.5.8"
 url = "2.2.2"
+tdxguest-acpi-tables = { git = "https://github.com/sardok/tdxguest-acpi-tables.git", branch = "main" }
 
 [build-dependencies]
 salmiac-build-support = { path = "../../build-support" }
