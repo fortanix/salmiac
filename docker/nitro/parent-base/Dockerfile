@@ -71,6 +71,6 @@ COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/lib/systemd/system /usr
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/usr/share /usr/share
 COPY --from=nitro-cli aws-nitro-enclaves-cli/blobs/x86_64 /usr/share/nitro_enclaves/blobs
 
-COPY dnsmasq.d /etc/dnsmasq.d
+COPY --from=common-build-context dnsmasq.d /etc/dnsmasq.d
 # Setup the env for nitro-cli
 RUN mkdir -p /var/log/nitro_enclaves
