@@ -94,6 +94,10 @@ pub(super) trait QemuPlatform {
         env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
     }
 
+    fn globals(&self) -> Vec<String> {
+        vec![]
+    }
+
     fn build_qemu_args(&self) -> Vec<String> {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
@@ -124,6 +128,11 @@ pub(super) trait QemuPlatform {
         let objects = self.objects();
         for object in &objects {
             args.extend(["-object", object]);
+        }
+
+        let globals = self.globals();
+        for global in &globals {
+            args.extend(["-global", global]);
         }
 
         let gpu_device = self.gpu().as_ref().map(Self::build_vfio_iommu_arg);
