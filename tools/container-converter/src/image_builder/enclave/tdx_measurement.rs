@@ -4,6 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use api_model::HexString;
@@ -11,7 +13,7 @@ use api_model::{tdx::TdxEnclavesMeasurements, ByteUnit};
 use log::debug;
 use tdx_measure::{BootConfig, ImageConfig, Machine, QemuShape};
 
-use crate::Result;
+use crate::{ConverterError, Result, SALMIAC_TEMP_DIR};
 
 const QEMU_SOURCE_TAR_HASH: &str =
     "784b296ff29c1417aa72323abcb2d2ea9ab9771724f577dcd785c3b04f21e176";
@@ -39,7 +41,30 @@ pub(crate) struct TdxMeasurementInputs<'a> {
 pub(crate) async fn compute_tdx_launch_measurement(
     inputs: &TdxMeasurementInputs<'_>,
 ) -> Result<TdxEnclavesMeasurements> {
-    let ovmf = inputs.ovmf.display().to_string();
+    let temp_ovmf_dir = tempfile::tempdir_in(SALMIAC_TEMP_DIR.to_string())
+        .and_then(|temp_dir| {
+            fs::set_permissions(temp_dir.path(), std::fs::Permissions::from_mode(0o444))?;
+            Ok(temp_dir)
+        })
+        .map_err(|error| ConverterError {
+            message: format!(
+                "Failed to create temporary folder to hold OVMF for TDX build measurements : {}",
+                error
+            ),
+            kind: crate::ConverterErrorKind::EnclaveImageCreation,
+        })?;
+
+    let ovmf_path = temp_ovmf_dir.path().join("OVMF.fd");
+    fs::copy(inputs.ovmf, &ovmf_path).map_err(|error| ConverterError {
+        message: format!(
+            "Failed to copy OVMF to temporary folder for TDX build measurements : {}",
+            error
+        ),
+        kind: crate::ConverterErrorKind::EnclaveImageCreation,
+    })?;
+
+    let ovmf = ovmf_path.display().to_string();
+
     let kernel = inputs.kernel.display().to_string();
 
     let mut vm_objects = Vec::new();
@@ -58,9 +83,9 @@ pub(crate) async fn compute_tdx_launch_measurement(
     );
     let mut vm_globals = Vec::new();
     if inputs.enable_gpu_passthrough {
-        vm_globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
-        vm_devices.push(MOCK_GPU_DEVICE.to_string());
         vm_devices.push(GPU_PCI_BUS_DEVICE.to_string());
+        vm_devices.push(MOCK_GPU_DEVICE.to_string());
+        vm_globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
     }
 
     let initrd = inputs.initrd.display().to_string();
@@ -84,7 +109,7 @@ pub(crate) async fn compute_tdx_launch_measurement(
                         .acpi_tables(ACPI_TABLES_PATH.to_string()) // Pass empty string as this is ignored
                         .cpus(inputs.vcpus)
                         .memory(format!("{}M", inputs.memory.to_mb()))
-                        .bios(inputs.ovmf.display().to_string())
+                        .bios(ovmf.clone())
                         .qemu(QemuShape {
                             machine: machine_arg,
                             accel: QEMU_ACCEL_MODE.to_string(),
@@ -108,7 +133,10 @@ pub(crate) async fn compute_tdx_launch_measurement(
         .rsdp("")
         .build();
 
-    let measurements = machine.measure().expect("should not fail");
+    let measurements = machine.measure().map_err(|error| ConverterError {
+        message: format!("Failed to get build-time measurements : {}", error),
+        kind: crate::ConverterErrorKind::EnclaveImageCreation,
+    })?;
     let measurements = TdxEnclavesMeasurements {
         mrtd: HexString::new(measurements.mrtd),
         rtmr0: HexString::new(measurements.rtmr0),
