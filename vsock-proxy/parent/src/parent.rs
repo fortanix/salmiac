@@ -109,7 +109,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
             match join_res {
                 Ok(Err(e)) => Err(e),
                 Err(e) => Err(format!("Enclave task panicked or was cancelled: {:?}", e)),
-                Ok(_) => Err(String::from("Enclave exited unexpectedly")),
+                Ok(_) => create_vsock_stream(VSOCK_PARENT_PORT).await,
             }
         }
         // TODO: Add configurable timeout
