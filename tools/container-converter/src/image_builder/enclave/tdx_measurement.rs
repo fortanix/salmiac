@@ -19,9 +19,12 @@ const QEMU_SOURCE_TAR_URL: &str = "https://download.qemu.org/qemu-10.2.2.tar.xz"
 const GUEST_OS: &str = "ubuntu:24.04";
 const MEMORY_BACKEND_ID: &str = "mem0";
 const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3"; // Mock CID, the value does not impact the measurements
-const QEMU_ACCEL_MODE: &str = "kvm";
-const QEMU_CPU_TYPE: &str = "host";
+const QEMU_CPU_TYPE: &str = "max,phys-bits=46"; // The measurements do not change on or above 46 bits width.
+const QEMU_ACCEL_MODE: &str = "tcg"; // For emulating runtime cpu configuration with above phys-bits address space to match the runtime-measurements
 const ACPI_TABLES_PATH: &str = ""; // Empty path skips copying the actual acpi tables binary
+const PCI_HOLE_SIZE_GLOBAL: &str = "q35-pcihost.pci-hole64-size=256G"; // Should match the runtime configuration value in ${SALMIAC_DIR}/vsock-proxy/parent/src/platform/tdx.rs
+const MOCK_GPU_DEVICE: &str = "e1000e,bus=pci.1,addr=0x0,romfile="; // To mock the GPU that would be available at runtime
+const GPU_PCI_BUS_DEVICE: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
 
 pub(crate) struct TdxMeasurementInputs<'a> {
     pub ovmf: &'a Path,
@@ -30,6 +33,7 @@ pub(crate) struct TdxMeasurementInputs<'a> {
     pub cmdline: Option<&'a str>,
     pub vcpus: u8,
     pub memory: ByteUnit,
+    pub enable_gpu_passthrough: bool,
 }
 
 pub(crate) async fn compute_tdx_launch_measurement(
@@ -39,8 +43,9 @@ pub(crate) async fn compute_tdx_launch_measurement(
     let kernel = inputs.kernel.display().to_string();
 
     let mut vm_objects = Vec::new();
+    // "reserve=off" to prevent qemu from reserving the memory during conversion
     let memory_backend_device = format!(
-        "memory-backend-ram,id={},size={}M",
+        "memory-backend-ram,id={},size={}M,reserve=off",
         MEMORY_BACKEND_ID,
         inputs.memory.to_mb()
     );
@@ -51,6 +56,12 @@ pub(crate) async fn compute_tdx_launch_measurement(
     let machine_arg = format!(
         "q35,kernel_irqchip=split,memory-backend={MEMORY_BACKEND_ID},hpet=off,smm=off,pic=off",
     );
+    let mut vm_globals = Vec::new();
+    if inputs.enable_gpu_passthrough {
+        vm_globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
+        vm_devices.push(MOCK_GPU_DEVICE.to_string());
+        vm_devices.push(GPU_PCI_BUS_DEVICE.to_string());
+    }
 
     let initrd = inputs.initrd.display().to_string();
     let machine = Machine::builder()
@@ -77,7 +88,7 @@ pub(crate) async fn compute_tdx_launch_measurement(
                         .qemu(QemuShape {
                             machine: machine_arg,
                             accel: QEMU_ACCEL_MODE.to_string(),
-                            globals: vec![],
+                            globals: vm_globals,
                             objects: vm_objects,
                             netdevs: vec![],
                             devices: vm_devices,

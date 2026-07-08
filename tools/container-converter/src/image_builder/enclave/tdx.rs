@@ -134,6 +134,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
                     .to_string(),
                 kind: crate::ConverterErrorKind::EnclaveImageCreation,
             })?,
+            enable_gpu_passthrough: enclave_settings.gpu_passthrough,
         })
         .await
     }
