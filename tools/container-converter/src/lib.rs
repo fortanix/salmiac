@@ -116,9 +116,9 @@ const ENCLAVE_IMAGE: &str = "enclave-base";
 const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
 
 #[cfg(platform = "snp")]
-const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
+const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-gpu";
 #[cfg(platform = "tdx")]
-const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-tdx-gpu";
+const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-gpu";
 
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
