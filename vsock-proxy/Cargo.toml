@@ -9,3 +9,4 @@ members = [
 [workspace.dependencies]
 em-app = { version = "0.5.1" }
 em-client = { version = "4.0.1" }
+attestation_client = { path = "../attestation/client", package = "client" }

@@ -40,7 +40,6 @@ use futures::io::{BufReader, Lines};
 use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, error, info, warn};
-use mbedtls::pk::Pk;
 use nix::net::if_::if_nametoindex;
 use shared::models::{
     ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings,
@@ -1013,86 +1012,55 @@ pub(crate) async fn setup_enclave_certification<
 ) -> Result<CertificateWithPath, String> {
     // For SNP, for the time being, an embedded attestation agent is used to create certificates.
     // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
-    use embedded_attestation_client::EmbeddedAttestationClient;
-    use log::Level;
-    use std::ffi::CString;
+    use attestation_client::certificate::AppCert;
+    #[cfg(platform = "snp")]
+    use attestation_client::BaremetalSevSnp;
+    #[cfg(platform = "tdx")]
+    use attestation_client::BaremetalTdx;
+    use attestation_client::{Attest, NodeAgentClient};
 
-    // // Because the function is still called and expects to use the CsrApi, we need to get the CSR
-    // // and ignore it
-    // if let Some(kp) = &cert_config.key_param {
-    //     let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
-    //     let mut key = create_signer_key(key_size as u32)?;
-    //     let _csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-    // } else {
-    //     return Err(format!(
-    //         "key param not specified for cert config {:?}",
-    //         cert_config
-    //     ));
-    // }
-    info!("Running embedded attestation client to obtain certificates");
+    info!("Requesting attestation certificate");
 
-    let mut client = EmbeddedAttestationClient::new()?;
-    // We will write out the key and certificate to the temporary working directory of the embedded
-    // client, and read them into memory
-    let temp_dir = client.temp_dir_path();
-    let cert_path = temp_dir.join("cert");
-    let key_path = temp_dir.join("key");
-    client
-        .app_cert_key_file_name(&key_path)
-        .app_cert_file_name(&cert_path)
-        .app_config_id(app_config_id.clone())
-        .work_dir(Some(temp_dir))
-        .log_level(Some(Level::Debug));
-    if !cert_config.alt_names.is_empty() {
-        client.app_cert_alt_names(Some(cert_config.alt_names.clone()));
+    // Initialize the RSA key pair used to request an app cert
+    let mut app_cert = AppCert::init()
+        .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))?;
+
+    let node_agent_cli = NodeAgentClient::init()
+        .map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
+
+    // If attestation succeeds, app_cert is populated with the certificate
+    #[cfg(platform = "tdx")]
+    BaremetalTdx::attest_and_request_app_cert(
+        &mut app_cert,
+        &node_agent_cli,
+        app_config_id.clone().map(|id| id.as_bytes().to_vec()),
+    )
+    .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
+    #[cfg(platform = "snp")]
+    BaremetalSevSnp::attest_and_request_app_cert(
+        &mut app_cert,
+        &node_agent_cli,
+        app_config_id.clone().map(|id| id.as_bytes().to_vec()),
+    )
+    .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
+
+    if let AppCert {
+        key,
+        cert: Some(cert),
+    } = app_cert
+    {
+        info!("Attestation certificate received successfully");
+        Ok(CertificateWithPath::new(
+            CertificateResult {
+                certificate: cert,
+                key,
+            },
+            cert_config,
+            fs_root,
+        ))
+    } else {
+        Err("No certificate present in attestation client response".to_string())
     }
-    client.run()?;
-
-    info!("Embedded attestation client finished.");
-
-    // Check if the key and cert have been created
-    if !&cert_path.exists() {
-        return Err(format!(
-            "Expected embedded client cert does not exist: {}",
-            cert_path.display()
-        ));
-    }
-    if !&key_path.exists() {
-        return Err(format!(
-            "Expected embedded client key does not exist: {}",
-            key_path.display()
-        ));
-    }
-
-    // Read the key and cert and convert them into values that can be returned
-    let cert_pem = fs::read_to_string(cert_path)
-        .map_err(|e| format!("Failed to read embedded client cert file: {}", e))?;
-    let key_pem = fs::read_to_string(key_path)
-        .map_err(|e| format!("Failed to read  embedded client key file: {}", e))?;
-
-    // We need a CString to feed null-terminated data to Pk, as it expects this format
-    let key_pem_cstr = CString::new(key_pem.as_bytes()).map_err(|e| {
-        format!(
-            "Failed to convert embedded client key file bytes to CString: {}",
-            e
-        )
-    })?;
-
-    let key_pk = Pk::from_private_key(key_pem_cstr.as_bytes_with_nul(), None).map_err(|e| {
-        format!(
-            "Failed to convert embedded client key file to mbedtls PK: {}",
-            e
-        )
-    })?;
-
-    Ok(CertificateWithPath::new(
-        CertificateResult {
-            certificate: cert_pem,
-            key: key_pk,
-        },
-        cert_config,
-        fs_root,
-    ))
 }
 
 #[cfg(not(any(platform = "snp", platform = "tdx")))]
