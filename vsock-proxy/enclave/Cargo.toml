@@ -8,6 +8,7 @@ repository = "https://github.com/fortanix/salmiac"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+attestation_client = { workspace = true }
 api-model = { path = "../../api-model", features = ["serde"] }
 async-process = "1.2.0"
 async-trait = "0.1.51"
@@ -17,7 +18,7 @@ clap = "2.33"
 const_format = "0.2.32"
 em-app = { workspace = true }
 em-client = { workspace = true }
-embedded-attestation-client = { path = "../../embedded-attestation-client"  }
+#embedded-attestation-client = { path = "../../embedded-attestation-client"  }
 enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
 futures = "0.3"
@@ -29,7 +30,7 @@ log = "0.4"
 mbedtls = { version = "0.13.5", features = ["chrono"] }
 nix = "0.15.0"
 openssl = "0.10"
-pkix = "0.1.2"
+pkix = "0.2.6"
 rand = "0.8.5"
 rtnetlink = "0.8.0"
 sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
