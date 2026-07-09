@@ -1,0 +1,3 @@
+[submodule "attestation"]
+	path = attestation
+	url = git@github.com:fortanix/attestation.git
