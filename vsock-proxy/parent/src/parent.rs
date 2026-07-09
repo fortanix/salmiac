@@ -103,13 +103,15 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
 
     info!("Awaiting confirmation from enclave.");
     let mut enclave_port = tokio::select! {
-        accept = create_vsock_stream(VSOCK_PARENT_PORT) => accept,
+        accept = tokio::spawn(async {
+            create_vsock_stream(VSOCK_PARENT_PORT).await
+        }) => accept,
 
         join_res = enclave_process => {
             match join_res {
                 Ok(Err(e)) => Err(e),
                 Err(e) => Err(format!("Enclave task panicked or was cancelled: {:?}", e)),
-                Ok(_) => create_vsock_stream(VSOCK_PARENT_PORT).await,
+                Ok(_) => Err(String::from("Enclave process exited unexpectedly")),
             }
         }
         // TODO: Add configurable timeout
