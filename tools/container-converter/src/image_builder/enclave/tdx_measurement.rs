@@ -75,9 +75,10 @@ pub(crate) async fn compute_tdx_launch_measurement(
         inputs.memory.to_mb()
     );
     vm_objects.push(memory_backend_device);
+
     let mut vm_devices = Vec::new();
-    // TODO: Pending device addtion for gpu enabled devices
     vm_devices.push(VSOCK_DEVICE.to_string());
+
     let machine_arg = format!(
         "q35,kernel_irqchip=split,memory-backend={MEMORY_BACKEND_ID},hpet=off,smm=off,pic=off",
     );

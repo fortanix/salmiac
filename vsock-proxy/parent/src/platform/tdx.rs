@@ -60,8 +60,7 @@ impl QemuPlatform for TdxPlatform {
     fn globals(&self) -> Vec<String> {
         let mut globals = vec![];
 
-        let gpu_device = self.gpu().as_ref().map(Self::build_vfio_iommu_arg);
-        if let Some(_) = &gpu_device {
+        if self.gpu().is_some() {
             globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
         }
         globals
