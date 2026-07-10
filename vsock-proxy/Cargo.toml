@@ -9,4 +9,4 @@ members = [
 [workspace.dependencies]
 em-app = { version = "0.5.1" }
 em-client = { version = "4.0.1" }
-attestation_client = { path = "../attestation/client", package = "client" }
+attestation_client = { git = "ssh://git@github.com/fortanix/attestation.git", branch = "dlegalov/RTE-1011-open-source-attestation-client", package = "client" }

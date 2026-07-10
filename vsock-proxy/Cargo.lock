@@ -204,6 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
+source = "git+ssh://git@github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1011-open-source-attestation-client#09fbc339a4e6cdd289e485830c217ae24a437236"
 dependencies = [
  "b64-ct",
  "der",
@@ -494,6 +495,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
+source = "git+ssh://git@github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1011-open-source-attestation-client#09fbc339a4e6cdd289e485830c217ae24a437236"
 dependencies = [
  "attestation",
  "der",
