@@ -32,6 +32,7 @@ pub(super) mod constants {
     pub const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
 
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
+    pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 }
 
 pub(super) trait QemuPlatform {
@@ -114,6 +115,9 @@ pub(super) trait QemuPlatform {
             "-monitor",
             "none",
             "-no-reboot",
+            "-nodefaults",
+            "-serial",
+            constants::DEFAULT_SERIAL_DEVICE
         ];
 
         if let Some(firmware_path) = self.firmware_path() {

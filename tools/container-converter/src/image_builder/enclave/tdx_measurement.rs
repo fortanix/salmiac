@@ -27,6 +27,7 @@ const ACPI_TABLES_PATH: &str = ""; // Empty path skips copying the actual acpi t
 const PCI_HOLE_SIZE_GLOBAL: &str = "q35-pcihost.pci-hole64-size=256G"; // Should match the runtime configuration value in ${SALMIAC_DIR}/vsock-proxy/parent/src/platform/tdx.rs
 const MOCK_GPU_DEVICE: &str = "e1000e,bus=pci.1,addr=0x0,romfile="; // To mock the GPU that would be available at runtime
 const GPU_PCI_BUS_DEVICE: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
+const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 
 pub(crate) struct TdxMeasurementInputs<'a> {
     pub ovmf: &'a Path,
@@ -120,7 +121,7 @@ pub(crate) async fn compute_tdx_launch_measurement(
                             devices: vm_devices,
                             fw_cfg: vec![],
                             cpu: QEMU_CPU_TYPE.to_string(),
-                            serial: None,
+                            serial: Some(DEFAULT_SERIAL_DEVICE.to_string()),
                         })
                         .build(),
                 )
@@ -143,13 +144,14 @@ pub(crate) async fn compute_tdx_launch_measurement(
         rtmr0: HexString::new(measurements.rtmr0),
         rtmr1: HexString::new(measurements.rtmr1),
         rtmr2: HexString::new(measurements.rtmr2),
-        rtmr3: HexString::new(Vec::new()),
+        rtmr3: HexString::new(vec![0x0; 48]),
     };
     debug!("TDX Machine measurements:");
     debug!("MRTD: {}", &measurements.mrtd);
     debug!("RTMR0: {}", &measurements.rtmr0);
     debug!("RTMR1: {}", &measurements.rtmr1);
     debug!("RTMR2: {}", &measurements.rtmr2);
+    debug!("RTMR3: {}", &measurements.rtmr3);
 
     Ok(measurements)
 }
