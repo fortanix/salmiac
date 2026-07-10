@@ -30,6 +30,7 @@ pub(super) mod constants {
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
     pub const GPU_ROOT_PORT: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
     pub const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
+    pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 }
 
 pub(super) trait QemuPlatform {
@@ -99,6 +100,9 @@ pub(super) trait QemuPlatform {
             "-monitor",
             "none",
             "-no-reboot",
+            "-nodefaults",
+            "-serial",
+            constants::DEFAULT_SERIAL_DEVICE
         ];
 
         if let Some(firmware_path) = self.firmware_path() {
