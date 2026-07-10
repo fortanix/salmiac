@@ -177,7 +177,10 @@ async fn run0(
     if let Some(s) = &parent_image {
         info!("Using parent base image from environment variable: {}", s);
     } else {
-        info!("Using parent base image from tar file: {}", PARENT_IMAGE_PATH);
+        info!(
+            "Using parent base image from tar file: {}",
+            PARENT_IMAGE_PATH
+        );
     }
 
     info!("Retrieving requisite images!");
@@ -211,23 +214,22 @@ async fn run0(
 
     info!("Building enclave image!");
     let image_result = {
-        let enclave_base_image_path_str =
-            PlatformEnclaveImageBuilder::get_enclave_base_details(
-                &conversion_request.enclaves_options,
-            );
+        let enclave_base_image_path_str = PlatformEnclaveImageBuilder::get_enclave_base_details(
+            &conversion_request.enclaves_options,
+        );
 
         let mut enclave_base_image = env::var("ENCLAVE_IMAGE").ok();
         if let Some(s) = &enclave_base_image {
             info!("Using enclave base image from environment variable: {}", s);
         } else {
-            info!("Using enclave base image from tar file: {}", enclave_base_image_path_str);
+            info!(
+                "Using enclave base image from tar file: {}",
+                enclave_base_image_path_str
+            );
         }
 
-        let enclave_base_image = get_enclave_base_image(
-            &mut enclave_base_image,
-            enclave_base_image_path_str,
-        )
-        .await?;
+        let enclave_base_image =
+            get_enclave_base_image(&mut enclave_base_image, enclave_base_image_path_str).await?;
 
         let user_program_config = create_user_program_config(
             &conversion_request.request.converter_options,
@@ -431,13 +433,7 @@ async fn get_parent_base_image(image: &mut Option<String>) -> Result<()> {
     let username = env_var_or_none("PARENT_IMAGE_USERNAME");
     let password = env_var_or_none("PARENT_IMAGE_PASSWORD");
 
-    let _ = get_base_image(
-        image,
-        PARENT_IMAGE_PATH.to_owned(),
-        username,
-        password,
-    )
-    .await?;
+    let _ = get_base_image(image, PARENT_IMAGE_PATH.to_owned(), username, password).await?;
 
     Ok(())
 }
