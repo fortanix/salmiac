@@ -15,7 +15,7 @@ use docker_image_reference::{Reference as DockerReference, Reference};
 use futures::StreamExt;
 use log::{debug, error, info, warn};
 use shiplift::container::ContainerCreateInfo;
-use shiplift::image::{BuildParams, ImageDetails, PushOptions};
+use shiplift::image::{BuildParams, ImageBuildChunk, ImageDetails, PushOptions};
 use shiplift::{
     ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions,
 };
@@ -35,7 +35,7 @@ pub trait DockerUtil: Send + Sync {
         image: &DockerReference<'_>,
     ) -> Result<ImageDetails, String>;
 
-    async fn load_image(&self, tar_path: &str) -> Result<(), String>;
+    async fn load_image(&self, tar_path: &str) -> Result<String, String>;
 
     async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String>;
 
@@ -247,17 +247,28 @@ impl DockerUtil for DockerDaemon {
         ))
     }
 
-    async fn load_image(&self, tar_path: &str) -> Result<(), String> {
+    async fn load_image(&self, tar_path: &str) -> Result<String, String> {
         let tar = fs::File::open(tar_path)
             .map_err(|err| format!("Unable to open image file - {:?} : {:?}", tar_path, err))?;
 
         let reader = Box::from(tar);
         let mut stream = self.docker.images().import(reader);
 
+        let mut loaded_image_name: Option<String> = None;
+
         while let Some(import_result) = stream.next().await {
             match import_result {
                 Ok(output) => {
-                    info!("{:?}", output)
+                    info!("{:?}", output);
+
+                    match output {
+                        ImageBuildChunk::Update { stream } => {
+                            if let Some(image_name) = stream.strip_prefix("Loaded image: ") {
+                                loaded_image_name = Some(image_name.trim().to_owned());
+                            }
+                        }
+                        _ => ()
+                    }
                 }
                 Err(e) => {
                     return Err(format!(
@@ -268,7 +279,10 @@ impl DockerUtil for DockerDaemon {
             }
         }
 
-        Ok(())
+        match loaded_image_name {
+            Some(name) => Ok(name),
+            None => Err(format!("Image loading is completed, but no image is loaded.")),
+        }
     }
 
     async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String> {
