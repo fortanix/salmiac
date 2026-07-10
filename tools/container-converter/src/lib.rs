@@ -96,30 +96,7 @@ impl fmt::Display for ConverterError {
 
 impl Error for ConverterError {}
 
-#[cfg(platform = "nitro")]
-const PARENT_IMAGE: &str = "parent-base-nitro";
-
-#[cfg(platform = "snp")]
-const PARENT_IMAGE: &str = "parent-base-snp";
-#[cfg(platform = "tdx")]
-const PARENT_IMAGE: &str = "parent-base-tdx";
-
-#[cfg(platform = "simulator")]
-const PARENT_IMAGE: &str = "parent-base-simulator";
-
 const PARENT_IMAGE_PATH: &str = "parent-base.tar";
-
-#[cfg(any(platform = "nitro", platform = "snp", platform = "tdx"))]
-const ENCLAVE_IMAGE: &str = "enclave-base";
-
-#[cfg(platform = "simulator")]
-const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
-
-#[cfg(platform = "snp")]
-const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-gpu";
-#[cfg(platform = "tdx")]
-const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-gpu";
-
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
 #[cfg(any(platform = "snp", platform = "tdx"))]
@@ -173,10 +150,18 @@ async fn run0(
 ) -> Result<PlatformConversionResponse> {
     validate_request(&conversion_request.request)?;
 
-    let parent_image = env::var("PARENT_IMAGE").unwrap_or(PARENT_IMAGE.to_string());
-    info!("Parent base image is {}", parent_image);
+    let mut parent_image = env::var("PARENT_IMAGE").ok();
+    if let Some(s) = &parent_image {
+        info!("Using parent base image from environment variable: {}", s);
+    } else {
+        info!(
+            "Using parent base image from tar file: {}",
+            PARENT_IMAGE_PATH
+        );
+    }
+
     info!("Retrieving requisite images!");
-    get_parent_base_image(&parent_image).await?;
+    get_parent_base_image(&mut parent_image).await?;
 
     let client_image = docker_reference(&conversion_request.request.input_image.name)?;
 
@@ -206,14 +191,22 @@ async fn run0(
 
     info!("Building enclave image!");
     let image_result = {
-        let (enclave_base_image_str, enclave_base_image_path_str) =
-            PlatformEnclaveImageBuilder::get_enclave_base_details(
-                &conversion_request.enclaves_options,
+        let enclave_base_image_path_str = PlatformEnclaveImageBuilder::get_enclave_base_details(
+            &conversion_request.enclaves_options,
+        );
+
+        let mut enclave_base_image = env::var("ENCLAVE_IMAGE").ok();
+        if let Some(s) = &enclave_base_image {
+            info!("Using enclave base image from environment variable: {}", s);
+        } else {
+            info!(
+                "Using enclave base image from tar file: {}",
+                enclave_base_image_path_str
             );
-        info!("Enclave base image is {}", enclave_base_image_str);
+        }
 
         let enclave_base_image =
-            get_enclave_base_image(&enclave_base_image_str, enclave_base_image_path_str).await?;
+            get_enclave_base_image(&mut enclave_base_image, enclave_base_image_path_str).await?;
 
         let user_program_config = create_user_program_config(
             &conversion_request.request.converter_options,
@@ -257,7 +250,7 @@ async fn run0(
 
     let parent_builder = PlatformParentImageBuilder {
         parent_image_builder: ParentImageBuilder {
-            parent_image,
+            parent_image: parent_image.expect("parent_image should not be None at this point"),
             dir: &temp_dir,
         },
         start_options: conversion_request.enclaves_options,
@@ -403,68 +396,108 @@ fn hex_response(arg: &str) -> Result<HexString> {
     })
 }
 
-async fn get_enclave_base_image(image: &str, image_path: String) -> Result<ImageWithDetails<'_>> {
+async fn get_enclave_base_image<'a>(
+    image: &'a mut Option<String>,
+    image_path: String,
+) -> Result<ImageWithDetails<'a>> {
     let username = env_var_or_none("ENCLAVE_IMAGE_USERNAME");
     let password = env_var_or_none("ENCLAVE_IMAGE_PASSWORD");
 
-    get_base_image(&image, image_path, username, password).await
+    get_base_image(image, image_path, username, password).await
 }
 
-async fn get_parent_base_image(image: &str) -> Result<()> {
+async fn get_parent_base_image(image: &mut Option<String>) -> Result<()> {
     let username = env_var_or_none("PARENT_IMAGE_USERNAME");
     let password = env_var_or_none("PARENT_IMAGE_PASSWORD");
 
-    let _ = get_base_image(&image, PARENT_IMAGE_PATH.to_owned(), username, password).await?;
+    let _ = get_base_image(image, PARENT_IMAGE_PATH.to_owned(), username, password).await?;
 
     Ok(())
 }
 
-async fn get_base_image(
-    image: &str,
+async fn get_base_image<'a>(
+    image: &'a mut Option<String>,
     base_image_tar_path: String,
     username: Option<String>,
     password: Option<String>,
-) -> Result<ImageWithDetails<'_>> {
+) -> Result<ImageWithDetails<'a>> {
     let auth_config = match (username, password) {
         (Some(username), Some(password)) => Some(AuthConfig { username, password }),
         _ => None,
     };
 
     let repository = DockerDaemon::new(&auth_config);
-    let reference = DockerReference::from_str(&image).map_err(|err| ConverterError {
-        message: format!(
-            "Requisite image {} address has bad format. {:?}",
-            image, err
-        ),
-        kind: ConverterErrorKind::BadRequest,
-    })?;
 
-    let details = match repository.get_local_image_details(&reference).await {
-        Ok(details) => details,
-        Err(message) => {
-            info!(
-                "Failed retrieving requisite {} image from local repository. {:?}",
-                image, message
-            );
+    // If the environment variable is set, try loading it instead
+    if let Some(image_name) = image {
+        let reference = DockerReference::from_str(image_name).map_err(|err| ConverterError {
+            message: format!(
+                "Requisite image {} address has bad format. {:?}",
+                image_name, err
+            ),
+            kind: ConverterErrorKind::BadRequest,
+        })?;
+
+        return match repository.get_local_image_details(&reference).await {
+            Ok(details) => Ok(ImageWithDetails { reference, details }),
+            Err(err) => Err(ConverterError {
+                message: format!(
+                    "Requisite image {} cannot be retrieved. {:?}",
+                    image_name, err
+                ),
+                kind: ConverterErrorKind::BadRequest,
+            }),
+        };
+    } else {
+        *image = Some(
             repository
                 .load_image(&base_image_tar_path)
                 .await
                 .map_err(|message| ConverterError {
-                    message: format!("Failed to load requisite {} image. {:?}", image, message),
+                    message: format!(
+                        "Failed to load requisite {} image. {:?}",
+                        base_image_tar_path, message
+                    ),
                     kind: ConverterErrorKind::DockerLoad,
-                })?;
-            info!("Loaded requisite from backup tar file");
-            repository
-                .get_local_image_details(&reference)
-                .await
-                .map_err(|message| ConverterError {
-                    message: format!("Failed retrieving requisite {} image. {:?}", image, message),
-                    kind: ConverterErrorKind::ImageGet,
-                })?
-        }
-    };
+                })?,
+        );
 
-    Ok(ImageWithDetails { reference, details })
+        let loaded_image_name = image.as_ref().unwrap();
+
+        info!(
+            "Loaded image {} from tar file {}",
+            loaded_image_name, base_image_tar_path
+        );
+
+        let reference =
+            DockerReference::from_str(loaded_image_name).map_err(|err| ConverterError {
+                message: format!(
+                    "Requisite image {} address has bad format. {:?}",
+                    loaded_image_name, err
+                ),
+                kind: ConverterErrorKind::BadRequest,
+            })?;
+
+        let details = match repository.get_local_image_details(&reference).await {
+            Ok(details) => details,
+            Err(message) => {
+                info!(
+                    "Failed retrieving requisite {} image from local repository. {:?}",
+                    loaded_image_name, message
+                );
+
+                return Err(ConverterError {
+                    message: format!(
+                        "Failed retrieving requisite {} image. {:?}",
+                        loaded_image_name, message
+                    ),
+                    kind: ConverterErrorKind::ImageGet,
+                });
+            }
+        };
+
+        Ok(ImageWithDetails { reference, details })
+    }
 }
 
 fn env_var_or_none(var_name: &str) -> Option<String> {
