@@ -1034,7 +1034,6 @@ pub(crate) async fn setup_enclave_certification<
         &mut app_cert,
         &node_agent_cli,
         app_config_id.clone().map(|id| id.as_bytes().to_vec()),
-        Some(cert_config.alt_names.clone()),
     )
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
     #[cfg(platform = "snp")]
@@ -1042,7 +1041,6 @@ pub(crate) async fn setup_enclave_certification<
         &mut app_cert,
         &node_agent_cli,
         app_config_id.clone().map(|id| id.as_bytes().to_vec()),
-        Some(cert_config.alt_names.clone()),
     )
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
 
