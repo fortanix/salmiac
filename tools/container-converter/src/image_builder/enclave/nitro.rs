@@ -178,10 +178,7 @@ impl<'a> EnclaveImageBuilder<'a> {
 
     pub(crate) fn get_enclave_base_details(
         _enclaves_options: &NitroEnclavesConversionRequestOptions,
-    ) -> (String, String) {
-        (
-            env::var("ENCLAVE_IMAGE").unwrap_or(crate::ENCLAVE_IMAGE.to_owned()),
-            crate::ENCLAVE_IMAGE_PATH.to_owned(),
-        )
+    ) -> String {
+        crate::ENCLAVE_IMAGE_PATH.to_owned()
     }
 }
