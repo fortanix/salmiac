@@ -204,6 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
+source = "git+ssh://git@github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1011-open-source-attestation-client#d21cbe1176be31094360f4d3669099a742bfb615"
 dependencies = [
  "b64-ct",
  "der",
@@ -212,7 +213,7 @@ dependencies = [
  "mbedtls",
  "nvml-wrapper",
  "once_cell",
- "pkix 0.2.6",
+ "pkix",
  "serde",
  "sgx-isa 0.5.0",
  "sgx_pkix 0.3.0",
@@ -494,6 +495,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
+source = "git+ssh://git@github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1011-open-source-attestation-client#d21cbe1176be31094360f4d3669099a742bfb615"
 dependencies = [
  "attestation",
  "der",
@@ -503,7 +505,7 @@ dependencies = [
  "hyper",
  "log 0.4.33",
  "mbedtls",
- "pkix 0.2.6",
+ "pkix",
  "thiserror 1.0.69",
  "tokio",
  "vsock 0.5.4",
@@ -815,7 +817,7 @@ dependencies = [
  "em-node-agent-client",
  "hyper",
  "mbedtls",
- "pkix 0.2.6",
+ "pkix",
  "rustc-serialize",
  "sdkms",
  "serde",
@@ -902,8 +904,7 @@ dependencies = [
  "nix 0.15.0",
  "openssl",
  "parent_lib",
- "pkix 0.1.2",
- "pkix 0.2.6",
+ "pkix",
  "rand 0.8.5",
  "rtnetlink",
  "salmiac-build-support",
@@ -1064,11 +1065,11 @@ dependencies = [
 [[package]]
 name = "ftx-cert-build"
 version = "0.1.0"
-source = "git+ssh://git@github.com/fortanix/ftx-cert-build.git?branch=pavan%2FRTE-1077#941c83d1defce469d61a1eb079d282e5f30e9535"
+source = "git+ssh://git@github.com/fortanix/ftx-cert-build.git?branch=pavan%2FRTE-1077#fe870daae9e5d24c0e9167210d33df9dbbdab1e8"
 dependencies = [
  "chrono",
  "mbedtls",
- "pkix 0.2.6",
+ "pkix",
  "thiserror 1.0.69",
 ]
 
@@ -2160,21 +2161,6 @@ checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
 name = "pkix"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "643768328ce074b546bc11af4581bc3e8f1242706be53946eb7b30f686194fba"
-dependencies = [
- "b64-ct",
- "bit-vec 0.6.3",
- "chrono",
- "lazy_static 1.4.0",
- "num-bigint",
- "num-integer",
- "yasna 0.3.2",
-]
-
-[[package]]
-name = "pkix"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c7f38ec00527d35a3af30f5234b147d0651da8ff8fdef7c3969506a6ceb5ec6"
@@ -2698,7 +2684,7 @@ checksum = "dbd99155dbd1b4c45ad6a742cb0415387b68f22ab7e8f4cabba4e49d606e5ded"
 dependencies = [
  "byteorder",
  "lazy_static 1.4.0",
- "pkix 0.2.6",
+ "pkix",
  "quick-error",
  "sgx-isa 0.4.1",
 ]
@@ -2711,9 +2697,9 @@ checksum = "6ead0e6c642f5517e27f8df341e15a1583866369b24a6d91a64bf83f68c206d7"
 dependencies = [
  "byteorder",
  "lazy_static 1.4.0",
- "pkix 0.2.6",
+ "pkix",
  "quick-error",
- "sgx-isa 0.4.1",
+ "sgx-isa 0.5.0",
 ]
 
 [[package]]
@@ -3262,7 +3248,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19d32b52e6e543790df4a35d7ea720aaf2358391496c07c575a6c931d4be09c0"
 dependencies = [
  "lazy_static 1.4.0",
- "pkix 0.2.6",
+ "pkix",
 ]
 
 [[package]]
