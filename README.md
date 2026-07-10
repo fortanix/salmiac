@@ -171,7 +171,7 @@ This guide allows you to build salmiac from source and convert your docker appli
       "snp_enclaves_options": {
          "cpu_count": 2,
          "mem_size": "4096M",
-         "enable_gpu_passthrough": true // Optional, do not enable without an available GPU
+         "enable_gpu_passthrough": true
       }
    }
    ```
