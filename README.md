@@ -1,12 +1,12 @@
 # Salmiac
 
-A confidential VM running unmodified container images in AWS [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/).
+A confidential VM running unmodified container images in AWS [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/) and AMD SEV-SNP.
 Salmiac makes it possible to run an application in isolated compute environments to protect and securely process highly sensitive data.
 
-By default, bare Nitro Enclaves doesn't provide any networking capability outside of the enclave environment as well
-as no persistent storage, meaning that all your data is lost when container image finishes its execution.
+By default, bare Nitro Enclaves doesn't provide any networking capability outside of the enclave environment and neither
+Ntiro Enclaves nor SNP have persistent storage, meaning that all your data is lost when container image finishes its execution.
 
-Salmiac enhances Nitro Enclaves by enabling networking for external communication and providing encrypted persistent storage.
+Salmiac enhances Nitro/SNP Enclaves by enabling networking for external communication and providing encrypted persistent storage.
 
 ## Useful Links
 
@@ -16,62 +16,64 @@ Salmiac enhances Nitro Enclaves by enabling networking for external communicatio
 
 ## Quick Start Guide
 
+Set up your Ubuntu based build system:
+   - Install Rust:
+   Follow [this](https://www.rust-lang.org/tools/install) guide.
+   - Install Docker:
+   Follow [this](https://docs.docker.com/engine/install/) guide to install version 24.0.x
+   OR
+   ```bash
+   apt-get install docker-ce=5:24.0.1-1~ubuntu.20.04~focal docker-ce-cli=5:24.0.1-1~ubuntu.20.04~focal  containerd.io
+   ```
+   - Install tools needed to build the linux kernel:
+   Follow [this](https://kernelnewbies.org/KernelBuild) guide.
+   - Install additional dependencies:
+   ```bash
+   apt-get install pkg-config libclang-dev cmake libpcap-dev
+   ```
+   * Build `enclave-base` image
+   ```bash
+   # Run from the root of the repository
+   docker build --no-cache -t enclave-base docker/enclave-base 
+   ```
+### Nitro
+
 This guide allows you to build salmiac from source and convert your docker application into a one that can run in a nitro enclave.
 
-1. Set up your Ubuntu based build system:
-    - Install Rust:
-      Follow [this](https://www.rust-lang.org/tools/install) guide.
-    - Install Docker:
-      Follow [this](https://docs.docker.com/engine/install/) guide to install version 24.0.x
-      OR
-      ```bash
-      apt-get install docker-ce=5:24.0.1-1~ubuntu.20.04~focal docker-ce-cli=5:24.0.1-1~ubuntu.20.04~focal  containerd.io
-      ```
-    - Install tools needed to build the linux kernel:
-      Follow [this](https://kernelnewbies.org/KernelBuild) guide.
-    - Install additional dependencies:
-      ```bash
-      apt-get install pkg-config libclang-dev cmake libpcap-dev
-      ```
 
-2. Set up your Nitro-enabled AWS EC2 instance:
+1. Set up your Nitro-enabled AWS EC2 instance:
     - Install docker on your EC2:
       Follow [this](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-docker.html) guide.
     - Install nitro-cli on your EC2:
       Follow [this](https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-cli-install.html) guide.
 
 
-3. Build requisite docker images needed to run container converter
+2. Build parent base image needed to run container converter
    ```bash
    # Run from the root of the repository
-   # build enclave-base image
-   cd salmiac/docker
-   docker build -t enclave-base enclave-base
-         
-   # build parent-base-nitro image
-   docker build -t parent-base-nitro nitro/parent-base
+   # Build parent-base-nitro image
+   docker build --no-cache docker/nitro/parent-base -t parent-base-nitro
     ```
 
-4. Build the aws nitro blobs. This step takes a long time and needs to be done only once. The artifacts produced by this step need not be cleaned up unless there is an update to the kernel.
+3. Build the aws nitro blobs. This step takes a long time and needs to be done only once. The artifacts produced by this step need not be cleaned up unless there is an update to the kernel.
    ```bash
    cd salmiac/docker/nitro/amzn-linux-nbd
    ./build-enclave-blobs.sh build
     ```
 
-5. Build the converter image. To produce a debug build of the converter, change FLAVOR to debug from the step below.
+4. Build the converter image. To produce a debug build of the converter, change FLAVOR to debug from the step below.
     ```bash
-      # Run from the root of the repository
-      cd salmiac
-      export FLAVOR=release # To produce a debug build of the converter, change the value to `debug`
-      export SALMIAC_PLATFORM=nitro # For more info refer to build-support/README.md
-      ./build-converter.sh
+   # Run from the root of the repository
+   export FLAVOR=release # To produce a debug build of the converter, change the value to `debug`
+   export SALMIAC_PLATFORM=nitro # For more info refer to build-support/README.md
+   ./build-converter.sh
 
-      # To build converter
-      cd docker/$SALMIAC_PLATFORM
-      ./build-conv-container.sh $FLAVOR
+   # To build nitro converter
+   cd docker/$SALMIAC_PLATFORM
+   ./build-conv-container.sh $FLAVOR
     ```
 
-6. Create a simple conversion request json file (say /tmp/req.json)
+5. Create a simple conversion request json file (say /tmp/req.json)
    More details about each field of the conversion request can be found in /salmiac/api-model/src/converter.rs
 
    ```javascript
@@ -80,7 +82,7 @@ This guide allows you to build salmiac from source and convert your docker appli
          "name": "hello-world"
       },
       "output_image": {
-         "name": "hello-world-nitro"
+         "name": "hello-world-nitro:latest"
       },
       "converter_options": {
          "push_converted_image": false,
@@ -93,20 +95,159 @@ This guide allows you to build salmiac from source and convert your docker appli
    }
    ```
 
-7. Make your application Nitro VM-capable by running container converter with the file from previous step.
+6. Make your application Nitro VM-capable by running container converter with the file from previous step.
    The converter by default pulls the input image and pushes the output image to remote repositories. These images are then cleaned up from the local docker cache. In our example, the output image push is disabled in the request json and to preserve the images in the docker cache, 'PRESERVE_IMAGES' environment variable is specified.
    ```bash
-      docker run --rm -e PARENT_IMAGE=parent-base-nitro -e ENCLAVE_IMAGE=enclave-base --name nitro-converter --user 0 --privileged -v /var/run/docker.sock:/var/run/docker.sock -e PRESERVE_IMAGES=input,result -v /tmp/req.json:/app/req.json nitro-converter --request-file /app/req.json
+   docker run --rm \
+      -e PARENT_IMAGE=parent-base-nitro \
+      -e ENCLAVE_IMAGE=enclave-base \
+      --name nitro-converter \
+      --user 0 \
+      --privileged \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -e PRESERVE_IMAGES=input,result \
+      -v /tmp/req.json:/app/req.json \
+      nitro-converter \
+      --request-file /app/req.json
     ```
 
-8. Copy converted image into your EC2 instance and run the image.
+7. Copy converted image into your EC2 instance and run the image.
    Note the use of the environment variable which disables the use of default certificates, which allows you to skip access to Fortanix CCM. Read more about environment variables used in salmiac here - /salmiac/ENV_VARS.md
    ```bash
-      # Copy your converted image from step #7 into your EC2 instance
-      # ...       
-      # Run copied image inside EC2
-      docker run -it --rm --privileged -v /run/nitro_enclaves:/run/nitro_enclaves -e ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE=true hello-world-nitro
+   # Copy your converted image from step #7 into your EC2 instance
+   # ...       
+   # Run copied image inside EC2
+   docker run -it --rm \
+      --privileged \
+      -v /run/nitro_enclaves:/run/nitro_enclaves \
+      -e ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE=true \
+      hello-world-nitro
+   ```
+
+### SNP
+
+This guide allows you to build salmiac from source and convert your docker application into a one that can run in an SNP Enclave.
+
+1. Build requisite docker images needed to run container converter
+   ```bash
+   # Run from the root of the repository
+   # build enclave-base-gpu image
+   docker build -t enclave-base-gpu docker/enclave-base-gpu
+
+   # build parent-base-snp image
+   docker build --no-cache \
+      --build-context parent-base=docker/nitro/parent-base \
+      -t parent-base-snp \
+      docker/qemu/parent-base
     ```
+
+2. Build the converter image. To produce a debug build of the converter, change FLAVOR to debug from the step below.
+    ```bash
+   # Run from the root of the repository
+   export FLAVOR=release # To produce a debug build of the converter, change the value to `debug`
+   export SALMIAC_PLATFORM=snp # For more info refer to build-support/README.md
+   ./build-converter.sh
+
+   # To build nitro converter
+   cd docker/$SALMIAC_PLATFORM
+   ./build-conv-container.sh $FLAVOR
+    ```
+
+3. Create a simple conversion request json file (say /tmp/req.json)
+   More details about each field of the conversion request can be found in /salmiac/api-model/src/converter.rs
+
+   ```javascript
+   {
+      "input_image": {
+         "name": "hello-world"
+      },
+      "output_image": {
+         "name": "hello-world-snp"
+      },
+      "converter_options": {
+         "push_converted_image": false,
+         "enable_overlay_filesystem_persistence": false
+      },
+      "snp_enclaves_options": {
+         "cpu_count": 2,
+         "mem_size": "4096M",
+         "enable_gpu_passthrough": true
+      }
+   }
+   ```
+
+4. Make your application SNP VM-capable by running container converter with the file from previous step.
+   The converter by default pulls the input image and pushes the output image to remote repositories. These images are then cleaned up from the local docker cache. In our example, the output image push is disabled in the request json and to preserve the images in the docker cache, 'PRESERVE_IMAGES' environment variable is specified.
+   ```bash
+   docker run --rm \
+      -e PARENT_IMAGE=parent-base-snp \
+      -e ENCLAVE_IMAGE=enclave-base-gpu \
+      --name snp-converter \
+      --user 0 \
+      --privileged \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -e PRESERVE_IMAGES=input,result \
+      -v /tmp/req.json:/app/req.json \
+      snp-converter \
+      --request-file /app/req.json
+    ```
+
+
+5. In order to use a converted image with a passthrough GPU, the GPU must first be configured, if this is not already done. The ID's of the GPU must also be found.
+
+   If GPU passthrough is not enabled you may skip to step 6. 
+
+   In order to get the PCI BDF and vendor:device ID's, run
+
+   ```bash
+   lspci -D -d 10de:
+   # Note the BDF (e.g. 0000:21:00.0) and IDs (e.g. 10de:2330)
+   ```
+
+   Save these values for future use.
+   On the host machine, run
+   
+   ```bash
+   lspci -nnk -d 10de:
+   ```
+
+   If this returns
+   
+   ```bash
+   Kernel driver in use: vfio-pci
+   ```
+
+   then you may continue to run the EnclaveOs container image.
+
+   Otherwise, run the following commands (as root), replacing 0000:21:00.0 with your BDF and 10de 2330 with your vendor device ID's:
+   
+   ```bash
+   sudo modprobe vfio-pci
+   echo 0000:21:00.0 | sudo tee /sys/bus/pci/devices/0000:21:00.0/driver/unbind 2>/dev/null
+   echo 10de 2330 | sudo tee /sys/bus/pci/drivers/vfio-pci/new_id
+   ```
+
+   Execute `lspci -nnk -d 10de:` again, and if all is correct, it will be shown that the `vfio-pci` driver is in use.
+   
+6. To run the container, execute the following command, setting `SNP_GPU_BDF` using the value obtained previously, and set `APPCONFIG_ID` if one has been created for this instance.
+
+   The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container.
+
+   The variables `ENCLAVEOS_DEBUG` and `RUST_LOG` help with debugging any issues, and can be excluded if more detailed logging is not required.
+
+   ```bash
+   docker run \
+    --rm \
+    --privileged \
+    --runtime="runc" \
+    -e ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE=false \
+    -e ENCLAVEOS_DEBUG=debug \
+    -e RUST_LOG=debug \
+    -e MEM_SIZE=4096M \
+    -e APPCONFIG_ID=0000000000000000000000000000000000000000000000000000000000000000 \
+    -e SNP_GPU_BDF=0000:21:00.0 \ # Exclude if not using GPU passthrough
+    private-registry/example-converted:tag
+   ```
 
 ## Releases
 

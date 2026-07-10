@@ -28,6 +28,9 @@ The following list of variables is used while running the converted salmiac imag
 ##### Filesystem related variables
 - FS_API_KEY - API key used for authenticating with DSM if the salmiac app is not converted with app
   certs enabled.
+- DSM_APP_ID - ID of the app within the specified DSM instance.
+- DSM_ENDPOINT - URL for the DSM instance which holds the device passphrase.
+- RW_STORAGE_SIZE - Size in bytes for parent's read/write block file.
 
 ##### Environment variables that help with application certificates
 - ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE - If set, can be used to skip fetching
@@ -40,7 +43,7 @@ set i.e. when the enclave is running in debug mode. Unless the build/app is
 registered as a debug build in a test-only deployment account.
 
 ##### Environmental variables that relate to workflows
-- APPCONFIG_ID - A 256-bit hash of the workflow runtime configuration,
+- APPCONFIG_ID/ENCLAVEOS_APPCONFIG_ID - A 256-bit hash of the workflow runtime configuration,
   represented as a 64-character lower-case hexadecimal string. This is only
   necessary to set if using a workflow with an app that expects one to be present.
 
