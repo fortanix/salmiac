@@ -21,17 +21,9 @@ const RESOURCES_PARENT_DIR: &str = "src/resources/parent";
 const RESOURCES_ENCLAVE_DIR: &str = "src/resources/enclave";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    for env_var in [
-        "EMBED_ATTEST_CLIENT_ROCHE_PATH",
-        "EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN",
-    ] {
-        println!("cargo::rerun-if-env-changed={}", env_var);
-    }
-
     for dir in &[
         PathBuf::from("../../vsock-proxy"),
         PathBuf::from("../../enclave-startup"),
-        PathBuf::from("../../embedded-attestation-client"),
     ] {
         for entry in walkdir::WalkDir::new(dir)
             .into_iter()
