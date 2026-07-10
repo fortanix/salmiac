@@ -267,7 +267,7 @@ impl DockerUtil for DockerDaemon {
                                 loaded_image_name = Some(image_name.trim().to_owned());
                             }
                         }
-                        _ => ()
+                        _ => (),
                     }
                 }
                 Err(e) => {
@@ -281,7 +281,9 @@ impl DockerUtil for DockerDaemon {
 
         match loaded_image_name {
             Some(name) => Ok(name),
-            None => Err(format!("Image loading is completed, but no image is loaded.")),
+            None => Err(format!(
+                "Image loading is completed, but no image is loaded."
+            )),
         }
     }
 
