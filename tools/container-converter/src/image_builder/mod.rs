@@ -76,7 +76,7 @@ mod tests {
             todo!()
         }
 
-        async fn load_image(&self, _tar_path: &str) -> Result<(), String> {
+        async fn load_image(&self, _tar_path: &str) -> Result<String, String> {
             todo!()
         }
 
