@@ -28,6 +28,7 @@ const PCI_HOLE_SIZE_GLOBAL: &str = "q35-pcihost.pci-hole64-size=256G"; // Should
 const MOCK_GPU_DEVICE: &str = "e1000e,bus=pci.1,addr=0x0,romfile="; // To mock the GPU that would be available at runtime
 const GPU_PCI_BUS_DEVICE: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
 const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
+const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
 
 pub(crate) struct TdxMeasurementInputs<'a> {
     pub ovmf: &'a Path,
@@ -77,18 +78,22 @@ pub(crate) async fn compute_tdx_launch_measurement(
     );
     vm_objects.push(memory_backend_device);
 
+    // NOTE: Be mindful about the order of devices and ensure that the order of devices here matches the
+    //     - launch configuration in vsock-proxy to reproduce conversion time measurements at runtime.
     let mut vm_devices = Vec::new();
-    vm_devices.push(VSOCK_DEVICE.to_string());
-
     let machine_arg = format!(
         "q35,kernel_irqchip=split,memory-backend={MEMORY_BACKEND_ID},hpet=off,smm=off,pic=off",
     );
     let mut vm_globals = Vec::new();
+    let mut vm_fw_cfg = Vec::new();
+
     if inputs.enable_gpu_passthrough {
+        vm_globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
+        vm_fw_cfg.push(FW_CFG_MMIO64.to_string());
         vm_devices.push(GPU_PCI_BUS_DEVICE.to_string());
         vm_devices.push(MOCK_GPU_DEVICE.to_string());
-        vm_globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
     }
+    vm_devices.push(VSOCK_DEVICE.to_string());
 
     let initrd = inputs.initrd.display().to_string();
     let machine = Machine::builder()
@@ -119,7 +124,7 @@ pub(crate) async fn compute_tdx_launch_measurement(
                             objects: vm_objects,
                             netdevs: vec![],
                             devices: vm_devices,
-                            fw_cfg: vec![],
+                            fw_cfg: vm_fw_cfg,
                             cpu: QEMU_CPU_TYPE.to_string(),
                             serial: Some(DEFAULT_SERIAL_DEVICE.to_string()),
                         })
