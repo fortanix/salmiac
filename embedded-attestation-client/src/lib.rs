@@ -44,7 +44,9 @@ pub struct EmbeddedAttestationClient {
 
 impl EmbeddedAttestationClient {
     fn attest_client_path(&self) -> PathBuf {
-        self.temp_dir.path().join(attestation_client_target_bin_name!())
+        self.temp_dir
+            .path()
+            .join(attestation_client_target_bin_name!())
     }
 
     fn create_client_file(&self) -> std::io::Result<()> {

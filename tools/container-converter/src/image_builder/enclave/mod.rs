@@ -49,9 +49,9 @@ use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
 #[cfg(any(platform = "snp", platform = "tdx"))]
-use api_model::{ByteUnit, EnclavesOptions};
-#[cfg(any(platform = "snp", platform = "tdx"))]
 use api_model::NvidiaDriverCapability;
+#[cfg(any(platform = "snp", platform = "tdx"))]
+use api_model::{ByteUnit, EnclavesOptions};
 use docker_image_reference::Reference as DockerReference;
 use log::{debug, info, warn};
 use nix::sys::statfs::statfs;
@@ -176,7 +176,6 @@ impl EnclaveSettings {
             cpu_count: enclaves_options.cpu_count,
             #[cfg(any(platform = "snp", platform = "tdx"))]
             mem_size: enclaves_options.mem_size.clone(),
-
         }
     }
 }
