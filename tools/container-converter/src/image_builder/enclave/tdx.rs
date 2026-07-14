@@ -9,15 +9,19 @@ use std::path::Path;
 
 use api_model::enclave::{FileSystemConfig, UserConfig};
 use api_model::tdx::TdxEnclavesMeasurements;
-use api_model::{EnclavesOptions, HexString};
+use api_model::EnclavesOptions;
 
+use crate::image_builder::blob_finder::BlobFinder;
 use crate::image_builder::enclave::initramfs::GpuSupportedInitramfsBuilder;
 use crate::image_builder::enclave::nvidia::insert_nvidia_env_vars;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
+use crate::image_builder::enclave::tdx_measurement::{
+    compute_tdx_launch_measurement, TdxMeasurementInputs,
+};
 use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
-use crate::DockerUtil;
 use crate::Result;
+use crate::{ConverterError, DockerUtil};
 
 pub(crate) struct EnclaveImageBuilder<'a> {
     pub(crate) enclave_image_builder: GenericEnclaveImageBuilder<'a>,
@@ -112,18 +116,26 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
 
     async fn compute_launch_measurements(
         &self,
-        _enclave_settings: &EnclaveSettings,
-        _initramfs_file_path: &Path,
+        enclave_settings: &EnclaveSettings,
+        initramfs_file_path: &Path,
     ) -> Result<Self::Measurements> {
-        // TODO (RTE-998): Implement actual measurements call.
-        let _ovmf = self.ovmf_filename();
+        let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
+        let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
+        static KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
 
-        Ok(TdxEnclavesMeasurements {
-            mrtd: HexString::new([0]),
-            rtmr0: HexString::new([0]),
-            rtmr1: HexString::new([0]),
-            rtmr2: HexString::new([0]),
-            rtmr3: HexString::new([0]),
+        compute_tdx_launch_measurement(&TdxMeasurementInputs {
+            ovmf: &ovmf_path,
+            kernel: &kernel_path,
+            initrd: initramfs_file_path,
+            cmdline: Some(KERNEL_CMDLINE),
+            vcpus: enclave_settings.cpu_count,
+            memory: enclave_settings.mem_size.clone().ok_or(ConverterError {
+                message: "Tdx Image conversion requires mem_size in the \"tdx_enclaves_options\""
+                    .to_string(),
+                kind: crate::ConverterErrorKind::EnclaveImageCreation,
+            })?,
+            enable_gpu_passthrough: enclave_settings.gpu_passthrough,
         })
+        .await
     }
 }

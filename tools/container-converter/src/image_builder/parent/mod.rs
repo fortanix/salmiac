@@ -28,7 +28,7 @@ pub(crate) use self::simulator::ParentImageBuilder as PlatformParentImageBuilder
 pub(crate) mod qemu;
 
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::Path;
 
 use tempfile::TempDir;
@@ -132,12 +132,36 @@ impl<'a> ParentImageBuilder<'a> {
 }
 
 pub(crate) fn move_file(from: &Path, to: &Path) -> Result<()> {
-    fs::rename(from, to).map_err(|message| ConverterError {
+    fs::rename(from, to).or_else(|error| match error.kind() {
+        ErrorKind::CrossesDevices => copy_and_delete_file(from, to),
+        _ => Err(ConverterError {
+            message: format!(
+                "Failed moving file {} into build context {}. {:?}",
+                from.display(),
+                to.display(),
+                error
+            ),
+            kind: ConverterErrorKind::RequisitesCreation,
+        }),
+    })
+}
+
+pub(crate) fn copy_and_delete_file(from: &Path, to: &Path) -> Result<()> {
+    fs::copy(from, to).map_err(|error| ConverterError {
         message: format!(
-            "Failed moving file {} into build context {}. {:?}",
+            "Failed moving file {} into build context {} at copy. {:?}",
             from.display(),
             to.display(),
-            message
+            error
+        ),
+        kind: ConverterErrorKind::RequisitesCreation,
+    })?;
+    fs::remove_file(from).map_err(|error| ConverterError {
+        message: format!(
+            "Failed moving file {} into build context {} at delete. {:?}",
+            from.display(),
+            to.display(),
+            error
         ),
         kind: ConverterErrorKind::RequisitesCreation,
     })

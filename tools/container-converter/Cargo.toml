@@ -28,6 +28,7 @@ serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "bas
 shiplift = { git = "https://github.com/fortanix/shiplift.git" }
 sys-mount = "3.1.0"
 tar = { git = "https://github.com/alexcrichton/tar-rs" }
+tdx-measure = { git = "https://github.com/fortanix/tdx-measure.git" }
 tempfile = "3.2.0"
 tokio = { version = "1.0.1", features = ["macros", "rt"] }
 toml = "0.5.8"
