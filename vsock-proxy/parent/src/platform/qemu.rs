@@ -32,6 +32,7 @@ pub(super) mod constants {
     pub const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
 
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
+    pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 }
 
 pub(super) trait QemuPlatform {
@@ -94,6 +95,10 @@ pub(super) trait QemuPlatform {
         env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
     }
 
+    fn globals(&self) -> Vec<String> {
+        vec![]
+    }
+
     fn build_qemu_args(&self) -> Vec<String> {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
@@ -110,6 +115,9 @@ pub(super) trait QemuPlatform {
             "-monitor",
             "none",
             "-no-reboot",
+            "-nodefaults",
+            "-serial",
+            constants::DEFAULT_SERIAL_DEVICE
         ];
 
         if let Some(firmware_path) = self.firmware_path() {
@@ -124,6 +132,11 @@ pub(super) trait QemuPlatform {
         let objects = self.objects();
         for object in &objects {
             args.extend(["-object", object]);
+        }
+
+        let globals = self.globals();
+        for global in &globals {
+            args.extend(["-global", global]);
         }
 
         let gpu_device = self.gpu().as_ref().map(Self::build_vfio_iommu_arg);

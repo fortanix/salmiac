@@ -25,6 +25,7 @@ use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
 use api_model::HexString;
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
+use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use shiplift::image::DeleteOptions;
 use shiplift::{Docker, Image};
@@ -115,9 +116,9 @@ const ENCLAVE_IMAGE: &str = "enclave-base";
 const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
 
 #[cfg(platform = "snp")]
-const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-snp-gpu";
+const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-gpu";
 #[cfg(platform = "tdx")]
-const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-tdx-gpu";
+const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-gpu";
 
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
@@ -918,4 +919,9 @@ mod tests {
         });
         assert!(validate_request(&request).is_ok());
     }
+}
+
+lazy_static! {
+    pub static ref SALMIAC_TEMP_DIR: String =
+        env::var("SALMIAC_TEMP_DIR").unwrap_or("/tmp".to_string());
 }

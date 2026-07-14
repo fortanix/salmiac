@@ -11,6 +11,7 @@ use crate::platform::qemu::QemuPlatform;
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.inteltdx.fd";
 const MEMORY_BACKEND_ID: &str = "mem0";
 const TDX_ID: &str = "tdx0";
+const PCI_HOLE_SIZE_GLOBAL: &str = "q35-pcihost.pci-hole64-size=256G";
 
 struct TdxPlatform;
 
@@ -52,6 +53,19 @@ impl QemuPlatform for TdxPlatform {
 
     fn objects(&self) -> Vec<String> {
         vec![self.memory_backend(), Self::tdx_guest()]
+    }
+
+    fn gpu(&self) -> Option<String> {
+        env::var("TDX_GPU_BDF").ok()
+    }
+
+    fn globals(&self) -> Vec<String> {
+        let mut globals = vec![];
+
+        if self.gpu().is_some() {
+            globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
+        }
+        globals
     }
 }
 
