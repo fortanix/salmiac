@@ -1,4 +1,4 @@
-# Download OVMF and EFI boot stubb
+# Download OVMF and EFI boot stub
 ARG NVIDIA_DRIVER_BRANCH=595
 
 FROM ubuntu:25.10 AS apt_extract
@@ -10,9 +10,9 @@ RUN apt-get download systemd-boot-efi && \
     dpkg -x systemd-boot-efi*.deb system_boot_efi_dir && \
     cp system_boot_efi_dir/usr/lib/systemd/boot/efi/linuxx64.efi.stub /blob
 
-RUN apt-get download ovmf-inteltdx && \
-    dpkg -x ovmf*.deb ovmf_dir && \
-    cp ovmf_dir/usr/share/ovmf/OVMF.inteltdx.fd /blob
+# RUN apt-get download ovmf-inteltdx && \
+#    dpkg -x ovmf*.deb ovmf_dir && \
+#    cp ovmf_dir/usr/share/ovmf/OVMF.inteltdx.fd /blob
 
 FROM ubuntu:24.04 AS nvidia_userspace
 ARG NVIDIA_DRIVER_BRANCH
@@ -44,6 +44,9 @@ COPY --from=apt_extract /blob /opt/fortanix/enclave-os/blobs
 COPY --from=nvidia_userspace /nvidia-driver-payload /opt/fortanix/enclave-os/nvidia-driver-payload
 
 # These need to be pulled in from Jenkins https://jenkins.fortanix.net/job/build-salmiac-kernel/80/artifact/
+
+# Copy custom OVMF
+COPY staging/tdx/OVMF.inteltdx.fd /opt/fortanix/enclave-os/blobs/OVMF.inteltdx.fd
 
 # Copy gpu disabled artifacts
 COPY staging/kernel_disabled_gpu/init /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/init
