@@ -108,7 +108,7 @@ pub(crate) async fn compute_tdx_launch_measurement(
         .distribution(GUEST_OS)
         .qemu_source_url(QEMU_SOURCE_TAR_URL)
         .qemu_source_sha256(QEMU_SOURCE_TAR_HASH)
-        .create_acpi_table(true)
+        .create_acpi_table(false)
         .image_config(
             ImageConfig::builder()
                 .boot_config(
@@ -138,6 +138,7 @@ pub(crate) async fn compute_tdx_launch_measurement(
         .boot_order("")
         .table_loader("")
         .rsdp("")
+        .exclude_acpi_tables_rtmr0(true)
         .build();
 
     let measurements = machine.measure().map_err(|error| ConverterError {
