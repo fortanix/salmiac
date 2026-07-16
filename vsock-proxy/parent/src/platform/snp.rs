@@ -98,7 +98,8 @@ async fn start_snp_guest() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use crate::platform::qemu::tests::diff_args;
+    use std::iter::FromIterator;
 
     #[test]
     fn test_build_qemu_snp_args() {
@@ -117,10 +118,9 @@ mod tests {
             "-append", "console=ttyS0 rdinit=/init loglevel=7",
             "-device", "vhost-vsock-pci,guest-cid=3",
         ];
-        let expected: Vec<String> = expected.into_iter().map(String::from).collect();
-        let expected: HashSet<String> = expected.into_iter().collect();
+
         let platform = SnpPlatform {};
-        let args: HashSet<String> = platform.build_qemu_args().into_iter().collect();
-        assert_eq!(expected, args, "QEMU args mismatch",);
+        let args: Vec<String> = platform.build_qemu_args().into_iter().collect();
+        diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
     }
 }

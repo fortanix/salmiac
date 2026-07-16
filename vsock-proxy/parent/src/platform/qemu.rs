@@ -217,3 +217,68 @@ fn require_vfio_device(bdf: &str) -> Result<(), String> {
     let vfio_group_path = format!("/dev/vfio/{group}");
     require_file("VFIO group device", &vfio_group_path)
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::collections::HashMap;
+    use std::collections::HashSet;
+
+    fn parse_args_as_kvp<'a>(args: &[&'a str]) -> HashMap<&'a str, Option<&'a str>> {
+        let mut map = HashMap::<&str, Option<&str>>::new();
+
+        let mut last_arg = None;
+
+        for arg in args {
+            if arg.starts_with("-") {
+                last_arg = Some(arg);
+                map.insert(arg, None);
+            } else {
+                if let Some(key) = last_arg {
+                    map.entry(key).and_modify(|val| *val = Some(arg));
+                    last_arg = None;
+                } else {
+                    panic!();
+                }
+            }
+        }
+        map
+    }
+
+    pub fn diff_args(expected: &[&str], actual: &[&str]) {
+        let expected = parse_args_as_kvp(expected);
+        let actual = parse_args_as_kvp(actual);
+
+        let keys_in_expected = expected.keys().copied().collect::<HashSet<_>>();
+        let keys_in_actual = actual.keys().copied().collect::<HashSet<_>>();
+        let intersect = keys_in_expected
+            .intersection(&keys_in_actual)
+            .copied()
+            .collect::<HashSet<_>>();
+
+        let mut success = true;
+
+        for key in &intersect {
+            if !expected.get(key).unwrap().eq(actual.get(key).unwrap()) {
+                println!(
+                    "Argument {:?} differs between expected and actual: {:?} vs {:?}",
+                    key,
+                    expected.get(key).unwrap(),
+                    actual.get(key).unwrap()
+                );
+                success = false;
+            }
+        }
+
+        for item in keys_in_expected.difference(&intersect) {
+            println!("Present in actual but not in expected: {:?}", item);
+            success = false;
+        }
+
+        for item in keys_in_actual.difference(&intersect) {
+            println!("Present in expected but not in actual: {:?}", item);
+            success = false;
+        }
+
+        assert!(success);
+    }
+}
