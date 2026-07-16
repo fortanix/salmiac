@@ -1028,12 +1028,23 @@ pub(crate) async fn setup_enclave_certification<
     let node_agent_cli = NodeAgentClient::init()
         .map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
 
+    // Due to having no provision in the client for a separate Subject and SAN extension,
+    // the two should be combined into one list of names
+    let mut alt_names = cert_config.alt_names.clone();
+    if let Some(name) = &cert_config.subject {
+        // Do not put duplicate names into the list
+        if !alt_names.contains(name) {
+            alt_names.insert(0, name.clone());
+        }
+    }
+
     // If attestation succeeds, app_cert is populated with the certificate
     #[cfg(platform = "tdx")]
     BaremetalTdx::attest_and_request_app_cert(
         &mut app_cert,
         &node_agent_cli,
         app_config_id.clone().map(|id| id.as_bytes().to_vec()),
+        Some(alt_names),
     )
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
     #[cfg(platform = "snp")]
@@ -1041,6 +1052,7 @@ pub(crate) async fn setup_enclave_certification<
         &mut app_cert,
         &node_agent_cli,
         app_config_id.clone().map(|id| id.as_bytes().to_vec()),
+        Some(alt_names),
     )
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
 
