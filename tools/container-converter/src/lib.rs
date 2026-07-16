@@ -96,30 +96,7 @@ impl fmt::Display for ConverterError {
 
 impl Error for ConverterError {}
 
-#[cfg(platform = "nitro")]
-const PARENT_IMAGE: &str = "parent-base-nitro";
-
-#[cfg(platform = "snp")]
-const PARENT_IMAGE: &str = "parent-base-snp";
-#[cfg(platform = "tdx")]
-const PARENT_IMAGE: &str = "parent-base-tdx";
-
-#[cfg(platform = "simulator")]
-const PARENT_IMAGE: &str = "parent-base-simulator";
-
 const PARENT_IMAGE_PATH: &str = "parent-base.tar";
-
-#[cfg(any(platform = "nitro", platform = "snp", platform = "tdx"))]
-const ENCLAVE_IMAGE: &str = "enclave-base";
-
-#[cfg(platform = "simulator")]
-const ENCLAVE_IMAGE: &str = "enclave-base-simulator";
-
-#[cfg(platform = "snp")]
-const ENCLAVE_IMAGE_SNP_GPU: &str = "enclave-base-gpu";
-#[cfg(platform = "tdx")]
-const ENCLAVE_IMAGE_TDX_GPU: &str = "enclave-base-gpu";
-
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
 #[cfg(any(platform = "snp", platform = "tdx"))]
@@ -488,8 +465,8 @@ async fn get_base_image<'a>(
         let loaded_image_name = image.as_ref().unwrap();
 
         info!(
-            "Loaded requisite from backup tar file: {}",
-            loaded_image_name
+            "Loaded image {} from tar file {}",
+            loaded_image_name, base_image_tar_path
         );
 
         let reference =

@@ -232,7 +232,7 @@ impl DockerUtil for DockerDaemon {
                     "Failed pulling image {} from remote repository. {:?}",
                     image.to_string(),
                     err
-                ))
+                ));
             }
             Ok(_) => {}
         }
@@ -264,7 +264,16 @@ impl DockerUtil for DockerDaemon {
                     match output {
                         ImageBuildChunk::Update { stream } => {
                             if let Some(image_name) = stream.strip_prefix("Loaded image: ") {
-                                loaded_image_name = Some(image_name.trim().to_owned());
+                                if loaded_image_name.is_none() {
+                                    loaded_image_name = Some(image_name.trim().to_owned());
+                                } else {
+                                    return Err(format!(
+                                        "Loaded docker image {:?} contains more than one valid images. Previously loaded image was {:?}, while another image is {:?}",
+                                        tar_path,
+                                        loaded_image_name.unwrap(),
+                                        image_name
+                                    ));
+                                }
                             }
                         }
                         _ => (),
