@@ -204,7 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
-source = "git+ssh://git@github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1011-open-source-attestation-client#2026b030c0ddbddc8becff8f5ad8e6f2f8c7a8c0"
+source = "git+https://github.com/fortanix/attestation.git#8dfdaedee989e1368917dba3642aec923c4e605b"
 dependencies = [
  "b64-ct",
  "der",
@@ -495,7 +495,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
-source = "git+ssh://git@github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1011-open-source-attestation-client#2026b030c0ddbddc8becff8f5ad8e6f2f8c7a8c0"
+source = "git+https://github.com/fortanix/attestation.git#8dfdaedee989e1368917dba3642aec923c4e605b"
 dependencies = [
  "attestation",
  "der",
@@ -1065,7 +1065,7 @@ dependencies = [
 [[package]]
 name = "ftx-cert-build"
 version = "0.1.0"
-source = "git+ssh://git@github.com/fortanix/ftx-cert-build.git#06884a5c9d32547bd2ae9d1c596814660a8d4e97"
+source = "git+https://github.com/fortanix/ftx-cert-build.git#67893e9c589b54dec891fdbfb5b3bfb7bc744502"
 dependencies = [
  "chrono",
  "mbedtls",
