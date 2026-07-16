@@ -117,7 +117,7 @@ pub(super) trait QemuPlatform {
             "-no-reboot",
             "-nodefaults",
             "-serial",
-            constants::DEFAULT_SERIAL_DEVICE
+            constants::DEFAULT_SERIAL_DEVICE,
         ];
 
         if let Some(firmware_path) = self.firmware_path() {
