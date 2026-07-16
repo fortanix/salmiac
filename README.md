@@ -136,7 +136,7 @@ This guide allows you to build salmiac from source and convert your docker appli
 
    # build parent-base-snp image
    docker build --no-cache \
-      --build-context parent-base=docker/nitro/parent-base \
+      --build-context common-build-context=docker/common-build-context \
       -t parent-base-snp \
       docker/qemu/parent-base
     ```
@@ -229,7 +229,7 @@ This guide allows you to build salmiac from source and convert your docker appli
 
    Execute `lspci -nnk -d 10de:` again, and if all is correct, it will be shown that the `vfio-pci` driver is in use.
    
-6. To run the container, execute the following command, setting `SNP_GPU_BDF` using the value obtained previously, and set `APPCONFIG_ID` if one has been created for this instance.
+6. To run the container, execute the following command, setting `SNP_GPU_BDF` using the value obtained previously (if not using GPU passthrough do not include this variable), and set `APPCONFIG_ID` if one has been created for this instance.
 
    The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container.
 
@@ -245,7 +245,7 @@ This guide allows you to build salmiac from source and convert your docker appli
     -e RUST_LOG=debug \
     -e MEM_SIZE=4096M \
     -e APPCONFIG_ID=0000000000000000000000000000000000000000000000000000000000000000 \
-    -e SNP_GPU_BDF=0000:21:00.0 \ # Exclude if not using GPU passthrough
+    -e SNP_GPU_BDF=0000:21:00.0 \
     private-registry/example-converted:tag
    ```
 
