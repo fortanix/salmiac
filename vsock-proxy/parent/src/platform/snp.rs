@@ -117,6 +117,8 @@ mod tests {
             "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
             "-append", "console=ttyS0 rdinit=/init loglevel=7",
             "-device", "vhost-vsock-pci,guest-cid=3",
+            "-serial", "mon:stdio",
+            "-nodefaults",
         ];
 
         let platform = SnpPlatform {};
