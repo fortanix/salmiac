@@ -15,5 +15,5 @@ RUN apt-get update && \
         ca-certificates \
         cryptsetup \
         nbd-client \
-        openssl
-RUN apt-get clean && rm -rf /var/lib/apt/lists
+        openssl && \
+    apt-get clean && rm -rf /var/lib/apt/lists

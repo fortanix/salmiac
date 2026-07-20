@@ -14,6 +14,7 @@ ARG QEMU_TARBALL_SHA256
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         bison \
         build-essential \
@@ -33,6 +34,7 @@ RUN apt-get update \
         python3 \
         python3-venv \
         xz-utils \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Download the official QEMU release tarball, verify its SHA-256, then
@@ -118,7 +120,8 @@ RUN apt-get update \
         systemctl \
         tcpdump \
         zlib1g \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists
 
 # QEMU built above.
 COPY --from=qemu-builder /opt/qemu /opt/qemu
