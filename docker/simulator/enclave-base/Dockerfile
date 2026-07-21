@@ -2,9 +2,9 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
         bash \
         busybox-static \
         ca-certificates \
@@ -22,6 +22,5 @@ RUN apt-get update && \
         sed \
         strace \
         util-linux \
-        && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get clean && rm -rf /var/lib/apt/lists
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
