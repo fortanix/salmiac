@@ -48,6 +48,7 @@ FROM ubuntu:24.04 as parent-base
 # versions of all installed packages at the time the image is built.
 # We do this primarily to pick up security fixes.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y \
         curl  \
         dnsmasq \
@@ -62,7 +63,6 @@ RUN apt-get update \
         systemctl \
         strace \
         tcpdump \
-    && apt-get upgrade -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists
 
