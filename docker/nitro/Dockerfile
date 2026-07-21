@@ -4,11 +4,11 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
-    apt-get install -y \
-    cryptsetup-bin \
-    sudo \
+RUN apt-get update \
     && apt-get upgrade -y \
+    && apt-get install -y \
+            cryptsetup-bin \
+            sudo \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists
 
