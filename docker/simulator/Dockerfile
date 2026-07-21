@@ -2,14 +2,14 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
         ca-certificates \
         cryptsetup-bin \
-        sudo && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists
+        sudo \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists
 
 RUN mkdir -p /opt/fortanix/enclave-os/blobs
 
