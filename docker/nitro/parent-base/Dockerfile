@@ -7,7 +7,8 @@
 FROM ubuntu:24.04 as nitro-cli
 ENV DEBIAN_FRONTEND=noninteractive
 # Install packages for rust toolchain
-RUN apt-get update && apt-get upgrade -y \
+RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y \
         apt-utils \
         clang \
@@ -36,10 +37,12 @@ RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
 # Install nitro-cli. Use vendored version of openssl since various crates use openssl-sys 0.9 which
 # works only with openssl1. RTE-386
 ENV NITRO_CLI_INSTALL_DIR=./install
-RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git && \
-    cd aws-nitro-enclaves-cli && \
-    git checkout v1.4.2 && \
-    make nitro-cli-native && make vsock-proxy-native && make install-tools
+RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git \
+    && cd aws-nitro-enclaves-cli \
+    && git checkout v1.4.2 \
+    && make nitro-cli-native \
+    && make vsock-proxy-native \
+    && make install-tools
 
 # Final image build.
 FROM ubuntu:24.04 as parent-base
