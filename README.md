@@ -124,45 +124,21 @@ This guide allows you to build salmiac from source and convert your docker appli
       hello-world-nitro
    ```
 
-### SNP
+### SNP and TDX beta support
 
-This guide allows you to build salmiac from source and convert your docker application into a one that can run in an SNP Enclave.
+The SNP and TDX converters are available for download from Fortanix. Please contact us for a download link.
+Ability to build the converter from source will be possible in the future but currently not supported.
 
-1. Build requisite docker images needed to run container converter
-   ```bash
-   # Run from the root of the repository
-   # build enclave-base-gpu image
-   docker build -t enclave-base-gpu docker/enclave-base-gpu
-
-   # build parent-base-snp image
-   docker build --no-cache \
-      --build-context common-build-context=docker/common-build-context \
-      -t parent-base-snp \
-      docker/qemu/parent-base
-    ```
-
-2. Build the converter image. To produce a debug build of the converter, change FLAVOR to debug from the step below.
-    ```bash
-   # Run from the root of the repository
-   export FLAVOR=release # To produce a debug build of the converter, change the value to `debug`
-   export SALMIAC_PLATFORM=snp # For more info refer to build-support/README.md
-   ./build-converter.sh
-
-   # To build nitro converter
-   cd docker/$SALMIAC_PLATFORM
-   ./build-conv-container.sh $FLAVOR
-    ```
-
-3. Create a simple conversion request json file (say /tmp/req.json)
-   More details about each field of the conversion request can be found in /salmiac/api-model/src/converter.rs
+1. Create a simple conversion request json file (say /tmp/req.json)
+   More details about each field of the conversion request can be found in api-model/docs
 
    ```javascript
    {
       "input_image": {
-         "name": "hello-world"
+         "name": "nginx"
       },
       "output_image": {
-         "name": "hello-world-snp"
+         "name": "nginx-tdx"
       },
       "converter_options": {
          "push_converted_image": false,
@@ -171,31 +147,28 @@ This guide allows you to build salmiac from source and convert your docker appli
       "snp_enclaves_options": {
          "cpu_count": 2,
          "mem_size": "4096M",
-         "enable_gpu_passthrough": true
+         "enable_gpu_passthrough": false
       }
    }
    ```
 
-4. Make your application SNP VM-capable by running container converter with the file from previous step.
+2. Make your application SNP or TDX VM-capable by running the relevant container converter with the file from previous step.
    The converter by default pulls the input image and pushes the output image to remote repositories. These images are then cleaned up from the local docker cache. In our example, the output image push is disabled in the request json and to preserve the images in the docker cache, 'PRESERVE_IMAGES' environment variable is specified.
    ```bash
    docker run --rm \
-      -e PARENT_IMAGE=parent-base-snp \
-      -e ENCLAVE_IMAGE=enclave-base-gpu \
-      --name snp-converter \
+      --name converter \
       --user 0 \
       --privileged \
       -v /var/run/docker.sock:/var/run/docker.sock \
       -e PRESERVE_IMAGES=input,result \
       -v /tmp/req.json:/app/req.json \
-      snp-converter \
+      converter \
       --request-file /app/req.json
     ```
 
+3. In order to use a converted image with a passthrough GPU, the GPU must first be configured, if this is not already done. The ID's of the GPU must also be found.
 
-5. In order to use a converted image with a passthrough GPU, the GPU must first be configured, if this is not already done. The ID's of the GPU must also be found.
-
-   If GPU passthrough is not enabled you may skip to step 6. 
+   If GPU passthrough is not enabled you may skip to step 4.
 
    In order to get the PCI BDF and vendor:device ID's, run
 
@@ -229,9 +202,9 @@ This guide allows you to build salmiac from source and convert your docker appli
 
    Execute `lspci -nnk -d 10de:` again, and if all is correct, it will be shown that the `vfio-pci` driver is in use.
    
-6. To run the container, execute the following command, setting `SNP_GPU_BDF` using the value obtained previously (if not using GPU passthrough do not include this variable), and set `APPCONFIG_ID` if one has been created for this instance.
+4. To run the container, execute the following command, setting `SNP_GPU_BDF` or `TDX_GPU_BDF` depending on the converter used. Skip passing this variable if GPU passthrough is not configured at conversion time.
 
-   The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container.
+   The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container. Set `APPCONFIG_ID` if one has been created for this instance.
 
    The variables `ENCLAVEOS_DEBUG` and `RUST_LOG` help with debugging any issues, and can be excluded if more detailed logging is not required.
 
@@ -246,7 +219,7 @@ This guide allows you to build salmiac from source and convert your docker appli
     -e MEM_SIZE=4096M \
     -e APPCONFIG_ID=0000000000000000000000000000000000000000000000000000000000000000 \
     -e SNP_GPU_BDF=0000:21:00.0 \
-    private-registry/example-converted:tag
+    nginx-tdx
    ```
 
 ## Releases
