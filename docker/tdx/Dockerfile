@@ -19,10 +19,12 @@ ARG NVIDIA_DRIVER_BRANCH
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         libnvidia-compute-${NVIDIA_DRIVER_BRANCH} \
         nvidia-utils-${NVIDIA_DRIVER_BRANCH} \
         nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH} && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 COPY stage-nvidia-driver-payload.sh /usr/local/bin/stage-nvidia-driver-payload.sh
@@ -33,10 +35,13 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y \
         cryptsetup-bin \
-        python3\
-        docker-cli
+        python3 \
+        docker-cli && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

@@ -2,7 +2,9 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
         ca-certificates \
         curl  \
         dnsmasq \
@@ -17,7 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         strace \
         sudo \
         systemctl \
-        tcpdump \
-        && rm -rf /var/lib/apt/lists/*
+        tcpdump && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /

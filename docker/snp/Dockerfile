@@ -15,10 +15,11 @@ RUN apt-get download ovmf && \
     cp ovmf_dir/usr/share/ovmf/OVMF.amdsev.fd /blob
 
 FROM debian:bookworm-slim AS sev_snp_measurement
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
         python3 \
         python3-pip \
         git \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 COPY staging/sev-snp-measure/requirements.txt /tmp/requirements.txt
@@ -29,11 +30,13 @@ ARG NVIDIA_DRIVER_BRANCH
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         libnvidia-compute-${NVIDIA_DRIVER_BRANCH} \
         nvidia-utils-${NVIDIA_DRIVER_BRANCH} \
         nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH} && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists
 
 COPY stage-nvidia-driver-payload.sh /usr/local/bin/stage-nvidia-driver-payload.sh
 RUN bash -x /usr/local/bin/stage-nvidia-driver-payload.sh /nvidia-driver-payload
@@ -43,9 +46,12 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y \
         cryptsetup-bin \
-        python3
+        python3 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists
 
 COPY --from=sev_snp_measurement /opt/sev-snp-dist /opt/sev-snp-dist
 ENV PYTHONPATH="/opt/sev-snp-dist"

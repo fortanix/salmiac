@@ -62,7 +62,9 @@ RUN apt-get update \
         systemctl \
         strace \
         tcpdump \
-    && apt-get upgrade -y
+    && apt-get upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists
 
 # Copy nitro-cli files
 COPY --from=nitro-cli aws-nitro-enclaves-cli/install/etc/nitro_enclaves /etc/nitro_enclaves
