@@ -168,7 +168,7 @@ Ability to build the converter from source will be possible in the future but cu
 
 3. In order to use a converted image with a passthrough GPU, the GPU must first be configured, if this is not already done. The ID's of the GPU must also be found.
 
-   If GPU passthrough is not enabled you may skip to step 4.
+   If GPU passthrough is not enabled you may skip this step.
 
    In order to get the PCI BDF and vendor:device ID's, run
 
