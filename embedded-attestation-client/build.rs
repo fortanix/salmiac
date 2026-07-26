@@ -53,7 +53,7 @@ fn main() {
     {
         panic!("Roche directory does not exist");
     }
-    let attest_client_dir = roche_dir.join("product-packages/services/malbork/attestation-client");
+    let attest_client_dir = roche_dir.join("client");
 
     for env_var in [
         "EMBED_ATTEST_CLIENT_ROCHE_PATH",
@@ -140,7 +140,6 @@ fn main() {
                 Platform::Tdx => attestation_client_tdx_bin_name!(),
                 _ => panic!("Unreachable platform pattern matching")
             };
-
             std::fs::copy(
                 target_dir.join(attestation_client_bin),
                 out_dir_path.clone().join(attestation_client_target_bin_name!()),

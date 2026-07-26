@@ -4,19 +4,19 @@
 
 macro_rules! attestation_client_target_bin_name {
     () => {
-        "ccm-attestation-client"
+        "attestation-client"
     };
 }
 
 macro_rules! attestation_client_sevsnp_bin_name {
     () => {
-        "ccm-attestation-client-sevsnp"
+        "attestation-client-sevsnp"
     };
 }
 
 macro_rules! attestation_client_tdx_bin_name {
     () => {
-        "ccm-attestation-client-tdx"
+        "attestation-client-tdx"
     };
 }
 
