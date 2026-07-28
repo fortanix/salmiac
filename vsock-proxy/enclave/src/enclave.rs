@@ -1010,8 +1010,6 @@ pub(crate) async fn setup_enclave_certification<
     cert_config: &CertificateConfig,
     fs_root: &Path,
 ) -> Result<CertificateWithPath, String> {
-    // For SNP, for the time being, an embedded attestation agent is used to create certificates.
-    // VSOCK is hardcoded inside the client; the client will directly reach out to the node agent
     use attestation_client::certificate::AppCert;
     #[cfg(platform = "snp")]
     use attestation_client::BaremetalSevSnp;

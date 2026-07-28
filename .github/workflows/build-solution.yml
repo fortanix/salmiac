@@ -8,9 +8,9 @@ on:
       OVERLAYFS_UNIT_TEST_API_KEY:
         required: true
   push:
-    branches: [ "master" ]
+    branches: [ "master", "beta" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "beta" ]
 
 env:
   CARGO_TERM_COLOR: always

@@ -5,17 +5,10 @@ script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]})")")
 
 salmiac_dir="${script_dir}"
 
-echo "----- Cleaning Embedded Attestation Client -----"
-pushd "${salmiac_dir}/embedded-attestation-client" >/dev/null || exit
-
-cargo clean -p "embedded-attestation-client"
-
-popd > /dev/null || exit
-
 echo "----- Cleaning Vsock Proxy -----"
 pushd "${salmiac_dir}/vsock-proxy" >/dev/null || exit
 
-cargo clean -p "enclave" -p "parent" -p "parent_lib" -p "shared" -p "embedded-attestation-client"
+cargo clean -p "enclave" -p "parent" -p "parent_lib" -p "shared"
 
 popd > /dev/null || exit
 
