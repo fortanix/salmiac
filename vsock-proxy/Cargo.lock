@@ -204,7 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#8dfdaedee989e1368917dba3642aec923c4e605b"
+source = "git+https://github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1101-integrate-attestation-repo#8fa3b92a762714bf59ee582e30221166f47e93f8"
 dependencies = [
  "b64-ct",
  "der",
@@ -215,8 +215,8 @@ dependencies = [
  "once_cell",
  "pkix",
  "serde",
- "sgx-isa 0.5.0",
- "sgx_pkix 0.3.0",
+ "sgx-isa",
+ "sgx_pkix",
  "tdx-ql",
  "thiserror 1.0.69",
  "yasna 0.3.2",
@@ -298,6 +298,12 @@ name = "base64"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+
+[[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64ct"
@@ -495,7 +501,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#8dfdaedee989e1368917dba3642aec923c4e605b"
+source = "git+https://github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1101-integrate-attestation-repo#8fa3b92a762714bf59ee582e30221166f47e93f8"
 dependencies = [
  "attestation",
  "der",
@@ -807,9 +813,9 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "em-app"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8e361c29afb87cac8460ab80a8dd53be6aa6fabc73ac4fb582c1ade5a541833"
+checksum = "f9d3e405d735845dd5785a7507f31b7a75f1a1240188c384f2b7c085229b87cc"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "b64-ct",
@@ -824,8 +830,8 @@ dependencies = [
  "serde_bytes",
  "serde_derive",
  "serde_json 1.0.68",
- "sgx-isa 0.4.1",
- "sgx_pkix 0.2.2",
+ "sgx-isa",
+ "sgx_pkix",
  "url 1.7.2",
  "uuid 0.6.5",
  "uuid 0.8.2",
@@ -835,22 +841,22 @@ dependencies = [
 
 [[package]]
 name = "em-client"
-version = "4.0.1"
+version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "987ea4131ab7c1fd254b26131b1198b333a822efd1c498acce803c704c8d5603"
+checksum = "a89c67a846bc4d226b730d258f02444b88aca1af0b994eebdee9f9c5dbeac5b3"
 dependencies = [
- "base64 0.10.1",
- "bitflags 1.3.2",
+ "base64 0.22.1",
+ "bitflags 2.9.1",
  "chrono",
- "futures 0.1.31",
+ "futures 0.3.16",
  "hyper",
  "lazy_static 1.4.0",
- "log 0.3.9",
+ "log 0.4.33",
  "mbedtls",
- "mime",
+ "mime 0.3.17",
  "serde",
  "serde_derive",
- "serde_ignored",
+ "serde_ignored 0.1.14",
  "serde_json 1.0.68",
  "url 1.7.2",
  "uuid 0.6.5",
@@ -868,10 +874,10 @@ dependencies = [
  "hyper",
  "lazy_static 1.4.0",
  "log 0.3.9",
- "mime",
+ "mime 0.2.6",
  "serde",
  "serde_derive",
- "serde_ignored",
+ "serde_ignored 0.0.4",
  "serde_json 1.0.68",
  "url 1.7.2",
  "uuid 0.6.5",
@@ -1065,7 +1071,7 @@ dependencies = [
 [[package]]
 name = "ftx-cert-build"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/ftx-cert-build.git#67893e9c589b54dec891fdbfb5b3bfb7bc744502"
+source = "git+https://github.com/fortanix/ftx-cert-build.git?branch=dlegalov%2FRTE-1101-use-open-source-attestation-crate#0ac56e834d69eaf0120f6b6d7614d97c83877e2e"
 dependencies = [
  "chrono",
  "mbedtls",
@@ -1307,7 +1313,7 @@ dependencies = [
  "httparse",
  "language-tags",
  "log 0.3.9",
- "mime",
+ "mime 0.2.6",
  "num_cpus",
  "time",
  "traitobject",
@@ -1533,7 +1539,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -1670,6 +1676,12 @@ checksum = "ba626b8a6de5da682e1caa06bdb42a335aee5a84db8e5046a3e8ab17ba0a3ae0"
 dependencies = [
  "log 0.3.9",
 ]
+
+[[package]]
+name = "mime"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minimal-lexical"
@@ -2636,6 +2648,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_ignored"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_json"
 version = "1.0.2"
 source = "git+https://github.com/fortanix/serde-json.git?branch=base64_bytes#fd90ef0a3cc1d450d3247b720860ba48e78bcf57"
@@ -2660,33 +2682,11 @@ dependencies = [
 
 [[package]]
 name = "sgx-isa"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0746ac51caf664e67fdb6643b27f0e29d4b9e1cea0b374644ab28bfa2b83fc9"
-dependencies = [
- "bitflags 1.3.2",
-]
-
-[[package]]
-name = "sgx-isa"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6e0a0ec672089f6662b6b5fc4ca8a88e979aae8ceb3e24f1c63ffdab681a12e"
 dependencies = [
  "bitflags 1.3.2",
-]
-
-[[package]]
-name = "sgx_pkix"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbd99155dbd1b4c45ad6a742cb0415387b68f22ab7e8f4cabba4e49d606e5ded"
-dependencies = [
- "byteorder",
- "lazy_static 1.4.0",
- "pkix",
- "quick-error",
- "sgx-isa 0.4.1",
 ]
 
 [[package]]
@@ -2699,7 +2699,7 @@ dependencies = [
  "lazy_static 1.4.0",
  "pkix",
  "quick-error",
- "sgx-isa 0.5.0",
+ "sgx-isa",
 ]
 
 [[package]]
@@ -2880,7 +2880,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1049d46702f3ad20c16feb164fda0d282578cd2b0ff076373925eb6ae3b61733"
 dependencies = [
  "nix 0.30.1",
- "sgx-isa 0.5.0",
+ "sgx-isa",
 ]
 
 [[package]]
