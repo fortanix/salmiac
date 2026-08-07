@@ -65,8 +65,6 @@ use tun::{AsyncDevice, Device};
 
 const STARTUP_BINARY: &str = "/enclave-startup";
 
-const DEBUG_SHELL_ENV_VAR: &str = "ENCLAVEOS_DEBUG_SHELL";
-
 const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::Proc,
     FileSystemNode::TreeNode("/sys"),
@@ -685,44 +683,25 @@ async fn start_user_program(
         .enclave_manifest
         .user_config
         .user_program_config;
-    let is_debug_shell = enclave_setup_result
-        .env_vars
-        .contains(&(DEBUG_SHELL_ENV_VAR.to_string(), "true".to_string()));
     let enable_log_forwarding = !log_conn_addrs.is_empty();
 
-    let mut client_command = if !is_debug_shell {
-        let mut client_command = Command::new("chroot");
+    let mut client_command = Command::new("chroot");
 
-        client_command.args([
-            ENCLAVE_FS_OVERLAY_ROOT,
-            STARTUP_BINARY,
-            &user_program.working_dir,
-            &user_program.user,
-            &user_program.group,
-            &hostname,
-            &user_program.entry_point,
-        ]);
+    client_command.args([
+        ENCLAVE_FS_OVERLAY_ROOT,
+        STARTUP_BINARY,
+        &user_program.working_dir,
+        &user_program.user,
+        &user_program.group,
+        &hostname,
+        &user_program.entry_point,
+    ]);
 
-        client_command.args(user_program.arguments.clone());
-        if enable_log_forwarding {
-            client_command.stdout(Stdio::piped());
-            client_command.stderr(Stdio::piped());
-        }
-
-        client_command
-    } else {
-        // We have to recreate /run/sshd because it is setup as a `tmpfs` by a nitro kernel.
-        if is_debug_shell {
-            fs::create_dir_all("/run/sshd")
-                .map_err(|err| format!("Failed creating dir /run/sshd. {:?}", err))?;
-        }
-
-        let mut client_command = Command::new(user_program.entry_point.clone());
-
-        client_command.args(user_program.arguments.clone());
-
-        client_command
-    };
+    client_command.args(&user_program.arguments);
+    if enable_log_forwarding {
+        client_command.stdout(Stdio::piped());
+        client_command.stderr(Stdio::piped());
+    }
 
     info!(
         "Setting the following env vars {:?}",
