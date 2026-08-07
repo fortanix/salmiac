@@ -43,8 +43,7 @@ use log::{debug, error, info, warn};
 use mbedtls::pk::Pk;
 use nix::net::if_::if_nametoindex;
 use shared::models::{
-    ApplicationConfiguration, NBDConfiguration, NetworkDeviceSettings,
-    PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus,
+    ApplicationConfiguration, GlobalNetworkSettings, NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus
 };
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
@@ -52,8 +51,7 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
-    cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType,
-    HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, VSOCK_PARENT_CID,
+    AppLogPortInfo, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, StreamType, VSOCK_PARENT_CID, cleanup_tokio_tasks, extract_enum_value, with_background_tasks
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -85,6 +83,8 @@ const CERT_RENEWAL_BEFORE_EXPIRY: Duration =
 const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
     Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
+
+const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 4] = [DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE];
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -859,11 +859,7 @@ async fn setup_enclave_networking(
     fs::create_dir("/run/resolvconf")
         .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
-    for file in global_settings.global_settings_list {
-        write_to_file(Path::new(&file.path), &file.data, &file.path)?;
-
-        debug!("Successfully created {} inside an enclave.", &file.path);
-    }
+    write_network_files(&global_settings, &NETWORK_FILE_PATH_ALLOW_LIST)?;
     debug!("Enclave global network settings files have been created.");
 
     enable_loopback_network_interface()?;
@@ -872,6 +868,16 @@ async fn setup_enclave_networking(
         hostname: global_settings.hostname,
         tap_devices,
     })
+}
+
+fn write_network_files(global_settings: &GlobalNetworkSettings, allow_list: &[&str]) -> Result<(), String> {
+    for file in global_settings.global_settings_list
+        .iter()
+        .filter(|file| allow_list.contains(&file.path.as_str())) {
+            write_to_file(Path::new(&file.path), &file.data, &file.path)?;
+            debug!("Successfully created {} inside an enclave.", &file.path);
+    }
+    Ok(())
 }
 
 async fn setup_network_device(
@@ -1175,7 +1181,9 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::path::Path;
 
     use api_model::converter::DsmConfiguration;
     use api_model::enclave::{
@@ -1184,11 +1192,12 @@ mod tests {
     };
     use async_trait::async_trait;
     use enclaveos_encrypted_fs::EncryptedVolume;
-    use shared::models::NBDConfiguration;
+    use shared::models::{FileWithPath, GlobalNetworkSettings, NBDConfiguration};
     use shared::socket::InMemorySocket;
+    use tempdir::TempDir;
     use tokio::runtime::Runtime;
 
-    use crate::enclave::{FileSystemSetupApi, FileSystemSetupConfig};
+    use crate::enclave::{FileSystemSetupApi, FileSystemSetupConfig, write_network_files};
 
     struct MockFileSystemApi {}
     #[async_trait]
@@ -1256,6 +1265,39 @@ mod tests {
             assert!(a_result.is_ok());
             assert!(b_result.is_ok());
         });
+    }
+
+    #[test]
+    fn filter_network_files() {
+        const NUMBER_OF_TEST_FILES: usize = 6;
+        let temp_dir = TempDir::new("network_files").unwrap();
+        let f0 = temp_dir.path().join("0").to_string_lossy().into_owned();
+        let f1 = temp_dir.path().join("1").to_string_lossy().into_owned();
+        let allow_list = [f0.as_str(), f1.as_str()];
+        let mut files = Vec::new();
+        for i in 0..NUMBER_OF_TEST_FILES {
+            let path = temp_dir.path().join(i.to_string());
+            files.push(FileWithPath {
+                path: String::from(path.to_str().unwrap()),
+                data: i.to_string().into_bytes()
+            })
+        }
+        let global_settings = GlobalNetworkSettings {
+            hostname: String::new(),
+            global_settings_list: files
+        };
+
+        write_network_files(&global_settings, &allow_list);
+
+        for (i, path) in allow_list.iter().enumerate() {
+            assert!(Path::is_file(Path::new(&path)));
+            let contents = std::fs::read_to_string(path).unwrap();
+            assert_eq!(contents, i.to_string())
+        }
+        for i in allow_list.len()..NUMBER_OF_TEST_FILES {
+            let path = temp_dir.path().join(i.to_string());
+            assert!(!Path::exists(&path));
+        }
     }
 }
 

@@ -829,6 +829,7 @@ dependencies = [
  "sha2",
  "shared",
  "sysinfo",
+ "tempdir",
  "tokio",
  "tokio-vsock",
  "toml",
