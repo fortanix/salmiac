@@ -1150,7 +1150,7 @@ mod tests {
     use tempdir::TempDir;
     use tokio::runtime::Runtime;
 
-    use crate::enclave::{write_network_files, FileSystemSetupApi, FileSystemSetupConfig};
+    use crate::enclave::{FileSystemSetupApi, FileSystemSetupConfig, write_network_files};
 
     struct MockFileSystemApi {}
     #[async_trait]
@@ -1232,12 +1232,12 @@ mod tests {
             let path = temp_dir.path().join(i.to_string());
             files.push(FileWithPath {
                 path: String::from(path.to_str().unwrap()),
-                data: i.to_string().into_bytes(),
+                data: i.to_string().into_bytes()
             })
         }
         let global_settings = GlobalNetworkSettings {
             hostname: String::new(),
-            global_settings_list: files,
+            global_settings_list: files
         };
 
         write_network_files(&global_settings, &allow_list);
