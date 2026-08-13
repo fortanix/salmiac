@@ -137,7 +137,7 @@ compute_libs=(
 )
 
 utility_libs=(
-  libnvidia-ml.so
+  libnvidia-ml.so.1
   # libnvidia-cfg.so
   # libnvidia-nscq.so
 )
