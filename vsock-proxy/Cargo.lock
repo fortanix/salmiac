@@ -204,7 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1101-integrate-attestation-repo#8fa3b92a762714bf59ee582e30221166f47e93f8"
+source = "git+https://github.com/fortanix/attestation.git#5edf52ce66de948e4fabdccb2c1d25efd59781b0"
 dependencies = [
  "b64-ct",
  "der",
@@ -501,7 +501,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1101-integrate-attestation-repo#8fa3b92a762714bf59ee582e30221166f47e93f8"
+source = "git+https://github.com/fortanix/attestation.git#5edf52ce66de948e4fabdccb2c1d25efd59781b0"
 dependencies = [
  "attestation",
  "der",
@@ -1071,7 +1071,7 @@ dependencies = [
 [[package]]
 name = "ftx-cert-build"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/ftx-cert-build.git?branch=dlegalov%2FRTE-1101-use-open-source-attestation-crate#0ac56e834d69eaf0120f6b6d7614d97c83877e2e"
+source = "git+https://github.com/fortanix/ftx-cert-build.git#e1b4a4312785e0be6aed5d9a6664d65386ea4314"
 dependencies = [
  "chrono",
  "mbedtls",
@@ -1539,7 +1539,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -1952,7 +1952,7 @@ dependencies = [
 [[package]]
 name = "nvml-wrapper"
 version = "0.10.0"
-source = "git+https://github.com/fortanix/nvml-wrapper.git#846dcff36c352e9ad52b67ed69a3eb44d6e1ba4a"
+source = "git+https://github.com/fortanix/nvml-wrapper.git#eb4ee5e5d3650787fa29aac21c5c8ef2da888003"
 dependencies = [
  "bitflags 2.9.1",
  "libloading 0.8.5",
@@ -1965,7 +1965,7 @@ dependencies = [
 [[package]]
 name = "nvml-wrapper-sys"
 version = "0.8.0"
-source = "git+https://github.com/fortanix/nvml-wrapper.git#846dcff36c352e9ad52b67ed69a3eb44d6e1ba4a"
+source = "git+https://github.com/fortanix/nvml-wrapper.git#eb4ee5e5d3650787fa29aac21c5c8ef2da888003"
 dependencies = [
  "libloading 0.8.5",
 ]
