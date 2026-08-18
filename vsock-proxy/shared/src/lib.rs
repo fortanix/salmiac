@@ -41,11 +41,6 @@ pub const HOSTS_FILE: &'static str = "/etc/hosts";
 // https://man7.org/linux/man-pages/man5/hostname.5.html
 pub const HOSTNAME_FILE: &'static str = "/etc/hostname";
 
-// The Name Service Switch file, contains configuration to determine the sources from which to obtain
-// name-service information in a range of categories and in what order.
-// https://man7.org/linux/man-pages/man5/nsswitch.conf.5.html
-pub const NS_SWITCH_FILE: &'static str = "/etc/nsswitch.conf";
-
 // The types of std streams which are forwarded from the client
 // application to the parent for better logging
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
