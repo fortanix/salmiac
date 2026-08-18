@@ -51,7 +51,7 @@ use shared::netlink::{Netlink, NetlinkCommon};
 use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncWriteLvStream};
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
-    AppLogPortInfo, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE, StreamType, VSOCK_PARENT_CID, cleanup_tokio_tasks, extract_enum_value, with_background_tasks
+    AppLogPortInfo, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, StreamType, VSOCK_PARENT_CID, cleanup_tokio_tasks, extract_enum_value, with_background_tasks
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -72,7 +72,6 @@ const FILE_SYSTEM_NODES: &'static [FileSystemNode] = &[
     FileSystemNode::TreeNode("/tmp"),
     FileSystemNode::File(HOSTNAME_FILE),
     FileSystemNode::File(HOSTS_FILE),
-    FileSystemNode::File(NS_SWITCH_FILE),
 ];
 
 /// The time duration before expiry a cert renewal is attempted
@@ -84,7 +83,7 @@ const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
     Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
-const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 4] = [DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, NS_SWITCH_FILE];
+const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 3] = [DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE];
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -1197,7 +1196,7 @@ mod tests {
     use tempdir::TempDir;
     use tokio::runtime::Runtime;
 
-    use crate::enclave::{FileSystemSetupApi, FileSystemSetupConfig, write_network_files};
+    use crate::enclave::{FileSystemSetupApi, FileSystemSetupConfig, NETWORK_FILE_PATH_ALLOW_LIST, write_network_files};
 
     struct MockFileSystemApi {}
     #[async_trait]
@@ -1298,6 +1297,12 @@ mod tests {
             let path = temp_dir.path().join(i.to_string());
             assert!(!Path::exists(&path));
         }
+    }
+
+    #[test]
+    fn assert_network_files_allowlist() {
+        assert!(!NETWORK_FILE_PATH_ALLOW_LIST.contains(&"/etc/nsswitch.conf"),
+            "nsswitch.conf can be used to swap name resolution priority and should not be configurable by the parent.");
     }
 }
 
