@@ -9,3 +9,4 @@ members = [
 [workspace.dependencies]
 em-app = { version = "0.5.1" }
 em-client = { version = "4.0.1" }
+attestation-client = { git = "https://github.com/fortanix/attestation.git", package = "client" }
