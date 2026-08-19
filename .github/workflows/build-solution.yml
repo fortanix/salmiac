@@ -8,9 +8,9 @@ on:
       OVERLAYFS_UNIT_TEST_API_KEY:
         required: true
   push:
-    branches: [ "master" ]
+    branches: [ "master", "beta" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "beta" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,7 +30,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           targets: x86_64-unknown-linux-musl, x86_64-unknown-linux-gnu
-          toolchain: nightly-2024-11-21
+          toolchain: nightly-2025-10-09
           components: rustfmt
 
       - name: Install build dependencies

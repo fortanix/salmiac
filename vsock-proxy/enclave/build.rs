@@ -63,32 +63,6 @@ fn main() -> io::Result<()> {
         panic!("{}", err);
     }
 
-    for env_var in [
-        "EMBED_ATTEST_CLIENT_ROCHE_PATH",
-        "EMBED_ATTEST_CLIENT_ROCHE_TOOLCHAIN",
-    ] {
-        println!("cargo::rerun-if-env-changed={}", env_var);
-    }
-
-    for dir in &[PathBuf::from("../../embedded-attestation-client")] {
-        for entry in walkdir::WalkDir::new(dir)
-            .into_iter()
-            .filter_entry(|e| {
-                // Skip target dirs
-                if e.file_type().is_dir() {
-                    !e.file_name().to_string_lossy().starts_with("target")
-                } else {
-                    true
-                }
-            })
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() {
-                println!("cargo::rerun-if-changed={}", entry.path().display());
-            }
-        }
-    }
-
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let mut cert_list = Vec::new();
     let dir_location = if let Some(path) = env::var_os("ROOT_CERTIFICATE_DIR") {
