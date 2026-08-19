@@ -2,17 +2,17 @@ name: Build and publish Docker Images
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
     paths:
-      - 'docker/**'
+      - "docker/**"
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
     types:
       - closed
       - opened
       - synchronize
     paths:
-      - 'docker/**'
+      - "docker/**"
 
 jobs:
   build-docker-images:
@@ -29,8 +29,5 @@ jobs:
           docker build --no-cache docker/enclave-base -t enclave-base
           docker build --no-cache docker/enclave-base-gpu -t enclave-base-gpu
           docker build --no-cache --build-context common-build-context=docker/common-build-context docker/nitro/parent-base -t parent-base-nitro
-          docker build --no-cache \
-            --build-context --build-context common-build-context=docker/common-build-context \
-            -t parent-base-qemu \
-            docker/qemu/parent-base
+          docker build --no-cache --build-context common-build-context=docker/common-build-context  docker/qemu/parent-base -t parent-base-qemu
           docker rmi enclave-base enclave-base-gpu parent-base-nitro parent-base-qemu
