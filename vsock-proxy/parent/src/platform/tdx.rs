@@ -31,6 +31,7 @@ impl TdxPlatform {
 
 impl QemuPlatform for TdxPlatform {
     const GPU_BDF_ENV_VAR_NAME: Option<&str> = Some("TDX_GPU_BDF");
+    const GPU_BDFS_ENV_VAR_NAME: Option<&str> = Some("TDX_GPU_BDFS");
 
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
@@ -55,14 +56,10 @@ impl QemuPlatform for TdxPlatform {
         vec![self.memory_backend(), Self::tdx_guest()]
     }
 
-    fn gpu(&self) -> Option<String> {
-        env::var("TDX_GPU_BDF").ok()
-    }
-
     fn globals(&self) -> Vec<String> {
         let mut globals = vec![];
 
-        if self.gpu().is_some() {
+        if !self.gpus().is_empty() {
             globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
         }
         globals

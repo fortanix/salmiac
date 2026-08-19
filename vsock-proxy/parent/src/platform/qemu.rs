@@ -3,6 +3,7 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+use std::collections::HashSet;
 use std::env;
 use std::path::Path;
 
@@ -28,7 +29,6 @@ pub(super) mod constants {
     // containers on single host
     pub const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3";
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
-    pub const GPU_ROOT_PORT: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
     pub const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
 
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
@@ -37,6 +37,7 @@ pub(super) mod constants {
 
 pub(super) trait QemuPlatform {
     const GPU_BDF_ENV_VAR_NAME: Option<&str> = None;
+    const GPU_BDFS_ENV_VAR_NAME: Option<&str> = None;
 
     fn firmware_path(&self) -> Option<&'static str>;
     // Device paths related to confidential-computing
@@ -45,15 +46,21 @@ pub(super) trait QemuPlatform {
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
 
-    fn gpu(&self) -> Option<String> {
-        Self::GPU_BDF_ENV_VAR_NAME
-            .map(|gpu_bdf_env_var_name| env::var(gpu_bdf_env_var_name).ok())?
+    fn gpus(&self) -> Vec<String> {
+        let plural = Self::GPU_BDFS_ENV_VAR_NAME.and_then(|name| env::var(name).ok());
+        let singular = Self::GPU_BDF_ENV_VAR_NAME.and_then(|name| env::var(name).ok());
+        parse_gpu_bdfs(plural.as_deref(), singular.as_deref())
     }
 
-    fn build_vfio_iommu_arg(bdf: &String) -> String {
+    fn build_gpu_root_port_arg(index: usize) -> String {
+        format!("pcie-root-port,id=pci.{},bus=pcie.0", index + 1)
+    }
+
+    fn build_vfio_iommu_arg(bdf: &str, index: usize) -> String {
         format!(
-            "vfio-pci,host={},bus=pci.1,iommufd={},romfile=",
+            "vfio-pci,host={},bus=pci.{},iommufd={},romfile=",
             bdf,
+            index + 1,
             constants::IOMMUFD_ID,
         )
     }
@@ -64,14 +71,22 @@ pub(super) trait QemuPlatform {
         require_file("KVM device", constants::KVM_DEVICE_PATH)?;
         require_file("vhost-vsock device", constants::VSOCK_HOST_DEVICE_PATH)?;
 
-        if let Some(gpu) = self.gpu() {
-            require_vfio_device(&gpu)?;
+        let gpus = self.gpus();
+        if !gpus.is_empty() {
+            let mut unique_gpus = HashSet::new();
+            for gpu in &gpus {
+                if !unique_gpus.insert(gpu) {
+                    return Err(format!("GPU {gpu} was specified more than once"));
+                }
+                require_vfio_device(gpu)?;
+            }
             require_file("IOMMUFD device", constants::IOMMU_DEVICE_PATH)?;
-        } else if let Some(gpu_bdf_env_var) = Self::GPU_BDF_ENV_VAR_NAME {
+        } else if Self::GPU_BDFS_ENV_VAR_NAME.is_some() || Self::GPU_BDF_ENV_VAR_NAME.is_some() {
             if env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR).is_ok_and(|v| v == "true") {
                 return Err(format!(
-                    "GPU passthrough was enabled at conversion time but {} env var is not set",
-                    gpu_bdf_env_var
+                    "GPU passthrough was enabled at conversion time but {} (or {}) env var is not set.",
+                    Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
+                    Self::GPU_BDF_ENV_VAR_NAME.unwrap_or_default(),
                 ));
             }
         }
@@ -139,18 +154,23 @@ pub(super) trait QemuPlatform {
             args.extend(["-global", global]);
         }
 
-        let gpu_device = self.gpu().as_ref().map(Self::build_vfio_iommu_arg);
-        if let Some(gpu_device) = &gpu_device {
-            args.extend([
-                "-object",
-                constants::IOMMUFD_OBJECT,
-                "-device",
-                constants::GPU_ROOT_PORT,
-                "-device",
-                gpu_device,
-                "-fw_cfg",
-                constants::FW_CFG_MMIO64,
-            ]);
+        let gpus = self.gpus();
+        let gpu_root_ports = gpus
+            .iter()
+            .enumerate()
+            .map(|(index, _)| Self::build_gpu_root_port_arg(index))
+            .collect::<Vec<_>>();
+        let gpu_devices = gpus
+            .iter()
+            .enumerate()
+            .map(|(index, bdf)| Self::build_vfio_iommu_arg(bdf, index))
+            .collect::<Vec<_>>();
+        if !gpus.is_empty() {
+            args.extend(["-object", constants::IOMMUFD_OBJECT]);
+            for (root_port, gpu_device) in gpu_root_ports.iter().zip(&gpu_devices) {
+                args.extend(["-device", root_port, "-device", gpu_device]);
+            }
+            args.extend(["-fw_cfg", constants::FW_CFG_MMIO64]);
         }
 
         // Append binary related args for better visibility
@@ -176,6 +196,27 @@ pub(super) trait QemuPlatform {
         let args_ref = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
         run_subprocess(constants::QEMU_BINARY, &args_ref).await
     }
+}
+
+fn parse_gpu_bdfs(plural: Option<&str>, singular: Option<&str>) -> Vec<String> {
+    let plural_bdfs = plural
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|bdf| !bdf.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+
+    if !plural_bdfs.is_empty() {
+        return plural_bdfs;
+    }
+
+    singular
+        .map(str::trim)
+        .filter(|bdf| !bdf.is_empty())
+        .map(str::to_owned)
+        .into_iter()
+        .collect()
 }
 
 #[allow(unused)]
@@ -220,8 +261,39 @@ fn require_vfio_device(bdf: &str) -> Result<(), String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::collections::HashMap;
+    use super::parse_gpu_bdfs;
+    use std::assert_eq;
+use std::collections::HashMap;
     use std::collections::HashSet;
+
+    #[test]
+    fn plural_gpu_bdfs_take_precedence() {
+        assert_eq!(
+            parse_gpu_bdfs(Some("0000:21:00.0, 0000:81:00.0"), Some("0000:01:00.0")),
+            vec!["0000:21:00.0", "0000:81:00.0"],
+        );
+    }
+
+    #[test]
+    fn plural_gpu_bdfs_single_gpu() {
+        assert_eq!(
+            parse_gpu_bdfs(Some("0000:21:00.0"), None),
+            vec!["0000:21:00.0"],
+        )
+    }
+
+    #[test]
+    fn empty_plural_gpu_bdfs_fall_back_to_singular() {
+        assert_eq!(
+            parse_gpu_bdfs(Some(" , "), Some(" 0000:21:00.0 ")),
+            vec!["0000:21:00.0"],
+        );
+    }
+
+    #[test]
+    fn empty_gpu_bdf_variables_produce_no_devices() {
+        assert!(parse_gpu_bdfs(Some(""), Some(" ")).is_empty());
+    }
 
     fn parse_args_as_kvp<'a>(args: &[&'a str]) -> HashMap<&'a str, Option<&'a str>> {
         let mut map = HashMap::<&str, Option<&str>>::new();

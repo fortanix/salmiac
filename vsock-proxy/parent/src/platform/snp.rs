@@ -52,6 +52,7 @@ impl SnpPlatform {
 
 impl QemuPlatform for SnpPlatform {
     const GPU_BDF_ENV_VAR_NAME: Option<&str> = Some("SNP_GPU_BDF");
+    const GPU_BDFS_ENV_VAR_NAME: Option<&str> = Some("SNP_GPU_BDFS");
 
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
