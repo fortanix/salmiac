@@ -8,16 +8,15 @@ on:
       OVERLAYFS_UNIT_TEST_API_KEY:
         required: true
   push:
-    branches: [ "master", "beta" ]
+    branches: ["master"]
   pull_request:
-    branches: [ "master", "beta" ]
+    branches: ["master"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-24.04
 
     steps:
