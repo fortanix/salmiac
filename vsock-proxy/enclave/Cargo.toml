@@ -56,6 +56,7 @@ walkdir = "2"
 [dev-dependencies]
 lazy_static = "1.0"
 parent_lib = { path = "../parent/lib" }
+tempdir = "0.3.7"
 
 [lints.rust]
 unexpected_cfgs = { level = "deny" }
