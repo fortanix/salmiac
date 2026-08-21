@@ -1,6 +1,6 @@
 # Salmiac
 
-A confidential VM running unmodified container images in AWS [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/) and AMD SEV-SNP.
+A confidential VM running unmodified container images in AMD SEV-SNP, Intel TDX, or AWS [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/).
 Salmiac makes it possible to run an application in isolated compute environments to protect and securely process highly sensitive data.
 
 By default, bare Nitro Enclaves doesn't provide any networking capability outside of the enclave environment and neither
