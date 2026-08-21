@@ -226,12 +226,19 @@ mod iommu {
     const OTHER_DEVICES_HEADROOM_MB: u64 = 64 * 1024;
     const FALLBACK_GPU_BAR_MB: u64 = 128 * 1024;
     const MAX_PCI_MMIO64_MB: u64 = 8 * 1024 * 1024;
+    const IORESOURCE_MEM: u64 = 0x0000_0200;
+    const IORESOURCE_MEM_64: u64 = 0x0010_0000;
 
-    // Parses given gpus' resource file(s) provided by sysfs
-    // to calculate amount of total memory that are going to be
-    // passed-through qemu instance.
-    // The structure of 'resource' file could be found at:
-    // https://github.com/torvalds/linux/blob/master/Documentation/PCI/sysfs-pci.rst
+    /// Calculates the 64-bit PCI MMIO aperture required by the selected GPUs.
+    ///
+    /// Reads BAR0 through BAR5 from each GPU's sysfs `resource` file, sums their
+    /// 64-bit MMIO address-space requirements, adds alignment headroom, and rounds the result
+    /// up to a supported power-of-two aperture size.
+    ///
+    /// If any resource file cannot be read, conservative sizing based on the
+    /// number of GPUs is used instead.
+    ///
+    /// See: https://docs.kernel.org/PCI/sysfs-pci.html
     pub(super) fn pci_mmio64_mb(gpus: &[String]) -> Result<u64, String> {
         let mut bar_total = 0_u64;
         let mut all_resources_read = true;
@@ -266,28 +273,49 @@ mod iommu {
         Ok(size_mb)
     }
 
-    // Calculates BAR size per gpu.
-    // Parses 'resource' files, a resource file may contain more than one resource.
-    // For example, consider following resource file content with two entries
-    // 0x0000215000000000 0x0000215000ffffff 0x000000000014220c
-    // 0x0000200000000000 0x0000201fffffffff 0x000000000014220c
-    // Each line represents certain memory bank of the device.
-    // The format is: <start physical address> <end physical address> <flags>
+    /// Returns the combined size of BAR0 through BAR5 from one PCI device's
+    /// sysfs `resource` file.
+    ///
+    /// Each resource line has the following format:
+    ///
+    /// `<start address> <end address> <flags>`
+    ///
+    /// Resource bounds are inclusive, so an assigned BAR has size
+    /// `end - start + 1`. Unassigned resources, represented by zero or otherwise
+    /// non-increasing bounds, contribute nothing.
+    ///
+    /// Example:
+    ///
+    /// `0x0000215000000000 0x0000215000ffffff 0x000000000014220c`
+    /// `0x0000200000000000 0x0000201fffffffff 0x000000000014220c`
     fn parse_gpu_bar_total(resources: &str) -> Result<u64, String> {
         resources.lines().take(6).try_fold(0_u64, |total, line| {
             let mut fields = line.split_whitespace();
             let start = parse_pci_resource_value(fields.next(), line)?;
             let end = parse_pci_resource_value(fields.next(), line)?;
-            let size = if end > start {
-                end.checked_sub(start)
-                    .and_then(|value| value.checked_add(1))
-                    .ok_or_else(|| format!("PCI BAR size overflow in resource line {line:?}"))?
-            } else {
-                0
-            };
+            let flags = parse_pci_resource_value(fields.next(), line)?;
+
+            let mmio64_flags = IORESOURCE_MEM | IORESOURCE_MEM_64;
+            let is_mmio64 = flags & mmio64_flags == mmio64_flags;
+
+            if !is_mmio64 || (start == 0 && end == 0) {
+                return Ok(total);
+            }
+
+            if end < start {
+                return Err(format!(
+                    "Invalid PCI BAR resource range: start={start:#x}, end={end:#x}"
+                ));
+            }
+
+            let size = end
+                .checked_sub(start) // underflow checked above
+                .and_then(|v| v.checked_add(1))
+                .ok_or_else(|| format!("PCI BAR size overflow in {line:?}"))?;
+
             total
                 .checked_add(size)
-                .ok_or_else(|| "GPU BAR size total overflowed u64".to_string())
+                .ok_or_else(|| "GPU MMIO64 total overflowed u64".to_string())
         })
     }
 
@@ -378,17 +406,17 @@ mod iommu {
         use super::{parse_gpu_bar_total, pci_mmio64_mb_from_bar_total, MIB};
 
         #[test]
-        fn parses_and_sums_gpu_bars() {
+        fn sums_only_64_bit_mmio_gpu_bars() {
             let resources = concat!(
-                "0x1000 0x1fff 0x0\n",
-                "0x2000 0x3fff 0x0\n",
+                "0x1000 0x1fff 0x00100200\n", // 64-bit MMIO: included
+                "0x2000 0x3fff 0x00000200\n", // 32-bit MMIO: excluded
+                "0x0 0x0 0x00100200\n",       // unassigned: excluded
+                "0x4000 0x7fff 0x00100200\n", // 64-bit MMIO: included
+                "0x8000 0x8fff 0x00000100\n", // I/O port: excluded
                 "0x0 0x0 0x0\n",
-                "0x4000 0x7fff 0x0\n",
-                "0x0 0x0 0x0\n",
-                "0x0 0x0 0x0\n",
-                "0x8000 0xffff 0x0\n",
+                "0x9000 0xffff 0x00100200\n", // seventh resource: ignored
             );
-            assert_eq!(parse_gpu_bar_total(resources).unwrap(), 0x7000);
+            assert_eq!(parse_gpu_bar_total(resources).unwrap(), 0x5000);
         }
 
         #[test]
