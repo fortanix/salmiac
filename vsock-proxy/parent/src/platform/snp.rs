@@ -123,7 +123,11 @@ mod tests {
         ];
 
         let platform = SnpPlatform {};
-        let args: Vec<String> = platform.build_qemu_args().unwrap().into_iter().collect();
+        let args: Vec<String> = platform
+            .build_qemu_args(None)
+            .unwrap()
+            .into_iter()
+            .collect();
         diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
     }
 }

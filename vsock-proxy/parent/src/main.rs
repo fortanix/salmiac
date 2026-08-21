@@ -10,6 +10,7 @@ mod network;
 mod packet_capture;
 mod parent;
 mod platform;
+mod utils;
 
 use std::process;
 

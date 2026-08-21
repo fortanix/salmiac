@@ -5,9 +5,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use std::collections::HashSet;
 use std::env;
-use std::path::Path;
+use std::sync::OnceLock;
 
 use shared::run_subprocess;
+
+use crate::utils::qemu as qemu_utils;
 
 pub(super) mod constants {
     pub const CPU_COUNT: &str = "2";
@@ -29,6 +31,66 @@ pub(super) mod constants {
     pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 }
 
+pub struct GPUSettings {
+    pub bdfs: Vec<String>,
+    pub mmio64_mb: u64,
+}
+
+impl GPUSettings {
+    pub fn try_new_from_env_variables(
+        plural_env_var: Option<&'static str>,
+        singular_env_var: Option<&'static str>,
+    ) -> Result<Option<Self>, String> {
+        let plural = plural_env_var.and_then(|name| env::var(name).ok());
+        let singular = singular_env_var.and_then(|name| env::var(name).ok());
+        let bdfs = parse_gpu_bdfs(plural.as_deref(), singular.as_deref());
+        if bdfs.is_empty() {
+            return Ok(None);
+        }
+
+        Self::validate_bdfs(&bdfs)?;
+        let mmio64_mb = qemu_utils::pci_mmio64_mb(&bdfs)?;
+        Ok(Some(GPUSettings { bdfs, mmio64_mb }))
+    }
+
+    fn validate_bdfs(bdfs: &Vec<String>) -> Result<(), String> {
+        // Validate passed bdf devices
+        // Duplicates are not allowed
+        // The device should be accesible via sysfs
+        let mut unique_gpus = HashSet::new();
+        for bdf in bdfs {
+            if !unique_gpus.insert(bdf) {
+                return Err(format!("GPU {bdf} was specified more than once"));
+            }
+            qemu_utils::require_vfio_device(bdf)?;
+        }
+        qemu_utils::require_file("IOMMUFD device", qemu_utils::DEVICE_PATH)?;
+        Ok(())
+    }
+
+    pub fn build_qemu_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        args.extend(["-object".to_owned(), qemu_utils::IOMMUFD_OBJECT.to_owned()]);
+        for (index, bdf) in self.bdfs.iter().enumerate() {
+            let root_port = qemu_utils::build_pcie_root_port(index);
+            let device = qemu_utils::build_vfio_iommu_arg(bdf, index);
+            args.extend([
+                "-device".to_owned(),
+                root_port,
+                "-device".to_owned(),
+                device,
+            ]);
+        }
+        let fw_cfg_mmio64 = format!("name=opt/ovmf/X-PciMmio64Mb,string={}", self.mmio64_mb);
+
+        args.extend(["-fw_cfg".to_owned(), fw_cfg_mmio64]);
+        args
+    }
+}
+
+static GPU_SETTINGS: OnceLock<Result<Option<GPUSettings>, String>> = OnceLock::new();
+
 pub(super) trait QemuPlatform {
     const GPU_BDF_ENV_VAR_NAME: Option<&'static str> = None;
     const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = None;
@@ -40,53 +102,50 @@ pub(super) trait QemuPlatform {
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
 
-    fn gpus(&self) -> Vec<String> {
-        let plural = Self::GPU_BDFS_ENV_VAR_NAME.and_then(|name| env::var(name).ok());
-        let singular = Self::GPU_BDF_ENV_VAR_NAME.and_then(|name| env::var(name).ok());
-        parse_gpu_bdfs(plural.as_deref(), singular.as_deref())
-    }
+    fn gpu_settings(&self) -> Result<Option<&'static GPUSettings>, String> {
+        match GPU_SETTINGS
+            .get_or_init(|| {
+                let gpu_settings = GPUSettings::try_new_from_env_variables(
+                    Self::GPU_BDFS_ENV_VAR_NAME,
+                    Self::GPU_BDF_ENV_VAR_NAME,
+                )?;
+                if gpu_settings.is_none() {
+                    let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some()
+                        || Self::GPU_BDF_ENV_VAR_NAME.is_some();
+                    let gpu_passthrough_enabled =
+                        env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
+                            .is_ok_and(|value| value == "true");
+                    if supports_gpu_passthrough && gpu_passthrough_enabled {
+                        return Err(format!(
+                            "GPU passthrough was enabled at conversion time but {} (or {}) env var is not set.",
+                            Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
+                            Self::GPU_BDF_ENV_VAR_NAME.unwrap_or_default(),
+                        ));
+                    }
+                    return Ok(None);
+                }
 
-    fn build_vfio_iommu_arg(bdf: &str, index: usize) -> String {
-        format!(
-            "vfio-pci,host={},bus=pci.{},iommufd={},romfile=",
-            bdf,
-            index + 1,
-            iommu::IOMMUFD_ID,
-        )
+                Ok(gpu_settings)
+            })
+            .as_ref()
+        {
+            Ok(settings) => Ok(settings.as_ref()),
+            Err(error) => Err(error.clone()),
+        }
     }
 
     fn check_files(&self) -> Result<(), String> {
-        require_file("Kernel", constants::KERNEL_PATH)?;
-        require_file("Initramfs", constants::INITRAMFS_PATH)?;
-        require_file("KVM device", constants::KVM_DEVICE_PATH)?;
-        require_file("vhost-vsock device", constants::VSOCK_HOST_DEVICE_PATH)?;
-
-        let gpus = self.gpus();
-        if !gpus.is_empty() {
-            let mut unique_gpus = HashSet::new();
-            for gpu in &gpus {
-                if !unique_gpus.insert(gpu) {
-                    return Err(format!("GPU {gpu} was specified more than once"));
-                }
-                iommu::require_vfio_device(gpu)?;
-            }
-            require_file("IOMMUFD device", iommu::DEVICE_PATH)?;
-        } else if Self::GPU_BDFS_ENV_VAR_NAME.is_some() || Self::GPU_BDF_ENV_VAR_NAME.is_some() {
-            if env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR).is_ok_and(|v| v == "true") {
-                return Err(format!(
-                    "GPU passthrough was enabled at conversion time but {} (or {}) env var is not set.",
-                    Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
-                    Self::GPU_BDF_ENV_VAR_NAME.unwrap_or_default(),
-                ));
-            }
-        }
+        qemu_utils::require_file("Kernel", constants::KERNEL_PATH)?;
+        qemu_utils::require_file("Initramfs", constants::INITRAMFS_PATH)?;
+        qemu_utils::require_file("KVM device", constants::KVM_DEVICE_PATH)?;
+        qemu_utils::require_file("vhost-vsock device", constants::VSOCK_HOST_DEVICE_PATH)?;
 
         if let Some(firmware_path) = self.firmware_path() {
-            require_file("Firmware", firmware_path)?;
+            qemu_utils::require_file("Firmware", firmware_path)?;
         }
 
         for host_dev in self.host_cc_device_paths() {
-            require_file("Host device", host_dev)?;
+            qemu_utils::require_file("Host device", host_dev)?;
         }
 
         Ok(())
@@ -100,46 +159,11 @@ pub(super) trait QemuPlatform {
         env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
     }
 
-    fn globals(&self) -> Vec<String> {
-        vec![]
+    fn globals(&self) -> Result<Vec<String>, String> {
+        Ok(vec![])
     }
 
-    fn build_qemu_gpu_args(&self) -> Result<Option<Vec<String>>, String> {
-        let gpus = self.gpus();
-        if gpus.is_empty() {
-            return Ok(None);
-        }
-
-        let mut args = Vec::new();
-        let gpu_root_ports = gpus
-            .iter()
-            .enumerate()
-            .map(|(index, _)| build_gpu_root_port_arg(index))
-            .collect::<Vec<_>>();
-        let gpu_devices = gpus
-            .iter()
-            .enumerate()
-            .map(|(index, bdf)| Self::build_vfio_iommu_arg(bdf, index))
-            .collect::<Vec<_>>();
-        let fw_cfg_mmio64 = {
-            let size_mb = iommu::pci_mmio64_mb(&gpus)?;
-            format!("name=opt/ovmf/X-PciMmio64Mb,string={size_mb}")
-        };
-
-        args.extend(["-object".to_owned(), iommu::IOMMUFD_OBJECT.to_owned()]);
-        for (root_port, gpu_device) in gpu_root_ports.into_iter().zip(gpu_devices) {
-            args.extend([
-                "-device".to_owned(),
-                root_port,
-                "-device".to_owned(),
-                gpu_device,
-            ]);
-        }
-        args.extend(["-fw_cfg".to_owned(), fw_cfg_mmio64]);
-        Ok(Some(args))
-    }
-
-    fn build_qemu_args(&self) -> Result<Vec<String>, String> {
+    fn build_qemu_args(&self, gpu_settings: Option<&GPUSettings>) -> Result<Vec<String>, String> {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
         let memory_size = self.memory_size();
@@ -174,12 +198,12 @@ pub(super) trait QemuPlatform {
             args.extend(["-object", object]);
         }
 
-        let globals = self.globals();
+        let globals = self.globals()?;
         for global in &globals {
             args.extend(["-global", global]);
         }
 
-        let gpu_args = self.build_qemu_gpu_args()?;
+        let gpu_args = gpu_settings.map(|g| g.build_qemu_args());
         if let Some(gpu_args) = &gpu_args {
             args.extend(gpu_args.iter().map(String::as_str));
         }
@@ -204,246 +228,11 @@ pub(super) trait QemuPlatform {
 
     async fn run(&self) -> Result<(), String> {
         self.check_files()?;
-        let args = self.build_qemu_args()?;
+        let gpu_settings = self.gpu_settings()?;
+        let args = self.build_qemu_args(gpu_settings)?;
         let args_ref = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
         run_subprocess(constants::QEMU_BINARY, &args_ref).await
     }
-}
-
-mod iommu {
-    use std::fs;
-
-    use log::{info, warn};
-
-    use super::require_file;
-
-    pub(super) const DEVICE_PATH: &str = "/dev/iommu";
-    pub(super) const IOMMUFD_ID: &str = "iommufd0";
-    pub(super) const IOMMUFD_OBJECT: &str = "iommufd,id=iommufd0";
-
-    const MIB: u64 = 1024 * 1024;
-    const MIN_PCI_MMIO64_MB: u64 = 256 * 1024;
-    const OTHER_DEVICES_HEADROOM_MB: u64 = 64 * 1024;
-    const FALLBACK_GPU_BAR_MB: u64 = 128 * 1024;
-    const MAX_PCI_MMIO64_MB: u64 = 8 * 1024 * 1024;
-    const IORESOURCE_MEM: u64 = 0x0000_0200;
-    const IORESOURCE_MEM_64: u64 = 0x0010_0000;
-
-    /// Calculates the 64-bit PCI MMIO aperture required by the selected GPUs.
-    ///
-    /// Reads BAR0 through BAR5 from each GPU's sysfs `resource` file, sums their
-    /// 64-bit MMIO address-space requirements, adds alignment headroom, and rounds the result
-    /// up to a supported power-of-two aperture size.
-    ///
-    /// If any resource file cannot be read, conservative sizing based on the
-    /// number of GPUs is used instead.
-    ///
-    /// See: https://docs.kernel.org/PCI/sysfs-pci.html
-    pub(super) fn pci_mmio64_mb(gpus: &[String]) -> Result<u64, String> {
-        let mut bar_total = 0_u64;
-        let mut all_resources_read = true;
-        for bdf in gpus {
-            let resource_path = format!("/sys/bus/pci/devices/{bdf}/resource");
-            match fs::read_to_string(&resource_path) {
-                Ok(resources) => {
-                    bar_total = bar_total
-                        .checked_add(parse_gpu_bar_total(&resources)?)
-                        .ok_or_else(|| "GPU BAR size total overflowed u64".to_string())?;
-                }
-                Err(error) => {
-                    all_resources_read = false;
-                    warn!(
-                        "Unable to read GPU BAR resources from {}: {}. Using conservative fallback sizing.",
-                        resource_path, error
-                    );
-                }
-            }
-        }
-
-        let size_mb = pci_mmio64_mb_from_bar_total(
-            if all_resources_read { bar_total } else { 0 },
-            gpus.len(),
-        )?;
-        info!(
-            "Configured PCI MMIO64 window at {} MiB for {} GPU(s) with {} MiB of BAR resources",
-            size_mb,
-            gpus.len(),
-            bar_total / MIB,
-        );
-        Ok(size_mb)
-    }
-
-    /// Returns the combined size of BAR0 through BAR5 from one PCI device's
-    /// sysfs `resource` file.
-    ///
-    /// Each resource line has the following format:
-    ///
-    /// `<start address> <end address> <flags>`
-    ///
-    /// Resource bounds are inclusive, so an assigned BAR has size
-    /// `end - start + 1`. Unassigned resources, represented by zero or otherwise
-    /// non-increasing bounds, contribute nothing.
-    ///
-    /// Example:
-    ///
-    /// `0x0000215000000000 0x0000215000ffffff 0x000000000014220c`
-    /// `0x0000200000000000 0x0000201fffffffff 0x000000000014220c`
-    fn parse_gpu_bar_total(resources: &str) -> Result<u64, String> {
-        resources.lines().take(6).try_fold(0_u64, |total, line| {
-            let mut fields = line.split_whitespace();
-            let start = parse_pci_resource_value(fields.next(), line)?;
-            let end = parse_pci_resource_value(fields.next(), line)?;
-            let flags = parse_pci_resource_value(fields.next(), line)?;
-
-            let mmio64_flags = IORESOURCE_MEM | IORESOURCE_MEM_64;
-            let is_mmio64 = flags & mmio64_flags == mmio64_flags;
-
-            if !is_mmio64 || (start == 0 && end == 0) {
-                return Ok(total);
-            }
-
-            if end < start {
-                return Err(format!(
-                    "Invalid PCI BAR resource range: start={start:#x}, end={end:#x}"
-                ));
-            }
-
-            let size = end
-                .checked_sub(start) // underflow checked above
-                .and_then(|v| v.checked_add(1))
-                .ok_or_else(|| format!("PCI BAR size overflow in {line:?}"))?;
-
-            total
-                .checked_add(size)
-                .ok_or_else(|| "GPU MMIO64 total overflowed u64".to_string())
-        })
-    }
-
-    fn parse_pci_resource_value(value: Option<&str>, line: &str) -> Result<u64, String> {
-        let value = value.ok_or_else(|| format!("Malformed PCI resource line {line:?}"))?;
-        u64::from_str_radix(value.trim_start_matches("0x"), 16)
-            .map_err(|error| format!("Invalid PCI resource value {value:?}: {error}"))
-    }
-
-    fn pci_mmio64_mb_from_bar_total(bar_total: u64, gpu_count: usize) -> Result<u64, String> {
-        let need_mb = if bar_total > 0 {
-            let bar_mb = bar_total / MIB;
-            bar_mb
-                .checked_add(bar_mb / 4)
-                .and_then(|value| value.checked_add(OTHER_DEVICES_HEADROOM_MB))
-                .ok_or_else(|| "PCI MMIO64 size calculation overflowed u64".to_string())?
-        } else {
-            MIN_PCI_MMIO64_MB
-                .checked_add(
-                    FALLBACK_GPU_BAR_MB
-                        .checked_mul(gpu_count as u64)
-                        .ok_or_else(|| {
-                            "PCI MMIO64 fallback calculation overflowed u64".to_string()
-                        })?,
-                )
-                .ok_or_else(|| "PCI MMIO64 fallback calculation overflowed u64".to_string())?
-        };
-
-        let mut size_mb = MIN_PCI_MMIO64_MB;
-        while size_mb < need_mb {
-            size_mb = size_mb
-                .checked_mul(2)
-                .ok_or_else(|| "PCI MMIO64 power-of-two rounding overflowed u64".to_string())?;
-        }
-        validate_pci_mmio64_mb(size_mb)?;
-        Ok(size_mb)
-    }
-
-    fn validate_pci_mmio64_mb(size_mb: u64) -> Result<(), String> {
-        if size_mb < MIN_PCI_MMIO64_MB {
-            return Err(format!(
-                "Computed PCI MMIO64 window {size_mb} MiB is below the {MIN_PCI_MMIO64_MB} MiB minimum"
-            ));
-        }
-        if size_mb > MAX_PCI_MMIO64_MB {
-            return Err(format!(
-                "Computed PCI MMIO64 window {size_mb} MiB exceeds the {} MiB limit",
-                MAX_PCI_MMIO64_MB
-            ));
-        }
-        if !size_mb.is_power_of_two() {
-            return Err(format!(
-                "Computed PCI MMIO64 window {size_mb} MiB is not a power of two"
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn require_vfio_device(bdf: &str) -> Result<(), String> {
-        let device_path = format!("/sys/bus/pci/devices/{bdf}");
-        require_file("GPU PCI device", &device_path)?;
-
-        let driver_path = format!("{device_path}/driver");
-        let driver = fs::read_link(&driver_path)
-            .map_err(|e| format!("failed reading GPU driver at {driver_path}: {e}"))?;
-
-        if driver.file_name().and_then(|name| name.to_str()) != Some("vfio-pci") {
-            return Err(format!("GPU {bdf} is not bound to vfio-pci"));
-        }
-
-        require_file("VFIO control device", "/dev/vfio/vfio")?;
-
-        let iommu_group_path = format!("{device_path}/iommu_group");
-        let iommu_group = fs::read_link(&iommu_group_path)
-            .map_err(|e| format!("failed reading IOMMU group for GPU {bdf}: {e}"))?;
-
-        let group = iommu_group
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| format!("invalid IOMMU group path for GPU {bdf}"))?;
-
-        let vfio_group_path = format!("/dev/vfio/{group}");
-        require_file("VFIO group device", &vfio_group_path)
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::{parse_gpu_bar_total, pci_mmio64_mb_from_bar_total, MIB};
-
-        #[test]
-        fn sums_only_64_bit_mmio_gpu_bars() {
-            let resources = concat!(
-                "0x1000 0x1fff 0x00100200\n", // 64-bit MMIO: included
-                "0x2000 0x3fff 0x00000200\n", // 32-bit MMIO: excluded
-                "0x0 0x0 0x00100200\n",       // unassigned: excluded
-                "0x4000 0x7fff 0x00100200\n", // 64-bit MMIO: included
-                "0x8000 0x8fff 0x00000100\n", // I/O port: excluded
-                "0x0 0x0 0x0\n",
-                "0x9000 0xffff 0x00100200\n", // seventh resource: ignored
-            );
-            assert_eq!(parse_gpu_bar_total(resources).unwrap(), 0x5000);
-        }
-
-        #[test]
-        fn sizes_mmio_window_from_bar_total() {
-            assert_eq!(
-                pci_mmio64_mb_from_bar_total(128 * 1024 * MIB, 1).unwrap(),
-                256 * 1024
-            );
-            assert_eq!(
-                pci_mmio64_mb_from_bar_total(256 * 1024 * MIB, 2).unwrap(),
-                512 * 1024
-            );
-        }
-
-        #[test]
-        fn falls_back_when_bar_resources_are_unavailable() {
-            assert_eq!(pci_mmio64_mb_from_bar_total(0, 1).unwrap(), 512 * 1024);
-        }
-    }
-}
-
-fn build_gpu_root_port_arg(index: usize) -> String {
-    let number = index + 1;
-    format!(
-        "pcie-root-port,id=pci.{number},bus=pcie.0,addr=0x{:x},chassis={number},slot={number}",
-        number + 1,
-    )
 }
 
 fn parse_gpu_bdfs(plural: Option<&str>, singular: Option<&str>) -> Vec<String> {
@@ -472,17 +261,10 @@ pub fn env_or_default(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
-fn require_file(description: &str, path: &str) -> Result<(), String> {
-    if Path::new(path).exists() {
-        Ok(())
-    } else {
-        Err(format!("{description} not found at {path}"))
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::{build_gpu_root_port_arg, parse_gpu_bdfs};
+    use super::parse_gpu_bdfs;
+    use crate::utils::qemu::build_pcie_root_port;
     use std::collections::HashMap;
     use std::collections::HashSet;
 
@@ -518,11 +300,11 @@ pub(crate) mod tests {
     #[test]
     fn gpu_root_ports_have_unique_topology() {
         assert_eq!(
-            build_gpu_root_port_arg(0),
+            build_pcie_root_port(0),
             "pcie-root-port,id=pci.1,bus=pcie.0,addr=0x2,chassis=1,slot=1"
         );
         assert_eq!(
-            build_gpu_root_port_arg(1),
+            build_pcie_root_port(1),
             "pcie-root-port,id=pci.2,bus=pcie.0,addr=0x3,chassis=2,slot=2"
         );
     }
