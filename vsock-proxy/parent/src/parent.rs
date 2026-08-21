@@ -28,7 +28,7 @@ use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
     cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
     AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE,
-    NS_SWITCH_FILE, VSOCK_LISTENER_CID,
+    VSOCK_LISTENER_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -720,16 +720,10 @@ async fn send_global_network_settings(
     let dns_file = customize_resolv_conf(nameserver_address)?;
     let hosts_file = read_file(HOSTS_FILE)?;
     let host_name_file = read_file(HOSTNAME_FILE)?;
-    let ns_switch_file = read_file(NS_SWITCH_FILE)?;
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![
-            dns_file.resolv_conf_file,
-            hosts_file,
-            host_name_file,
-            ns_switch_file,
-        ],
+        global_settings_list: vec![dns_file.resolv_conf_file, hosts_file, host_name_file],
     };
 
     enclave_port
