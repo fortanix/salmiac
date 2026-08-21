@@ -11,7 +11,13 @@ ARG NVIDIA_DRIVER_BRANCH=595
 
 FROM ubuntu:${UBUNTU_VERSION} AS enclave-base-gpu
 ARG NVIDIA_DRIVER_BRANCH
+ARG NVIDIA_DRIVER_BRANCH_PINNED=595.71.05-0ubuntu0.24.04.1
+ARG UBUNTU_SNAPSHOT=20260601T000000Z
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Bootstrap HTTPS trust using the current archive first.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates
 
 # Runtime packages. Groups:
 #
@@ -27,14 +33,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                       libnvidia-ptxjitcompiler.so.1
 #     nvidia-utils-${NVIDIA_DRIVER_BRANCH}
 #                     - nvidia-smi, libnvidia-ml.so.1, libnvidia-cfg.so.1
-RUN apt-get update \
-    && apt-get upgrade -y \
+RUN echo "APT::Snapshot \"${UBUNTU_SNAPSHOT}\";"  > /etc/apt/apt.conf.d/50snapshot \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         cryptsetup \
         nbd-client \
-        libnvidia-compute-${NVIDIA_DRIVER_BRANCH} \
-        nvidia-utils-${NVIDIA_DRIVER_BRANCH} \
+        libnvidia-compute-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
+        nvidia-utils-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
         openssl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

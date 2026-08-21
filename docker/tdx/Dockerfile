@@ -16,14 +16,24 @@ RUN apt-get download systemd-boot-efi \
 
 FROM ubuntu:24.04 AS nvidia_userspace
 ARG NVIDIA_DRIVER_BRANCH
+ARG NVIDIA_DRIVER_BRANCH_PINNED=595.71.05-0ubuntu0.24.04.1
+ARG UBUNTU_SNAPSHOT=20260601T000000Z
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Bootstrap HTTPS trust using the current archive first.
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates
+
+# Ubuntu security updates releases new versions of nvidia library & firmware.
+# However, nvidia driver is an artifact from our build job and it needs slightly older library & firmware.
+# Here, we're freezing ubuntu repositories at certain point to download the exact version
+# our driver needs.
+RUN echo "APT::Snapshot \"${UBUNTU_SNAPSHOT}\";"  > /etc/apt/apt.conf.d/50snapshot \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
-        libnvidia-compute-${NVIDIA_DRIVER_BRANCH} \
-        nvidia-utils-${NVIDIA_DRIVER_BRANCH} \
-        nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH} \
+        libnvidia-compute-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
+        nvidia-utils-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
+        nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
