@@ -60,18 +60,10 @@ jobs:
       - name: Run Sanity checks
         run: |
           ./sanity.sh
-
-      - name: Build Nitro converter
-        env:
-          SALMIAC_PLATFORM: nitro
+      
+      - name: Build Converters
         run: |
-          ./build-converter.sh
-
-      - name: Build SNP converter
-        env:
-          SALMIAC_PLATFORM: snp
-        run: |
-          ./build-converter.sh
+          ./build-solution.sh
 
       - name: Run Rust unit tests
         env:

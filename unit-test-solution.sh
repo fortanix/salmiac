@@ -5,6 +5,7 @@ set -exo pipefail
 SALMIAC_PLATFORMS=(
     nitro
     snp
+    tdx
 )
 
 # Run unit tests
