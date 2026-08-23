@@ -21,10 +21,10 @@ components:
     CaCertificateConfig:
       type: "object"
       properties:
-        caPath:
+        ca_path:
           type: "string"
           description: "Path to expose the CA cert in the application filesystem"
-        caCert:
+        ca_cert:
           type: "string"
           description: >
             Base64-encoded CA certificate contents. Not required when
@@ -35,43 +35,49 @@ components:
           type: "string"
           description: "Request to install CA cert in the system trust store"
     CertificateConfig:
+      required:
+        - issuer
+        - key_type
       properties:
         issuer:
           type: "string"
           description: "Certificate issuance strategy"
-          default: MANAGER_CA
+          default: ManagerCa
           enum:
-            - MANAGER_CA
-            - NODE
-            - SELF_IAS
+            - ManagerCa
+            - Node
+            - SelfIas
         subject:
           type: "string"
           description: "Certificate subject common name, typically a DNS name"
-        altNames:
+        alt_names:
           type: "array"
           items:
             type: "string"
+          default: []
           description: "Subject alternate names to include in the certificate (e.g. DNS:example.com)"
-        keyType:
+        key_type:
           type: "string"
           description: "Type of key to generate"
-          default: RSA
+          default: Rsa
           enum:
-            - RSA
+            - Rsa
           # Not yet supported:
           #- EC
-        keyParam:
+        key_param:
           type: "object"
           description: >
             Key parameters. Currently must be an instance of RsaKeyParam, but
             other types may be supported in the future.
-        keyPath:
+        key_path:
           type: "string"
           description: "Path to expose the key in the application filesystem"
-        certPath:
+          default: "key"
+        cert_path:
           type: "string"
           description: "Path to expose the certificate in the application filesystem"
-        chainPath:
+          default: "cert"
+        chain_path:
           type: "string"
           description: "Path to expose the complete certificate chain in the application filesystem"
     ConvertedImageInfo:
@@ -87,6 +93,7 @@ components:
         sha:
           type: "string"
           description: "Converted image sha"
+          format: hex
         size:
           type: "integer"
           format: "int64"
@@ -100,7 +107,7 @@ components:
         allow_docker_pull_failure:
           type: "boolean"
           description: "Allow Docker Pull failure."
-        app: #TODO: Check this
+        app:
           type: "object"
         certificates:
           type: "array"
@@ -113,12 +120,12 @@ components:
         debug:
           type: "boolean"
           description: "Enables debug logging from EnclaveOS"
-        entrypoint:
+        entry_point:
           type: "array"
           items:
             type: "string"
           description: "Override the entrypoint of the original container"
-        entrypoint_args:
+        entry_point_args:
           type: "array"
           items:
             type: "string"
@@ -126,6 +133,7 @@ components:
         push_converted_image:
           type: "boolean"
           description: "Enables Pushing Converted Image"
+          default: true
         env_vars:
           description: |
             List of manifest environment variables.
@@ -138,7 +146,7 @@ components:
           description: "Type of the Java JVM used"
         enable_overlay_filesystem_persistence:
           type: "boolean"
-          default: true
+          default: false
           description: "Flag to enable file persistence, on by default"
         ccm_configuration:
           $ref: "#/components/schemas/CCMConfiguration"
@@ -174,8 +182,8 @@ components:
           description: " DSM Endpoint, where Key is created. Eg: https://apps.smartkey.io/"
     NvidiaDriverCapability:
       enum:
-        - Compute
-        - Utility
+        - compute
+        - utility
     NitroEnclavesConversionRequest:
       type: "object"
       required:
@@ -220,6 +228,7 @@ components:
         sha:
           type: "string"
           description: "Converted image sha"
+          format: hex
         size:
           type: "integer"
           format: "int64"
@@ -252,13 +261,16 @@ components:
           $ref: "#/components/schemas/NitroEnclaveHashAlgorithm"
         pcr0:
           type: "string"
+          format: hex
           description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
         pcr1:
           type: "string"
           description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
+          format: hex
         pcr2:
           type: "string"
           description: "A contiguous measure of the contents of the image file, without the section data as a hex string."
+          format: hex
     NitroEnclaveHashAlgorithm:
       type: "string"
       description: "Nitro enclave hash algorithm"
@@ -286,6 +298,8 @@ components:
           description: "SNP enclaves conversion options"
     SNPEnclavesConversionRequestOptions:
       type: "object"
+      required:
+        - cpu_count
       properties:
         cpu_count:
           type: "integer"
@@ -300,6 +314,7 @@ components:
           description: "Flag to enable/disable gpu_passthrough, off by default"
         nvidia_driver_capabilities:
           type: "array"
+          description: "NVIDIA driver capabilities to copy into the protected blockfile when GPU passthrough is enabled. If omitted, compute and utility are included."
           items:
             $ref: "#/components/schemas/NvidiaDriverCapability"
     SNPEnclavesConversionResponse:
@@ -316,6 +331,7 @@ components:
         sha:
           type: "string"
           description: "Converted image sha"
+          format: hex
         size:
           type: "integer"
           format: "int64"
@@ -338,6 +354,7 @@ components:
       properties:
         launch_measurement:
           type: "string"
+          format: hex
     TdxEnclavesConversionRequest:
       type: "object"
       required:
@@ -360,6 +377,8 @@ components:
           description: "Tdx enclaves conversion options"
     TdxEnclavesConversionRequestOptions:
       type: "object"
+      required:
+        - cpu_count
       properties:
         cpu_count:
           type: "integer"
@@ -390,6 +409,7 @@ components:
         sha:
           type: "string"
           description: "Converted image sha"
+          format: hex
         size:
           type: "integer"
           format: "int64"
@@ -416,14 +436,19 @@ components:
       properties:
         mrtd:
           type: "string"
+          format: hex
         rtmr0:
           type: "string"
+          format: hex
         rtmr1:
           type: "string"
+          format: hex
         rtmr2:
           type: "string"
+          format: hex
         rtmr3:
           type: "string"
+          format: hex
 
 paths:
   /convert:
