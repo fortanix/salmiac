@@ -6,6 +6,7 @@ SALMIAC_PLATFORMS=(
     nitro
     snp
     tdx
+    simulator
 )
 
 # Build converters
