@@ -3,11 +3,17 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+use nix::fcntl::OFlag;
+use nix::sys::stat::Mode;
+use shared::{run_subprocess, VSOCK_LISTENER_CID};
 use std::collections::HashSet;
 use std::env;
+use std::io::ErrorKind;
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::sync::OnceLock;
+use tokio_vsock::VsockListener;
 
-use shared::run_subprocess;
+use crate::platform::GuestLaunchResult;
 
 use crate::utils::qemu as qemu_utils;
 
@@ -23,12 +29,19 @@ pub(super) mod constants {
     pub const VSOCK_HOST_DEVICE_PATH: &str = "/dev/vhost-vsock";
     pub const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
 
-    // TODO: We need to see how we will assign guest CID when we support multiple
-    // containers on single host
-    pub const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3";
+    pub const CID_START: u16 = 1024;
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
     pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
+
+    pub const VHOST_VIRTIO: u8 = 0xAF;
+}
+
+nix::ioctl_write_ptr!(set_guest_cid, constants::VHOST_VIRTIO, 0x60, u64);
+
+pub struct VmConnectionConfig {
+    pub(crate) parent_vsock_listener: tokio_vsock::VsockListener,
+    pub(crate) guest_vsock_cid: u64,
 }
 
 pub struct GPUSettings {
@@ -155,7 +168,12 @@ pub(super) trait QemuPlatform {
         Ok(vec![])
     }
 
-    fn build_qemu_args(&self, gpu_settings: Option<&GPUSettings>) -> Result<Vec<String>, String> {
+    fn build_qemu_args(
+        &self,
+        gpu_settings: Option<&GPUSettings>,
+        vsock_fd: RawFd,
+        vsock_cid: u64,
+    ) -> Result<Vec<String>, String> {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
         let memory_size = self.memory_size();
@@ -200,10 +218,15 @@ pub(super) trait QemuPlatform {
             args.extend(gpu_args.iter().map(String::as_str));
         }
 
+        let vsock_device_str = format!(
+            "vhost-vsock-pci,vhostfd={},guest-cid={}",
+            vsock_fd, vsock_cid
+        );
+
+        args.extend(["-device", vsock_device_str.as_str()]);
+
         // Append binary related args for better visibility
         args.extend([
-            "-device",
-            constants::VSOCK_DEVICE,
             "-kernel",
             constants::KERNEL_PATH,
             "-initrd",
@@ -218,12 +241,28 @@ pub(super) trait QemuPlatform {
             .collect::<Vec<_>>())
     }
 
-    async fn run(&self) -> Result<(), String> {
+    fn launch_guest(&self) -> Result<GuestLaunchResult, String> {
         self.check_files()?;
+
         let gpu_settings = self.gpu_settings()?;
-        let args = self.build_qemu_args(gpu_settings)?;
-        let args_ref = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
-        run_subprocess(constants::QEMU_BINARY, &args_ref).await
+        let (enclave_connection_config, vsock_fd) = probe_vm_connection_config()?;
+        let args = self.build_qemu_args(
+            gpu_settings,
+            vsock_fd.as_raw_fd(),
+            enclave_connection_config.guest_vsock_cid,
+        )?;
+
+        let enclave_process = tokio::spawn(async move {
+            let args_ref = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
+            // Move ownership here so it won't get dropped
+            let _vsock_fd = vsock_fd;
+            run_subprocess(constants::QEMU_BINARY, &args_ref).await
+        });
+
+        Ok(GuestLaunchResult {
+            enclave_process,
+            enclave_connection_config,
+        })
     }
 }
 
@@ -235,6 +274,65 @@ fn parse_gpu_bdfs(value: Option<&str>) -> Vec<String> {
         .filter(|bdf| !bdf.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+/// Based on Fortanix VME runner implementation (amdsevsnp.rs: get_available_guest_cid_with_fd)
+fn probe_vm_connection_config() -> Result<(VmConnectionConfig, OwnedFd), String> {
+    use rand::Rng;
+
+    let random_start = rand::thread_rng().gen_range(constants::CID_START..u16::MAX);
+    for cid in (random_start..u16::MAX).chain(constants::CID_START..random_start) {
+        // Try to check if the socket address is already bound
+        let parent_socket = match VsockListener::bind(VSOCK_LISTENER_CID, cid.into()) {
+            Err(e) => match e.kind() {
+                ErrorKind::AddrInUse => Ok(None),
+                _ => Err(format!("unable to bind to vsock port: {e}")),
+            },
+            Ok(s) => Ok(Some(s)),
+        }?;
+
+        let parent_socket = if let Some(s) = parent_socket {
+            s
+        } else {
+            continue;
+        };
+
+        // set_guest_cid expects u64 due to underlying ioctl call.
+        let cid = cid as u64;
+        // We're deliberately omitting O_CLOEXEC here as we want
+        // the child process inherit the opened file descriptors.
+        let fd = nix::fcntl::open(
+            constants::VSOCK_HOST_DEVICE_PATH,
+            OFlag::O_RDWR,
+            Mode::empty(),
+        )
+        .map_err(|e| format!("unable to open vhost-vsock device: {}", e))?;
+
+        let res = unsafe { set_guest_cid(fd.as_raw_fd(), &cid) };
+        match res {
+            Ok(_) => {
+                return Ok((
+                    VmConnectionConfig {
+                        parent_vsock_listener: parent_socket,
+                        guest_vsock_cid: cid,
+                    },
+                    fd,
+                ));
+            }
+            Err(err_code) => {
+                let _ = nix::unistd::close(fd);
+
+                // EADDRINUSE means the cid is in-use, we fail on any error
+                // other than EADDRINUSE
+                if err_code != nix::Error::EADDRINUSE {
+                    return Err(format!(
+                        "unable to ioctl vhost-vsock device. Error code {err_code}"
+                    ));
+                }
+            }
+        }
+    }
+    Err(format!("unable to get available CID for the guest"))
 }
 
 #[allow(unused)]
@@ -279,6 +377,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[allow(unused)]
     fn parse_args_as_kvp<'a>(args: &[&'a str]) -> HashMap<&'a str, Option<&'a str>> {
         let mut map = HashMap::<&str, Option<&str>>::new();
 
@@ -300,6 +399,7 @@ pub(crate) mod tests {
         map
     }
 
+    #[allow(unused)]
     pub fn diff_args(expected: &[&str], actual: &[&str]) {
         let expected = parse_args_as_kvp(expected);
         let actual = parse_args_as_kvp(actual);

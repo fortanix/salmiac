@@ -40,6 +40,11 @@ use crate::network::{
     setup_network_devices, PairedPcapDevice, PairedTapDevice,
 };
 use crate::packet_capture::start_pcap_loops;
+use crate::platform::GuestLaunchResult;
+
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+use crate::platform::VmConnectionConfig;
+
 use crate::ParentConsoleArguments;
 
 const INSTALLATION_DIR: &str = "/opt/fortanix/enclave-os";
@@ -57,7 +62,8 @@ const RW_BLOCK_FILE_OUT: &'static str = "Blockfile-rw.ext4";
 // Double this value in salmiac to 64 Mib
 const MIN_RW_BLOCKFILE_SIZE: usize = 64 * 1024 * 1024;
 
-const VSOCK_PARENT_PORT: u32 = 5006;
+#[cfg(platform = "nitro")]
+use shared::VSOCK_PARENT_PORT;
 
 const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
@@ -98,16 +104,29 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     }
 
     info!("Spawning enclave process.");
-    let guest_launch_result = crate::platform::launch_guest();
-    let _enclave_process = guest_launch_result.enclave_process;
+
+    #[cfg(not(platform = "nitro"))]
+    let GuestLaunchResult {
+        enclave_process,
+        enclave_connection_config:
+            VmConnectionConfig {
+                mut parent_vsock_listener,
+                guest_vsock_cid: _,
+            },
+    } = crate::platform::launch_guest()?;
+
+    #[cfg(platform = "nitro")]
+    let GuestLaunchResult {
+        enclave_process: _enclave_process,
+    } = crate::platform::launch_guest()?;
 
     info!("Awaiting confirmation from enclave.");
     // nitro-cli command is non-blocking so the select logic below will not work for nitro
     #[cfg(not(platform = "nitro"))]
     let mut enclave_port = tokio::select! {
-        accept = create_vsock_stream(VSOCK_PARENT_PORT) => accept,
+        accept = accept(&mut parent_vsock_listener) => accept,
 
-        join_res = _enclave_process => {
+        join_res = enclave_process => {
             match join_res {
                 Ok(Err(e)) => Err(e),
                 Err(e) => Err(format!("Enclave task panicked or was cancelled: {:?}", e)),
@@ -767,6 +786,7 @@ async fn send_application_configuration(vsock: &mut AsyncVsockStream) -> Result<
         .await
 }
 
+#[cfg(platform = "nitro")]
 async fn create_vsock_stream(port: u32) -> Result<AsyncVsockStream, String> {
     let mut socket = listen_to_parent(port)?;
 

@@ -16,7 +16,34 @@ use std::process;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use log::{debug, error};
 use shared::models::UserProgramExitStatus;
-use shared::{parse_console_argument, NumArg};
+use shared::NumArg;
+
+#[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+fn obtain_vsock_cid() -> Result<u32, String> {
+    mod constants {
+        pub const VSOCK_DEVICE_PATH: &str = "/dev/vsock";
+        pub const IOCTL_VM_SOCKETS_GET_LOCAL_CID: usize = 0x7b9;
+    }
+
+    // linux/include/uapi/linux/vm_sockets.h
+    nix::ioctl_read_bad!(
+        get_local_cid,
+        constants::IOCTL_VM_SOCKETS_GET_LOCAL_CID,
+        u32
+    );
+
+    use nix::{fcntl::OFlag, sys::stat::Mode};
+
+    let fd = nix::fcntl::open(constants::VSOCK_DEVICE_PATH, OFlag::O_RDONLY, Mode::empty())
+        .map_err(|e| format!("unable to open vsock device: {e}"))?;
+
+    let mut cid: u32 = 0;
+    unsafe { get_local_cid(fd, &mut cid).map_err(|e| format!("unable to get local cid: {e}"))? };
+
+    debug!("Obtained CID: {cid}");
+
+    Ok(cid as u32)
+}
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), String> {
@@ -24,7 +51,12 @@ async fn main() -> Result<(), String> {
 
     let matches = console_arguments();
 
-    let vsock_port = parse_console_argument::<u32>(&matches, "vsock-port");
+    #[cfg(platform = "nitro")]
+    let vsock_port = shared::VSOCK_PARENT_PORT;
+
+    #[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
+    let vsock_port = obtain_vsock_cid()?;
+
     let settings_path = matches
         .value_of("settings-path")
         .map(|e| Path::new(e))
