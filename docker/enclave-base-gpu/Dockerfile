@@ -5,12 +5,10 @@
 # libnvidia-ml) that applications and tooling use to talk to them.
 
 #TODO: RTE-944 Userspace hardening
-
 ARG UBUNTU_VERSION=24.04
-ARG NVIDIA_DRIVER_BRANCH=595
 
 FROM ubuntu:${UBUNTU_VERSION} AS enclave-base-gpu
-ARG NVIDIA_DRIVER_BRANCH
+ARG NVIDIA_DRIVER_BRANCH=595
 ARG NVIDIA_DRIVER_BRANCH_PINNED=595.71.05-0ubuntu0.24.04.1
 ARG UBUNTU_SNAPSHOT=20260601T000000Z
 ENV DEBIAN_FRONTEND=noninteractive
@@ -33,6 +31,9 @@ RUN apt-get update \
 #                       libnvidia-ptxjitcompiler.so.1
 #     nvidia-utils-${NVIDIA_DRIVER_BRANCH}
 #                     - nvidia-smi, libnvidia-ml.so.1, libnvidia-cfg.so.1
+# Ubuntu security updates may publish newer NVIDIA libraries and firmware.
+# Because the NVIDIA driver is supplied as a build artifact and requires specific
+# older versions, use a repository snapshot to install the compatible packages.
 RUN echo "APT::Snapshot \"${UBUNTU_SNAPSHOT}\";"  > /etc/apt/apt.conf.d/50snapshot \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
