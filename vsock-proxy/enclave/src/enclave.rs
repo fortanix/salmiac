@@ -42,8 +42,8 @@ use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
-    ApplicationConfiguration, GlobalNetworkSettings, NBDConfiguration, NetworkDeviceSettings,
-    PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus,
+    ApplicationConfiguration, GlobalNetworkSettings, HostEntries, NBDConfiguration,
+    NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus,
 };
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
@@ -82,7 +82,7 @@ const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
     Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
-const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 3] = [DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE];
+const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 2] = [DNS_RESOLV_FILE, HOSTNAME_FILE];
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -839,6 +839,7 @@ async fn setup_enclave_networking(
         .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
     write_network_files(&global_settings, &NETWORK_FILE_PATH_ALLOW_LIST)?;
+    write_hosts_file(&global_settings.host_entries)?;
     debug!("Enclave global network settings files have been created.");
 
     enable_loopback_network_interface()?;
@@ -847,6 +848,25 @@ async fn setup_enclave_networking(
         hostname: global_settings.hostname,
         tap_devices,
     })
+}
+
+fn write_hosts_file(host_entries: &HostEntries) -> Result<(), String> {
+    let mut output = String::from(
+        "127.0.0.1\tlocalhost\n\
+            ::1\tlocalhost ip6-localhost ip6-loopback\n\
+            fe00::\tip6-localnet\n\
+            ff00::\tip6-mcastprefix\n\
+            ff02::1\tip6-allnodes\n\
+            ff02::2\tip6-allrouters\n",
+    );
+    for (ip, hostnames) in host_entries {
+        output.push_str(&ip.to_string());
+        output.push('\t');
+        output.push_str(&hostnames.join(" "));
+        output.push('\n');
+    }
+    write_to_file(Path::new(&HOSTS_FILE), &output, &HOSTS_FILE)?;
+    Ok(())
 }
 
 fn write_network_files(
@@ -1132,6 +1152,7 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::fs::File;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::Path;
@@ -1238,6 +1259,7 @@ mod tests {
         }
         let global_settings = GlobalNetworkSettings {
             hostname: String::new(),
+            host_entries: HashMap::new(),
             global_settings_list: files,
         };
 

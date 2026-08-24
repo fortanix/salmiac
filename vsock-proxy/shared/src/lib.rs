@@ -41,6 +41,17 @@ pub const HOSTS_FILE: &'static str = "/etc/hosts";
 // https://man7.org/linux/man-pages/man5/hostname.5.html
 pub const HOSTNAME_FILE: &'static str = "/etc/hostname";
 
+// Restricted Hosts - These can not be passed as dynamic hosts
+pub const RESTRICTED_HOSTS: &[&str] = &[
+    "localhost",
+    "ip6-localhost",
+    "ip6-loopback",
+    "ip6-localnet",
+    "ip6-mcastprefix",
+    "ip6-allnodes",
+    "ip6-allrouters",
+];
+
 // The types of std streams which are forwarded from the client
 // application to the parent for better logging
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
