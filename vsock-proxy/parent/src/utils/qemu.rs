@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::Path;
 
-use log::{info, warn};
+use log::info;
 
 pub(crate) const DEVICE_PATH: &str = "/dev/iommu";
 pub(crate) const IOMMUFD_ID: &str = "iommufd0";
@@ -23,8 +23,6 @@ pub(crate) fn require_file(description: &str, path: &str) -> Result<(), String> 
 const MIB: u64 = 1024 * 1024;
 const MIN_PCI_MMIO64_MB: u64 = 256 * 1024;
 const OTHER_DEVICES_HEADROOM_MB: u64 = 64 * 1024;
-const FALLBACK_GPU_BAR_MB: u64 = 128 * 1024;
-const MAX_PCI_MMIO64_MB: u64 = 8 * 1024 * 1024;
 const IORESOURCE_MEM: u64 = 0x0000_0200;
 const IORESOURCE_MEM_64: u64 = 0x0010_0000;
 
@@ -34,33 +32,20 @@ const IORESOURCE_MEM_64: u64 = 0x0010_0000;
 /// 64-bit MMIO address-space requirements, adds alignment headroom, and rounds the result
 /// up to a supported power-of-two aperture size.
 ///
-/// If any resource file cannot be read, conservative sizing based on the
-/// number of GPUs is used instead.
-///
 /// See: https://docs.kernel.org/PCI/sysfs-pci.html
 pub(crate) fn pci_mmio64_mb(gpus: &[String]) -> Result<u64, String> {
     let mut bar_total = 0_u64;
-    let mut all_resources_read = true;
     for bdf in gpus {
         let resource_path = format!("/sys/bus/pci/devices/{bdf}/resource");
-        match fs::read_to_string(&resource_path) {
-            Ok(resources) => {
-                bar_total = bar_total
-                    .checked_add(parse_gpu_bar_total(&resources)?)
-                    .ok_or_else(|| "GPU BAR size total overflowed u64".to_string())?;
-            }
-            Err(error) => {
-                all_resources_read = false;
-                warn!(
-                    "Unable to read GPU BAR resources from {}: {}. Using conservative fallback sizing.",
-                    resource_path, error
-                );
-            }
-        }
+        let resources = fs::read_to_string(&resource_path).map_err(|error| {
+            format!("Failed to read GPU BAR resources from {resource_path}: {error}")
+        })?;
+        bar_total = bar_total
+            .checked_add(parse_gpu_bar_total(&resources)?)
+            .ok_or_else(|| "GPU BAR size total overflowed u64".to_string())?;
     }
 
-    let size_mb =
-        pci_mmio64_mb_from_bar_total(if all_resources_read { bar_total } else { 0 }, gpus.len())?;
+    let size_mb = pci_mmio64_mb_from_bar_total(bar_total)?;
     info!(
         "Configured PCI MMIO64 window at {} MiB for {} GPU(s) with {} MiB of BAR resources",
         size_mb,
@@ -122,22 +107,16 @@ fn parse_pci_resource_value(value: Option<&str>, line: &str) -> Result<u64, Stri
         .map_err(|error| format!("Invalid PCI resource value {value:?}: {error}"))
 }
 
-fn pci_mmio64_mb_from_bar_total(bar_total: u64, gpu_count: usize) -> Result<u64, String> {
-    let need_mb = if bar_total > 0 {
-        let bar_mb = bar_total / MIB;
-        bar_mb
-            .checked_add(bar_mb / 4)
-            .and_then(|value| value.checked_add(OTHER_DEVICES_HEADROOM_MB))
-            .ok_or_else(|| "PCI MMIO64 size calculation overflowed u64".to_string())?
-    } else {
-        MIN_PCI_MMIO64_MB
-            .checked_add(
-                FALLBACK_GPU_BAR_MB
-                    .checked_mul(gpu_count as u64)
-                    .ok_or_else(|| "PCI MMIO64 fallback calculation overflowed u64".to_string())?,
-            )
-            .ok_or_else(|| "PCI MMIO64 fallback calculation overflowed u64".to_string())?
-    };
+fn pci_mmio64_mb_from_bar_total(bar_total: u64) -> Result<u64, String> {
+    if bar_total == 0 {
+        return Err("No 64-bit GPU BAR resources were found".to_string());
+    }
+
+    let bar_mb = bar_total / MIB;
+    let need_mb = bar_mb
+        .checked_add(bar_mb / 4) // Add 25% headroom
+        .and_then(|value| value.checked_add(OTHER_DEVICES_HEADROOM_MB)) // The headroom of PCI devices that are not passed-through
+        .ok_or_else(|| "PCI MMIO64 size calculation overflowed u64".to_string())?;
 
     let mut size_mb = MIN_PCI_MMIO64_MB;
     while size_mb < need_mb {
@@ -153,12 +132,6 @@ fn validate_pci_mmio64_mb(size_mb: u64) -> Result<(), String> {
     if size_mb < MIN_PCI_MMIO64_MB {
         return Err(format!(
             "Computed PCI MMIO64 window {size_mb} MiB is below the {MIN_PCI_MMIO64_MB} MiB minimum"
-        ));
-    }
-    if size_mb > MAX_PCI_MMIO64_MB {
-        return Err(format!(
-            "Computed PCI MMIO64 window {size_mb} MiB exceeds the {} MiB limit",
-            MAX_PCI_MMIO64_MB
         ));
     }
     if !size_mb.is_power_of_two() {
@@ -236,17 +209,20 @@ mod tests {
     #[test]
     fn sizes_mmio_window_from_bar_total() {
         assert_eq!(
-            pci_mmio64_mb_from_bar_total(128 * 1024 * MIB, 1).unwrap(),
+            pci_mmio64_mb_from_bar_total(128 * 1024 * MIB).unwrap(),
             256 * 1024
         );
         assert_eq!(
-            pci_mmio64_mb_from_bar_total(256 * 1024 * MIB, 2).unwrap(),
+            pci_mmio64_mb_from_bar_total(256 * 1024 * MIB).unwrap(),
             512 * 1024
         );
     }
 
     #[test]
-    fn falls_back_when_bar_resources_are_unavailable() {
-        assert_eq!(pci_mmio64_mb_from_bar_total(0, 1).unwrap(), 512 * 1024);
+    fn fails_when_no_64_bit_bars_are_found() {
+        assert_eq!(
+            pci_mmio64_mb_from_bar_total(0).unwrap_err(),
+            "No 64-bit GPU BAR resources were found"
+        );
     }
 }
