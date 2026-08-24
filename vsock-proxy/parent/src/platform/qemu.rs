@@ -37,13 +37,10 @@ pub struct GPUSettings {
 }
 
 impl GPUSettings {
-    pub fn try_new_from_env_variables(
-        plural_env_var: Option<&'static str>,
-        singular_env_var: Option<&'static str>,
+    pub fn try_new_from_env_variable(
+        env_var: Option<&'static str>,
     ) -> Result<Option<Self>, String> {
-        let plural = plural_env_var.and_then(|name| env::var(name).ok());
-        let singular = singular_env_var.and_then(|name| env::var(name).ok());
-        let bdfs = parse_gpu_bdfs(plural.as_deref(), singular.as_deref());
+        let bdfs = parse_gpu_bdfs(env_var.and_then(|name| env::var(name).ok()).as_deref());
         if bdfs.is_empty() {
             return Ok(None);
         }
@@ -92,7 +89,6 @@ impl GPUSettings {
 static GPU_SETTINGS: OnceLock<Result<Option<GPUSettings>, String>> = OnceLock::new();
 
 pub(super) trait QemuPlatform {
-    const GPU_BDF_ENV_VAR_NAME: Option<&'static str> = None;
     const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = None;
 
     fn firmware_path(&self) -> Option<&'static str>;
@@ -105,21 +101,17 @@ pub(super) trait QemuPlatform {
     fn gpu_settings(&self) -> Result<Option<&'static GPUSettings>, String> {
         match GPU_SETTINGS
             .get_or_init(|| {
-                let gpu_settings = GPUSettings::try_new_from_env_variables(
-                    Self::GPU_BDFS_ENV_VAR_NAME,
-                    Self::GPU_BDF_ENV_VAR_NAME,
-                )?;
+                let gpu_settings =
+                    GPUSettings::try_new_from_env_variable(Self::GPU_BDFS_ENV_VAR_NAME)?;
                 if gpu_settings.is_none() {
-                    let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some()
-                        || Self::GPU_BDF_ENV_VAR_NAME.is_some();
+                    let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some();
                     let gpu_passthrough_enabled =
                         env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
                             .is_ok_and(|value| value == "true");
                     if supports_gpu_passthrough && gpu_passthrough_enabled {
                         return Err(format!(
-                            "GPU passthrough was enabled at conversion time but {} (or {}) env var is not set.",
+                            "GPU passthrough was enabled at conversion time but {} env var is not set.",
                             Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
-                            Self::GPU_BDF_ENV_VAR_NAME.unwrap_or_default(),
                         ));
                     }
                     return Ok(None);
@@ -235,24 +227,13 @@ pub(super) trait QemuPlatform {
     }
 }
 
-fn parse_gpu_bdfs(plural: Option<&str>, singular: Option<&str>) -> Vec<String> {
-    let plural_bdfs = plural
+fn parse_gpu_bdfs(value: Option<&str>) -> Vec<String> {
+    value
         .into_iter()
         .flat_map(|value| value.split(','))
         .map(str::trim)
         .filter(|bdf| !bdf.is_empty())
         .map(str::to_owned)
-        .collect::<Vec<_>>();
-
-    if !plural_bdfs.is_empty() {
-        return plural_bdfs;
-    }
-
-    singular
-        .map(str::trim)
-        .filter(|bdf| !bdf.is_empty())
-        .map(str::to_owned)
-        .into_iter()
         .collect()
 }
 
@@ -269,32 +250,21 @@ pub(crate) mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn plural_gpu_bdfs_take_precedence() {
+    fn parses_multiple_gpu_bdfs() {
         assert_eq!(
-            parse_gpu_bdfs(Some("0000:21:00.0, 0000:81:00.0"), Some("0000:01:00.0")),
+            parse_gpu_bdfs(Some("0000:21:00.0, 0000:81:00.0")),
             vec!["0000:21:00.0", "0000:81:00.0"],
         );
     }
 
     #[test]
-    fn plural_gpu_bdfs_single_gpu() {
-        assert_eq!(
-            parse_gpu_bdfs(Some("0000:21:00.0"), None),
-            vec!["0000:21:00.0"],
-        )
+    fn parses_single_gpu_bdf() {
+        assert_eq!(parse_gpu_bdfs(Some("0000:21:00.0")), vec!["0000:21:00.0"],)
     }
 
     #[test]
-    fn empty_plural_gpu_bdfs_fall_back_to_singular() {
-        assert_eq!(
-            parse_gpu_bdfs(Some(" , "), Some(" 0000:21:00.0 ")),
-            vec!["0000:21:00.0"],
-        );
-    }
-
-    #[test]
-    fn empty_gpu_bdf_variables_produce_no_devices() {
-        assert!(parse_gpu_bdfs(Some(""), Some(" ")).is_empty());
+    fn empty_gpu_bdfs_produce_no_devices() {
+        assert!(parse_gpu_bdfs(Some(" , ")).is_empty());
     }
 
     #[test]
