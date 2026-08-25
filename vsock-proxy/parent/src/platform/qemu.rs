@@ -118,6 +118,8 @@ pub(super) trait QemuPlatform {
             "-nodefaults",
             "-serial",
             constants::DEFAULT_SERIAL_DEVICE,
+            "-object",
+            "memory-backend-memfd-private",
         ];
 
         if let Some(firmware_path) = self.firmware_path() {
