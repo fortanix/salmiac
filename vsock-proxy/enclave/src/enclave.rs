@@ -857,16 +857,10 @@ fn is_valid_hostname(host: &str) -> bool {
 
     // Rules according to https://man7.org/linux/man-pages/man5/hostname.5.html
     let host_bytes = host.as_bytes();
-    if host_bytes.is_empty() {
-        return false;
-    }
-
-    if !host_bytes[0].is_ascii_alphabetic() {
-        return false;
-    }
-
-    if !host_bytes[host_bytes.len() - 1].is_ascii_alphanumeric() {
-        return false;
+    match (host_bytes.first(), host_bytes.last()) {
+        (Some(first), Some(last))
+            if first.is_ascii_alphabetic() && last.is_ascii_alphanumeric() => {}
+        _ => return false,
     }
 
     host_bytes
