@@ -52,7 +52,7 @@ use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncW
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
     cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType,
-    DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, VSOCK_PARENT_CID,
+    DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, RESTRICTED_HOSTS, VSOCK_PARENT_CID,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -850,6 +850,30 @@ async fn setup_enclave_networking(
     })
 }
 
+fn is_valid_hostname(host: &str) -> bool {
+    if RESTRICTED_HOSTS.contains(&host) {
+        return false;
+    }
+
+    // Rules according to https://man7.org/linux/man-pages/man5/hostname.5.html
+    let host_bytes = host.as_bytes();
+    if host_bytes.is_empty() {
+        return false;
+    }
+
+    if !host_bytes[0].is_ascii_alphabetic() {
+        return false;
+    }
+
+    if !host_bytes[host_bytes.len() - 1].is_ascii_alphanumeric() {
+        return false;
+    }
+
+    host_bytes
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+}
+
 fn write_hosts_file(host_entries: &HostEntries) -> Result<(), String> {
     let mut output = String::from(
         "127.0.0.1\tlocalhost\n\
@@ -860,10 +884,21 @@ fn write_hosts_file(host_entries: &HostEntries) -> Result<(), String> {
             ff02::2\tip6-allrouters\n",
     );
     for (ip, hostnames) in host_entries {
-        output.push_str(&ip.to_string());
-        output.push('\t');
-        output.push_str(&hostnames.join(" "));
-        output.push('\n');
+        let mut filtered_hosts = hostnames.iter().filter(|host| is_valid_hostname(host));
+
+        // write ip, only if there is any one valid hostname
+        if let Some(first_entry) = filtered_hosts.next() {
+            output.push_str(&ip.to_string());
+            output.push('\t');
+            output.push_str(first_entry);
+
+            // write remaining hosts
+            for host in filtered_hosts {
+                output.push(' ');
+                output.push_str(host);
+            }
+            output.push('\n');
+        }
     }
     write_to_file(Path::new(&HOSTS_FILE), &output, &HOSTS_FILE)?;
     Ok(())
@@ -1170,7 +1205,7 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use crate::enclave::{
-        write_network_files, FileSystemSetupApi, FileSystemSetupConfig,
+        is_valid_hostname, write_network_files, FileSystemSetupApi, FileSystemSetupConfig,
         NETWORK_FILE_PATH_ALLOW_LIST,
     };
 
@@ -1280,6 +1315,21 @@ mod tests {
     fn assert_network_files_allowlist() {
         assert!(!NETWORK_FILE_PATH_ALLOW_LIST.contains(&"/etc/nsswitch.conf"),
             "nsswitch.conf can be used to swap name resolution priority and should not be configurable by the parent.");
+    }
+
+    #[test]
+    fn verify_host_names() {
+        // valid
+        assert!(is_valid_hostname("a"));
+        assert!(is_valid_hostname("fortanix.com"));
+        assert!(is_valid_hostname("fortanix-com"));
+        assert!(is_valid_hostname("fortanix-123.local1"));
+
+        // invalid
+        assert!(!is_valid_hostname("localhost"));
+        assert!(!is_valid_hostname("127.0.0.1"));
+        assert!(!is_valid_hostname("-inccorect-host"));
+        assert!(!is_valid_hostname("host_name"));
     }
 }
 
