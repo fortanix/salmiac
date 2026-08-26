@@ -52,6 +52,14 @@ pub const RESTRICTED_HOSTS: &[&str] = &[
     "ip6-allrouters",
 ];
 
+// Maximum length of host should 255 octets (including the seperators) in DNS Wire or 253 chars without trailing `.`
+// https://datatracker.ietf.org/doc/html/rfc2181#section-11
+pub const MAX_HOSTNAME_LEN: usize = 253;
+
+// The length of any one label is limited to between 1 and 63 octets.
+// https://datatracker.ietf.org/doc/html/rfc2181#section-11
+pub const MAX_HOSTNAME_LABEL_LEN: usize = 63;
+
 // The types of std streams which are forwarded from the client
 // application to the parent for better logging
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]

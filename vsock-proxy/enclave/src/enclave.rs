@@ -52,7 +52,8 @@ use shared::socket::{AsyncReadLvStream, AsyncVsockStream as ParentStream, AsyncW
 use shared::tap::{create_async_tap_device, start_tap_loops, tap_device_config};
 use shared::{
     cleanup_tokio_tasks, extract_enum_value, with_background_tasks, AppLogPortInfo, StreamType,
-    DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, RESTRICTED_HOSTS, VSOCK_PARENT_CID,
+    DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, MAX_HOSTNAME_LABEL_LEN, MAX_HOSTNAME_LEN,
+    RESTRICTED_HOSTS, VSOCK_PARENT_CID,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -851,21 +852,39 @@ async fn setup_enclave_networking(
 }
 
 fn is_valid_hostname(host: &str) -> bool {
-    if RESTRICTED_HOSTS.contains(&host) {
+    if RESTRICTED_HOSTS.contains(&host) || host.is_empty() || host.len() > MAX_HOSTNAME_LEN {
         return false;
     }
 
-    // Rules according to https://man7.org/linux/man-pages/man5/hostname.5.html
-    let host_bytes = host.as_bytes();
-    match (host_bytes.first(), host_bytes.last()) {
-        (Some(first), Some(last))
-            if first.is_ascii_alphabetic() && last.is_ascii_alphanumeric() => {}
-        _ => return false,
+    // labels are separated by dots ("."). https://datatracker.ietf.org/doc/html/rfc1034
+    let mut last_label = "";
+    for label in host.split('.') {
+        if label.len() > MAX_HOSTNAME_LABEL_LEN {
+            return false;
+        }
+
+        // alphabet (A-Z), digits (0-9), minus sign (-). The first and last character must be an alpha-numeric character
+        // https://datatracker.ietf.org/doc/html/rfc952 + https://datatracker.ietf.org/doc/html/rfc2181#section-11
+        let host_bytes = label.as_bytes();
+
+        match (host_bytes.first(), host_bytes.last()) {
+            (Some(first), Some(last))
+                if first.is_ascii_alphanumeric() && last.is_ascii_alphanumeric() => {}
+            _ => return false,
+        }
+
+        if !host_bytes
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return false;
+        }
+        last_label = label;
     }
 
-    host_bytes
-        .iter()
-        .all(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+    // at least the highest-level component label must not be entirely numeric
+    // https://datatracker.ietf.org/doc/html/rfc1123#page-12
+    return !last_label.as_bytes().iter().all(|&b| b.is_ascii_digit());
 }
 
 fn write_hosts_file(host_entries: &HostEntries) -> Result<(), String> {
@@ -1182,7 +1201,6 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::fs::File;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::Path;
 
@@ -1318,12 +1336,22 @@ mod tests {
         assert!(is_valid_hostname("fortanix.com"));
         assert!(is_valid_hostname("fortanix-com"));
         assert!(is_valid_hostname("fortanix-123.local1"));
+        assert!(!is_valid_hostname(&format!(
+            "{}.{}.{}.{}",
+            "a".repeat(251),
+            "b".repeat(251),
+            "c".repeat(251),
+            "d".repeat(251)
+        )));
 
         // invalid
+        assert!(!is_valid_hostname(""));
         assert!(!is_valid_hostname("localhost"));
         assert!(!is_valid_hostname("127.0.0.1"));
-        assert!(!is_valid_hostname("-inccorect-host"));
+        assert!(!is_valid_hostname("-incorect-host"));
         assert!(!is_valid_hostname("host_name"));
+        assert!(!is_valid_hostname(&"a".repeat(64)));
+        assert!(!is_valid_hostname(&format!("{}.com", "a".repeat(251))));
     }
 }
 
