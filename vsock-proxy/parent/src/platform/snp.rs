@@ -51,7 +51,7 @@ impl SnpPlatform {
 }
 
 impl QemuPlatform for SnpPlatform {
-    const GPU_BDF_ENV_VAR_NAME: Option<&str> = Some("SNP_GPU_BDF");
+    const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = Some("SNP_GPU_BDF");
 
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
@@ -122,7 +122,11 @@ mod tests {
         ];
 
         let platform = SnpPlatform {};
-        let args: Vec<String> = platform.build_qemu_args().into_iter().collect();
+        let args: Vec<String> = platform
+            .build_qemu_args(None)
+            .unwrap()
+            .into_iter()
+            .collect();
         diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
     }
 }

@@ -35,10 +35,6 @@ impl QemuPlatform for SimulatorPlatform {
     fn objects(&self) -> Vec<String> {
         Vec::new()
     }
-
-    fn gpu(&self) -> Option<String> {
-        None
-    }
 }
 
 pub(crate) fn should_forward_client_logs() -> bool {

@@ -3,6 +3,7 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+use std::cmp;
 use std::env;
 
 use super::{GuestLaunchResult, GuestTasks};
@@ -11,7 +12,7 @@ use crate::platform::qemu::QemuPlatform;
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.inteltdx.fd";
 const MEMORY_BACKEND_ID: &str = "mem0";
 const TDX_ID: &str = "tdx0";
-const PCI_HOLE_SIZE_GLOBAL: &str = "q35-pcihost.pci-hole64-size=256G";
+const PCI_HOLE_MIN_SIZE: u64 = 256;
 
 struct TdxPlatform;
 
@@ -30,7 +31,7 @@ impl TdxPlatform {
 }
 
 impl QemuPlatform for TdxPlatform {
-    const GPU_BDF_ENV_VAR_NAME: Option<&str> = Some("TDX_GPU_BDF");
+    const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = Some("TDX_GPU_BDF");
 
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
@@ -55,17 +56,17 @@ impl QemuPlatform for TdxPlatform {
         vec![self.memory_backend(), Self::tdx_guest()]
     }
 
-    fn gpu(&self) -> Option<String> {
-        env::var("TDX_GPU_BDF").ok()
-    }
-
-    fn globals(&self) -> Vec<String> {
+    fn globals(&self) -> Result<Vec<String>, String> {
         let mut globals = vec![];
 
-        if self.gpu().is_some() {
-            globals.push(PCI_HOLE_SIZE_GLOBAL.to_string());
+        let gpu_settings = self.gpu_settings()?;
+        if let Some(gpu_settings) = gpu_settings {
+            let hole_size_gb: u64 = cmp::max(gpu_settings.mmio64_mb / 1024, PCI_HOLE_MIN_SIZE);
+            let pci_hole_size = format!("q35-pcihost.pci-hole64-size={}G", hole_size_gb);
+            globals.push(pci_hole_size);
         }
-        globals
+
+        Ok(globals)
     }
 }
 
@@ -112,7 +113,11 @@ mod tests {
             "-nodefaults",
         ];
         let platform = TdxPlatform {};
-        let args: Vec<String> = platform.build_qemu_args().into_iter().collect();
+        let args: Vec<String> = platform
+            .build_qemu_args(None)
+            .unwrap()
+            .into_iter()
+            .collect();
         diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
     }
 }

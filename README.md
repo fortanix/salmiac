@@ -202,7 +202,7 @@ Ability to build the converter from source will be possible in the future but cu
 
    Execute `lspci -nnk -d 10de:` again, and if all is correct, it will be shown that the `vfio-pci` driver is in use.
    
-4. To run the container, execute the following command, setting `SNP_GPU_BDF` or `TDX_GPU_BDF` depending on the converter used. Skip passing this variable if GPU passthrough is not configured at conversion time.
+4. To run the container, set `SNP_GPU_BDF` or `TDX_GPU_BDF` depending on the converter used. Use these variables for both single and multiple GPUs: specify one PCI BDF for a single GPU or a comma-separated list for multiple GPUs. Skip passing the variable if GPU passthrough was not configured at conversion time.
 
    The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container. Set `APPCONFIG_ID` if one has been created for this instance.
 

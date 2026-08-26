@@ -3,10 +3,13 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+use std::collections::HashSet;
 use std::env;
-use std::path::Path;
+use std::sync::OnceLock;
 
 use shared::run_subprocess;
+
+use crate::utils::qemu as qemu_utils;
 
 pub(super) mod constants {
     pub const CPU_COUNT: &str = "2";
@@ -20,23 +23,73 @@ pub(super) mod constants {
     pub const VSOCK_HOST_DEVICE_PATH: &str = "/dev/vhost-vsock";
     pub const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
 
-    pub const IOMMU_DEVICE_PATH: &str = "/dev/iommu";
-    pub const IOMMUFD_ID: &str = "iommufd0";
-    pub const IOMMUFD_OBJECT: &str = "iommufd,id=iommufd0";
-
     // TODO: We need to see how we will assign guest CID when we support multiple
     // containers on single host
     pub const VSOCK_DEVICE: &str = "vhost-vsock-pci,guest-cid=3";
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
-    pub const GPU_ROOT_PORT: &str = "pcie-root-port,id=pci.1,bus=pcie.0";
-    pub const FW_CFG_MMIO64: &str = "name=opt/ovmf/X-PciMmio64Mb,string=262144";
-
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
     pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 }
 
+pub struct GPUSettings {
+    pub bdfs: Vec<String>,
+    pub mmio64_mb: u64,
+}
+
+impl GPUSettings {
+    pub fn try_new_from_env_variable(
+        env_var: Option<&'static str>,
+    ) -> Result<Option<Self>, String> {
+        let bdfs = parse_gpu_bdfs(env_var.and_then(|name| env::var(name).ok()).as_deref());
+        if bdfs.is_empty() {
+            return Ok(None);
+        }
+
+        Self::validate_bdfs(&bdfs)?;
+        let mmio64_mb = qemu_utils::pci_mmio64_mb(&bdfs)?;
+        Ok(Some(GPUSettings { bdfs, mmio64_mb }))
+    }
+
+    fn validate_bdfs(bdfs: &Vec<String>) -> Result<(), String> {
+        // Validate passed bdf devices
+        // Duplicates are not allowed
+        // The device should be accesible via sysfs
+        let mut unique_gpus = HashSet::new();
+        for bdf in bdfs {
+            if !unique_gpus.insert(bdf) {
+                return Err(format!("GPU {bdf} was specified more than once"));
+            }
+            qemu_utils::require_vfio_device(bdf)?;
+        }
+        qemu_utils::require_file("IOMMUFD device", qemu_utils::DEVICE_PATH)?;
+        Ok(())
+    }
+
+    pub fn build_qemu_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        args.extend(["-object".to_owned(), qemu_utils::IOMMUFD_OBJECT.to_owned()]);
+        for (index, bdf) in self.bdfs.iter().enumerate() {
+            let root_port = qemu_utils::build_pcie_root_port(index);
+            let device = qemu_utils::build_vfio_iommu_arg(bdf, index);
+            args.extend([
+                "-device".to_owned(),
+                root_port,
+                "-device".to_owned(),
+                device,
+            ]);
+        }
+        let fw_cfg_mmio64 = format!("name=opt/ovmf/X-PciMmio64Mb,string={}", self.mmio64_mb);
+
+        args.extend(["-fw_cfg".to_owned(), fw_cfg_mmio64]);
+        args
+    }
+}
+
+static GPU_SETTINGS: OnceLock<Result<Option<GPUSettings>, String>> = OnceLock::new();
+
 pub(super) trait QemuPlatform {
-    const GPU_BDF_ENV_VAR_NAME: Option<&str> = None;
+    const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = None;
 
     fn firmware_path(&self) -> Option<&'static str>;
     // Device paths related to confidential-computing
@@ -45,43 +98,46 @@ pub(super) trait QemuPlatform {
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
 
-    fn gpu(&self) -> Option<String> {
-        Self::GPU_BDF_ENV_VAR_NAME
-            .map(|gpu_bdf_env_var_name| env::var(gpu_bdf_env_var_name).ok())?
-    }
+    fn gpu_settings(&self) -> Result<Option<&'static GPUSettings>, String> {
+        match GPU_SETTINGS
+            .get_or_init(|| {
+                let gpu_settings =
+                    GPUSettings::try_new_from_env_variable(Self::GPU_BDFS_ENV_VAR_NAME)?;
+                if gpu_settings.is_none() {
+                    let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some();
+                    let gpu_passthrough_enabled =
+                        env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
+                            .is_ok_and(|value| value == "true");
+                    if supports_gpu_passthrough && gpu_passthrough_enabled {
+                        return Err(format!(
+                            "GPU passthrough was enabled at conversion time but {} env var is not set.",
+                            Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
+                        ));
+                    }
+                    return Ok(None);
+                }
 
-    fn build_vfio_iommu_arg(bdf: &String) -> String {
-        format!(
-            "vfio-pci,host={},bus=pci.1,iommufd={},romfile=",
-            bdf,
-            constants::IOMMUFD_ID,
-        )
+                Ok(gpu_settings)
+            })
+            .as_ref()
+        {
+            Ok(settings) => Ok(settings.as_ref()),
+            Err(error) => Err(error.clone()),
+        }
     }
 
     fn check_files(&self) -> Result<(), String> {
-        require_file("Kernel", constants::KERNEL_PATH)?;
-        require_file("Initramfs", constants::INITRAMFS_PATH)?;
-        require_file("KVM device", constants::KVM_DEVICE_PATH)?;
-        require_file("vhost-vsock device", constants::VSOCK_HOST_DEVICE_PATH)?;
-
-        if let Some(gpu) = self.gpu() {
-            require_vfio_device(&gpu)?;
-            require_file("IOMMUFD device", constants::IOMMU_DEVICE_PATH)?;
-        } else if let Some(gpu_bdf_env_var) = Self::GPU_BDF_ENV_VAR_NAME {
-            if env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR).is_ok_and(|v| v == "true") {
-                return Err(format!(
-                    "GPU passthrough was enabled at conversion time but {} env var is not set",
-                    gpu_bdf_env_var
-                ));
-            }
-        }
+        qemu_utils::require_file("Kernel", constants::KERNEL_PATH)?;
+        qemu_utils::require_file("Initramfs", constants::INITRAMFS_PATH)?;
+        qemu_utils::require_file("KVM device", constants::KVM_DEVICE_PATH)?;
+        qemu_utils::require_file("vhost-vsock device", constants::VSOCK_HOST_DEVICE_PATH)?;
 
         if let Some(firmware_path) = self.firmware_path() {
-            require_file("Firmware", firmware_path)?;
+            qemu_utils::require_file("Firmware", firmware_path)?;
         }
 
         for host_dev in self.host_cc_device_paths() {
-            require_file("Host device", host_dev)?;
+            qemu_utils::require_file("Host device", host_dev)?;
         }
 
         Ok(())
@@ -95,11 +151,11 @@ pub(super) trait QemuPlatform {
         env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
     }
 
-    fn globals(&self) -> Vec<String> {
-        vec![]
+    fn globals(&self) -> Result<Vec<String>, String> {
+        Ok(vec![])
     }
 
-    fn build_qemu_args(&self) -> Vec<String> {
+    fn build_qemu_args(&self, gpu_settings: Option<&GPUSettings>) -> Result<Vec<String>, String> {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
         let memory_size = self.memory_size();
@@ -134,23 +190,14 @@ pub(super) trait QemuPlatform {
             args.extend(["-object", object]);
         }
 
-        let globals = self.globals();
+        let globals = self.globals()?;
         for global in &globals {
             args.extend(["-global", global]);
         }
 
-        let gpu_device = self.gpu().as_ref().map(Self::build_vfio_iommu_arg);
-        if let Some(gpu_device) = &gpu_device {
-            args.extend([
-                "-object",
-                constants::IOMMUFD_OBJECT,
-                "-device",
-                constants::GPU_ROOT_PORT,
-                "-device",
-                gpu_device,
-                "-fw_cfg",
-                constants::FW_CFG_MMIO64,
-            ]);
+        let gpu_args = gpu_settings.map(|g| g.build_qemu_args());
+        if let Some(gpu_args) = &gpu_args {
+            args.extend(gpu_args.iter().map(String::as_str));
         }
 
         // Append binary related args for better visibility
@@ -165,17 +212,29 @@ pub(super) trait QemuPlatform {
             constants::KERNEL_CMDLINE,
         ]);
 
-        args.into_iter()
+        Ok(args
+            .into_iter()
             .map(|a| String::from(a))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>())
     }
 
     async fn run(&self) -> Result<(), String> {
         self.check_files()?;
-        let args = self.build_qemu_args();
+        let gpu_settings = self.gpu_settings()?;
+        let args = self.build_qemu_args(gpu_settings)?;
         let args_ref = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
         run_subprocess(constants::QEMU_BINARY, &args_ref).await
     }
+}
+
+fn parse_gpu_bdfs(value: Option<&str>) -> Vec<String> {
+    value
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|bdf| !bdf.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[allow(unused)]
@@ -183,45 +242,42 @@ pub fn env_or_default(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
-fn require_file(description: &str, path: &str) -> Result<(), String> {
-    if Path::new(path).exists() {
-        Ok(())
-    } else {
-        Err(format!("{description} not found at {path}"))
-    }
-}
-
-fn require_vfio_device(bdf: &str) -> Result<(), String> {
-    let device_path = format!("/sys/bus/pci/devices/{bdf}");
-    require_file("GPU PCI device", &device_path)?;
-
-    let driver_path = format!("{device_path}/driver");
-    let driver = std::fs::read_link(&driver_path)
-        .map_err(|e| format!("failed reading GPU driver at {driver_path}: {e}"))?;
-
-    if driver.file_name().and_then(|name| name.to_str()) != Some("vfio-pci") {
-        return Err(format!("GPU {bdf} is not bound to vfio-pci"));
-    }
-
-    require_file("VFIO control device", "/dev/vfio/vfio")?;
-
-    let iommu_group_path = format!("{device_path}/iommu_group");
-    let iommu_group = std::fs::read_link(&iommu_group_path)
-        .map_err(|e| format!("failed reading IOMMU group for GPU {bdf}: {e}"))?;
-
-    let group = iommu_group
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("invalid IOMMU group path for GPU {bdf}"))?;
-
-    let vfio_group_path = format!("/dev/vfio/{group}");
-    require_file("VFIO group device", &vfio_group_path)
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::parse_gpu_bdfs;
+    use crate::utils::qemu::build_pcie_root_port;
     use std::collections::HashMap;
     use std::collections::HashSet;
+
+    #[test]
+    fn parses_multiple_gpu_bdfs() {
+        assert_eq!(
+            parse_gpu_bdfs(Some("0000:21:00.0, 0000:81:00.0")),
+            vec!["0000:21:00.0", "0000:81:00.0"],
+        );
+    }
+
+    #[test]
+    fn parses_single_gpu_bdf() {
+        assert_eq!(parse_gpu_bdfs(Some("0000:21:00.0")), vec!["0000:21:00.0"],)
+    }
+
+    #[test]
+    fn empty_gpu_bdfs_produce_no_devices() {
+        assert!(parse_gpu_bdfs(Some(" , ")).is_empty());
+    }
+
+    #[test]
+    fn gpu_root_ports_have_unique_topology() {
+        assert_eq!(
+            build_pcie_root_port(0),
+            "pcie-root-port,id=pci.1,bus=pcie.0,addr=0x2,chassis=1,slot=1"
+        );
+        assert_eq!(
+            build_pcie_root_port(1),
+            "pcie-root-port,id=pci.2,bus=pcie.0,addr=0x3,chassis=2,slot=2"
+        );
+    }
 
     fn parse_args_as_kvp<'a>(args: &[&'a str]) -> HashMap<&'a str, Option<&'a str>> {
         let mut map = HashMap::<&str, Option<&str>>::new();
