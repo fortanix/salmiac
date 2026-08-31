@@ -204,7 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#5edf52ce66de948e4fabdccb2c1d25efd59781b0"
+source = "git+https://github.com/fortanix/attestation.git#2484b49910add0847ed1d1cffbbd7db6edda1395"
 dependencies = [
  "b64-ct",
  "der",
@@ -501,7 +501,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#5edf52ce66de948e4fabdccb2c1d25efd59781b0"
+source = "git+https://github.com/fortanix/attestation.git#2484b49910add0847ed1d1cffbbd7db6edda1395"
 dependencies = [
  "attestation",
  "der",
