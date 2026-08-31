@@ -110,7 +110,7 @@ mod tests {
             "-kernel", "/opt/fortanix/enclave-os/bzImage",
             "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
             "-append", "console=ttyS0 rdinit=/init loglevel=7",
-            "-device", "vhost-vsock-pci,vhostfd=0,guest-cid=3",
+            "-device", "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd=0,guest-cid=3",
             "-serial", "mon:stdio",
             "-nodefaults",
         ];

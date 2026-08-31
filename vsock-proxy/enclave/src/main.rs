@@ -22,10 +22,10 @@ use shared::NumArg;
 fn obtain_vsock_cid() -> Result<u32, String> {
     mod constants {
         pub const VSOCK_DEVICE_PATH: &str = "/dev/vsock";
-        pub const IOCTL_VM_SOCKETS_GET_LOCAL_CID: usize = 0x7b9;
+        // https://github.com/torvalds/linux/blob/786262be6048deab760f68c8acc2c85607165894/include/uapi/linux/vm_sockets.h#L196
+        pub const IOCTL_VM_SOCKETS_GET_LOCAL_CID: u64 = nix::request_code_none!(0x7, 0xb9);
     }
 
-    // linux/include/uapi/linux/vm_sockets.h
     nix::ioctl_read_bad!(
         get_local_cid,
         constants::IOCTL_VM_SOCKETS_GET_LOCAL_CID,
@@ -42,7 +42,7 @@ fn obtain_vsock_cid() -> Result<u32, String> {
 
     debug!("Obtained CID: {cid}");
 
-    Ok(cid as u32)
+    Ok(cid)
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]

@@ -219,7 +219,7 @@ pub(super) trait QemuPlatform {
         }
 
         let vsock_device_str = format!(
-            "vhost-vsock-pci,vhostfd={},guest-cid={}",
+            "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd={},guest-cid={}",
             vsock_fd, vsock_cid
         );
 
