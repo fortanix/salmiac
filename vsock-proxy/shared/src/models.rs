@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
 use crate::AppLogPortInfo;
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -83,9 +84,13 @@ pub struct PrivateNetworkDeviceSettings {
     pub mtu: u32,
 }
 
+pub type HostEntries = HashMap<IpAddr, Vec<String>>;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GlobalNetworkSettings {
     pub hostname: String,
+
+    pub host_entries: HostEntries,
 
     pub global_settings_list: Vec<FileWithPath>,
 }

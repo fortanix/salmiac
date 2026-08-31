@@ -20,7 +20,7 @@ use parent_lib::{
     communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS,
 };
 use shared::models::{
-    ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, SetupMessages,
+    ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, HostEntries, SetupMessages,
     UserProgramExitStatus,
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
@@ -28,7 +28,7 @@ use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
     cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
     AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE,
-    VSOCK_LISTENER_CID,
+    RESTRICTED_HOSTS, VSOCK_LISTENER_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -697,6 +697,38 @@ fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResu
     Ok(result)
 }
 
+fn filter_host_entries(host_entries: String) -> HostEntries {
+    let mut result: HostEntries = HashMap::new();
+    for line in host_entries.lines() {
+        // Filter comments
+        let line = line.split("#").next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut fields = line.split_whitespace();
+        let ip = match fields.next() {
+            Some(value) => match IpAddr::from_str(value) {
+                Ok(ip) => ip,
+                Err(_) => continue,
+            },
+            None => continue,
+        };
+        let hosts: Vec<&str> = fields.collect();
+        if hosts.is_empty() {
+            continue;
+        }
+        // if any restricted host, then reject whole line.
+        if hosts.iter().any(|host| RESTRICTED_HOSTS.contains(host)) {
+            continue;
+        }
+        result
+            .entry(ip)
+            .or_default()
+            .extend(hosts.into_iter().map(String::from));
+    }
+    result
+}
+
 async fn send_global_network_settings(
     nameserver_address: IpNetwork,
     enclave_port: &mut AsyncVsockStream,
@@ -718,12 +750,16 @@ async fn send_global_network_settings(
         .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
     let dns_file = customize_resolv_conf(nameserver_address)?;
-    let hosts_file = read_file(HOSTS_FILE)?;
     let host_name_file = read_file(HOSTNAME_FILE)?;
+
+    let host_entries = fs::read_to_string(HOSTS_FILE)
+        .map_err(|err| format!("Failed reading parent's {:?} file. {:?}", HOSTS_FILE, err))?;
+    let filtered_hosts = filter_host_entries(host_entries);
 
     let network_settings = GlobalNetworkSettings {
         hostname,
-        global_settings_list: vec![dns_file.resolv_conf_file, hosts_file, host_name_file],
+        host_entries: filtered_hosts,
+        global_settings_list: vec![dns_file.resolv_conf_file, host_name_file],
     };
 
     enclave_port
@@ -869,14 +905,15 @@ fn create_rw_block_file(size: u64, path: PathBuf) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::fs::File;
     use std::path::PathBuf;
+    use std::{collections::HashMap, net::IpAddr};
 
     use tempdir::TempDir;
 
     use crate::parent::{
-        create_rw_block_file, filter_parent_env_from_runtime_envs, MIN_RW_BLOCKFILE_SIZE,
+        create_rw_block_file, filter_host_entries, filter_parent_env_from_runtime_envs,
+        MIN_RW_BLOCKFILE_SIZE,
     };
 
     // Create a temporary directory. Create a file of specified size in the directory.
@@ -993,5 +1030,46 @@ mod tests {
 
         // Ensure the key was removed
         assert!(runtime_env_vars.get("MY_VAR").is_none());
+    }
+
+    #[test]
+    fn test_filter_host_entries() {
+        let host_entries = String::from(
+            "
+            127.0.0.1       localhost
+            ::1             localhost ip6-localhost ip6-loopback
+            fe00::          ip6-localnet
+            ff00::          ip6-mcastprefix
+            ff02::1         ip6-allnodes
+            ff02::2         ip6-allrouters
+            172.17.0.2	    675b2c7a7668
+
+            10.0.0.1        localhost
+            # 10.0.0.3        my-service
+            10.0.0.1        another-service
+            10.0.0.2        my-container
+
+            # Comment
+            10.0.0.3        normal-host
+        ",
+        );
+
+        let filtered_entries = filter_host_entries(host_entries);
+
+        assert_eq!(filtered_entries.iter().len(), 4);
+
+        // Check if comments are filtered
+        assert_eq!(
+            filtered_entries.get(&IpAddr::from([10, 0, 0, 3]).into()),
+            Some(&vec!["normal-host".to_string()])
+        );
+
+        // Check if restricted ips are filtered
+        assert_eq!(
+            filtered_entries.get(&IpAddr::from([10, 0, 0, 1]).into()),
+            Some(&vec!["another-service".to_string()])
+        );
+
+        assert!(!filtered_entries.contains_key(&IpAddr::from([127, 0, 0, 1]).into()));
     }
 }
