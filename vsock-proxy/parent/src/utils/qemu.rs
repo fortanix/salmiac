@@ -307,6 +307,9 @@ pub(crate) fn enumerate_vfio_gpu_devices(
     let probe_iommufd = open_iommufd()?;
     let mut gpus = Vec::new();
     for cdev_name in cdev_names {
+        // How sysfs entry is resolved for a device under `/dev/vfio/devices/<cdev_name>`
+        //  * Visit its class device: `/sys/class/vfio-dev/<cdev_name>/device`.
+        //  * Follow class device link to its sysfs device entry: `/sys/devices/pci0000:XX/0000:XX:XX.X/{bdf}`
         let class_device_path = Path::new(VFIO_SYSFS_CLASS_DIR)
             .join(&cdev_name)
             .join("device");
@@ -341,8 +344,8 @@ pub(crate) fn enumerate_vfio_gpu_devices(
             continue;
         }
 
-        // Final open to be passed to qemu.
-        let file = open_vfio_cdev(&cdev_path, Some(expected_device))?;
+        // Final open to be passed to qemu. Omit expected_device as it should be verified above.
+        let file = open_vfio_cdev(&cdev_path, None)?;
         gpus.push(VfioGpuDevice {
             bdf,
             sysfs_path,
@@ -375,6 +378,12 @@ fn probe_vfio_device_availability(
     iommufd: &File,
     bdf: &str,
 ) -> Result<bool, String> {
+    // Open a temporary device descriptor instead of accepting the descriptor that
+    // will later be passed to QEMU.
+    // The deliberate choice of fresh opening cdev_path is to avoid
+    // follow-up ioctl to UNBIND the device if it successfully binds.
+    // Qemu does its own BIND, so the passed file-descriptors should be available
+    // for binding.
     let vfio_device = open_vfio_cdev(cdev_path, Some(expected_device))?;
     let mut bind = VfioDeviceBindIommufd {
         argsz: std::mem::size_of::<VfioDeviceBindIommufd>() as u32,
