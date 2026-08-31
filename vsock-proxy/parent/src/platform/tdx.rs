@@ -56,10 +56,12 @@ impl QemuPlatform for TdxPlatform {
         vec![self.memory_backend(), Self::tdx_guest()]
     }
 
-    fn globals(&self) -> Result<Vec<String>, String> {
+    fn globals(
+        &self,
+        gpu_settings: Option<&crate::platform::qemu::GPUSettings>,
+    ) -> Result<Vec<String>, String> {
         let mut globals = vec![];
 
-        let gpu_settings = self.gpu_settings()?;
         if let Some(gpu_settings) = gpu_settings {
             let hole_size_gb: u64 = cmp::max(gpu_settings.mmio64_mb / 1024, PCI_HOLE_MIN_SIZE);
             let pci_hole_size = format!("q35-pcihost.pci-hole64-size={}G", hole_size_gb);
