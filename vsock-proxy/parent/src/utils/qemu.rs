@@ -380,10 +380,9 @@ fn probe_vfio_device_availability(
 ) -> Result<bool, String> {
     // Open a temporary device descriptor instead of accepting the descriptor that
     // will later be passed to QEMU.
-    // The deliberate choice of fresh opening cdev_path is to avoid
-    // follow-up ioctl to UNBIND the device if it successfully binds.
-    // Qemu does its own BIND, so the passed file-descriptors should be available
-    // for binding.
+    // The deliberate choice of fresh opening cdev_path is to UNBIND the device
+    // by means of closing the relavent file descriptor if it successfully binds.
+    // See: https://github.com/torvalds/linux/blob/1b78070aaef63512688aebfbc82365ef9d6660f1/include/uapi/linux/vfio.h#L921
     let vfio_device = open_vfio_cdev(cdev_path, Some(expected_device))?;
     let mut bind = VfioDeviceBindIommufd {
         argsz: std::mem::size_of::<VfioDeviceBindIommufd>() as u32,
