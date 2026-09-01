@@ -100,11 +100,9 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        curl \
         dnsmasq \
         iproute2 \
         iptables \
-        jq \
         kmod \
         libaio1t64 \
         libcap-ng0 \
@@ -115,10 +113,6 @@ RUN apt-get update \
         libslirp0 \
         nbd-server \
         net-tools \
-        strace \
-        sudo \
-        systemctl \
-        tcpdump \
         zlib1g \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists

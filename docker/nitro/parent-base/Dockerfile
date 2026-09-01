@@ -61,11 +61,7 @@ RUN apt-get update \
         kmod \
         libpcap-dev \
         nbd-server \
-        net-tools \
-        sudo \
         systemctl \
-        strace \
-        tcpdump \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists
 
