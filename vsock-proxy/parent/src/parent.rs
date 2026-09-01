@@ -27,8 +27,8 @@ use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
 use shared::{
     cleanup_tokio_tasks, run_subprocess, run_subprocess_with_output_setup, with_background_tasks,
-    AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE,
-    RESTRICTED_HOSTS, VSOCK_LISTENER_CID,
+    AppLogPortInfo, CommandOutputConfig, StreamType, DNS_RESOLV_FILE, HOSTS_FILE, RESTRICTED_HOSTS,
+    VSOCK_LISTENER_CID,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -733,15 +733,6 @@ async fn send_global_network_settings(
     nameserver_address: IpNetwork,
     enclave_port: &mut AsyncVsockStream,
 ) -> Result<bool, String> {
-    fn read_file(path: &str) -> Result<FileWithPath, String> {
-        fs::read_to_string(path)
-            .map(|e| FileWithPath {
-                path: path.to_string(),
-                data: e.into_bytes(),
-            })
-            .map_err(|err| format!("Failed reading parent's {} file. {:?}", path, err))
-    }
-
     let raw_hostname =
         nix::unistd::gethostname().map_err(|err| format!("Failed reading host name. {:?}", err))?;
 
@@ -750,7 +741,6 @@ async fn send_global_network_settings(
         .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
     let dns_file = customize_resolv_conf(nameserver_address)?;
-    let host_name_file = read_file(HOSTNAME_FILE)?;
 
     let host_entries = fs::read_to_string(HOSTS_FILE)
         .map_err(|err| format!("Failed reading parent's {:?} file. {:?}", HOSTS_FILE, err))?;
@@ -759,7 +749,7 @@ async fn send_global_network_settings(
     let network_settings = GlobalNetworkSettings {
         hostname,
         host_entries: filtered_hosts,
-        global_settings_list: vec![dns_file.resolv_conf_file, host_name_file],
+        global_settings_list: vec![dns_file.resolv_conf_file],
     };
 
     enclave_port
