@@ -543,7 +543,8 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
 }
 
 async fn cleanup_fs(encrypted_fs: EncryptedVolume) -> Result<(), String> {
-    unmount_file_system_nodes(FILE_SYSTEM_NODES).await?;
+    let fs_mount_opts = fetch_fs_mount_options()?;
+    unmount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
     info!("Unmounted file system nodes.");
 
     unmount_overlay_fs().await?;

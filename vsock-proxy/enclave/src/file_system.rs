@@ -4,14 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::net::IpAddr;
-use std::path::Path;
-
 use enclaveos_encrypted_fs::dsm_key_config::{ClientConnectionInfo, DsmFsOps};
 use enclaveos_encrypted_fs::{EncryptedVolume, DEVICE_MAPPER};
 use log::info;
 use nix::sys::statvfs::FsFlags;
 use shared::run_subprocess;
+use std::net::IpAddr;
+use std::path::Path;
 use tokio::fs;
 
 use crate::certificate::read_root_certificates;
@@ -32,6 +31,7 @@ const DERIVATION_DATA_IV: &str = "salmiac-persiste";
 
 pub struct FsMountOptions {
     pub is_tmp_exec: bool,
+    pub tmp_exists: bool,
 }
 
 pub(crate) enum FileSystemNode {
@@ -62,13 +62,19 @@ pub(crate) async fn mount_file_system_nodes(
                     node_path = node_path
                 );
                 let mut mount_args = vec!["--rbind", node_path, &formatted_mount_point_str];
-                if *node_path == "/tmp" && mount_options.is_tmp_exec {
-                    mount_args.push("-o");
-                    mount_args.push("exec");
-                    // Make the tmp directory of the enclave base image executable first
-                    // since this is the directory that is mounted into client's
-                    // overlay root.
-                    run_mount(&["/tmp", "-o", "remount,exec"]).await?;
+                if *node_path == "/tmp" {
+                    if !mount_options.tmp_exists {
+                        continue;
+                    }
+
+                    if mount_options.is_tmp_exec {
+                        mount_args.push("-o");
+                        mount_args.push("exec");
+                        // Make the tmp directory of the enclave base image executable first
+                        // since this is the directory that is mounted into client's
+                        // overlay root.
+                        run_mount(&["/tmp", "-o", "remount,exec"]).await?;
+                    }
                 }
                 run_mount(&mount_args).await?;
             }
@@ -97,10 +103,22 @@ pub(crate) async fn mount_read_only_file_system() -> Result<(), String> {
 
 pub(crate) fn fetch_fs_mount_options() -> Result<FsMountOptions, String> {
     let ro_only_mnt_tmp_path = Path::new(ENCLAVE_FS_LOWER).join("tmp");
-    let statfs_res = nix::sys::statvfs::statvfs(ro_only_mnt_tmp_path.as_path())
-        .map_err(|e| format!("Unable to obtain stat info on client's tmp fs : {:?}", e))?;
+
+    let statfs_res = match nix::sys::statvfs::statvfs(ro_only_mnt_tmp_path.as_path()) {
+        Ok(result) => Some(result),
+        Err(e) if e.as_errno() == Some(nix::errno::Errno::ENOENT) => None,
+        Err(e) => {
+            return Err(format!(
+                "Unable to obtain stat info on client's tmp fs : {:?}",
+                e
+            ))
+        }
+    };
     Ok(FsMountOptions {
-        is_tmp_exec: !statfs_res.flags().contains(FsFlags::ST_NOEXEC),
+        is_tmp_exec: statfs_res
+            .as_ref()
+            .map_or(false, |statfs| !statfs.flags().contains(FsFlags::ST_NOEXEC)),
+        tmp_exists: statfs_res.is_some(),
     })
 }
 
@@ -325,13 +343,19 @@ pub(crate) async fn unmount_overlay_fs() -> Result<(), String> {
     run_unmount(&["-v", ENCLAVE_FS_OVERLAY_ROOT]).await
 }
 
-pub(crate) async fn unmount_file_system_nodes(nodes: &[FileSystemNode]) -> Result<(), String> {
+pub(crate) async fn unmount_file_system_nodes(
+    nodes: &[FileSystemNode],
+    mount_options: FsMountOptions,
+) -> Result<(), String> {
     for node in nodes {
         match node {
             FileSystemNode::Proc => {
                 run_unmount(&[&format!("{}/proc/", ENCLAVE_FS_OVERLAY_ROOT)]).await?;
             }
             FileSystemNode::TreeNode(node_path) => {
+                if *node_path == "/tmp" && !mount_options.tmp_exists {
+                    continue;
+                }
                 run_unmount(&[
                     "-R",
                     &format!(
