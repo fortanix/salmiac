@@ -17,9 +17,10 @@ etherparse = { git = "https://github.com/fortanix/etherparse.git", branch = "udp
 futures = "0.3"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
-nix = { version = "0.26.1", features = ["hostname"] }
+nix = { version = "0.30", features = ["hostname", "net", "ioctl", "fs"] }
 parent_lib = { path = "lib" }
 pcap = { version = "2.2.0", git = "https://github.com/fortanix/pcap.git", branch = "main", features = ["capture-stream"] }
+rand = "0.8.4"
 rtnetlink = "0.8.0"
 shared = { path = "../shared" }
 tempdir = "0.3.7"

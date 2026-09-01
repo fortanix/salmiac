@@ -36,10 +36,10 @@ pub(crate) fn should_forward_client_logs() -> bool {
     !is_enclaveos_debug_enabled()
 }
 
-pub(crate) fn launch_guest() -> GuestLaunchResult {
-    GuestLaunchResult {
+pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
+    Ok(GuestLaunchResult {
         enclave_process: tokio::spawn(start_nitro_enclave()),
-    }
+    })
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {

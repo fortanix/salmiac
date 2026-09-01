@@ -41,16 +41,10 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> GuestLaunchResult {
-    let enclave_process = tokio::spawn(start_simulator_guest());
-
-    GuestLaunchResult { enclave_process }
+pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
+    SimulatorPlatform.launch_guest()
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
     GuestTasks::new()
-}
-
-async fn start_simulator_guest() -> Result<(), String> {
-    SimulatorPlatform.run().await
 }

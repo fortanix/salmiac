@@ -74,18 +74,12 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> GuestLaunchResult {
-    let enclave_process = tokio::spawn(start_tdx_guest());
-
-    GuestLaunchResult { enclave_process }
+pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
+    TdxPlatform.launch_guest()
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
     GuestTasks::new()
-}
-
-async fn start_tdx_guest() -> Result<(), String> {
-    TdxPlatform.run().await
 }
 
 #[cfg(test)]
@@ -108,13 +102,13 @@ mod tests {
             "-kernel", "/opt/fortanix/enclave-os/bzImage",
             "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
             "-append", "console=ttyS0 rdinit=/init loglevel=7",
-            "-device", "vhost-vsock-pci,guest-cid=3",
+            "-device", "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd=0,guest-cid=3",
             "-serial", "mon:stdio",
             "-nodefaults",
         ];
         let platform = TdxPlatform {};
         let args: Vec<String> = platform
-            .build_qemu_args(None)
+            .build_qemu_args(None, 0, 3)
             .unwrap()
             .into_iter()
             .collect();

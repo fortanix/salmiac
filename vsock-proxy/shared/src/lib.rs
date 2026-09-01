@@ -105,6 +105,9 @@ pub const VSOCK_PARENT_CID: u32 = 3;
 pub const VSOCK_PARENT_CID: u32 = 2;
 
 #[cfg(platform = "nitro")]
+pub const VSOCK_PARENT_PORT: u32 = 5006;
+
+#[cfg(platform = "nitro")]
 // Context identifier of the parent (https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html)
 pub const VSOCK_LISTENER_CID: u32 = VSOCK_PARENT_CID;
 
