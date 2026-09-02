@@ -421,16 +421,14 @@ impl EncryptedVolume {
     /// fetch the overlay fs key used to wrap the RW volume passkey.
     async fn get_key_from_out_token(dsm_fs: &impl DsmInterface) -> Result<(), String> {
         // Open and parse the dmcrypt volume token file
-        let token_contents = fs::read(TOKEN_OUT_FILE)
-            .await
-            .map_err(|err| format!("Unable to open token out file : {:?}", err))?;
+        let token_contents = fs::read(TOKEN_OUT_FILE).await.map_err(|err| {
+            format!(
+                "Unable to read out token from file: {} (error: {:?})",
+                TOKEN_OUT_FILE, err
+            )
+        })?;
 
-        info!(
-            "Token contents are >> {:?} : {:?}",
-            std::str::from_utf8(&token_contents.clone())
-                .map_err(|e| format!("Unable to convert token contents to utf8 : {:?}", e)),
-            token_contents.len()
-        );
+        info!("Luks2 token read successfully.");
 
         let token_json_obj: LuksToken = serde_json::from_slice(&token_contents)
             .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
@@ -559,7 +557,7 @@ impl EncryptedVolume {
         let token_string = serde_json::to_string(&token_object)
             .map_err(|err| format!("Unable to convert token object to string : {:?}", err))?;
 
-        info!("Writing luks2 token to file >> {:?}", token_string);
+        info!("Writing luks2 token to file.");
         let _token_file = fs::write(token_path, &*token_string.into_bytes())
             .await
             .map_err(|err| format!("Unable to write token input file : {:?}", err))?;
