@@ -18,6 +18,13 @@ ARG NVIDIA_DRIVER_BRANCH_PINNED=595.71.05-0ubuntu0.24.04.1
 ARG UBUNTU_SNAPSHOT=20260601T000000Z
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Restrict Ubuntu repositories used by the snapshot:
+#   disabled components: noble-backports, universe
+RUN sed -i \
+        -e 's/ noble-backports//g' \
+        -e 's/ universe//g' \
+        /etc/apt/sources.list.d/ubuntu.sources
+
 # Bootstrap HTTPS trust using the current archive first.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates
@@ -25,9 +32,10 @@ RUN apt-get update \
 # Ubuntu security updates may publish newer NVIDIA libraries and firmware.
 # Because the NVIDIA driver is supplied as a build artifact and requires specific
 # older versions, use a repository snapshot to install the compatible packages.
-RUN echo "APT::Snapshot \"${UBUNTU_SNAPSHOT}\";"  > /etc/apt/apt.conf.d/50snapshot \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get install \
+        --update \
+        --snapshot "${UBUNTU_SNAPSHOT}" \
+        -y --no-install-recommends \
         libnvidia-compute-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
         nvidia-utils-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
         nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
