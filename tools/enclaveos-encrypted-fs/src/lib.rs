@@ -428,7 +428,7 @@ impl EncryptedVolume {
             )
         })?;
 
-        info!("Luks2 token read successfully.");
+        info!("Luks2 token read successfully (length: {}).", token_contents.len());
 
         let token_json_obj: LuksToken = serde_json::from_slice(&token_contents)
             .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
