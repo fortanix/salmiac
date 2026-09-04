@@ -254,8 +254,8 @@ async fn send_enclave_exit(enclave_port: &mut AsyncVsockStream) -> Result<(), St
 fn filter_env_variables(orig_env_path: PathBuf) -> Result<Vec<(String, String)>, String> {
     let mut runtime_vars: HashMap<String, String> = env::vars().collect();
     info!(
-        "Found the following environment variables in parent : {:?}",
-        runtime_vars
+        "Found {} environment variables in parent.",
+        runtime_vars.len()
     );
 
     // "_" is a special var setup by bash that points to the currently executed binary
@@ -297,11 +297,6 @@ fn filter_parent_env_from_runtime_envs(
     let (conv_time_env_key, conv_time_env_val) = parent_env;
 
     if conv_time_env_key != "HOSTNAME" {
-        info!(
-            "Testing if {:?} does not exist or has been updated.",
-            parent_env
-        );
-
         match runtime_env_vars.get(conv_time_env_key) {
             Some(value) if value == conv_time_env_val || conv_time_env_key == "PATH" => {
                 runtime_env_vars.remove(conv_time_env_key);
@@ -315,8 +310,8 @@ async fn send_env_variables(enclave_port: &mut AsyncVsockStream) -> Result<(), S
     let filtered_env_vars =
         filter_env_variables(Path::new(INSTALLATION_DIR).join(ORIG_ENV_LIST_PATH))?;
     info!(
-        "Passing these variables to the enclave : {:?}",
-        filtered_env_vars
+        "Passing {} environment variables to the enclave.",
+        filtered_env_vars.len()
     );
     enclave_port
         .write_lv(&SetupMessages::EnvVariables(filtered_env_vars))
