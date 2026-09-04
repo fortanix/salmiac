@@ -92,10 +92,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 #     kmod
 #
 #   General userspace utilities used by Salmiac tooling:
-#     ca-certificates, curl, jq, sudo, systemctl
+#     ca-certificates
 #
-#   Diagnostics:
-#     strace, tcpdump
+#   Packages that used to be part of parent image but may be moved into
+#   debugging image:
+#
+#     curl, jq, sudo, systemctl, strace, tcpdump
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
