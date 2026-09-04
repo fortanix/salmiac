@@ -3,8 +3,6 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-use std::env;
 use std::path::Path;
 
 use api_model::enclave::{FileSystemConfig, UserConfig};
@@ -118,7 +116,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
             kernel: &kernel_path,
             initrd: Some(initramfs_file_path),
             cmdline: Some("console=ttyS0 rdinit=/init loglevel=7"),
-            vcpus: 2,
+            vcpus: enclave_settings.cpu_count,
         })
         .await
     }
