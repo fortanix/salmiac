@@ -20,15 +20,14 @@ pub(crate) const IOMMU_DEVICE_PATH: &str = "/dev/iommu";
 pub(crate) const IOMMUFD_ID: &str = "iommufd0";
 const VFIO_DEVICE_DIR: &str = "/dev/vfio/devices";
 const VFIO_SYSFS_CLASS_DIR: &str = "/sys/class/vfio-dev";
-const VFIO_DEVICE_BIND_IOMMUFD_NR: u8 = 118;
-
-#[repr(C, align(8))]
-#[derive(Default)]
-struct AlignedU64(pub u64);
+const VFIO_TYPE: u8 = b';';
+const VFIO_BASE: u8 = 100;
+const VFIO_DEVICE_BIND_IOMMUFD_NR: u8 = VFIO_BASE + 18;
 
 // See the link below for the structure necessary to bind iommu.
 // https://github.com/torvalds/linux/blob/1b78070aaef63512688aebfbc82365ef9d6660f1/include/uapi/linux/vfio.h#L931
 // Info: https://github.com/torvalds/linux/blob/master/Documentation/driver-api/vfio.rst#device-cdev-example
+// Note: `token_uuid_ptr` is deliberately ignored as it is not available in the UAPI header.
 #[repr(C)]
 #[derive(Default)]
 struct VfioDeviceBindIommufd {
@@ -36,12 +35,11 @@ struct VfioDeviceBindIommufd {
     flags: u32,
     iommufd: i32,
     out_devid: u32,
-    token_uuid_ptr: AlignedU64,
 }
 
 nix::ioctl_readwrite_bad!(
     vfio_device_bind_iommufd,
-    nix::request_code_none!(b';', VFIO_DEVICE_BIND_IOMMUFD_NR),
+    nix::request_code_none!(VFIO_TYPE, VFIO_DEVICE_BIND_IOMMUFD_NR),
     VfioDeviceBindIommufd
 );
 
