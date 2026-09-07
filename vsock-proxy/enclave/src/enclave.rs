@@ -83,7 +83,7 @@ const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
     Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
 
-const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 2] = [DNS_RESOLV_FILE, HOSTNAME_FILE];
+const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 1] = [DNS_RESOLV_FILE];
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -840,6 +840,7 @@ async fn setup_enclave_networking(
         .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
     write_network_files(&global_settings, &NETWORK_FILE_PATH_ALLOW_LIST)?;
+    write_hostname_file(&global_settings.hostname)?;
     write_hosts_file(&global_settings.host_entries)?;
     debug!("Enclave global network settings files have been created.");
 
@@ -914,6 +915,14 @@ fn write_hosts_file(host_entries: &HostEntries) -> Result<(), String> {
         }
     }
     write_to_file(Path::new(&HOSTS_FILE), &output, &HOSTS_FILE)?;
+    Ok(())
+}
+
+fn write_hostname_file(hostname: &str) -> Result<(), String> {
+    if !is_valid_hostname(&hostname) {
+        return Err(format!("Invalid Hostname provided."));
+    }
+    write_to_file(Path::new(&HOSTNAME_FILE), &hostname, &HOSTNAME_FILE)?;
     Ok(())
 }
 
