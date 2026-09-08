@@ -4,7 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::env;
 use std::path::Path;
 
 use api_model::enclave::{FileSystemConfig, UserConfig};
@@ -111,13 +110,12 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
     ) -> Result<Self::Measurements> {
         let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
         let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
-        static KERNEL_CMDLINE: &str = "console=null rdinit=/init loglevel=7";
 
         compute_tdx_launch_measurement(&TdxMeasurementInputs {
             ovmf: &ovmf_path,
             kernel: &kernel_path,
             initrd: initramfs_file_path,
-            cmdline: Some(KERNEL_CMDLINE),
+            cmdline: Some(self.kernel_cmdline()),
             vcpus: enclave_settings.cpu_count,
             memory: enclave_settings.mem_size.clone().ok_or(ConverterError {
                 message: "Tdx Image conversion requires mem_size in the \"tdx_enclaves_options\""

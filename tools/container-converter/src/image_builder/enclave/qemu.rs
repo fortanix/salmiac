@@ -117,4 +117,13 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
         self.compute_launch_measurements(&enclave_settings, &initramfs_file_path)
             .await
     }
+
+    #[allow(unused)]
+    fn kernel_cmdline(&self) -> &'a str {
+        if cfg!(debug_assertions) {
+            return "console=ttyS0 rdinit=/init loglevel=7";
+        } else {
+            return "console=null rdinit=/init loglevel=7";
+        }
+    }
 }

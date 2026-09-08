@@ -3,6 +3,11 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+use crate::platform::{
+    env_var_or_default, is_enclaveos_debug_enabled, GuestLaunchResult, ENCLAVEOS_DEBUG_ENV,
+};
+use crate::utils::qemu as qemu_utils;
+use log::info;
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use shared::{run_subprocess, VSOCK_LISTENER_CID};
@@ -13,10 +18,6 @@ use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::sync::OnceLock;
 use tokio_vsock::VsockListener;
 
-use crate::platform::GuestLaunchResult;
-
-use crate::utils::qemu as qemu_utils;
-
 pub(super) mod constants {
     pub const CPU_COUNT: &str = "2";
     pub const MEM_SIZE: &str = "8G";
@@ -24,7 +25,11 @@ pub(super) mod constants {
     pub const MEM_SIZE_ENV_VAR: &str = "MEM_SIZE";
 
     pub const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
+
+    // serial console is enabled only for debug builds
+    pub const KERNEL_CMDLINE_WITH_CONSOLE: &str = "console=ttyS0 rdinit=/init loglevel=7";
     pub const KERNEL_CMDLINE: &str = "console=null rdinit=/init loglevel=7";
+
     pub const KVM_DEVICE_PATH: &str = "/dev/kvm";
     pub const VSOCK_HOST_DEVICE_PATH: &str = "/dev/vhost-vsock";
     pub const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";
@@ -157,15 +162,24 @@ pub(super) trait QemuPlatform {
     }
 
     fn cpu_count(&self) -> String {
-        env_or_default(constants::CPU_COUNT_ENV_VAR, constants::CPU_COUNT)
+        env_var_or_default(constants::CPU_COUNT_ENV_VAR, constants::CPU_COUNT)
     }
 
     fn memory_size(&self) -> String {
-        env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
+        env_var_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
     }
 
     fn globals(&self) -> Result<Vec<String>, String> {
         Ok(vec![])
+    }
+
+    fn kernel_cmdline(&self) -> &str {
+        let is_enclaveos_debug_enabled = is_enclaveos_debug_enabled();
+        if is_enclaveos_debug_enabled {
+            info!("{ENCLAVEOS_DEBUG_ENV} set, serial console is enabled in KERNEL CMDLINE");
+            return constants::KERNEL_CMDLINE_WITH_CONSOLE;
+        }
+        return constants::KERNEL_CMDLINE;
     }
 
     fn build_qemu_args(
@@ -177,6 +191,7 @@ pub(super) trait QemuPlatform {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
         let memory_size = self.memory_size();
+        let kernel_cmdline = self.kernel_cmdline();
         let mut args: Vec<&str> = vec![
             "-enable-kvm",
             "-m",
@@ -232,7 +247,7 @@ pub(super) trait QemuPlatform {
             "-initrd",
             constants::INITRAMFS_PATH,
             "-append",
-            constants::KERNEL_CMDLINE,
+            kernel_cmdline,
         ]);
 
         Ok(args
@@ -333,11 +348,6 @@ fn probe_vm_connection_config() -> Result<(VmConnectionConfig, OwnedFd), String>
         }
     }
     Err(format!("unable to get available CID for the guest"))
-}
-
-#[allow(unused)]
-pub fn env_or_default(name: &str, default: &str) -> String {
-    env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
 #[cfg(test)]

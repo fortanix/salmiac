@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use futures::stream::futures_unordered::FuturesUnordered;
+use std::env;
 use tokio::task::JoinHandle;
 
 #[cfg(platform = "nitro")]
@@ -42,4 +43,15 @@ pub(crate) struct GuestLaunchResult {
 
     #[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
     pub(crate) enclave_connection_config: VmConnectionConfig,
+}
+
+const ENCLAVEOS_DEBUG_ENV: &str = "ENCLAVEOS_DEBUG";
+const ENCLAVEOS_DEBUG_VALUE: &str = "debug";
+
+pub(crate) fn env_var_or_default<T: ToString>(var_name: &str, default: T) -> String {
+    env::var(var_name).unwrap_or_else(|_| default.to_string())
+}
+
+pub(crate) fn is_enclaveos_debug_enabled() -> bool {
+    env::var(ENCLAVEOS_DEBUG_ENV).as_deref() == Ok(ENCLAVEOS_DEBUG_VALUE)
 }

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::{GuestLaunchResult, GuestTasks};
-use crate::platform::qemu::{env_or_default, QemuPlatform};
+use super::{env_var_or_default, GuestLaunchResult, GuestTasks};
+use crate::platform::qemu::QemuPlatform;
 
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.amdsev.fd";
 
@@ -40,9 +40,10 @@ impl SnpPlatform {
     }
 
     fn snp_guest() -> String {
-        let cbitpos = env_or_default("SNP_CBITPOS", DEFAULT_CBITPOS);
-        let reduced_phys_bits = env_or_default("SNP_REDUCED_PHYS_BITS", DEFAULT_REDUCED_PHYS_BITS);
-        let policy = env_or_default("SNP_POLICY", DEFAULT_POLICY);
+        let cbitpos = env_var_or_default("SNP_CBITPOS", DEFAULT_CBITPOS);
+        let reduced_phys_bits =
+            env_var_or_default("SNP_REDUCED_PHYS_BITS", DEFAULT_REDUCED_PHYS_BITS);
+        let policy = env_var_or_default("SNP_POLICY", DEFAULT_POLICY);
         let snp_guest = format!(
             "sev-snp-guest,id={SNP_GUEST_ID},cbitpos={cbitpos},reduced-phys-bits={reduced_phys_bits},kernel-hashes=on,policy={policy}"
         );
@@ -62,7 +63,7 @@ impl QemuPlatform for SnpPlatform {
     }
 
     fn cpu(&self) -> String {
-        env_or_default("SNP_CPU", DEFAULT_CPU)
+        env_var_or_default("SNP_CPU", DEFAULT_CPU)
     }
 
     fn machine(&self) -> Option<String> {
