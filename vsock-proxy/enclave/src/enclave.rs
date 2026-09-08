@@ -43,7 +43,8 @@ use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
     ApplicationConfiguration, GlobalNetworkSettings, HostEntries, NBDConfiguration,
-    NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus,
+    NetworkDeviceSettings, PrivateNetworkDeviceSettings, ResolvConfig, SetupMessages,
+    UserProgramExitStatus,
 };
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
@@ -82,8 +83,6 @@ const CERT_RENEWAL_BEFORE_EXPIRY: Duration =
 const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
     Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
-
-const NETWORK_FILE_PATH_ALLOW_LIST: [&str; 1] = [DNS_RESOLV_FILE];
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -839,7 +838,7 @@ async fn setup_enclave_networking(
     fs::create_dir("/run/resolvconf")
         .map_err(|err| format!("Failed creating /run/resolvconf. {:?}", err))?;
 
-    write_network_files(&global_settings, &NETWORK_FILE_PATH_ALLOW_LIST)?;
+    write_network_files(&global_settings)?;
     write_hostname_file(&global_settings.hostname)?;
     write_hosts_file(&global_settings.host_entries)?;
     debug!("Enclave global network settings files have been created.");
@@ -926,18 +925,62 @@ fn write_hostname_file(hostname: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn write_network_files(
-    global_settings: &GlobalNetworkSettings,
-    allow_list: &[&str],
-) -> Result<(), String> {
-    for file in global_settings
-        .global_settings_list
-        .iter()
-        .filter(|file| allow_list.contains(&file.path.as_str()))
-    {
-        write_to_file(Path::new(&file.path), &file.data, &file.path)?;
-        debug!("Successfully created {} inside an enclave.", &file.path);
+fn write_resolv_conf(resolv_conf: &ResolvConfig) -> Result<String, String> {
+    let mut s = String::new();
+
+    use shared::{
+        RESOLV_NAMESERVER_KEYWORD, RESOLV_OPTIONS_KEYWORD, RESOLV_SEARCH_KEYWORD,
+        RESOLV_SORTLIST_KEYWORD,
+    };
+    use std::fmt::Write as _;
+
+    // Write nameservers
+    resolv_conf.nameservers.iter().try_for_each(|ns| {
+        write!(&mut s, "{RESOLV_NAMESERVER_KEYWORD} {ns}\n")
+            .map_err(|e| format!("write resolv.conf failed: {e}"))
+    })?;
+
+    // Write search
+    if let Some(search) = &resolv_conf.search {
+        write!(&mut s, "{RESOLV_SEARCH_KEYWORD} {search}\n")
+            .map_err(|e| format!("write resolv.conf failed: {e}"))?;
     }
+
+    // Write sortlist
+    if !resolv_conf.sortlist.is_empty() {
+        write!(
+            &mut s,
+            "{RESOLV_SORTLIST_KEYWORD} {}\n",
+            resolv_conf
+                .sortlist
+                .iter()
+                .fold(String::new(), |c, n| c + " " + n)
+                .trim()
+        )
+        .map_err(|e| format!("write resolv.conf failed: {e}"))?;
+    }
+
+    // Write options
+    if !resolv_conf.options.is_empty() {
+        write!(
+            &mut s,
+            "{RESOLV_OPTIONS_KEYWORD} {}\n",
+            resolv_conf
+                .options
+                .iter()
+                .fold(String::new(), |c, n| c + " " + &n.to_string())
+                .trim()
+        )
+        .map_err(|e| format!("write resolv.conf failed: {e}"))?;
+    }
+
+    Ok(s)
+}
+
+fn write_network_files(global_settings: &GlobalNetworkSettings) -> Result<(), String> {
+    // Write resolv conf file
+    let resolv_conf = write_resolv_conf(&global_settings.resolv_config)?;
+    write_to_file(Path::new(DNS_RESOLV_FILE), &resolv_conf, DNS_RESOLV_FILE)?;
     Ok(())
 }
 
@@ -1209,10 +1252,7 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
-    use std::path::Path;
-
     use api_model::converter::DsmConfiguration;
     use api_model::enclave::{
         CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig,
@@ -1220,14 +1260,12 @@ mod tests {
     };
     use async_trait::async_trait;
     use enclaveos_encrypted_fs::EncryptedVolume;
-    use shared::models::{FileWithPath, GlobalNetworkSettings, NBDConfiguration};
+    use shared::models::{NBDConfiguration, ResolvConfig, ResolvConfigOption};
     use shared::socket::InMemorySocket;
-    use tempdir::TempDir;
     use tokio::runtime::Runtime;
 
     use crate::enclave::{
-        is_valid_hostname, write_network_files, FileSystemSetupApi, FileSystemSetupConfig,
-        NETWORK_FILE_PATH_ALLOW_LIST,
+        is_valid_hostname, FileSystemSetupApi, FileSystemSetupConfig,
     };
 
     struct MockFileSystemApi {}
@@ -1299,46 +1337,6 @@ mod tests {
     }
 
     #[test]
-    fn filter_network_files() {
-        const NUMBER_OF_TEST_FILES: usize = 6;
-        let temp_dir = TempDir::new("network_files").unwrap();
-        let f0 = temp_dir.path().join("0").to_string_lossy().into_owned();
-        let f1 = temp_dir.path().join("1").to_string_lossy().into_owned();
-        let allow_list = [f0.as_str(), f1.as_str()];
-        let mut files = Vec::new();
-        for i in 0..NUMBER_OF_TEST_FILES {
-            let path = temp_dir.path().join(i.to_string());
-            files.push(FileWithPath {
-                path: String::from(path.to_str().unwrap()),
-                data: i.to_string().into_bytes(),
-            })
-        }
-        let global_settings = GlobalNetworkSettings {
-            hostname: String::new(),
-            host_entries: HashMap::new(),
-            global_settings_list: files,
-        };
-
-        write_network_files(&global_settings, &allow_list);
-
-        for (i, path) in allow_list.iter().enumerate() {
-            assert!(Path::is_file(Path::new(&path)));
-            let contents = std::fs::read_to_string(path).unwrap();
-            assert_eq!(contents, i.to_string())
-        }
-        for i in allow_list.len()..NUMBER_OF_TEST_FILES {
-            let path = temp_dir.path().join(i.to_string());
-            assert!(!Path::exists(&path));
-        }
-    }
-
-    #[test]
-    fn assert_network_files_allowlist() {
-        assert!(!NETWORK_FILE_PATH_ALLOW_LIST.contains(&"/etc/nsswitch.conf"),
-            "nsswitch.conf can be used to swap name resolution priority and should not be configurable by the parent.");
-    }
-
-    #[test]
     fn verify_host_names() {
         // valid
         assert!(is_valid_hostname("a"));
@@ -1361,6 +1359,28 @@ mod tests {
         assert!(!is_valid_hostname("host_name"));
         assert!(!is_valid_hostname(&"a".repeat(64)));
         assert!(!is_valid_hostname(&format!("{}.com", "a".repeat(251))));
+    }
+
+    #[test]
+    fn verify_resolv_conf_generation() {
+        use crate::enclave::write_resolv_conf;
+
+        let conf = ResolvConfig {
+            nameservers: vec!["192.168.0.10".to_string()],
+            search: Some(".".to_string()),
+            options: vec![ResolvConfigOption::EDns0, ResolvConfigOption::TrustAd],
+            sortlist: vec![],
+        };
+
+        let res = write_resolv_conf(&conf).unwrap();
+
+        assert_eq!(
+            res,
+            r"nameserver 192.168.0.10
+search .
+options edns0 trust-ad
+"
+        );
     }
 }
 
