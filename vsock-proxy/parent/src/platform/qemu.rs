@@ -24,7 +24,7 @@ pub(super) mod constants {
     pub const MEM_SIZE_ENV_VAR: &str = "MEM_SIZE";
 
     pub const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
-    pub const KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
+    pub const KERNEL_CMDLINE: &str = "console=null rdinit=/init loglevel=7";
     pub const KVM_DEVICE_PATH: &str = "/dev/kvm";
     pub const VSOCK_HOST_DEVICE_PATH: &str = "/dev/vhost-vsock";
     pub const INITRAMFS_PATH: &str = "/opt/fortanix/enclave-os/initramfs.gz";

@@ -111,7 +111,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
     ) -> Result<Self::Measurements> {
         let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
         let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
-        static KERNEL_CMDLINE: &str = "console=ttyS0 rdinit=/init loglevel=7";
+        static KERNEL_CMDLINE: &str = "console=null rdinit=/init loglevel=7";
 
         compute_tdx_launch_measurement(&TdxMeasurementInputs {
             ovmf: &ovmf_path,
