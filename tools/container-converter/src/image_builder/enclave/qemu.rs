@@ -119,11 +119,11 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
     }
 
     #[allow(unused)]
-    fn kernel_cmdline(&self) -> &'a str {
+    fn kernel_cmdline(&self) -> &'static str {
         if cfg!(debug_assertions) {
-            return "console=ttyS0 rdinit=/init loglevel=7";
+            "console=ttyS0 rdinit=/init loglevel=7"
         } else {
-            return "console=null rdinit=/init loglevel=7";
+            "console=null rdinit=/init loglevel=7"
         }
     }
 }
