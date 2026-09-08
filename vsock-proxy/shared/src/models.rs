@@ -144,6 +144,7 @@ pub enum ResolvConfigOption {
 }
 
 impl Display for ResolvConfigOption {
+    #[rustfmt::skip]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ResolvConfigOption::*;
         match self {
@@ -172,6 +173,7 @@ impl Display for ResolvConfigOption {
 impl TryFrom<&str> for ResolvConfigOption {
     type Error = String;
 
+    #[rustfmt::skip]
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         use ResolvConfigOption::*;
         Ok(match value {

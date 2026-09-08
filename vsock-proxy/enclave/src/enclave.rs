@@ -1252,7 +1252,6 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
     use api_model::converter::DsmConfiguration;
     use api_model::enclave::{
         CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig,
@@ -1262,11 +1261,10 @@ mod tests {
     use enclaveos_encrypted_fs::EncryptedVolume;
     use shared::models::{NBDConfiguration, ResolvConfig, ResolvConfigOption};
     use shared::socket::InMemorySocket;
+    use std::net::{IpAddr, Ipv4Addr};
     use tokio::runtime::Runtime;
 
-    use crate::enclave::{
-        is_valid_hostname, FileSystemSetupApi, FileSystemSetupConfig,
-    };
+    use crate::enclave::{is_valid_hostname, FileSystemSetupApi, FileSystemSetupConfig};
 
     struct MockFileSystemApi {}
     #[async_trait]
