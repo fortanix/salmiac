@@ -16,7 +16,10 @@ use tokio::fs;
 use crate::certificate::read_root_certificates;
 use crate::certificate::DEFAULT_CERT_DIR;
 use std::sync::Arc;
+#[cfg(not(test))]
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
+#[cfg(test)]
+const ENCLAVE_FS_LOWER: &str = "test-dir";
 const ENCLAVE_FS_RW_ROOT: &str = "/mnt/overlayfs";
 const ENCLAVE_FS_UPPER: &str = "/mnt/overlayfs/upper";
 const ENCLAVE_FS_WORK: &str = "/mnt/overlayfs/work";
@@ -390,4 +393,29 @@ async fn run_unmount(args: &[&str]) -> Result<(), String> {
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {
     run_subprocess("/usr/bin/mount", args).await
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::file_system::fetch_fs_mount_options;
+    use crate::file_system::ENCLAVE_FS_LOWER;
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn verify_fs_mount_options() {
+        let test_path = Path::new(ENCLAVE_FS_LOWER).join("tmp");
+        fs::create_dir_all(test_path.as_path()).expect("Failed to create directory");
+
+        // Create tmp directory and check fs_mount_options
+        let result = fetch_fs_mount_options().unwrap();
+        assert!(result.tmp_exists);
+        assert!(result.is_tmp_exec);
+
+        // Remove tmp directory and recheck fs_mount_options
+        fs::remove_dir_all(ENCLAVE_FS_LOWER).expect("Failed to remove directory");
+        let result = fetch_fs_mount_options().unwrap();
+        assert!(!result.tmp_exists);
+        assert!(!result.is_tmp_exec);
+    }
 }
