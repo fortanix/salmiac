@@ -26,8 +26,8 @@ RUN apt-get update \
 # Because the NVIDIA driver is supplied as a build artifact and requires specific
 # older versions, use a repository snapshot to install the compatible packages.
 RUN echo "APT::Snapshot \"${UBUNTU_SNAPSHOT}\";"  > /etc/apt/apt.conf.d/50snapshot \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get update -o Acquire::Retries=10 -o Acquire::https::Timeout=60 \
+    && apt-get install -o Acquire::Retries=10 -o Acquire::https::Timeout=60 -y --no-install-recommends \
         libnvidia-compute-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
         nvidia-utils-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
         nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
