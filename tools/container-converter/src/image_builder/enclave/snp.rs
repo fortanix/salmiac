@@ -115,7 +115,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
             ovmf: &ovmf_path,
             kernel: &kernel_path,
             initrd: Some(initramfs_file_path),
-            cmdline: Some("console=ttyS0 rdinit=/init loglevel=7"),
+            cmdline: Some("console=null rdinit=/init loglevel=7"),
             vcpus: enclave_settings.cpu_count,
         })
         .await
