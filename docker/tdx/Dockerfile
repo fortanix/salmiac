@@ -1,6 +1,7 @@
 # Download OVMF and EFI boot stub
 FROM ubuntu:25.10 AS apt_extract
-RUN DEBIAN_FRONTEND=noninteractive apt-get update
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+    && apt-get upgrade -y
 
 RUN mkdir -p /blob
 
@@ -17,6 +18,7 @@ ARG NVIDIA_DRIVER_BRANCH=595
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         libnvidia-compute-${NVIDIA_DRIVER_BRANCH}-server \
         nvidia-utils-${NVIDIA_DRIVER_BRANCH}-server \
