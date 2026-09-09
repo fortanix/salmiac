@@ -26,28 +26,15 @@ COPY staging/sev-snp-measure/requirements.txt /tmp/requirements.txt
 RUN pip install --break-system-packages --target /opt/sev-snp-dist -r /tmp/requirements.txt
 
 FROM ubuntu:24.04 AS nvidia_userspace
-ARG NVIDIA_DRIVER_BRANCH=595
-ARG NVIDIA_DRIVER_BRANCH_PINNED=595.71.05-0ubuntu0.24.04.1
-ARG UBUNTU_SNAPSHOT=20260601T000000Z
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Bootstrap HTTPS trust using the current archive first.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates
-
-# Ubuntu security updates may publish newer NVIDIA libraries and firmware.
-# Because the NVIDIA driver is supplied as a build artifact and requires specific
-# older versions, use a repository snapshot to install the compatible packages.
-RUN echo "APT::Snapshot \"${UBUNTU_SNAPSHOT}\";"  > /etc/apt/apt.conf.d/50snapshot \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libnvidia-compute-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
-        nvidia-utils-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
-        nvidia-kernel-common-${NVIDIA_DRIVER_BRANCH}=${NVIDIA_DRIVER_BRANCH_PINNED} \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY stage-nvidia-driver-payload.sh /usr/local/bin/stage-nvidia-driver-payload.sh
+COPY staging/kernel_enabled_gpu/nvidia-artifacts.tar.gz /
+
+# Extract NVIDIA artifacts into the root filesystem and update the linker cache.
+# The archive follows the directory layout used by the Ubuntu NVIDIA packages.
+RUN tar xpf /nvidia-artifacts.tar.gz -C /
+RUN ldconfig
+
 RUN bash -x /usr/local/bin/stage-nvidia-driver-payload.sh /nvidia-driver-payload
 
 FROM ubuntu:24.04

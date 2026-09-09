@@ -7,3 +7,6 @@
 vsock-proxy/target
 enclave-startup/target
 /tools/enclaveos-encrypted-fs/target
+
+# Platform specific, should be copied from artifacts
+docker/common-build-context/nvidia-artifacts.tar.gz
