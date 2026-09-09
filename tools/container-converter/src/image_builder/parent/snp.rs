@@ -18,6 +18,7 @@ use super::qemu::QemuParentImageBuilder;
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: EnclavesOptions,
+    pub(crate) is_debug: Option<bool>,
 }
 
 impl<'a> ParentImageBuilder<'a> {
@@ -46,6 +47,10 @@ impl<'a> QemuParentImageBuilder<'a> for ParentImageBuilder<'a> {
 
     fn enable_gpu_passthrough(&self) -> Option<bool> {
         self.start_options.enable_gpu_passthrough
+    }
+
+    fn is_debug(&self) -> Option<bool> {
+        self.is_debug
     }
 
     fn platform_name(&self) -> &'static str {
