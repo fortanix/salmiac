@@ -332,7 +332,13 @@ async fn startup(
 ) -> Result<(EnclaveSetupResult, EnclaveNetworkingSetupResult), String> {
     let mut enclave_manifest = read_enclave_manifest(settings_path)?;
 
-    debug!("Received enclave manifest {:?}", enclave_manifest);
+    debug!(
+        "Received enclave manifest (debug mode: {}, total environment variables: {}, total certificates: {}, overlay filesystem persistance: {}).",
+        enclave_manifest.is_debug,
+        enclave_manifest.env_vars.len(),
+        enclave_manifest.user_config.certificate_config.len(),
+        enclave_manifest.enable_overlay_filesystem_persistence,
+    );
 
     let mut runtime_env_vars =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
