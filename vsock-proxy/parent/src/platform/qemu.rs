@@ -3,35 +3,31 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use crate::platform::{
-    env_var_or_default, is_enclaveos_debug_enabled, GuestLaunchResult, ENCLAVEOS_DEBUG_ENV,
-};
-use crate::utils::qemu as qemu_utils;
-use log::info;
-use nix::fcntl::OFlag;
-use nix::sys::stat::Mode;
-use shared::{run_subprocess, VSOCK_LISTENER_CID};
 use std::collections::HashSet;
 use std::env;
 use std::fs::File;
 use std::io::ErrorKind;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 
-use log::debug;
+use log::{debug, info};
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use shared::{run_subprocess, VSOCK_LISTENER_CID};
 use tokio_vsock::VsockListener;
+
+use crate::platform::{env_var_or_default, GuestLaunchResult};
+use crate::utils::qemu as qemu_utils;
 
 pub(super) mod constants {
     pub const CPU_COUNT: &str = "2";
     pub const MEM_SIZE: &str = "8G";
     pub const CPU_COUNT_ENV_VAR: &str = "CPU_COUNT";
     pub const MEM_SIZE_ENV_VAR: &str = "MEM_SIZE";
+    pub const DEBUG_ENV_VAR: &str = "DEBUG";
 
     pub const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
 
-    // serial console is enabled only for debug builds
+    // serial console is enabled only for debug option is selected during conversion
     pub const KERNEL_CMDLINE_WITH_CONSOLE: &str = "console=ttyS0 rdinit=/init loglevel=7";
     pub const KERNEL_CMDLINE: &str = "console=null rdinit=/init loglevel=7";
 
@@ -232,9 +228,9 @@ pub(super) trait QemuPlatform {
     }
 
     fn kernel_cmdline(&self) -> &str {
-        let is_enclaveos_debug_enabled = is_enclaveos_debug_enabled();
-        if is_enclaveos_debug_enabled {
-            info!("{ENCLAVEOS_DEBUG_ENV} set, serial console is enabled in KERNEL CMDLINE");
+        let is_debug = env::var(constants::DEBUG_ENV_VAR).is_ok_and(|value| value == "true");
+        if is_debug {
+            info!("Serial console is enabled in KERNEL CMDLINE");
             return constants::KERNEL_CMDLINE_WITH_CONSOLE;
         }
         return constants::KERNEL_CMDLINE;
@@ -406,6 +402,32 @@ fn probe_vm_connection_config() -> Result<(VmConnectionConfig, OwnedFd), String>
         }
     }
     Err(format!("unable to get available CID for the guest"))
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum GPUCount {
+    All,
+    Count(usize),
+}
+
+fn parse_gpu_count(value: String) -> Result<GPUCount, String> {
+    let value = value.trim();
+    if value == "all" {
+        return Ok(GPUCount::All);
+    }
+    let count = value.parse::<usize>().map_err(|error| {
+        format!(
+            "{} must be a positive integer or \"all\": {error}",
+            constants::GPU_COUNT_ENV_VAR
+        )
+    })?;
+    if count == 0 {
+        return Err(format!(
+            "{} must be greater than zero",
+            constants::GPU_COUNT_ENV_VAR
+        ));
+    }
+    Ok(GPUCount::Count(count))
 }
 
 #[cfg(test)]

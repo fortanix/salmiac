@@ -110,12 +110,11 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
     ) -> Result<Self::Measurements> {
         let ovmf_path = BlobFinder::ovmf_path(self.ovmf_filename());
         let kernel_path = BlobFinder::kernel_path(enclave_settings.gpu_passthrough);
-
         compute_snp_launch_measurement(&SnpMeasurementInputs {
             ovmf: &ovmf_path,
             kernel: &kernel_path,
             initrd: Some(initramfs_file_path),
-            cmdline: Some(self.kernel_cmdline()),
+            cmdline: Some(self.kernel_cmdline(enclave_settings.is_debug)),
             vcpus: enclave_settings.cpu_count,
         })
         .await

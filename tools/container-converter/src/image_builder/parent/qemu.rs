@@ -28,6 +28,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
     fn mem_size(&self) -> &Option<api_model::ByteUnit>;
     fn enable_gpu_passthrough(&self) -> Option<bool>;
     fn file_system_persistence(&self) -> Option<bool>;
+    fn is_debug(&self) -> Option<bool>;
     fn platform_name(&self) -> &'static str;
     fn initramfs_filename(&self) -> &'static str;
     fn ovmf_filename(&self) -> &'static str;
@@ -133,6 +134,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         let log_env = rust_log_env_var("parent");
         let cpu_count_env = self.cpu_count_env_var();
         let enable_gpu_passthrough_env = self.enable_gpu_passthrough_env_var();
+        let debug_env = self.debug_env_var();
         let mem_size_env = self.mem_size_env_var();
         let eos_debug_env = GenericParentImageBuilder::eos_debug_env_var();
 
@@ -141,7 +143,8 @@ pub(crate) trait QemuParentImageBuilder<'a> {
             cpu_count_env,
             enable_gpu_passthrough_env,
             mem_size_env,
-            eos_debug_env,
+            eos_debug_env, // This is from debug_assertions
+            debug_env,     // This is from converter_options
         ];
 
         let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
@@ -198,6 +201,10 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         // Note that: we explictly add suffix to make it consistent between
         // different qemu arguments such as memory size & memory backend.
         format!("MEM_SIZE={}M", mem_size)
+    }
+
+    fn debug_env_var(&self) -> String {
+        format!("DEBUG={}", self.is_debug().unwrap_or_default())
     }
 
     // Moves blobs located at system to build context and returns filenames only

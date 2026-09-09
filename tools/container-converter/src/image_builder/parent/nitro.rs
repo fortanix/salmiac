@@ -21,6 +21,7 @@ pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) file_system_persistence_enabled: Option<bool>,
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: NitroEnclavesConversionRequestOptions,
+    pub(crate) is_debug: Option<bool>,
 }
 
 impl<'a> ParentImageBuilder<'a> {

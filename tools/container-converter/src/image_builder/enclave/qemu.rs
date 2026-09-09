@@ -119,8 +119,8 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
     }
 
     #[allow(unused)]
-    fn kernel_cmdline(&self) -> &'static str {
-        if cfg!(debug_assertions) {
+    fn kernel_cmdline(&self, is_debug: bool) -> &'static str {
+        if is_debug {
             "console=ttyS0 rdinit=/init loglevel=7"
         } else {
             "console=null rdinit=/init loglevel=7"

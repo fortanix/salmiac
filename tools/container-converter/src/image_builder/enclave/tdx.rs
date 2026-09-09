@@ -115,7 +115,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
             ovmf: &ovmf_path,
             kernel: &kernel_path,
             initrd: initramfs_file_path,
-            cmdline: Some(self.kernel_cmdline()),
+            cmdline: Some(self.kernel_cmdline(enclave_settings.is_debug)),
             vcpus: enclave_settings.cpu_count,
             memory: enclave_settings.mem_size.clone().ok_or(ConverterError {
                 message: "Tdx Image conversion requires mem_size in the \"tdx_enclaves_options\""

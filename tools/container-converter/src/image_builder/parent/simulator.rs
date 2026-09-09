@@ -21,6 +21,7 @@ pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) file_system_persistence_enabled: Option<bool>,
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: EnclavesOptions,
+    pub(crate) is_debug: Option<bool>,
 }
 
 impl<'a> ParentImageBuilder<'a> {
@@ -53,6 +54,10 @@ impl<'a> QemuParentImageBuilder<'a> for ParentImageBuilder<'a> {
 
     fn file_system_persistence(&self) -> Option<bool> {
         self.file_system_persistence_enabled
+    }
+
+    fn is_debug(&self) -> Option<bool> {
+        self.is_debug
     }
 
     fn platform_name(&self) -> &'static str {
