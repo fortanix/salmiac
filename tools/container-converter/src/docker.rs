@@ -360,6 +360,13 @@ impl DockerUtil for DockerDaemon {
             .build_from_raw_parts(&build_params, build_context);
         while let Some(build_result) = stream.next().await {
             match build_result {
+                // ImageBuildChunk::Error returns error and error_detail
+                // error has same content as error_detail.message; Hence picked
+                // only error_detail instead.
+                Ok(ImageBuildChunk::Error { error_detail, .. }) => {
+                    error!("{:?}", error_detail);
+                    return Err(format!("Docker build failed with: {:?}", error_detail));
+                }
                 Ok(output) => {
                     info!("{:?}", output);
                 }
