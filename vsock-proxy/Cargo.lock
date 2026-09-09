@@ -204,7 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#2484b49910add0847ed1d1cffbbd7db6edda1395"
+source = "git+https://github.com/fortanix/attestation.git#645dea13b268bdf37127a8ca597e8d954d1d17ed"
 dependencies = [
  "b64-ct",
  "der",
@@ -215,7 +215,7 @@ dependencies = [
  "once_cell",
  "pkix",
  "serde",
- "sgx-isa",
+ "sgx-isa 0.6.0",
  "sgx_pkix",
  "tdx-ql",
  "thiserror 1.0.69",
@@ -501,7 +501,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#2484b49910add0847ed1d1cffbbd7db6edda1395"
+source = "git+https://github.com/fortanix/attestation.git#645dea13b268bdf37127a8ca597e8d954d1d17ed"
 dependencies = [
  "attestation",
  "der",
@@ -830,7 +830,7 @@ dependencies = [
  "serde_bytes",
  "serde_derive",
  "serde_json 1.0.68",
- "sgx-isa",
+ "sgx-isa 0.5.0",
  "sgx_pkix",
  "url 1.7.2",
  "uuid 0.6.5",
@@ -2670,16 +2670,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "sgx_pkix"
-version = "0.3.0"
+name = "sgx-isa"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ead0e6c642f5517e27f8df341e15a1583866369b24a6d91a64bf83f68c206d7"
+checksum = "ab8dd5abc237863ebc66a61eacd95622cc282f532bb829fb0e5add5cfd6e0542"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
+name = "sgx_pkix"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e37bf0c8687a46ef72891bee1e3deeca3c8f5300c10add6ed3db50527eb87d"
 dependencies = [
  "byteorder",
  "lazy_static 1.4.0",
  "pkix",
  "quick-error",
- "sgx-isa",
+ "sgx-isa 0.5.0",
 ]
 
 [[package]]
@@ -2855,12 +2864,12 @@ dependencies = [
 
 [[package]]
 name = "tdx-ql"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1049d46702f3ad20c16feb164fda0d282578cd2b0ff076373925eb6ae3b61733"
+checksum = "9e45842c8a4244b497ac570a590ab0c463fe17d65ae34ceb457acd4145aa8570"
 dependencies = [
  "nix 0.30.1",
- "sgx-isa",
+ "sgx-isa 0.6.0",
 ]
 
 [[package]]
