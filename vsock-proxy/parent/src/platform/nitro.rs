@@ -4,16 +4,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use super::{env_var_or_default, GuestLaunchResult, GuestTasks};
 use log::info;
 use shared::run_subprocess;
-
-use super::{
-    env_var_or_default, is_enclaveos_debug_enabled, GuestLaunchResult, GuestTasks,
-    ENCLAVEOS_DEBUG_ENV,
-};
+use std::env;
 
 const DEFAULT_CPU_COUNT: u8 = 2;
 const DEFAULT_MEMORY_SIZE: u64 = 2048;
+
+const ENCLAVEOS_DEBUG_ENV: &str = "ENCLAVEOS_DEBUG";
+const ENCLAVEOS_DEBUG_VALUE: &str = "debug";
 
 const CPU_COUNT_ENV: &str = "CPU_COUNT";
 const MEM_SIZE_ENV: &str = "MEM_SIZE";
@@ -21,6 +21,10 @@ const MEM_SIZE_ENV: &str = "MEM_SIZE";
 const NITRO_CLI: &str = "nitro-cli";
 const ENCLAVE_NAME: &str = "enclave";
 const EIF_PATH: &str = "/opt/fortanix/enclave-os/enclave.eif";
+
+pub(crate) fn is_enclaveos_debug_enabled() -> bool {
+    env::var(ENCLAVEOS_DEBUG_ENV).as_deref() == Ok(ENCLAVEOS_DEBUG_VALUE)
+}
 
 pub(crate) fn should_forward_client_logs() -> bool {
     !is_enclaveos_debug_enabled()

@@ -20,6 +20,7 @@ use crate::{file, ConverterError, ConverterErrorKind, Result};
 pub(crate) struct ParentImageBuilder<'a> {
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: NitroEnclavesConversionRequestOptions,
+    pub(crate) is_debug: Option<bool>,
 }
 
 impl<'a> ParentImageBuilder<'a> {
