@@ -18,22 +18,6 @@ components:
         password:
           type: "string"
           description: "Password for docker registry authentication"
-    CaCertificateConfig:
-      type: "object"
-      properties:
-        ca_path:
-          type: "string"
-          description: "Path to expose the CA cert in the application filesystem"
-        ca_cert:
-          type: "string"
-          description: >
-            Base64-encoded CA certificate contents. Not required when
-            converting applications via Enclave Manager. Required when calling
-            the converter directly, or if you wish to override the Enclave
-            Manager CA certificate.
-        system:
-          type: "string"
-          description: "Request to install CA cert in the system trust store"
     CertificateConfig:
       required:
         - issuer
@@ -62,8 +46,6 @@ components:
           default: Rsa
           enum:
             - Rsa
-          # Not yet supported:
-          #- EC
         key_param:
           type: "object"
           description: >
@@ -72,14 +54,11 @@ components:
         key_path:
           type: "string"
           description: "Path to expose the key in the application filesystem"
-          default: "key"
+          default: "/opt/fortanix/enclave-os/default_cert/app_private.pem"
         cert_path:
           type: "string"
           description: "Path to expose the certificate in the application filesystem"
-          default: "cert"
-        chain_path:
-          type: "string"
-          description: "Path to expose the complete certificate chain in the application filesystem"
+          default: "/opt/fortanix/enclave-os/default_cert/app_public.pem"
     ConvertedImageInfo:
       type: object
       required:
@@ -101,22 +80,10 @@ components:
     ConverterOptions:
       type: "object"
       properties:
-        allow_cmdline_args:
-          type: "boolean"
-          description: "Allow command line arguments to EnclaveOS application"
-        allow_docker_pull_failure:
-          type: "boolean"
-          description: "Allow Docker Pull failure."
-        app:
-          type: "object"
         certificates:
           type: "array"
           items:
             $ref: "#/components/schemas/CertificateConfig"
-        ca_certificates:
-          type: "array"
-          items:
-            $ref: "#/components/schemas/CaCertificateConfig"
         debug:
           type: "boolean"
           description: "Enables debug logging from EnclaveOS"
@@ -141,9 +108,6 @@ components:
           items:
             type: string
           type: array
-        java_mode:
-          type: "string"
-          description: "Type of the Java JVM used"
         enable_overlay_filesystem_persistence:
           type: "boolean"
           default: false
@@ -320,22 +284,12 @@ components:
     SNPEnclavesConversionResponse:
       type: "object"
       required:
-        - name
-        - sha
-        - size
+        - converted_image
         - config
       properties:
-        name:
-          type: "string"
-          description: "Converted image name (with tag)"
-        sha:
-          type: "string"
-          description: "Converted image sha"
-          format: hex
-        size:
-          type: "integer"
-          format: "int64"
-          description: "Converted image size"
+        converted_image:
+          $ref: "#/components/schemas/ConvertedImageInfo"
+          description: "Reference properties of the converted image"
         config:
           $ref: "#/components/schemas/SNPEnclavesConfig"
           description: "SNP Enclaves configuration of the converted image"
@@ -398,22 +352,12 @@ components:
     TdxEnclavesConversionResponse:
       type: "object"
       required:
-        - name
-        - sha
-        - size
+        - converted_image
         - config
       properties:
-        name:
-          type: "string"
-          description: "Converted image name (with tag)"
-        sha:
-          type: "string"
-          description: "Converted image sha"
-          format: hex
-        size:
-          type: "integer"
-          format: "int64"
-          description: "Converted image size"
+        converted_image:
+          $ref: "#/components/schemas/ConvertedImageInfo"
+          description: "Reference properties of the converted image"
         config:
           $ref: "#/components/schemas/TdxEnclavesConfig"
           description: "Tdx Enclaves configuration of the converted image"
