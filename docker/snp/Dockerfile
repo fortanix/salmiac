@@ -28,7 +28,7 @@ RUN pip install --break-system-packages --target /opt/sev-snp-dist -r /tmp/requi
 FROM ubuntu:24.04 AS nvidia_userspace
 
 COPY stage-nvidia-driver-payload.sh /usr/local/bin/stage-nvidia-driver-payload.sh
-COPY staging/kernel_enabled_gpu/nvidia-artifacts.tar.gz /
+COPY staging/snp/kernel_enabled_gpu/nvidia-artifacts.tar.gz /
 
 # Extract NVIDIA artifacts into the root filesystem and update the linker cache.
 # The archive follows the directory layout used by the Ubuntu NVIDIA packages.
