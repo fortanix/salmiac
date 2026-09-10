@@ -1,4 +1,4 @@
-name: Build and publish Docker Images
+name: Build Docker Images
 
 on:
   push:
@@ -27,7 +27,8 @@ jobs:
       - name: Build docker images
         run: |
           docker build --no-cache docker/enclave-base -t enclave-base
-          docker build --no-cache docker/enclave-base-gpu -t enclave-base-gpu
+          # Disabled due to required artifacts
+          # docker build --no-cache docker/enclave-base-gpu -t enclave-base-gpu
           docker build --no-cache --build-context common-build-context=docker/common-build-context docker/nitro/parent-base -t parent-base-nitro
           docker build --no-cache --build-context common-build-context=docker/common-build-context  docker/qemu/parent-base -t parent-base-qemu
-          docker rmi enclave-base enclave-base-gpu parent-base-nitro parent-base-qemu
+          docker rmi enclave-base parent-base-nitro parent-base-qemu
