@@ -60,6 +60,11 @@ pub const MAX_HOSTNAME_LEN: usize = 253;
 // https://datatracker.ietf.org/doc/html/rfc2181#section-11
 pub const MAX_HOSTNAME_LABEL_LEN: usize = 63;
 
+pub const RESOLV_NAMESERVER_KEYWORD: &'static str = "nameserver";
+pub const RESOLV_SEARCH_KEYWORD: &'static str = "search";
+pub const RESOLV_SORTLIST_KEYWORD: &'static str = "sortlist";
+pub const RESOLV_OPTIONS_KEYWORD: &'static str = "options";
+
 // The types of std streams which are forwarded from the client
 // application to the parent for better logging
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
