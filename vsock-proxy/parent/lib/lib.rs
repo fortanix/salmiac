@@ -81,6 +81,7 @@ async fn handle_certificate_request<
     let result = match address {
         None => Err(CertificateErrorCode::Unavailable),
         Some(address) => {
+            info!("Requesting CCM for App Certificate, timing out after 60 sec...");
             match tokio::time::timeout(
                 timeout,
                 task::spawn_blocking(move || cert_api.request_issue_certificate(&address, csr)),
@@ -89,23 +90,25 @@ async fn handle_certificate_request<
             {
                 Ok(Ok(Ok(cert))) => Ok(cert),
                 Ok(Ok(Err(err))) => {
+                    // Print the error here as caller won't have this information
                     warn!("Certificate request failed: {}", err);
                     Err(CertificateErrorCode::RequestFailed)
                 }
                 Ok(Err(err)) => {
+                    // Print the error here as caller won't have this information
                     warn!("Certificate failed with internal error: {}", err);
                     Err(CertificateErrorCode::InternalError)
                 }
-                Err(_) => {
-                    warn!("Certificate request timeout");
-                    Err(CertificateErrorCode::Timeout)
-                }
+                Err(_) => Err(CertificateErrorCode::Timeout),
             }
         }
     };
 
     match result {
-        Ok(cert) => vsock.write_lv(&SetupMessages::Certificate(cert)).await,
+        Ok(cert) => {
+            info!("Received cert message, sending to enclave");
+            vsock.write_lv(&SetupMessages::Certificate(cert)).await
+        }
         Err(code) => {
             // Always reply, including when NODE_AGENT is absent, so the enclave cannot
             // remain blocked waiting for a certificate response and can retry after some time.
