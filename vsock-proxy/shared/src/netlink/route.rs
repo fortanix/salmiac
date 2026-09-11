@@ -12,7 +12,6 @@ use ipnetwork::{Ipv4Network, Ipv6Network};
 use rtnetlink::packet::{RouteMessage, AF_INET, RTN_UNICAST};
 use serde::{Deserialize, Serialize};
 
-use crate::extract_enum_value;
 use crate::netlink::{next_in_stream, Netlink};
 
 /// Netlink functions to manipulate routing table
@@ -194,7 +193,9 @@ impl TryFrom<&RouteMessage> for Route {
         fn v4_network(address: Option<(IpAddr, u8)>) -> Result<Option<Ipv4Network>, String> {
             match address {
                 Some((addr, prefix)) => {
-                    let ipv4 = extract_enum_value!(addr, IpAddr::V4(e) => e)?;
+                    let IpAddr::V4(ipv4) = addr else {
+                        return Err("Unexpected ipv6 address".to_owned());
+                    };
 
                     let result = Ipv4Network::new(ipv4, prefix)
                         .map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
@@ -208,7 +209,9 @@ impl TryFrom<&RouteMessage> for Route {
         fn v6_network(address: Option<(IpAddr, u8)>) -> Result<Option<Ipv6Network>, String> {
             match address {
                 Some((addr, prefix)) => {
-                    let ipv6 = extract_enum_value!(addr, IpAddr::V6(e) => e)?;
+                    let IpAddr::V6(ipv6) = addr else {
+                        return Err("Unexpected ipv4 address".to_owned());
+                    };
 
                     let result = Ipv6Network::new(ipv6, prefix)
                         .map_err(|err| format!("Failed creating IpNetwork. {:?}", err))?;
