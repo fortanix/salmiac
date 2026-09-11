@@ -175,10 +175,9 @@ macro_rules! extract_enum_value {
     ($value:expr, $pattern:pat => $extracted_value:expr) => {
         match $value {
             $pattern => Ok($extracted_value),
-            x => Err(format!(
-                "Expected {:?} for enum variant, but got {:?}",
-                stringify!($pattern),
-                x
+            e => Err(format!(
+                "Expected {} for enum variant, but got {}",
+                stringify!($pattern), e.variant_name(),
             )),
         }
     };

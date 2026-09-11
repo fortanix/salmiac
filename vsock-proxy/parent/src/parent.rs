@@ -76,7 +76,9 @@ const TCP_LISTEN_STATE: &str = "0A";
 async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     loop {
         match enclave.read_lv().await? {
-            SetupMessages::UserProgramExit(status) => return status,
+            SetupMessages::UserProgramExit(status) => {
+                return status.map_err(|code| format!("{:?}", code))
+            }
             SetupMessages::CSR(csr) => {
                 match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
                     Ok(()) => (),

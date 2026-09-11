@@ -42,8 +42,9 @@ use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
-    ApplicationConfiguration, GlobalNetworkSettings, HostEntries, NBDConfiguration,
-    NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages, UserProgramExitStatus,
+    ApplicationConfiguration, EnclaveErrorCode, GlobalNetworkSettings, HostEntries,
+    NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
+    UserProgramExitStatus,
 };
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
@@ -569,6 +570,8 @@ async fn signal_user_program_exit_status(
     parent: &mut ParentStream,
     exit_status: Result<UserProgramExitStatus, String>,
 ) -> Result<(), String> {
+    // Discard internal details before serializing anything for the untrusted parent.
+    let exit_status = exit_status.map_err(|_| EnclaveErrorCode::EnclaveFailure);
     match parent
         .exchange_message(&SetupMessages::UserProgramExit(exit_status))
         .await?
