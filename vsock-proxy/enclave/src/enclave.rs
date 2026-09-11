@@ -4,8 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryFrom};
 use std::fs;
+use std::iter::FromIterator;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -326,6 +328,49 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     Ok(())
 }
 
+/// We process the static environment variable from the enclave manifest, then apply the dynamic environment variable received from the host
+/// that is allowed in the allowlist. It then produced a key value dictionary that is unique per environment variable keys
+fn filter_dynamic_environment_variables<T>(
+    static_env_vars: &[(T, T)],
+    dynamic_env_vars: &[(T, T)],
+    allowlist: HashSet<&T>,
+) -> Result<HashMap<String, String>, String>
+where
+    T: AsRef<str> + std::hash::Hash + std::cmp::Eq + ToString,
+{
+    let mut ret: HashMap<&T, &T> = HashMap::new();
+
+    // Process static environment variable first
+    for (key, value) in static_env_vars {
+        ret.entry(key)
+            .and_modify(|curr_value| *curr_value = value)
+            .or_insert(value);
+    }
+
+    // Filter the dynamic environment variable from the host
+    let mut filtered_dynamic = HashMap::new();
+    for (key, value) in dynamic_env_vars {
+        if allowlist.contains(key) {
+            filtered_dynamic
+                .entry(key)
+                .and_modify(|curr_value| *curr_value = value)
+                .or_insert(value);
+        }
+    }
+
+    // Then apply into the final environment variables
+    for (key, value) in filtered_dynamic {
+        ret.entry(key)
+            .and_modify(|curr_value| *curr_value = value)
+            .or_insert(value);
+    }
+
+    Ok(ret
+        .iter()
+        .map(|(x, y)| (x.to_string(), y.to_string()))
+        .collect())
+}
+
 async fn startup(
     parent_port: &mut AsyncVsockStream,
     settings_path: &Path,
@@ -340,14 +385,22 @@ async fn startup(
         enclave_manifest.enable_overlay_filesystem_persistence,
     );
 
-    let mut runtime_env_vars =
+    let dynamic_env_vars =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
     let node_agent_address =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
-    let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
-    // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
-    // configuration must be set at conversion time.
-    env_vars.append(&mut runtime_env_vars);
+    // TODO we may want to change this part already without API review. So the enclave manifest maybe can already
+    // put in key value pair and put this function in the converter instead. The current behavior is a bit bogus in
+    // a way that it splits on the first equal sign, without trimming, that may causes typo as different key entirely
+    let static_env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
+
+    let env_vars = filter_dynamic_environment_variables(
+        &static_env_vars,
+        &dynamic_env_vars,
+        enclave_manifest.host_env_var_key_allowlist.iter().collect(),
+    )?
+    .into_iter()
+    .collect();
 
     let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
@@ -1271,6 +1324,7 @@ mod tests {
                 },
                 is_debug: false,
                 env_vars: vec![],
+                host_env_var_key_allowlist: vec![],
                 enable_overlay_filesystem_persistence: false,
                 ccm_backend_url: CcmBackendUrl {
                     host: "".to_string(),
@@ -1367,6 +1421,53 @@ mod tests {
         assert!(!is_valid_hostname("host_name"));
         assert!(!is_valid_hostname(&"a".repeat(64)));
         assert!(!is_valid_hostname(&format!("{}.com", "a".repeat(251))));
+    }
+
+    #[test]
+    fn validate_environment_variable_whitelisting() {
+        // Allow list
+        let static_env_vars = vec![("KEY_A", "VALUE_A")];
+        let dynamic_env_vars = vec![("KEY_B", "VALUE_B"), ("KEY_C", "VALUE_C")];
+        let allowlist = vec!["KEY_C"];
+        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+
+        assert!(res.contains_key("KEY_A"));
+        assert_eq!(res["KEY_A"], "VALUE_A");
+        assert!(res.contains_key("KEY_C"));
+        assert_eq!(res["KEY_C"], "VALUE_C");
+
+        // Disallow Overriding
+        let static_env_vars = vec![("KEY_A", "VALUE_A")];
+        let dynamic_env_vars = vec![("KEY_A", "VALUE_B"), ("KEY_C", "VALUE_C")];
+        let allowlist = vec!["KEY_C"];
+        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+
+        assert!(res.contains_key("KEY_A"));
+        assert_eq!(res["KEY_A"], "VALUE_A");
+        assert!(res.contains_key("KEY_C"));
+        assert_eq!(res["KEY_C"], "VALUE_C");
+
+
+        // Overriding
+        let static_env_vars = vec![("KEY_A", "VALUE_A")];
+        let dynamic_env_vars = vec![("KEY_A", "VALUE_B"), ("KEY_C", "VALUE_C")];
+        let allowlist = vec!["KEY_A"];
+        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+
+        assert!(res.contains_key("KEY_A"));
+        assert_eq!(res["KEY_A"], "VALUE_B");
+        assert!(!res.contains_key("KEY_C"));
+
+        // Multiple entries
+        let static_env_vars = vec![("KEY_A", "VALUE_1"), ("KEY_A", "VALUE_2"), ("KEY_A", "VALUE_3")];
+        let dynamic_env_vars = vec![("KEY_A", "VALUE_B"), ("KEY_C", "VALUE_1"), ("KEY_C", "VALUE_2")];
+        let allowlist = vec!["KEY_C"];
+        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+
+        assert!(res.contains_key("KEY_A"));
+        assert_eq!(res["KEY_A"], "VALUE_3");
+        assert!(res.contains_key("KEY_C"));
+        assert_eq!(res["KEY_C"], "VALUE_2");
     }
 }
 

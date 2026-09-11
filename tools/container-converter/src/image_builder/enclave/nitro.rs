@@ -86,6 +86,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
         env_vars: Vec<String>,
+        host_env_var_key_allowlist: Vec<String>,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;
@@ -120,6 +121,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             file_system_config,
             is_debug,
             env_vars,
+            host_env_var_key_allowlist,
             enable_overlay_filesystem_persistence,
             ccm_backend_url,
             dsm_configuration,
