@@ -160,7 +160,10 @@ pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin +
     match vsock.read_lv().await? {
         SetupMessages::Certificate(certificate) => Ok(certificate),
         SetupMessages::CertificateError(code) => Err(format!("{:?}", code)),
-        other => Err(format!("Unexpected certificate response: {}", other.variant_name())),
+        other => Err(format!(
+            "Unexpected certificate response: {}",
+            other.variant_name()
+        )),
     }
 }
 

@@ -177,7 +177,8 @@ macro_rules! extract_enum_value {
             $pattern => Ok($extracted_value),
             e => Err(format!(
                 "Expected {} for enum variant, but got {}",
-                stringify!($pattern), e.variant_name(),
+                stringify!($pattern),
+                e.variant_name(),
             )),
         }
     };
