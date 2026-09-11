@@ -1,9 +1,9 @@
 use std::env;
 use std::net::IpAddr;
 
-use log::info;
+use log::{info, warn};
 use shared::extract_enum_value;
-use shared::models::{NBDConfiguration, NBDExport, SetupMessages};
+use shared::models::{CertificateErrorCode, NBDConfiguration, NBDExport, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task;
@@ -58,34 +58,65 @@ pub async fn handle_csr_message<
     cert_api: CertApi,
     csr: String,
 ) -> Result<(), String> {
-    let address = node_agent_address().ok_or(String::from("Failed to read NODE_AGENT"))?;
-
-    info!("Requesting CCM for App Certificate, timing out after 60 sec...");
-    let request = tokio::time::timeout(
+    handle_certificate_request(
+        vsock,
+        cert_api,
+        csr,
+        node_agent_address(),
         CSR_REQUEST_TIMEOUT,
-        task::spawn_blocking(move || -> Result<String, String> {
-            info!("Requesting CCM for App Certificate...");
-            cert_api.request_issue_certificate(&address, csr)
-        }),
     )
     .await
-    .map(|r| r.map_err(|_| String::from("Join error")))
-    .map_err(|_| String::from("Timeout: Failed to request certificates"));
+}
 
-    match request {
-        Ok(Ok(Ok(cert))) => {
-            info!("Received cert message, sending to enclave");
-            let r = vsock.write_lv(&SetupMessages::Certificate(cert)).await?;
-            info!("cert message sent");
-            Ok(r)
+async fn handle_certificate_request<
+    Socket: AsyncWrite + AsyncRead + Unpin + Send,
+    CertApi: CertificateApi + Send + 'static,
+>(
+    vsock: &mut Socket,
+    cert_api: CertApi,
+    csr: String,
+    address: Option<String>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let result = match address {
+        None => Err(CertificateErrorCode::Unavailable),
+        Some(address) => {
+            info!("Requesting CCM for App Certificate, timing out after 60 sec...");
+            match tokio::time::timeout(
+                timeout,
+                task::spawn_blocking(move || cert_api.request_issue_certificate(&address, csr)),
+            )
+            .await
+            {
+                Ok(Ok(Ok(cert))) => Ok(cert),
+                Ok(Ok(Err(err))) => {
+                    // Print the error here as caller won't have this information
+                    warn!("Certificate request failed: {}", err);
+                    Err(CertificateErrorCode::RequestFailed)
+                }
+                Ok(Err(err)) => {
+                    // Print the error here as caller won't have this information
+                    warn!("Certificate failed with internal error: {}", err);
+                    Err(CertificateErrorCode::InternalError)
+                }
+                Err(_) => Err(CertificateErrorCode::Timeout),
+            }
         }
-        Err(e) | Ok(Err(e)) | Ok(Ok(Err(e))) => {
-            info!("Error requesting App Certificate: {}", e);
-            // Failures may be silently dropped (i.e., when the enclave renews certificate in a
-            // background task periodically. Ensure it can retry after some time and doesn't keep
-            // waiting.
-            vsock.write_lv_bytes(&[]).await?;
-            Err(e)
+    };
+
+    match result {
+        Ok(cert) => {
+            info!("Received cert message, sending to enclave");
+            vsock.write_lv(&SetupMessages::Certificate(cert)).await
+        }
+        Err(code) => {
+            // Always reply, including when NODE_AGENT is absent, so the enclave cannot
+            // remain blocked waiting for a certificate response and can retry after some time.
+            vsock
+                .write_lv(&SetupMessages::CertificateError(code))
+                .await?;
+            info!("Error requesting App Certificate: {:?}", code);
+            Err(format!("{:?}", code))
         }
     }
 }

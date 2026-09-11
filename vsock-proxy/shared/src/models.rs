@@ -22,7 +22,7 @@ pub enum SetupMessages {
     GlobalNetworkSettings(GlobalNetworkSettings),
     CSR(String),
     Certificate(String),
-    UserProgramExit(Result<UserProgramExitStatus, String>),
+    UserProgramExit(Result<UserProgramExitStatus, EnclaveErrorCode>),
     ApplicationConfig(ApplicationConfiguration),
     NBDConfiguration(NBDConfiguration),
     EnvVariables(Vec<(String, String)>),
@@ -31,6 +31,31 @@ pub enum SetupMessages {
     EncryptedSpaceAvailable(usize),
     AppLogPort(Vec<AppLogPortInfo>),
     NodeAgentUrl(Option<String>),
+    CertificateError(CertificateErrorCode),
+}
+
+impl SetupMessages {
+    /// Returns the variant name without exposing any message payload.
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            Self::NoMoreCertificates => "NoMoreCertificates",
+            Self::NetworkDeviceSettings(_) => "NetworkDeviceSettings",
+            Self::PrivateNetworkDeviceSettings(_) => "PrivateNetworkDeviceSettings",
+            Self::GlobalNetworkSettings(_) => "GlobalNetworkSettings",
+            Self::CSR(_) => "CSR",
+            Self::Certificate(_) => "Certificate",
+            Self::UserProgramExit(_) => "UserProgramExit",
+            Self::ApplicationConfig(_) => "ApplicationConfig",
+            Self::NBDConfiguration(_) => "NBDConfiguration",
+            Self::EnvVariables(_) => "EnvVariables",
+            Self::ExtraUserProgramArguments(_) => "ExtraUserProgramArguments",
+            Self::ExitEnclave => "ExitEnclave",
+            Self::EncryptedSpaceAvailable(_) => "EncryptedSpaceAvailable",
+            Self::AppLogPort(_) => "AppLogPort",
+            Self::NodeAgentUrl(_) => "NodeAgentUrl",
+            Self::CertificateError(_) => "CertificateError",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -106,4 +131,21 @@ pub struct FileWithPath {
 pub enum UserProgramExitStatus {
     ExitCode(i32),
     TerminatedBySignal,
+}
+
+/// Public failure codes crossing the enclave boundary.
+/// Should not contain internal error details.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnclaveErrorCode {
+    EnclaveFailure,
+}
+
+/// Certificate failures without payload to prevent
+/// sensitive information leaking
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CertificateErrorCode {
+    Unavailable,
+    Timeout,
+    RequestFailed,
+    InternalError,
 }

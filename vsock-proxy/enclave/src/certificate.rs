@@ -16,9 +16,9 @@ use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use mbedtls::x509::Certificate;
+use shared::get_relative_path;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
-use shared::{extract_enum_value, get_relative_path};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::enclave::write_to_file;
@@ -157,7 +157,14 @@ pub(crate) async fn request_certificate<Socket: AsyncWrite + AsyncRead + Unpin +
 ) -> Result<String, String> {
     vsock.write_lv(&SetupMessages::CSR(csr)).await?;
 
-    extract_enum_value!(vsock.read_lv().await?, SetupMessages::Certificate(s) => s)
+    match vsock.read_lv().await? {
+        SetupMessages::Certificate(certificate) => Ok(certificate),
+        SetupMessages::CertificateError(code) => Err(format!("{:?}", code)),
+        other => Err(format!(
+            "Unexpected certificate response: {}",
+            other.variant_name()
+        )),
+    }
 }
 
 #[allow(unused)]
