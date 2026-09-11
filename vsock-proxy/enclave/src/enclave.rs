@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryFrom};
 use std::fs;
 use std::ops::DerefMut;
@@ -326,6 +327,43 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     Ok(())
 }
 
+/// We process the static environment variable from the enclave manifest, then apply the dynamic environment variable received from the host
+/// that is allowed in the allowlist. It then produced a key value dictionary that is unique per environment variable keys
+fn filter_dynamic_environment_variables(
+    static_env_vars: &[(String, String)],
+    dynamic_env_vars: &[(String, String)],
+    allowlist: HashSet<&str>,
+) -> Result<HashMap<String, String>, String> {
+    let mut ret = HashMap::new();
+
+    // Process static environment variable first
+    for (key, value) in static_env_vars {
+        ret.entry(key.clone())
+            .and_modify(|curr_value| *curr_value = value.clone())
+            .or_insert(value.clone());
+    }
+
+    // Filter the dynamic environment variable from the host
+    let mut filtered_dynamic = HashMap::new();
+    for (key, value) in dynamic_env_vars {
+        if allowlist.contains(key.as_str()) {
+            filtered_dynamic
+                .entry(key.clone())
+                .and_modify(|curr_value| *curr_value = value.clone())
+                .or_insert(value.clone());
+        }
+    }
+
+    // Then apply into the final environment variables
+    for (key, value) in filtered_dynamic {
+        ret.entry(key)
+            .and_modify(|curr_value| *curr_value = value.clone())
+            .or_insert(value);
+    }
+
+    Ok(ret)
+}
+
 async fn startup(
     parent_port: &mut AsyncVsockStream,
     settings_path: &Path,
@@ -340,14 +378,24 @@ async fn startup(
         enclave_manifest.enable_overlay_filesystem_persistence,
     );
 
-    let mut runtime_env_vars =
+    let mut dynamic_env_vars =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
     let node_agent_address =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
-    let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
-    // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
-    // configuration must be set at conversion time.
-    env_vars.append(&mut runtime_env_vars);
+    // TODO we may want to change this part already without API review. So the enclave manifest maybe can already
+    // put in key value pair and put this function in the converter instead. The current behavior is a bit bogus in
+    // a way that it splits on the first equal sign, without trimming, that may causes typo as different key entirely
+    let mut static_env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
+
+    let env_vars = filter_dynamic_environment_variables(
+        &static_env_vars,
+        &dynamic_env_vars,
+        enclave_manifest
+            .host_env_var_key_allowlist
+            .iter()
+            .map(|x| x.as_str())
+            .collect(),
+    )?.into_iter().collect();
 
     let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
