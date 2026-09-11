@@ -1429,7 +1429,12 @@ mod tests {
         let static_env_vars = vec![("KEY_A", "VALUE_A")];
         let dynamic_env_vars = vec![("KEY_B", "VALUE_B"), ("KEY_C", "VALUE_C")];
         let allowlist = vec!["KEY_C"];
-        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+        let res = super::filter_dynamic_environment_variables(
+            &static_env_vars,
+            &dynamic_env_vars,
+            allowlist.iter().collect(),
+        )
+        .unwrap();
 
         assert!(res.contains_key("KEY_A"));
         assert_eq!(res["KEY_A"], "VALUE_A");
@@ -1440,29 +1445,51 @@ mod tests {
         let static_env_vars = vec![("KEY_A", "VALUE_A")];
         let dynamic_env_vars = vec![("KEY_A", "VALUE_B"), ("KEY_C", "VALUE_C")];
         let allowlist = vec!["KEY_C"];
-        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+        let res = super::filter_dynamic_environment_variables(
+            &static_env_vars,
+            &dynamic_env_vars,
+            allowlist.iter().collect(),
+        )
+        .unwrap();
 
         assert!(res.contains_key("KEY_A"));
         assert_eq!(res["KEY_A"], "VALUE_A");
         assert!(res.contains_key("KEY_C"));
         assert_eq!(res["KEY_C"], "VALUE_C");
 
-
         // Overriding
         let static_env_vars = vec![("KEY_A", "VALUE_A")];
         let dynamic_env_vars = vec![("KEY_A", "VALUE_B"), ("KEY_C", "VALUE_C")];
         let allowlist = vec!["KEY_A"];
-        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+        let res = super::filter_dynamic_environment_variables(
+            &static_env_vars,
+            &dynamic_env_vars,
+            allowlist.iter().collect(),
+        )
+        .unwrap();
 
         assert!(res.contains_key("KEY_A"));
         assert_eq!(res["KEY_A"], "VALUE_B");
         assert!(!res.contains_key("KEY_C"));
 
         // Multiple entries
-        let static_env_vars = vec![("KEY_A", "VALUE_1"), ("KEY_A", "VALUE_2"), ("KEY_A", "VALUE_3")];
-        let dynamic_env_vars = vec![("KEY_A", "VALUE_B"), ("KEY_C", "VALUE_1"), ("KEY_C", "VALUE_2")];
+        let static_env_vars = vec![
+            ("KEY_A", "VALUE_1"),
+            ("KEY_A", "VALUE_2"),
+            ("KEY_A", "VALUE_3"),
+        ];
+        let dynamic_env_vars = vec![
+            ("KEY_A", "VALUE_B"),
+            ("KEY_C", "VALUE_1"),
+            ("KEY_C", "VALUE_2"),
+        ];
         let allowlist = vec!["KEY_C"];
-        let res = super::filter_dynamic_environment_variables(&static_env_vars, &dynamic_env_vars, allowlist.iter().collect()).unwrap();
+        let res = super::filter_dynamic_environment_variables(
+            &static_env_vars,
+            &dynamic_env_vars,
+            allowlist.iter().collect(),
+        )
+        .unwrap();
 
         assert!(res.contains_key("KEY_A"));
         assert_eq!(res["KEY_A"], "VALUE_3");

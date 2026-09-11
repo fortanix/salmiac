@@ -243,7 +243,10 @@ async fn run0(
                 enclave_settings,
                 user_config,
                 image_env_vars,
-                conversion_request.request.converter_options.host_env_var_key_allowlist,
+                conversion_request
+                    .request
+                    .converter_options
+                    .host_env_var_key_allowlist,
                 sender,
             )
             .await?
