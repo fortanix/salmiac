@@ -1271,6 +1271,7 @@ mod tests {
                 },
                 is_debug: false,
                 env_vars: vec![],
+                host_env_var_key_allowlist: vec![],
                 enable_overlay_filesystem_persistence: false,
                 ccm_backend_url: CcmBackendUrl {
                     host: "".to_string(),

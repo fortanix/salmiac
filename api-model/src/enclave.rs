@@ -25,6 +25,8 @@ pub struct EnclaveManifest {
 
     pub env_vars: Vec<String>,
 
+    pub host_env_var_key_allowlist: Vec<String>,
+
     pub enable_overlay_filesystem_persistence: bool,
 
     pub ccm_backend_url: CcmBackendUrl,
