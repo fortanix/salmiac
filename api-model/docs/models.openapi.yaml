@@ -284,12 +284,22 @@ components:
     SNPEnclavesConversionResponse:
       type: "object"
       required:
-        - converted_image
+        - name
+        - sha
+        - size
         - config
       properties:
-        converted_image:
-          $ref: "#/components/schemas/ConvertedImageInfo"
-          description: "Reference properties of the converted image"
+        name:
+          type: "string"
+          description: "Converted image name (with tag)"
+        sha:
+          type: "string"
+          description: "Converted image sha"
+          format: hex
+        size:
+          type: "integer"
+          format: "int64"
+          description: "Converted image size"
         config:
           $ref: "#/components/schemas/SNPEnclavesConfig"
           description: "SNP Enclaves configuration of the converted image"
@@ -352,12 +362,22 @@ components:
     TdxEnclavesConversionResponse:
       type: "object"
       required:
-        - converted_image
+        - name
+        - sha
+        - size
         - config
       properties:
-        converted_image:
-          $ref: "#/components/schemas/ConvertedImageInfo"
-          description: "Reference properties of the converted image"
+        name:
+          type: "string"
+          description: "Converted image name (with tag)"
+        sha:
+          type: "string"
+          description: "Converted image sha"
+          format: hex
+        size:
+          type: "integer"
+          format: "int64"
+          description: "Converted image size"
         config:
           $ref: "#/components/schemas/TdxEnclavesConfig"
           description: "Tdx Enclaves configuration of the converted image"
