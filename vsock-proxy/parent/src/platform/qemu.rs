@@ -3,18 +3,19 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+use std::collections::HashSet;
+use std::env;
+use std::fs::File;
+use std::io::ErrorKind;
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+
+use log::debug;
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use shared::{run_subprocess, VSOCK_LISTENER_CID};
-use std::collections::HashSet;
-use std::env;
-use std::io::ErrorKind;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
-use std::sync::OnceLock;
 use tokio_vsock::VsockListener;
 
 use crate::platform::GuestLaunchResult;
-
 use crate::utils::qemu as qemu_utils;
 
 pub(super) mod constants {
@@ -32,6 +33,7 @@ pub(super) mod constants {
     pub const CID_START: u16 = 1024;
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
+    pub const GPU_COUNT_ENV_VAR: &str = "GPU_COUNT";
     pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 
     pub const VHOST_VIRTIO: u8 = 0xAF;
@@ -47,44 +49,108 @@ pub struct VmConnectionConfig {
 pub struct GPUSettings {
     pub bdfs: Vec<String>,
     pub mmio64_mb: u64,
+    pub iommufd: File,
+    pub vfio_fds: Vec<File>,
 }
 
 impl GPUSettings {
     pub fn try_new_from_env_variable(
         env_var: Option<&'static str>,
     ) -> Result<Option<Self>, String> {
-        let bdfs = parse_gpu_bdfs(env_var.and_then(|name| env::var(name).ok()).as_deref());
+        let gpu_bdfs_value = env_var.and_then(|name| env::var(name).ok());
+        let gpu_count_value = env::var(constants::GPU_COUNT_ENV_VAR).ok();
+        if gpu_bdfs_value.is_some() && gpu_count_value.is_some() {
+            return Err(format!(
+                "{:?} and {} are mutually exclusive",
+                env_var,
+                constants::GPU_COUNT_ENV_VAR
+            ));
+        }
+
+        if let Some(gpu_bdfs_value) = gpu_bdfs_value {
+            let gpu_settings = Self::try_new_from_bdfs(gpu_bdfs_value)?;
+            return Ok(Some(gpu_settings));
+        }
+
+        if let Some(gpu_count_value) = gpu_count_value {
+            let gpu_settings = Self::try_new_from_gpu_count(gpu_count_value)?;
+            return Ok(Some(gpu_settings));
+        }
+
+        Ok(None)
+    }
+
+    fn try_new_from_bdfs(bdfs_value: String) -> Result<Self, String> {
+        let bdfs = parse_gpu_bdfs(&bdfs_value);
         if bdfs.is_empty() {
-            return Ok(None);
+            return Err(format!("Unable to parse bdfs from {bdfs_value}"));
         }
 
         Self::validate_bdfs(&bdfs)?;
         let mmio64_mb = qemu_utils::pci_mmio64_mb(&bdfs)?;
-        Ok(Some(GPUSettings { bdfs, mmio64_mb }))
+        let iommufd = qemu_utils::open_iommufd()?;
+        let vfio_fds = bdfs
+            .iter()
+            .map(|bdf| qemu_utils::open_vfio_device(bdf))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(GPUSettings {
+            bdfs,
+            mmio64_mb,
+            iommufd,
+            vfio_fds,
+        });
     }
 
-    fn validate_bdfs(bdfs: &Vec<String>) -> Result<(), String> {
+    fn try_new_from_gpu_count(gpu_count_value: String) -> Result<Self, String> {
+        let gpu_count = parse_gpu_count(gpu_count_value)?;
+        let gpu_count = match gpu_count {
+            GPUCount::All => None,
+            GPUCount::Count(count) => Some(count),
+        };
+        let vfio_devices = qemu_utils::enumerate_vfio_gpu_devices(gpu_count)?;
+        let mmio64_mb = qemu_utils::pci_mmio64_mb_from_vfio_devices(&vfio_devices)?;
+        let iommufd = qemu_utils::open_iommufd()?;
+        let bdfs = vfio_devices
+            .iter()
+            .map(|device| device.bdf.clone())
+            .collect();
+        let vfio_fds = vfio_devices.into_iter().map(|device| device.file).collect();
+
+        Ok(GPUSettings {
+            bdfs,
+            mmio64_mb,
+            iommufd,
+            vfio_fds,
+        })
+    }
+
+    fn validate_bdfs(bdfs: &[String]) -> Result<(), String> {
         // Validate passed bdf devices
         // Duplicates are not allowed
-        // The device should be accesible via sysfs
         let mut unique_gpus = HashSet::new();
         for bdf in bdfs {
             if !unique_gpus.insert(bdf) {
                 return Err(format!("GPU {bdf} was specified more than once"));
             }
-            qemu_utils::require_vfio_device(bdf)?;
         }
-        qemu_utils::require_file("IOMMUFD device", qemu_utils::DEVICE_PATH)?;
         Ok(())
     }
 
     pub fn build_qemu_args(&self) -> Vec<String> {
         let mut args = Vec::new();
 
-        args.extend(["-object".to_owned(), qemu_utils::IOMMUFD_OBJECT.to_owned()]);
-        for (index, bdf) in self.bdfs.iter().enumerate() {
+        args.extend([
+            "-object".to_owned(),
+            qemu_utils::build_iommufd_object(self.iommufd.as_raw_fd()),
+        ]);
+        for (index, (bdf, vfio_fd)) in self.bdfs.iter().zip(&self.vfio_fds).enumerate() {
+            debug!(
+                "Passing GPU {} to QEMU using VFIO fd {}",
+                bdf,
+                vfio_fd.as_raw_fd()
+            );
             let root_port = qemu_utils::build_pcie_root_port(index);
-            let device = qemu_utils::build_vfio_iommu_arg(bdf, index);
+            let device = qemu_utils::build_vfio_iommu_arg(vfio_fd.as_raw_fd(), index);
             args.extend([
                 "-device".to_owned(),
                 root_port,
@@ -99,8 +165,6 @@ impl GPUSettings {
     }
 }
 
-static GPU_SETTINGS: OnceLock<Result<Option<GPUSettings>, String>> = OnceLock::new();
-
 pub(super) trait QemuPlatform {
     const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = None;
 
@@ -111,32 +175,22 @@ pub(super) trait QemuPlatform {
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
 
-    fn gpu_settings(&self) -> Result<Option<&'static GPUSettings>, String> {
-        match GPU_SETTINGS
-            .get_or_init(|| {
-                let gpu_settings =
-                    GPUSettings::try_new_from_env_variable(Self::GPU_BDFS_ENV_VAR_NAME)?;
-                if gpu_settings.is_none() {
-                    let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some();
-                    let gpu_passthrough_enabled =
-                        env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
-                            .is_ok_and(|value| value == "true");
-                    if supports_gpu_passthrough && gpu_passthrough_enabled {
-                        return Err(format!(
-                            "GPU passthrough was enabled at conversion time but {} env var is not set.",
-                            Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
-                        ));
-                    }
-                    return Ok(None);
-                }
-
-                Ok(gpu_settings)
-            })
-            .as_ref()
-        {
-            Ok(settings) => Ok(settings.as_ref()),
-            Err(error) => Err(error.clone()),
+    fn gpu_settings(&self) -> Result<Option<GPUSettings>, String> {
+        let gpu_settings = GPUSettings::try_new_from_env_variable(Self::GPU_BDFS_ENV_VAR_NAME)?;
+        if gpu_settings.is_none() {
+            let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some();
+            let gpu_passthrough_enabled = env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
+                .is_ok_and(|value| value == "true");
+            if supports_gpu_passthrough && gpu_passthrough_enabled {
+                return Err(format!(
+                    "GPU passthrough was enabled at conversion time but neither {} nor {} is set.",
+                    Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
+                    constants::GPU_COUNT_ENV_VAR,
+                ));
+            }
         }
+
+        Ok(gpu_settings)
     }
 
     fn check_files(&self) -> Result<(), String> {
@@ -164,7 +218,7 @@ pub(super) trait QemuPlatform {
         env_or_default(constants::MEM_SIZE_ENV_VAR, constants::MEM_SIZE)
     }
 
-    fn globals(&self) -> Result<Vec<String>, String> {
+    fn globals(&self, _gpu_settings: Option<&GPUSettings>) -> Result<Vec<String>, String> {
         Ok(vec![])
     }
 
@@ -208,7 +262,7 @@ pub(super) trait QemuPlatform {
             args.extend(["-object", object]);
         }
 
-        let globals = self.globals()?;
+        let globals = self.globals(gpu_settings)?;
         for global in &globals {
             args.extend(["-global", global]);
         }
@@ -247,7 +301,7 @@ pub(super) trait QemuPlatform {
         let gpu_settings = self.gpu_settings()?;
         let (enclave_connection_config, vsock_fd) = probe_vm_connection_config()?;
         let args = self.build_qemu_args(
-            gpu_settings,
+            gpu_settings.as_ref(),
             vsock_fd.as_raw_fd(),
             enclave_connection_config.guest_vsock_cid,
         )?;
@@ -266,10 +320,9 @@ pub(super) trait QemuPlatform {
     }
 }
 
-fn parse_gpu_bdfs(value: Option<&str>) -> Vec<String> {
+fn parse_gpu_bdfs(value: &str) -> Vec<String> {
     value
-        .into_iter()
-        .flat_map(|value| value.split(','))
+        .split(',')
         .map(str::trim)
         .filter(|bdf| !bdf.is_empty())
         .map(str::to_owned)
@@ -335,6 +388,32 @@ fn probe_vm_connection_config() -> Result<(VmConnectionConfig, OwnedFd), String>
     Err(format!("unable to get available CID for the guest"))
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum GPUCount {
+    All,
+    Count(usize),
+}
+
+fn parse_gpu_count(value: String) -> Result<GPUCount, String> {
+    let value = value.trim();
+    if value == "all" {
+        return Ok(GPUCount::All);
+    }
+    let count = value.parse::<usize>().map_err(|error| {
+        format!(
+            "{} must be a positive integer or \"all\": {error}",
+            constants::GPU_COUNT_ENV_VAR
+        )
+    })?;
+    if count == 0 {
+        return Err(format!(
+            "{} must be greater than zero",
+            constants::GPU_COUNT_ENV_VAR
+        ));
+    }
+    Ok(GPUCount::Count(count))
+}
+
 #[allow(unused)]
 pub fn env_or_default(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_string())
@@ -342,7 +421,7 @@ pub fn env_or_default(name: &str, default: &str) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::parse_gpu_bdfs;
+    use super::{parse_gpu_bdfs, parse_gpu_count, GPUCount};
     use crate::utils::qemu::build_pcie_root_port;
     use std::collections::HashMap;
     use std::collections::HashSet;
@@ -350,19 +429,31 @@ pub(crate) mod tests {
     #[test]
     fn parses_multiple_gpu_bdfs() {
         assert_eq!(
-            parse_gpu_bdfs(Some("0000:21:00.0, 0000:81:00.0")),
+            parse_gpu_bdfs("0000:21:00.0, 0000:81:00.0"),
             vec!["0000:21:00.0", "0000:81:00.0"],
         );
     }
 
     #[test]
     fn parses_single_gpu_bdf() {
-        assert_eq!(parse_gpu_bdfs(Some("0000:21:00.0")), vec!["0000:21:00.0"],)
+        assert_eq!(parse_gpu_bdfs("0000:21:00.0"), vec!["0000:21:00.0"],)
     }
 
     #[test]
     fn empty_gpu_bdfs_produce_no_devices() {
-        assert!(parse_gpu_bdfs(Some(" , ")).is_empty());
+        assert!(parse_gpu_bdfs(" , ").is_empty());
+    }
+
+    #[test]
+    fn parses_gpu_count() {
+        assert_eq!(parse_gpu_count("all".to_string()).unwrap(), GPUCount::All);
+        assert_eq!(
+            parse_gpu_count(" 2 ".to_string()).unwrap(),
+            GPUCount::Count(2)
+        );
+        assert!(parse_gpu_count("0".to_string()).is_err());
+        assert!(parse_gpu_count(String::new()).is_err());
+        assert!(parse_gpu_count("two".to_string()).is_err());
     }
 
     #[test]
