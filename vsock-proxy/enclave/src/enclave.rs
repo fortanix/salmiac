@@ -1492,7 +1492,7 @@ mod tests {
         assert!(res.contains_key("KEY_C"));
         assert_eq!(res["KEY_C"], "VALUE_2");
     }
-  
+
     #[test]
     fn verify_resolv_conf_generation() {
         use crate::enclave::write_resolv_conf;
