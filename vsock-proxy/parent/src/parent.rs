@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -20,8 +21,8 @@ use parent_lib::{
     communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS,
 };
 use shared::models::{
-    ApplicationConfiguration, FileWithPath, GlobalNetworkSettings, HostEntries, SetupMessages,
-    UserProgramExitStatus,
+    ApplicationConfiguration, GlobalNetworkSettings, HostEntries, ResolvConfig, ResolvConfigOption,
+    SetupMessages, UserProgramExitStatus,
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
@@ -64,8 +65,6 @@ const MIN_RW_BLOCKFILE_SIZE: usize = 64 * 1024 * 1024;
 
 #[cfg(platform = "nitro")]
 use shared::VSOCK_PARENT_PORT;
-
-const NAMESERVER_KEYWORD: &'static str = "nameserver";
 
 const CLIENT_LOG_STREAMS: [StreamType; 2] = [StreamType::Stdout, StreamType::Stderr];
 
@@ -591,8 +590,7 @@ struct ParentSetupResult {
 }
 
 struct ResolvConfResult {
-    resolv_conf_file: FileWithPath,
-
+    resolv_config: ResolvConfig,
     start_dnsmasq: bool,
 }
 
@@ -643,6 +641,57 @@ async fn setup_parent(
     })
 }
 
+fn parse_resolv_conf<P: AsRef<Path>>(path: P) -> Result<ResolvConfig, String> {
+    let parent_resolv = File::open(&path)
+        .map_err(|err| format!("Could not open {:?}. {:?}", path.as_ref(), err))?;
+
+    let lines = BufReader::new(parent_resolv).lines();
+
+    let mut ret = ResolvConfig {
+        nameservers: vec![],
+        search: None,
+        options: vec![],
+        sortlist: vec![],
+    };
+
+    // Parse the lines according to: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
+    for line in lines {
+        let line =
+            line.map_err(|err| format!("unable to read file {:?}. {:?}", path.as_ref(), err))?;
+
+        // Comments
+        if line.trim().is_empty() || line.starts_with([';', '#']) {
+            continue;
+        } else {
+            let (keyword, args) = line.split_once(' ').ok_or(format!(
+                "invalid resolv.conf format detected: keyword does not have a subsequent argument"
+            ))?;
+
+            match keyword {
+                shared::RESOLV_NAMESERVER_KEYWORD => ret.nameservers.push(args.to_owned()),
+                shared::RESOLV_SEARCH_KEYWORD => ret.search = Some(args.to_owned()),
+                shared::RESOLV_SORTLIST_KEYWORD => args
+                    .split(' ')
+                    .take(10)
+                    .for_each(|x| ret.sortlist.push(x.to_string())),
+                shared::RESOLV_OPTIONS_KEYWORD => {
+                    args.split(' ').try_for_each(|opt| -> Result<(), String> {
+                        ret.options.push(ResolvConfigOption::try_from(opt)?);
+                        Ok(())
+                    })?
+                }
+                x => {
+                    return Err(format!(
+                        "invalid resolv.conf format detected: unknown keyword provided {x}"
+                    ))
+                }
+            }
+        }
+    }
+
+    Ok(ret)
+}
+
 /// Customize the resolv.conf before we send it to the enclave. In certain Docker network configurations,
 /// such as Docker custom networks, the parent will be configured with a DNS server listening on the
 /// localhost network at 127.0.0.11 (not a typo). The enclave cannot directly access the parent's loopback
@@ -657,53 +706,38 @@ async fn setup_parent(
 ///
 /// Note that this function does NOT modify the parent's resolv.conf. It just returns the modified version
 /// that should be used by the enclave.
-fn customize_resolv_conf(nameserver_address: IpNetwork) -> Result<ResolvConfResult, String> {
-    let parent_resolv = File::open(DNS_RESOLV_FILE)
-        .map_err(|err| format!("Could not open {}. {:?}", DNS_RESOLV_FILE, err))?;
+fn customize_resolv_conf<P: AsRef<Path>>(
+    nameserver_address: IpNetwork,
+    resolv_conf_path: P,
+) -> Result<ResolvConfResult, String> {
+    let ResolvConfig {
+        nameservers,
+        search,
+        options,
+        sortlist,
+    } = parse_resolv_conf(resolv_conf_path)?;
 
-    let mut enclave_resolv: Vec<u8> = vec![];
     let mut start_dnsmasq: bool = false;
-    let lines = BufReader::new(parent_resolv).lines();
 
-    for line in lines {
-        let line =
-            line.map_err(|err| format!("unable to read file {}. {:?}", DNS_RESOLV_FILE, err))?;
-        // According to the man page for resolv.conf, the keyword (like nameserver) must start the line, so we don't
-        // have to trim before looking for the "nameserver" keyword. We do need to look for at least one whitespace
-        // character, since the keyword must be followed by whitespace. There don't currently appear to be any
-        // config keywords that begin with "nameserver" that aren't "nameserver", but possibly new keywords could
-        // be added in the future.
-        if !(line.starts_with(NAMESERVER_KEYWORD)
-            && line
-                .chars()
-                .nth(NAMESERVER_KEYWORD.len())
-                .map(|e| e.is_whitespace())
-                .unwrap_or_default())
-        {
-            enclave_resolv.extend_from_slice(line.as_bytes());
-        } else {
-            let dns_resolver_addr = line.split_at(NAMESERVER_KEYWORD.len()).1.trim();
-            if dns_resolver_addr.starts_with("127.0.0.") {
-                info!(
-                    "Updating resolv.conf data sent to enclave with parent's tap device address {:?}",
-                    nameserver_address.ip()
-                );
-                enclave_resolv.extend_from_slice(
-                    format!("nameserver {:?}\n", nameserver_address.ip()).as_bytes(),
-                );
+    let nameservers: Vec<String> = nameservers
+        .iter()
+        .map(|x| {
+            if x.starts_with("127.0.0.") {
+                info!("updating resolv.conf data sent to enclave with parent's tap device address {:?}", nameserver_address.ip());
                 start_dnsmasq = true;
+                nameserver_address.ip().to_string()
             } else {
-                enclave_resolv.extend_from_slice(line.as_bytes());
+                x.clone()
             }
-        }
-        // We have to manually insert a newline after each line, because lines() consumes the newlines.
-        enclave_resolv.extend_from_slice("\n".as_bytes());
-    }
+        })
+        .collect();
 
     let result = ResolvConfResult {
-        resolv_conf_file: FileWithPath {
-            path: DNS_RESOLV_FILE.to_string(),
-            data: enclave_resolv,
+        resolv_config: ResolvConfig {
+            nameservers,
+            search,
+            options,
+            sortlist,
         },
         start_dnsmasq,
     };
@@ -754,7 +788,10 @@ async fn send_global_network_settings(
         .into_string()
         .map_err(|err| format!("Failed converting host name to string. {:?}", err))?;
 
-    let dns_file = customize_resolv_conf(nameserver_address)?;
+    let ResolvConfResult {
+        resolv_config,
+        start_dnsmasq,
+    } = customize_resolv_conf(nameserver_address, DNS_RESOLV_FILE)?;
 
     let host_entries = fs::read_to_string(HOSTS_FILE)
         .map_err(|err| format!("Failed reading parent's {:?} file. {:?}", HOSTS_FILE, err))?;
@@ -763,7 +800,7 @@ async fn send_global_network_settings(
     let network_settings = GlobalNetworkSettings {
         hostname,
         host_entries: filtered_hosts,
-        global_settings_list: vec![dns_file.resolv_conf_file],
+        resolv_config,
     };
 
     enclave_port
@@ -772,7 +809,7 @@ async fn send_global_network_settings(
 
     debug!("Sent global network settings to the enclave.");
 
-    Ok(dns_file.start_dnsmasq)
+    Ok(start_dnsmasq)
 }
 
 #[derive(Clone)]
@@ -1076,5 +1113,39 @@ mod tests {
         );
 
         assert!(!filtered_entries.contains_key(&IpAddr::from([127, 0, 0, 1]).into()));
+    }
+
+    #[test]
+    fn parse_resolv_conf_test() {
+        // Test simple resolv.conf data
+        let result = customize_resolv_conf(
+            ipnetwork::IpNetwork::V4("192.168.0.10".parse().unwrap()),
+            "resources/test/resolv_conf_1.in",
+        )
+        .unwrap();
+        assert_eq!(result.resolv_config.nameservers.len(), 1);
+        assert_eq!(result.resolv_config.nameservers[0], "8.8.8.8");
+        assert_eq!(result.resolv_config.search, Some(".".to_owned()));
+        assert_eq!(result.start_dnsmasq, false);
+
+        // Test that results in dnsmasq
+        use crate::parent::customize_resolv_conf;
+        let result = customize_resolv_conf(
+            ipnetwork::IpNetwork::V4("192.168.0.10".parse().unwrap()),
+            "resources/test/resolv_conf_2.in",
+        )
+        .unwrap();
+        assert_eq!(result.resolv_config.nameservers[0], "192.168.0.10");
+        assert_eq!(result.resolv_config.search, Some(".".to_owned()));
+        assert_eq!(result.resolv_config.options.len(), 2);
+        assert!(result
+            .resolv_config
+            .options
+            .contains(&shared::models::ResolvConfigOption::EDns0));
+        assert!(result
+            .resolv_config
+            .options
+            .contains(&shared::models::ResolvConfigOption::TrustAd));
+        assert_eq!(result.start_dnsmasq, true);
     }
 }
