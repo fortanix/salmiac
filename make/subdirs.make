@@ -9,5 +9,6 @@ SUBDIRS = \
 	tools/app-test-infra/apps/python-web-server \
 	tools/app-test-infra/apps/java/websphere \
 	tools/app-test-infra/apps/hostname \
+	tools/app-test-infra/apps/hello-world \
 	tools/app-test-infra/apps/salmiac/python-web-server-localhost \
 	tools/app-test-infra/apps/salmiac/bitnami-postgresql \
