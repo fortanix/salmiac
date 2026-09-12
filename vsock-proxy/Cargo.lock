@@ -204,7 +204,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 [[package]]
 name = "attestation"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#2484b49910add0847ed1d1cffbbd7db6edda1395"
+source = "git+https://github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1094-client-csr-param-api-improvements#b89ec0f538d204a5cb5d6c65bb8489b29b76ce33"
 dependencies = [
  "b64-ct",
  "der",
@@ -501,7 +501,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git#2484b49910add0847ed1d1cffbbd7db6edda1395"
+source = "git+https://github.com/fortanix/attestation.git?branch=dlegalov%2FRTE-1094-client-csr-param-api-improvements#b89ec0f538d204a5cb5d6c65bb8489b29b76ce33"
 dependencies = [
  "attestation",
  "der",
