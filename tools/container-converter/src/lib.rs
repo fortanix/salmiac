@@ -86,6 +86,7 @@ pub enum ConverterErrorKind {
     BadCcmConfiguration,
     BadDsmConfiguration,
     DockerLoad,
+    UnsupportedConfig,
 }
 
 impl fmt::Display for ConverterError {
@@ -309,7 +310,7 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
 
             if let Some(_s) = &cert_settings.chain_path {
                 return Err(ConverterError {
-                    message: "Chain path is not supported on this platform yet".to_string(),
+                    message: "Chain path is not supported on this platform".to_string(),
                     kind: ConverterErrorKind::BadCertConfig,
                 });
             }
@@ -318,7 +319,7 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
 
     if !request.converter_options.ca_certificates.is_empty() {
         return Err(ConverterError {
-            message: "CA certificates are not supported on this platform yet".to_string(),
+            message: "CA certificates are not supported on this platform".to_string(),
             kind: ConverterErrorKind::BadCertConfig,
         });
     }
@@ -339,6 +340,34 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
                 kind: ConverterErrorKind::BadDsmConfiguration,
             });
         }
+    }
+
+    if let Some(_) = &request.converter_options.allow_cmdline_args {
+        return Err(ConverterError {
+            message: "allow_cmdline_args is not supported on this platform".to_string(),
+            kind: ConverterErrorKind::UnsupportedConfig,
+        });
+    }
+
+    if let Some(_) = &request.converter_options.allow_docker_pull_failure {
+        return Err(ConverterError {
+            message: "allow_docker_pull_failure is not supported on this platform".to_string(),
+            kind: ConverterErrorKind::UnsupportedConfig,
+        });
+    }
+
+    if let Some(_) = &request.converter_options.app {
+        return Err(ConverterError {
+            message: "app is not supported on this platform".to_string(),
+            kind: ConverterErrorKind::UnsupportedConfig,
+        });
+    }
+
+    if let Some(_) = &request.converter_options.java_mode {
+        return Err(ConverterError {
+            message: "java_mode is not supported on this platform".to_string(),
+            kind: ConverterErrorKind::UnsupportedConfig,
+        });
     }
 
     Ok(())
@@ -869,7 +898,7 @@ mod tests {
         let converter_error = res.expect_err("");
         assert!(converter_error
             .message
-            .contains("Chain path is not supported on this platform yet"));
+            .contains("Chain path is not supported on this platform"));
         assert!(converter_error.kind == ConverterErrorKind::BadCertConfig);
     }
 
@@ -887,7 +916,7 @@ mod tests {
         let converter_error = res.expect_err("");
         assert!(converter_error
             .message
-            .contains("CA certificates are not supported on this platform yet"));
+            .contains("CA certificates are not supported on this platform"));
         assert_eq!(converter_error.kind, ConverterErrorKind::BadCertConfig);
     }
 
@@ -951,6 +980,77 @@ mod tests {
             dsm_url: "https://someregion.smartkey.io".to_string(),
         });
         assert!(validate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn validate_converter_request_unsupported_configs() -> () {
+        let mut request = SAMPLE_REQUEST.clone();
+
+        // Test 1 - allow_cmdline_args is set to Some
+        request.converter_options.allow_cmdline_args = Some(true);
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "allow_cmdline_args is not supported on this platform"
+        );
+        assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+
+        // Test 2 - allow_cmdline_args is set to None
+        request.converter_options.allow_cmdline_args = None;
+        assert!(validate_request(&request).is_ok());
+
+        // Test 3 - allow_docker_pull_failure is set to false
+        request.converter_options.allow_docker_pull_failure = Some(false);
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "allow_docker_pull_failure is not supported on this platform"
+        );
+        assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+
+        // Test 4 - allow_docker_pull_failure is set to true
+        request.converter_options.allow_docker_pull_failure = Some(true);
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "allow_docker_pull_failure is not supported on this platform"
+        );
+        assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+
+        // Test 5 - app is set to Some
+        request.converter_options.allow_docker_pull_failure = None;
+        request.converter_options.app = Some(Value::from("some-app"));
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "app is not supported on this platform"
+        );
+        assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+
+        // Test 6 - java_mode is set to Some
+        request.converter_options.app = None;
+        request.converter_options.java_mode = Some("oracle-jvm".to_string());
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "java_mode is not supported on this platform"
+        );
+        assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
     }
 }
 
