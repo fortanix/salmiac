@@ -30,7 +30,7 @@ endif
 #
 
 FLAVOR ?= debug
-PLATFORM = nitro
+PLATFORM ?= nitro
 FREQUENCY ?= smoke ci
 
 #
