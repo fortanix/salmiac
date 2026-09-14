@@ -194,7 +194,7 @@ impl TryFrom<&RouteMessage> for Route {
             match address {
                 Some((addr, prefix)) => {
                     let IpAddr::V4(ipv4) = addr else {
-                        return Err("Unexpected ipv6 address".to_owned());
+                        return Err("Unexpected IP address type: IPV6, expected IPV4".to_owned());
                     };
 
                     let result = Ipv4Network::new(ipv4, prefix)
@@ -210,7 +210,7 @@ impl TryFrom<&RouteMessage> for Route {
             match address {
                 Some((addr, prefix)) => {
                     let IpAddr::V6(ipv6) = addr else {
-                        return Err("Unexpected ipv4 address".to_owned());
+                        return Err("Unexpected IP address type: IPV4, expected IPV6".to_owned());
                     };
 
                     let result = Ipv6Network::new(ipv6, prefix)

@@ -16,7 +16,7 @@ use std::{env, fs};
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use parent_lib::{
     communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS,
 };
@@ -81,7 +81,7 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
             SetupMessages::CSR(csr) => {
                 match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
                     Ok(()) => (),
-                    Err(e) => info!(
+                    Err(e) => error!(
                     "CSR message handler failed with {e}. Continuing, the enclave will retry later"
                 ),
                 }

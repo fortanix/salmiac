@@ -173,10 +173,31 @@ macro_rules! impl_numarg(
 impl_numarg!(u32);
 
 /// Deconstructs enum using provided pattern expression `$pattern` => `$extracted_value`
+///
+/// This macro has two variants: one for debug builds and one for production builds.
+/// The variants differ in the information they log.
+///
 /// # Returns
 /// `Ok($extracted_value)` if `$value` matches `$pattern` and `Err` otherwise
+#[cfg(debug_assertions)]
 #[macro_export]
 macro_rules! extract_enum_value {
+    // Debug version. Includes full-error type including its payload in error message.
+    ($value:expr, $pattern:pat => $extracted_value:expr) => {
+        match $value {
+            $pattern => Ok($extracted_value),
+            e => Err(format!(
+                "Expected {} for enum variant, but got {:?}",
+                stringify!($pattern),
+                e,
+            )),
+        }
+    };
+}
+#[cfg(not(debug_assertions))]
+#[macro_export]
+macro_rules! extract_enum_value {
+    // Release version. Includes error type name only in error message.
     ($value:expr, $pattern:pat => $extracted_value:expr) => {
         match $value {
             $pattern => Ok($extracted_value),

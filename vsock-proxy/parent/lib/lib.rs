@@ -1,7 +1,7 @@
 use std::env;
 use std::net::IpAddr;
 
-use log::{info, warn};
+use log::{error, info, warn};
 use shared::extract_enum_value;
 use shared::models::{CertificateErrorCode, NBDConfiguration, NBDExport, SetupMessages};
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
@@ -81,7 +81,10 @@ async fn handle_certificate_request<
     let result = match address {
         None => Err(CertificateErrorCode::Unavailable),
         Some(address) => {
-            info!("Requesting CCM for App Certificate, timing out after 60 sec...");
+            info!(
+                "Requesting CCM for App Certificate, timing out after {} seconds",
+                timeout.as_secs()
+            );
             match tokio::time::timeout(
                 timeout,
                 task::spawn_blocking(move || cert_api.request_issue_certificate(&address, csr)),
@@ -115,7 +118,7 @@ async fn handle_certificate_request<
             vsock
                 .write_lv(&SetupMessages::CertificateError(code))
                 .await?;
-            info!("Error requesting App Certificate: {:?}", code);
+            error!("App Certificate request failed: {:?}", code);
             Err(format!("{:?}", code))
         }
     }
