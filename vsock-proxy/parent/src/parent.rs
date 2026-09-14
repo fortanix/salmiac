@@ -16,7 +16,7 @@ use std::{env, fs};
 use async_process::Command;
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use parent_lib::{
     communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS,
 };
@@ -75,11 +75,13 @@ const TCP_LISTEN_STATE: &str = "0A";
 async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramExitStatus, String> {
     loop {
         match enclave.read_lv().await? {
-            SetupMessages::UserProgramExit(status) => return status,
+            SetupMessages::UserProgramExit(status) => {
+                return status.map_err(|code| format!("{:?}", code))
+            }
             SetupMessages::CSR(csr) => {
                 match parent_lib::handle_csr_message(enclave, EmAppCertificateApi {}, csr).await {
                     Ok(()) => (),
-                    Err(e) => info!(
+                    Err(e) => error!(
                     "CSR message handler failed with {e}. Continuing, the enclave will retry later"
                 ),
                 }
