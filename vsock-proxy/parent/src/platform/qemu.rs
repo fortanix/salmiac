@@ -310,6 +310,7 @@ pub(super) trait QemuPlatform {
             let args_ref = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
             // Move ownership here so it won't get dropped
             let _vsock_fd = vsock_fd;
+            let _gpu_settings = gpu_settings;
             run_subprocess(constants::QEMU_BINARY, &args_ref).await
         });
 
