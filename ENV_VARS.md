@@ -57,13 +57,20 @@ registered as a debug build in a test-only deployment account.
 - MEM_SIZE - Override the --memory param passed while running the enclave i.e.
   passed to the nitro-cli run command.
 
-##### AMD SEV-SNP enclaves settings variables
+##### AMD SEV-SNP and Intel TDX enclave settings variables
 - CPU_COUNT - Override the `-smp` param passed while running the enclave i.e.
   passed to the qemu run command.
 - MEM_SIZE - Override the `-m` param & memory backend object passed while running
   the enclave i.e. passed to the qemu run command.
-- SNP_GPU_BDF - For use with EnclaveOS containers with GPU passthrough.
-  Consists of the BDF (Bus/Device/Function) of the GPU to be used.
+- SNP_GPU_BDF/TDX_GPU_BDF - Explicitly select GPUs for an EnclaveOS container
+  with GPU passthrough. Set the platform-specific variable to one PCI BDF
+  (Bus/Device/Function) or a comma-separated list of PCI BDFs.
+- GPU_COUNT - Discover GPUs exposed under `/dev/vfio/devices`. Set it to a
+  positive integer to select exactly that many available VFIO GPUs, or to
+  `all` to select every available VFIO GPU. Devices already in use are skipped.
+  Do not set `GPU_COUNT` together with `SNP_GPU_BDF` or `TDX_GPU_BDF`.
+
+##### AMD SEV-SNP-specific enclave settings variables
 - SNP_CPU - QEMU CPU type, defaults to `EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0`.
 - SNP_CBITPOS - Since SNP is only supported from processor series 7003 and newer,
   the c-bit (cbitpos) will always be 51. Defaults to `51`.

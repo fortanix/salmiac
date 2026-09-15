@@ -202,7 +202,12 @@ Ability to build the converter from source will be possible in the future but cu
 
    Execute `lspci -nnk -d 10de:` again, and if all is correct, it will be shown that the `vfio-pci` driver is in use.
    
-4. To run the container, set `SNP_GPU_BDF` or `TDX_GPU_BDF` depending on the converter used. Use these variables for both single and multiple GPUs: specify one PCI BDF for a single GPU or a comma-separated list for multiple GPUs. Skip passing the variable if GPU passthrough was not configured at conversion time.
+4. To run the container with GPU passthrough, select GPUs either explicitly or by discovery:
+
+   - Set `SNP_GPU_BDF` or `TDX_GPU_BDF`, depending on the converter used, to one PCI BDF for a single GPU or a comma-separated list for multiple GPUs.
+   - Alternatively, set `GPU_COUNT` to a positive integer to select exactly that many available VFIO GPUs, or to `all` to select every available VFIO GPU.
+
+   Do not set `GPU_COUNT` together with `SNP_GPU_BDF` or `TDX_GPU_BDF`. Skip all of these variables if GPU passthrough was not configured at conversion time.
 
    The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container. Set `APPCONFIG_ID` if one has been created for this instance.
 
@@ -218,7 +223,7 @@ Ability to build the converter from source will be possible in the future but cu
     -e RUST_LOG=debug \
     -e MEM_SIZE=4096M \
     -e APPCONFIG_ID=0000000000000000000000000000000000000000000000000000000000000000 \
-    -e SNP_GPU_BDF=0000:21:00.0 \
+    -e SNP_GPU_BDF=0000:21:00.0 \ # Alternatively pass GPU_COUNT=1 to use discovery
     nginx-tdx
    ```
 
