@@ -6,24 +6,23 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 
-use crate::certificate::read_root_certificates;
 use api_model::enclave::CcmBackendUrl;
-use em_app::utils::models::{
+use em_client::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials,
     RuntimeAppConfig,
 };
-use em_client::Sha256Hash;
+use em_client::{ApplicationConfigApiMut, Sha256Hash};
 use log::{info, warn};
-use mbedtls::alloc::List as MbedtlsList;
-use mbedtls::pk::Pk;
-use mbedtls::x509::Certificate;
+use rustls::{Certificate, PrivateKey};
 use sdkms::api_model::Blob;
 
-use crate::certificate::CertificateResult;
+use crate::certificate::{read_root_certificates, CertificateResult};
 use crate::enclave::write_to_file;
+use crate::utils::net::{get_em_client, get_hyper_tls_connector, get_sdkms_client};
+
 
 // All of the paths below are purposefully made relative because they are joined with the path pointing to the chroot environment.
 pub const APPLICATION_CONFIG_DIR: &str = "opt/fortanix/enclave-os/app-config/rw";
@@ -58,7 +57,7 @@ where
     info!("Requesting application configuration.");
 
     let app_config = api.runtime_config_api().get_runtime_configuration(
-        &ccm_backend_url,
+        ccm_backend_url,
         em_app_credentials,
         app_config_id,
     )?;
@@ -299,8 +298,8 @@ pub(crate) struct EmAppApplicationConfiguration {
 impl EmAppApplicationConfiguration {
     pub(crate) fn new() -> Self {
         EmAppApplicationConfiguration {
-            runtime_config_api: EmAppRuntimeConfiguration {},
-            dataset_api: EmAppSdkmsDataset {},
+            runtime_config_api: EmAppRuntimeConfiguration,
+            dataset_api: EmAppSdkmsDataset,
         }
     }
 }
@@ -319,7 +318,7 @@ impl ApplicationConfiguration for EmAppApplicationConfiguration {
     }
 }
 
-pub(crate) struct EmAppRuntimeConfiguration {}
+pub(crate) struct EmAppRuntimeConfiguration;
 
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
     fn get_runtime_configuration(
@@ -328,15 +327,12 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
         credentials: &EmAppCredentials,
         expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String> {
-        em_app::utils::get_runtime_configuration(
-            &ccm_backend_url.host,
-            ccm_backend_url.port,
-            credentials.certificate.clone(),
-            credentials.key.clone(),
-            credentials.root_certificate.clone(),
-            None,
-            &expected_hash,
-        )
+
+        let connector = get_hyper_tls_connector(credentials)?;
+        let mut em_client = get_em_client(ccm_backend_url, connector)?;
+        em_client
+            .get_runtime_application_config(&expected_hash)
+            .map_err(|err| format!("app runtime config get failed with {}", err.message()))
     }
 }
 
@@ -349,7 +345,7 @@ pub(crate) trait RuntimeConfiguration {
     ) -> Result<RuntimeAppConfig, String>;
 }
 
-pub(crate) struct EmAppSdkmsDataset {}
+pub(crate) struct EmAppSdkmsDataset;
 
 impl SdkmsDataset for EmAppSdkmsDataset {
     fn get_dataset(
@@ -357,15 +353,16 @@ impl SdkmsDataset for EmAppSdkmsDataset {
         sdkms_credentials: &ApplicationConfigSdkmsCredentials,
         credentials: &EmAppCredentials,
     ) -> Result<Blob, String> {
-        em_app::utils::get_sdkms_dataset(
-            sdkms_credentials.credentials_url.clone(),
+        let connector = get_hyper_tls_connector(credentials)?;
+        let client = get_sdkms_client(sdkms_credentials, connector)?;
+
+        let key_id = sdkms::api_model::SobjectDescriptor::Name(
             sdkms_credentials.credentials_key_name.clone(),
-            sdkms_credentials.sdkms_app_id,
-            credentials.certificate.clone(),
-            credentials.key.clone(),
-            credentials.root_certificate.clone(),
-            None,
-        )
+        );
+        let result = client.export_sobject(&key_id)
+            .map_err(|err| format!("Failed SDKMS export operation: {:?}", err))?;
+
+        result.value.ok_or("Missing value in exported object".to_string())
     }
 }
 
@@ -378,11 +375,11 @@ pub(crate) trait SdkmsDataset {
 }
 
 pub(crate) struct EmAppCredentials {
-    certificate: Arc<MbedtlsList<Certificate>>,
+    pub(crate) certificate: Vec<Certificate>,
 
-    key: Arc<Pk>,
+    pub(crate) key: PrivateKey,
 
-    root_certificate: Option<Arc<MbedtlsList<Certificate>>>,
+    pub(crate) root_certificate: Option<Vec<Certificate>>,
 }
 
 impl EmAppCredentials {
@@ -391,24 +388,32 @@ impl EmAppCredentials {
         skip_server_verify: bool,
     ) -> Result<Self, String> {
         let certificate = {
-            certificate_info.certificate.push('\0');
+            let mut reader = Cursor::new(certificate_info.certificate.as_bytes());
+            rustls::internal::pemfile::certs(&mut reader)
+                .map_err(|_| "Parsing client certificate failed".to_string())
+        }?;
 
-            let app_cert = Certificate::from_pem_multiple(&certificate_info.certificate.as_bytes())
-                .map_err(|e| format!("Parsing certificate failed: {:?}", e))?;
+        if certificate.is_empty() {
+            return Err("Client certificate chain is empty".to_string());
+        }
 
-            Arc::new(app_cert)
-        };
+        // We already have the ability to export the key as DER.
+        // rustls::PrivateKey is just the DER representation needed
+        // by ClientConfig::set_single_client_cert().
+        let der_buf = certificate_info
+            .key
+            .write_private_der_vec()
+            .map_err(|e| {
+                format!("Exporting private key failed: {:?}", e)
+            })?;
 
-        // The private key from certificate info can't be copied/cloned, thus we use mbedtls
-        // library functions to convert it into DER buffer and create a Pk from it.
-        let der_buf = certificate_info.key.write_private_der_vec().unwrap();
-        let dup_pk = Pk::from_private_key(&*der_buf, None).unwrap();
-        let key = Arc::new(dup_pk);
+        let key = PrivateKey(der_buf);
 
+        // CA(s) for authenticating the CCM server.
         let root_certificate = if skip_server_verify {
             None
         } else {
-            Some(Arc::new(read_root_certificates()))
+            Some(read_root_certificates())
         };
 
         Ok(EmAppCredentials {
@@ -449,13 +454,14 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 -----END RSA PRIVATE KEY-----
 \0";
 
-        let pk = Pk::from_private_key(key.as_bytes(), None).unwrap();
-
-        let cert_list = MbedtlsList::<Certificate>::new();
+        let mut reader = Cursor::new(key.as_bytes());
+        let key = rustls::internal::pemfile::rsa_private_keys(&mut reader)
+            .expect("Failed parsing test private key")
+            .remove(0);
 
         EmAppCredentials {
-            certificate: Arc::new(cert_list),
-            key: Arc::new(pk),
+            certificate: Vec::new(),
+            key,
             root_certificate: None,
         }
     }
@@ -469,7 +475,7 @@ mod tests {
     use std::path::Path;
 
     use api_model::enclave::CcmBackendUrl;
-    use em_app::utils::models::{
+    use em_client::models::{
         ApplicationConfigConnection, ApplicationConfigConnectionApplication,
         ApplicationConfigConnectionDataset, ApplicationConfigDatasetCredentials,
         ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,

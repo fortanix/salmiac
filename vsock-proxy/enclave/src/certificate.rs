@@ -15,7 +15,8 @@ use log::debug;
 use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
-use mbedtls::x509::Certificate;
+use mbedtls::x509::Certificate as MbedtlsCertificate;
+use rustls::Certificate;
 use shared::get_relative_path;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
@@ -228,24 +229,36 @@ pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, St
     let cert_pem = CString::new(cert_pem)
         .map_err(|e| e.to_string())?
         .into_bytes_with_nul();
-    let cert = Certificate::from_pem(&cert_pem).map_err(|e| e.to_string())?;
+    let cert = MbedtlsCertificate::from_pem(&cert_pem).map_err(|e| e.to_string())?;
     let not_after = cert.not_after().map_err(|e| e.to_string())?;
     NaiveDateTime::try_from(not_after)
         .map_err(|_e| String::from("Couldn't convert cert expiry date"))
 }
 
-pub(crate) fn read_root_certificates() -> MbedtlsList<Certificate> {
+pub(crate) fn read_root_certificates_mbedtls() -> MbedtlsList<MbedtlsCertificate> {
     let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
 
     let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
         .expect("Failed deserializing root certificate list");
 
-    let mut result = MbedtlsList::<Certificate>::new();
+    let mut result = MbedtlsList::<MbedtlsCertificate>::new();
     for i in ca_cert_list {
-        result.push(Certificate::from_der(&i).expect("Failed parsing ca certificate"));
+        result.push(MbedtlsCertificate::from_der(&i).expect("Failed parsing ca certificate"));
     }
 
     result
+}
+
+pub(crate) fn read_root_certificates() -> Vec<Certificate> {
+    let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
+
+    let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
+        .expect("Failed deserializing root certificate list");
+
+    ca_cert_list
+        .into_iter()
+        .map(Certificate)
+        .collect()
 }
 
 #[cfg(test)]
