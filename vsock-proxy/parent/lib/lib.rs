@@ -9,22 +9,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task;
 use tokio::time::Duration;
 
-pub const NBD_EXPORTS: &'static [NBDExportConfig] = &[
-    NBDExportConfig {
-        name: "enclave-fs",
-        block_file_path: "/opt/fortanix/enclave-os/Blockfile.ext4",
-        port: 7777,
-        is_read_only: true,
-    },
-    NBDExportConfig {
-        name: "enclave-rw-fs",
-        block_file_path: "/opt/fortanix/enclave-os/overlayfs/Blockfile-rw.ext4",
-        port: 7778,
-        is_read_only: false,
-    },
-];
-
 const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+const ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR: &str = "ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE";
 
 pub struct NBDExportConfig {
     pub name: &'static str,
@@ -34,6 +21,28 @@ pub struct NBDExportConfig {
     pub port: u16,
 
     pub is_read_only: bool,
+}
+
+pub fn get_filtered_nbd_exports() -> Vec<NBDExportConfig> {
+    let overlay_fsp_enabled =
+        env::var(ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR).is_ok_and(|value| value == "true");
+    let mut nbd_exports: Vec<NBDExportConfig> = Vec::new();
+    nbd_exports.push(NBDExportConfig {
+        name: "enclave-fs",
+        block_file_path: "/opt/fortanix/enclave-os/Blockfile.ext4",
+        port: 7777,
+        is_read_only: true,
+    });
+
+    if overlay_fsp_enabled {
+        nbd_exports.push(NBDExportConfig {
+            name: "enclave-rw-fs",
+            block_file_path: "/opt/fortanix/enclave-os/overlayfs/Blockfile-rw.ext4",
+            port: 7778,
+            is_read_only: false,
+        });
+    }
+    nbd_exports
 }
 
 pub fn node_agent_address() -> Option<String> {
@@ -170,7 +179,7 @@ async fn send_nbd_configuration<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     enclave_port: &mut Socket,
     tap_l3_address: IpAddr,
 ) -> Result<(), String> {
-    let exports = NBD_EXPORTS
+    let exports = get_filtered_nbd_exports()
         .iter()
         .map(|e| NBDExport {
             name: e.name.to_string(),

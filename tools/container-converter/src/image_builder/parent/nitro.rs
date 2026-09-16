@@ -18,6 +18,7 @@ use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PAT
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
+    pub(crate) file_system_persistence_enabled: Option<bool>,
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: NitroEnclavesConversionRequestOptions,
 }

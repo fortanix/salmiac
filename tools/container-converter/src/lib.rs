@@ -250,6 +250,10 @@ async fn run0(
     };
 
     let parent_builder = PlatformParentImageBuilder {
+        file_system_persistence_enabled: conversion_request
+            .request
+            .converter_options
+            .enable_overlay_filesystem_persistence,
         parent_image_builder: ParentImageBuilder {
             parent_image: parent_image.expect("parent_image should not be None at this point"),
             dir: &temp_dir,

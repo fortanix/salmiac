@@ -111,7 +111,7 @@ components:
         enable_overlay_filesystem_persistence:
           type: "boolean"
           default: false
-          description: "Flag to enable file persistence, on by default"
+          description: "Flag to enable file persistence, false by default"
         ccm_configuration:
           $ref: "#/components/schemas/CCMConfiguration"
           description: "CCM Configuration"

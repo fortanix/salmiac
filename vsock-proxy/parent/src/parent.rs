@@ -18,7 +18,8 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, error, info, warn};
 use parent_lib::{
-    communicate_certificates, setup_file_system, CertificateApi, NBDExportConfig, NBD_EXPORTS,
+    communicate_certificates, get_filtered_nbd_exports, setup_file_system, CertificateApi,
+    NBDExportConfig,
 };
 use shared::models::{
     ApplicationConfiguration, GlobalNetworkSettings, HostEntries, ResolvConfig, ResolvConfigOption,
@@ -96,6 +97,8 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
 }
 
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
+    // TODO: make this below block optional
+
     info!("Checking presence of overlayfs parent directory.");
     let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
     if !overlayfs_parent_dir.exists() {
@@ -336,7 +339,7 @@ async fn send_enclave_extra_console_args(
         .await
 }
 
-fn write_nbd_config(l3_address: IpAddr, exports: &[NBDExportConfig]) -> Result<(), String> {
+fn write_nbd_config(l3_address: IpAddr, exports: &Vec<NBDExportConfig>) -> Result<(), String> {
     fs::create_dir_all(INSTALLATION_DIR)
         .map_err(|err| format!("Failed creating {} dir. {:?}", INSTALLATION_DIR, err))?;
 
@@ -352,7 +355,7 @@ fn write_nbd_config(l3_address: IpAddr, exports: &[NBDExportConfig]) -> Result<(
     ",
         l3_address.to_string()
     );
-
+    // TODO: Filter few here
     for export in exports {
         let export_configuration = format!(
             "
@@ -540,9 +543,11 @@ async fn start_background_tasks(
     result.push(private_tap_loops.tap_to_vsock);
     result.push(private_tap_loops.vsock_to_tap);
 
-    write_nbd_config(private_tap_l3_address, NBD_EXPORTS)?;
+    let filtered_nbd_exports = get_filtered_nbd_exports();
 
-    for export_config in NBD_EXPORTS {
+    write_nbd_config(private_tap_l3_address, &filtered_nbd_exports)?;
+
+    for export_config in &filtered_nbd_exports {
         let nbd_process = tokio::spawn(run_nbd_server(export_config.port));
         info!(
             "Spawned nbd server on port {} serving block file {}",
@@ -552,7 +557,7 @@ async fn start_background_tasks(
         result.push(nbd_process);
     }
 
-    for export_config in NBD_EXPORTS {
+    for export_config in &filtered_nbd_exports {
         wait_for_nbd_server(private_tap_l3_address, export_config.port).await?;
         info!("NBD server on port {} is ready.", export_config.port);
     }
