@@ -255,10 +255,7 @@ pub(crate) fn read_root_certificates() -> Vec<Certificate> {
     let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
         .expect("Failed deserializing root certificate list");
 
-    ca_cert_list
-        .into_iter()
-        .map(Certificate)
-        .collect()
+    ca_cert_list.into_iter().map(Certificate).collect()
 }
 
 #[cfg(test)]

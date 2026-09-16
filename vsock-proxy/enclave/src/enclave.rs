@@ -1097,9 +1097,9 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     let request = tokio::time::timeout(
         CSR_REQUEST_TIMEOUT,
         task::spawn_blocking(move || -> Result<String, String> {
-            let client = NodeAgentClient::try_new_http(&node_agent)
-                .map_err(|e| e.to_string())?;
-            client.issue_certificate(IssueCertificateRequest { csr: Some(csr) })
+            let client = NodeAgentClient::try_new_http(&node_agent).map_err(|e| e.to_string())?;
+            client
+                .issue_certificate(IssueCertificateRequest { csr: Some(csr) })
                 .map_err(|e| e.to_string())
                 .and_then(|r| r.certificate.ok_or("No certificate returned".to_string()))
         }),

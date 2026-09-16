@@ -23,7 +23,6 @@ use crate::certificate::{read_root_certificates, CertificateResult};
 use crate::enclave::write_to_file;
 use crate::utils::net::{get_em_client, get_hyper_tls_connector, get_sdkms_client};
 
-
 // All of the paths below are purposefully made relative because they are joined with the path pointing to the chroot environment.
 pub const APPLICATION_CONFIG_DIR: &str = "opt/fortanix/enclave-os/app-config/rw";
 pub const APPLICATION_CONFIG_FILE: &str = "opt/fortanix/enclave-os/app-config/rw/app-config.json";
@@ -327,7 +326,6 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
         credentials: &EmAppCredentials,
         expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String> {
-
         let connector = get_hyper_tls_connector(credentials)?;
         let mut em_client = get_em_client(ccm_backend_url, connector)?;
         em_client
@@ -359,10 +357,13 @@ impl SdkmsDataset for EmAppSdkmsDataset {
         let key_id = sdkms::api_model::SobjectDescriptor::Name(
             sdkms_credentials.credentials_key_name.clone(),
         );
-        let result = client.export_sobject(&key_id)
+        let result = client
+            .export_sobject(&key_id)
             .map_err(|err| format!("Failed SDKMS export operation: {:?}", err))?;
 
-        result.value.ok_or("Missing value in exported object".to_string())
+        result
+            .value
+            .ok_or("Missing value in exported object".to_string())
     }
 }
 
@@ -403,9 +404,7 @@ impl EmAppCredentials {
         let der_buf = certificate_info
             .key
             .write_private_der_vec()
-            .map_err(|e| {
-                format!("Exporting private key failed: {:?}", e)
-            })?;
+            .map_err(|e| format!("Exporting private key failed: {:?}", e))?;
 
         let key = PrivateKey(der_buf);
 

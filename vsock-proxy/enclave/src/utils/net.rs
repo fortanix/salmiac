@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use api_model::enclave::CcmBackendUrl;
-use em_client::models::ApplicationConfigSdkmsCredentials;
 use em_client::client::Client as EmClient;
+use em_client::models::ApplicationConfigSdkmsCredentials;
 use hyper::client::{Client, Pool};
 use hyper::net::HttpsConnector;
 use hyper_rustls::TlsClient;
@@ -33,8 +33,7 @@ pub fn get_hyper_tls_connector(
     credentials: &EmAppCredentials,
 ) -> Result<HttpsConnector<TlsClient>, String> {
     let mut ssl = TlsClient::new();
-    let tls_config = Arc::get_mut(&mut ssl.cfg)
-        .expect("TlsClient config unexpectedly shared");
+    let tls_config = Arc::get_mut(&mut ssl.cfg).expect("TlsClient config unexpectedly shared");
 
     if let Some(root_cert) = &credentials.root_certificate {
         for cert in root_cert {
@@ -45,11 +44,7 @@ pub fn get_hyper_tls_connector(
         }
     }
 
-    tls_config
-        .set_single_client_cert(
-            credentials.certificate.clone(),
-            credentials.key.clone(),
-        );
+    tls_config.set_single_client_cert(credentials.certificate.clone(), credentials.key.clone());
 
     Ok(HttpsConnector::new(ssl))
 }
@@ -58,12 +53,9 @@ pub fn get_em_client(
     ccm_backend_url: &CcmBackendUrl,
     connector: HttpsConnector<TlsClient>,
 ) -> Result<EmClient, String> {
-    let em_client = EmClient::try_new_with_connector(
-            &ccm_backend_url.to_string(),
-            Some("https"),
-            connector,
-        )
-        .map_err(|err| format!("Unable to construct em_client: {}", err))?;
+    let em_client =
+        EmClient::try_new_with_connector(&ccm_backend_url.to_string(), Some("https"), connector)
+            .map_err(|err| format!("Unable to construct em_client: {}", err))?;
     Ok(em_client)
 }
 
@@ -71,11 +63,15 @@ pub fn get_sdkms_client(
     sdkms_credentials: &ApplicationConfigSdkmsCredentials,
     connector: HttpsConnector<TlsClient>,
 ) -> Result<SdkmsClient, String> {
-    let client = Arc::new(Client::with_connector(
-        Pool::with_connector(Default::default(), connector),
-    ));
+    let client = Arc::new(Client::with_connector(Pool::with_connector(
+        Default::default(),
+        connector,
+    )));
     // em-client and sdkms use different versions of uuid.
-    let app_id = sdkms_credentials.sdkms_app_id.to_string().parse()
+    let app_id = sdkms_credentials
+        .sdkms_app_id
+        .to_string()
+        .parse()
         .map_err(|err| format!("Invalid SDKMS app ID: {}", err))?;
     let client = SdkmsClient::builder()
         .with_api_endpoint(&sdkms_credentials.credentials_url)

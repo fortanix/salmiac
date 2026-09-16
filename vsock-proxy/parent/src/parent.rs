@@ -821,7 +821,8 @@ impl CertificateApi for EmAppCertificateApi {
     fn request_issue_certificate(&self, url: &str, csr_pem: String) -> Result<String, String> {
         let client = NodeAgentClient::try_new_http(url)
             .map_err(|err| format!("Failed to construct node agent client {:?}", err))?;
-        client.issue_certificate(IssueCertificateRequest { csr: Some(csr_pem) })
+        client
+            .issue_certificate(IssueCertificateRequest { csr: Some(csr_pem) })
             .map_err(|err| format!("Failed to receive certificate {:?}", err))
             .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))
     }
