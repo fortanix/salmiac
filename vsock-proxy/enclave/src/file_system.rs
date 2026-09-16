@@ -144,8 +144,6 @@ pub(crate) async fn mount_read_write_file_system(
         EncryptedVolume::setup_encrypted_volume(dsm_ops_handler, NBD_RW_DEVICE, ENCLAVE_FS_RW_ROOT)
             .await?;
 
-    create_overlay_rw_dirs().await?;
-
     Ok(encrypted_fs)
 }
 
