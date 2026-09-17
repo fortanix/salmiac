@@ -1292,8 +1292,16 @@ mod tests {
         }
     }
 
-    async fn parent(mut parent_socket: InMemorySocket) -> Result<(), String> {
-        parent_lib::setup_file_system(&mut parent_socket, IpAddr::V4(Ipv4Addr::LOCALHOST)).await
+    async fn parent(
+        mut parent_socket: InMemorySocket,
+        overlay_fsp_enabled: bool,
+    ) -> Result<(), String> {
+        parent_lib::setup_file_system(
+            &mut parent_socket,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            overlay_fsp_enabled,
+        )
+        .await
     }
 
     async fn enclave(
@@ -1336,18 +1344,20 @@ mod tests {
 
     #[test]
     fn setup_enclave_file_system_correct_pass() {
-        let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
         let rt = Runtime::new().expect("Tokio runtime OK");
+        for overlay_fsp_enabled in [true, false] {
+            let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
 
-        rt.block_on(async move {
-            let a = tokio::spawn(parent(parent_socket));
-            let b = tokio::spawn(enclave(enclave_socket));
+            rt.block_on(async move {
+                let a = tokio::spawn(parent(parent_socket, overlay_fsp_enabled));
+                let b = tokio::spawn(enclave(enclave_socket));
 
-            let (a_result, b_result) = tokio::join!(a, b);
+                let (a_result, b_result) = tokio::join!(a, b);
 
-            assert!(a_result.is_ok());
-            assert!(b_result.is_ok());
-        });
+                assert!(a_result.is_ok());
+                assert!(b_result.is_ok());
+            });
+        }
     }
 
     #[test]
