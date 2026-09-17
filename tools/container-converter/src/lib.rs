@@ -374,6 +374,19 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
         });
     }
 
+    if let Some(enable_ovelay_fsp) = request
+        .converter_options
+        .enable_overlay_filesystem_persistence
+    {
+        if enable_ovelay_fsp {
+            return Err(ConverterError {
+                message: "enable_overlay_filesystem_persistence is not supported on this platform"
+                    .to_string(),
+                kind: ConverterErrorKind::UnsupportedConfig,
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -1055,6 +1068,28 @@ mod tests {
             "java_mode is not supported on this platform"
         );
         assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+
+        // Test 7 - enable_overlay_filesystem_persistence as None, false
+        request.converter_options.java_mode = None;
+        for enable_ovelay_fsp in [None, Some(false)] {
+            request
+                .converter_options
+                .enable_overlay_filesystem_persistence = enable_ovelay_fsp;
+            assert!(validate_request(&request).is_ok());
+        }
+
+        // Test 8 - enable_overlay_filesystem_persistence as true
+        request
+            .converter_options
+            .enable_overlay_filesystem_persistence = Some(true);
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "enable_overlay_filesystem_persistence is not supported on this platform"
+        );
     }
 }
 
