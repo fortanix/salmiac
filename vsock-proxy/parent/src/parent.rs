@@ -97,14 +97,17 @@ async fn message_handler(enclave: &mut AsyncVsockStream) -> Result<UserProgramEx
 }
 
 pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitStatus, String> {
-    // TODO: make this below block optional
-
-    info!("Checking presence of overlayfs parent directory.");
-    let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
-    if !overlayfs_parent_dir.exists() {
-        info!("Creating overlayfs directory where the rw encrypted blockfile would be created...");
-        fs::create_dir_all(overlayfs_parent_dir)
-            .map_err(|e| format!("Unable to create overlayfs parent dir : {:?}", e))?;
+    let overlay_fsp_enabled = args.enable_filesystem_persistence;
+    if overlay_fsp_enabled {
+        info!("Checking presence of overlayfs parent directory.");
+        let overlayfs_parent_dir = Path::new(OVERLAYFS_BLOCKFILE_DIR);
+        if !overlayfs_parent_dir.exists() {
+            info!(
+                "Creating overlayfs directory where the rw encrypted blockfile would be created..."
+            );
+            fs::create_dir_all(overlayfs_parent_dir)
+                .map_err(|e| format!("Unable to create overlayfs parent dir : {:?}", e))?;
+        }
     }
 
     info!("Spawning enclave process.");
@@ -152,11 +155,16 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     send_node_agent_address(&mut enclave_port).await?;
     send_enclave_extra_console_args(&mut enclave_port, args.enclave_extra_args).await?;
 
-    let setup_result = setup_parent(&mut enclave_port, args.rw_block_file_size.to_inner()).await?;
+    let setup_result = setup_parent(
+        &mut enclave_port,
+        args.rw_block_file_size.to_inner(),
+        overlay_fsp_enabled,
+    )
+    .await?;
     let tap_l3_address = setup_result.private_tap.tap_l3_address.ip();
 
     let mut log_listeners = setup_log_listeners(tap_l3_address).await?;
-    let mut background_tasks = start_background_tasks(setup_result).await?;
+    let mut background_tasks = start_background_tasks(setup_result, overlay_fsp_enabled).await?;
 
     let log_ports = get_log_sock_addrs(&mut log_listeners)?;
     info!("Client log listeners set up.");
@@ -173,7 +181,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     }
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
-        setup_file_system(&mut enclave_port, tap_l3_address).await?;
+        setup_file_system(&mut enclave_port, tap_l3_address, overlay_fsp_enabled).await?;
 
         // Pass the ports which the enclave can connect to for forwarding logs
         enclave_port
@@ -355,7 +363,7 @@ fn write_nbd_config(l3_address: IpAddr, exports: &Vec<NBDExportConfig>) -> Resul
     ",
         l3_address.to_string()
     );
-    // TODO: Filter few here
+
     for export in exports {
         let export_configuration = format!(
             "
@@ -525,6 +533,7 @@ async fn run_log_listeners(
 
 async fn start_background_tasks(
     parent_setup_result: ParentSetupResult,
+    overlay_fsp_enabled: bool,
 ) -> Result<FuturesUnordered<JoinHandle<Result<(), String>>>, String> {
     let result = FuturesUnordered::new();
 
@@ -543,7 +552,7 @@ async fn start_background_tasks(
     result.push(private_tap_loops.tap_to_vsock);
     result.push(private_tap_loops.vsock_to_tap);
 
-    let filtered_nbd_exports = get_filtered_nbd_exports();
+    let filtered_nbd_exports = get_filtered_nbd_exports(overlay_fsp_enabled);
 
     write_nbd_config(private_tap_l3_address, &filtered_nbd_exports)?;
 
@@ -604,6 +613,7 @@ struct ResolvConfResult {
 async fn setup_parent(
     vsock: &mut AsyncVsockStream,
     rw_block_file_size: u64,
+    overlay_fsp_enabled: bool,
 ) -> Result<ParentSetupResult, String> {
     send_application_configuration(vsock).await?;
 
@@ -625,10 +635,13 @@ async fn setup_parent(
     let start_dnsmasq = send_global_network_settings(parent_address, vsock).await?;
 
     let private_tap = {
-        create_rw_block_file(
-            rw_block_file_size,
-            Path::new(OVERLAYFS_BLOCKFILE_DIR).join(RW_BLOCK_FILE_OUT),
-        )?;
+        if overlay_fsp_enabled {
+            create_rw_block_file(
+                rw_block_file_size,
+                Path::new(OVERLAYFS_BLOCKFILE_DIR).join(RW_BLOCK_FILE_OUT),
+            )?;
+        }
+
         set_up_private_tap_devices(
             vsock,
             parent_address,

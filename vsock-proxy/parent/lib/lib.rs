@@ -11,8 +11,6 @@ use tokio::time::Duration;
 
 const CSR_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
-const ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR: &str = "ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE";
-
 pub struct NBDExportConfig {
     pub name: &'static str,
 
@@ -23,9 +21,7 @@ pub struct NBDExportConfig {
     pub is_read_only: bool,
 }
 
-pub fn get_filtered_nbd_exports() -> Vec<NBDExportConfig> {
-    let overlay_fsp_enabled =
-        env::var(ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR).is_ok_and(|value| value == "true");
+pub fn get_filtered_nbd_exports(overlay_fsp_enabled: bool) -> Vec<NBDExportConfig> {
     let mut nbd_exports: Vec<NBDExportConfig> = Vec::new();
     nbd_exports.push(NBDExportConfig {
         name: "enclave-fs",
@@ -169,8 +165,9 @@ pub trait CertificateApi {
 pub async fn setup_file_system<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     enclave_port: &mut Socket,
     tap_l3_address: IpAddr,
+    overlay_fsp_enabled: bool,
 ) -> Result<(), String> {
-    send_nbd_configuration(enclave_port, tap_l3_address).await?;
+    send_nbd_configuration(enclave_port, tap_l3_address, overlay_fsp_enabled).await?;
 
     log_encrypted_space_available(enclave_port).await
 }
@@ -178,8 +175,9 @@ pub async fn setup_file_system<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
 async fn send_nbd_configuration<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     enclave_port: &mut Socket,
     tap_l3_address: IpAddr,
+    overlay_fsp_enabled: bool,
 ) -> Result<(), String> {
-    let exports = get_filtered_nbd_exports()
+    let exports = get_filtered_nbd_exports(overlay_fsp_enabled)
         .iter()
         .map(|e| NBDExport {
             name: e.name.to_string(),

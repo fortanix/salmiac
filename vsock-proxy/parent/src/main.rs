@@ -12,6 +12,7 @@ mod parent;
 mod platform;
 mod utils;
 
+use std::env;
 use std::process;
 
 use api_model::ByteUnit;
@@ -46,18 +47,23 @@ struct ParentConsoleArguments {
     pub rw_block_file_size: ByteUnit,
 
     pub enclave_extra_args: Vec<String>,
+
+    pub enable_filesystem_persistence: bool,
 }
 
 impl ParentConsoleArguments {
     // 256MB converted to bytes
     const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
 
+    const ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR: &str =
+        "ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE";
+
     fn default_rw_block_file_size() -> ByteUnit {
         ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
     }
 
     fn new(matches: &ArgMatches) -> Self {
-        let rw_storage_size = std::env::vars()
+        let rw_storage_size = env::vars()
             .find(|e| e.0 == "RW_STORAGE_SIZE")
             .map(|e| ByteUnit::from_str(&e.1));
 
@@ -88,9 +94,14 @@ impl ParentConsoleArguments {
             .collect();
         info!("enclave_extra_args is {:?}", enclave_extra_args);
 
+        let enable_filesystem_persistence =
+            env::var(ParentConsoleArguments::ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR)
+                .is_ok_and(|value| value == "true");
+
         Self {
             rw_block_file_size,
             enclave_extra_args,
+            enable_filesystem_persistence,
         }
     }
 }
