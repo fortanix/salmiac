@@ -41,6 +41,7 @@ mkdir -p "$script_dir/staging/blobs"
 
 cp "$converter_bin" "$script_dir/staging/server"
 cp "$artifact_dir/init" "$script_dir/staging/blobs/init"
+cp "$artifact_dir/init-debug" "$script_dir/staging/blobs/init-debug"
 cp "$artifact_dir/bzImage" "$script_dir/staging/blobs/bzImage"
 
 docker save -o "$script_dir/staging/enclave-base.tar" enclave-base-simulator:latest
