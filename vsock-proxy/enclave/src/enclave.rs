@@ -265,6 +265,9 @@ pub(crate) async fn run(
         )
         .await?;
 
+        // Consume the parent's pending setup message before fallible app configuration.
+        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+
         for certificate in &mut certificate_info {
             write_certificate(certificate, Some(default_cert_dir()))?;
         }
@@ -280,7 +283,6 @@ pub(crate) async fn run(
             &setup_result.enclave_manifest.ccm_backend_url,
         )?;
 
-        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
         drop(parent_guard);
 
         // The environment for the user application is ready, signal this to background tasks

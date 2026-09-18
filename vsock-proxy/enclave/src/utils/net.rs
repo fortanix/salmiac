@@ -53,9 +53,10 @@ pub fn get_em_client(
     ccm_backend_url: &CcmBackendUrl,
     connector: HttpsConnector<TlsClient>,
 ) -> Result<EmClient, String> {
-    let em_client =
-        EmClient::try_new_with_connector(&ccm_backend_url.to_string(), Some("https"), connector)
-            .map_err(|err| format!("Unable to construct em_client: {}", err))?;
+    // Base path expected to have url scheme.
+    let base_path = &format!("https://{}", ccm_backend_url.to_string());
+    let em_client = EmClient::try_new_with_connector(base_path, Some("https"), connector)
+        .map_err(|err| format!("Unable to construct em_client: {}", err))?;
     Ok(em_client)
 }
 
@@ -105,6 +106,17 @@ mod tests {
     use crate::certificate::create_signer_key;
 
     const TIMEOUT: Duration = Duration::from_secs(10);
+
+    #[test_case("ccm.fortanix.com", 443)]
+    #[test_case("192.0.2.1", 8443)]
+    fn em_client_accepts_backend_host_and_port(host: &str, port: u16) {
+        let backend = api_model::enclave::CcmBackendUrl {
+            host: host.to_string(),
+            port,
+        };
+        let connector = hyper::net::HttpsConnector::new(hyper_rustls::TlsClient::new());
+        assert!(super::get_em_client(&backend, connector).is_ok());
+    }
 
     // Creates a test certificate to be used by both client & server
     fn test_certificate(key_der: &[u8], is_ca: bool, padding: usize) -> Certificate {
