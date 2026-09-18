@@ -25,6 +25,7 @@ use crate::image_builder::blob_finder::BlobFinder;
 pub(crate) use gpu_supported::GpuSupportedInitramfsBuilder;
 
 const INIT_BIN: &str = "init";
+const INIT_BIN_DEBUG: &str = "init-debug";
 
 pub(crate) trait InitramfsBuilder {
     fn kernel_blobs_dir(enclave_settings: &EnclaveSettings) -> PathBuf;
@@ -34,8 +35,13 @@ pub(crate) trait InitramfsBuilder {
         enclave_settings: &EnclaveSettings,
     ) -> StdResult<FsTree, IoError>;
 
-    fn read_init(blobs_dir: &Path) -> StdResult<Vec<u8>, IoError> {
-        let init_path = blobs_dir.join(INIT_BIN);
+    fn read_init(blobs_dir: &Path, is_debug: bool) -> StdResult<Vec<u8>, IoError> {
+        let init_path = if is_debug {
+            blobs_dir.join(INIT_BIN)
+        } else {
+            blobs_dir.join(INIT_BIN_DEBUG)
+        };
+
         fs::read(&init_path)
     }
 
@@ -45,7 +51,7 @@ pub(crate) trait InitramfsBuilder {
         enclave_settings: &EnclaveSettings,
     ) -> StdResult<FsTree, IoError> {
         let run_cmd = get_run_cmd(&enclave_settings);
-        let init = Self::read_init(blobs_dir)?;
+        let init = Self::read_init(blobs_dir, enclave_settings.is_debug)?;
         fs_tree = fs_tree
             .add_file("env", Cursor::new(get_env_vars(&enclave_settings.env_vars)))
             .add_file("cmd", Cursor::new(run_cmd))
