@@ -55,9 +55,6 @@ impl ParentConsoleArguments {
     // 256MB converted to bytes
     const RW_BLOCK_FILE_DEFAULT_SIZE: u64 = 256 * 1024 * 1024;
 
-    const ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR: &str =
-        "ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE";
-
     fn default_rw_block_file_size() -> ByteUnit {
         ByteUnit::new(ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE)
     }
@@ -86,17 +83,24 @@ impl ParentConsoleArguments {
             }
         };
 
-        let enclave_extra_args = matches
+        let mut enclave_extra_args: Vec<String> = matches
             .values_of("unknown")
             .unwrap_or_default()
             .into_iter()
             .map(|e| e.to_string())
             .collect();
-        info!("enclave_extra_args is {:?}", enclave_extra_args);
 
-        let enable_filesystem_persistence =
-            env::var(ParentConsoleArguments::ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE_ENV_VAR)
-                .is_ok_and(|value| value == "true");
+        let mut enable_filesystem_persistence = false;
+        enclave_extra_args.retain(|arg| match arg.as_str() {
+            "--enable-persistence" => {
+                enable_filesystem_persistence = true;
+                warn!("overlay_filesystem_persistence is enabled");
+                false
+            }
+            _ => true,
+        });
+
+        info!("enclave_extra_args is {:?}", enclave_extra_args);
 
         Self {
             rw_block_file_size,

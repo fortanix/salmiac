@@ -138,17 +138,22 @@ impl<'a> ParentImageBuilder<'a> {
 
         let from = self.parent_image_builder.parent_image.clone();
 
+        let mut entrypoint = vec![
+            run_parent_cmd,
+            "--platform".to_string(),
+            "nitro".to_string(),
+        ];
+        if self.file_system_persistence_enabled.unwrap_or_default() {
+            entrypoint.push("--enable-persistence".to_string());
+        }
+
         DockerFile {
             from,
             add: Some(add),
             env: env_vars.to_vec(),
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(vec![
-                run_parent_cmd,
-                "--platform".to_string(),
-                "nitro".to_string(),
-            ]),
+            entrypoint: Some(entrypoint),
         }
     }
 

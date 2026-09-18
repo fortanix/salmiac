@@ -133,7 +133,6 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         let log_env = rust_log_env_var("parent");
         let cpu_count_env = self.cpu_count_env_var();
         let enable_gpu_passthrough_env = self.enable_gpu_passthrough_env_var();
-        let enable_fsp_env = self.enable_overlay_fsp_env_var();
         let mem_size_env = self.mem_size_env_var();
         let eos_debug_env = GenericParentImageBuilder::eos_debug_env_var();
 
@@ -143,7 +142,6 @@ pub(crate) trait QemuParentImageBuilder<'a> {
             enable_gpu_passthrough_env,
             mem_size_env,
             eos_debug_env,
-            enable_fsp_env,
         ];
 
         let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
@@ -154,17 +152,23 @@ pub(crate) trait QemuParentImageBuilder<'a> {
 
         let from = self.parent_image_builder().parent_image.clone();
 
+        let mut entrypoint: Vec<String> = vec![
+            run_parent_cmd,
+            "--platform".to_string(),
+            self.platform_name().to_string(),
+        ];
+
+        if self.file_system_persistence().unwrap_or_default() {
+            entrypoint.push("--enable-persistence".to_string());
+        }
+
         DockerFile {
             from,
             add: Some(add),
             env: env_vars,
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(vec![
-                run_parent_cmd,
-                "--platform".to_string(),
-                self.platform_name().to_string(),
-            ]),
+            entrypoint: Some(entrypoint),
         }
     }
 
@@ -181,13 +185,6 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         format!(
             "ENABLE_GPU_PASSTHROUGH={}",
             self.enable_gpu_passthrough().unwrap_or_default()
-        )
-    }
-
-    fn enable_overlay_fsp_env_var(&self) -> String {
-        format!(
-            "ENABLE_OVERLAY_FILESYSTEM_PERSISTENCE={}",
-            self.file_system_persistence().unwrap_or_default()
         )
     }
 
