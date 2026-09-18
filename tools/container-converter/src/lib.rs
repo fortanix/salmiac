@@ -374,6 +374,7 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
         });
     }
 
+    #[cfg(not(platform = "nitro"))]
     if let Some(enable_ovelay_fsp) = request
         .converter_options
         .enable_overlay_filesystem_persistence
@@ -1068,9 +1069,13 @@ mod tests {
             "java_mode is not supported on this platform"
         );
         assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+    }
 
-        // Test 7 - enable_overlay_filesystem_persistence as None, false
-        request.converter_options.java_mode = None;
+    #[test]
+    #[cfg(not(platform = "nitro"))]
+    fn validate_converter_request_overlay_filesystem_persistence() -> () {
+        let mut request = SAMPLE_REQUEST.clone();
+        // Test 1 - enable_overlay_filesystem_persistence as None, false
         for enable_ovelay_fsp in [None, Some(false)] {
             request
                 .converter_options
@@ -1078,7 +1083,7 @@ mod tests {
             assert!(validate_request(&request).is_ok());
         }
 
-        // Test 8 - enable_overlay_filesystem_persistence as true
+        // Test 2 - enable_overlay_filesystem_persistence as true
         request
             .converter_options
             .enable_overlay_filesystem_persistence = Some(true);
