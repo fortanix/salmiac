@@ -151,6 +151,12 @@ impl CcmBackendUrl {
     }
 }
 
+impl ToString for CcmBackendUrl {
+    fn to_string(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
 impl Default for CcmBackendUrl {
     fn default() -> Self {
         CcmBackendUrl {

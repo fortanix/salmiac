@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::{env, fs};
 
 use async_process::Command;
+use em_node_agent_client::{models::IssueCertificateRequest, Api, Client as NodeAgentClient};
 use futures::stream::futures_unordered::FuturesUnordered;
 use ipnetwork::IpNetwork;
 use log::{debug, error, info, warn};
@@ -818,7 +819,10 @@ async fn send_global_network_settings(
 struct EmAppCertificateApi {}
 impl CertificateApi for EmAppCertificateApi {
     fn request_issue_certificate(&self, url: &str, csr_pem: String) -> Result<String, String> {
-        em_app::request_issue_certificate(url, csr_pem)
+        let client = NodeAgentClient::try_new_http(url)
+            .map_err(|err| format!("Failed to construct node agent client {:?}", err))?;
+        client
+            .issue_certificate(IssueCertificateRequest { csr: Some(csr_pem) })
             .map_err(|err| format!("Failed to receive certificate {:?}", err))
             .and_then(|e| e.certificate.ok_or("No certificate returned".to_string()))
     }

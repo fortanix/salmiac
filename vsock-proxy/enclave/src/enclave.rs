@@ -34,6 +34,7 @@ use async_process::{Child, Command};
 use async_trait::async_trait;
 use chrono::Utc;
 use em_client::Sha256Hash;
+use em_node_agent_client::{models::IssueCertificateRequest, Api, Client as NodeAgentClient};
 use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
 use enclaveos_encrypted_fs::EncryptedVolume;
 use futures::io::{BufReader, Lines};
@@ -264,6 +265,9 @@ pub(crate) async fn run(
         )
         .await?;
 
+        // Consume the parent's pending setup message before fallible app configuration.
+        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
+
         for certificate in &mut certificate_info {
             write_certificate(certificate, Some(default_cert_dir()))?;
         }
@@ -279,7 +283,6 @@ pub(crate) async fn run(
             &setup_result.enclave_manifest.ccm_backend_url,
         )?;
 
-        let log_conn_addrs = extract_enum_value!(parent_guard.deref_mut().read_lv().await?, SetupMessages::AppLogPort(addr) => addr)?;
         drop(parent_guard);
 
         // The environment for the user application is ready, signal this to background tasks
@@ -293,6 +296,11 @@ pub(crate) async fn run(
 
         Ok(exit_status)
     });
+
+    if let Err(err) = &enclave_exit_code {
+        error!("Enclave exits with failure: {}", err);
+        log::logger().flush();
+    }
 
     signal_user_program_exit_status(&mut parent_stream, enclave_exit_code.clone()).await?;
 
@@ -406,8 +414,8 @@ fn setup_app_configuration(
     ccm_backend_url: &CcmBackendUrl,
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(id)) = (certificate_info, &app_config.id) {
-        let api = EmAppApplicationConfiguration::new();
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
+        let api = EmAppApplicationConfiguration::new();
 
         info!("Setting up application configuration.");
 
@@ -570,7 +578,8 @@ async fn signal_user_program_exit_status(
     exit_status: Result<UserProgramExitStatus, String>,
 ) -> Result<(), String> {
     // Discard internal details before serializing anything for the untrusted parent.
-    let exit_status = exit_status.map_err(|_| EnclaveErrorCode::EnclaveFailure);
+    let exit_status =
+        exit_status.map_err(|err| EnclaveErrorCode::EnclaveFailure(format!("{:?}", err)));
     match parent
         .exchange_message(&SetupMessages::UserProgramExit(exit_status))
         .await?
@@ -1096,7 +1105,9 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     let request = tokio::time::timeout(
         CSR_REQUEST_TIMEOUT,
         task::spawn_blocking(move || -> Result<String, String> {
-            em_app::request_issue_certificate(&node_agent, csr)
+            let client = NodeAgentClient::try_new_http(&node_agent).map_err(|e| e.to_string())?;
+            client
+                .issue_certificate(IssueCertificateRequest { csr: Some(csr) })
                 .map_err(|e| e.to_string())
                 .and_then(|r| r.certificate.ok_or("No certificate returned".to_string()))
         }),
