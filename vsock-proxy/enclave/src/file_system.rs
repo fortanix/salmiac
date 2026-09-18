@@ -125,7 +125,7 @@ pub(crate) fn fetch_fs_mount_options() -> Result<FsMountOptions, String> {
     })
 }
 
-pub(crate) async fn mount_read_write_file_system(
+pub(crate) async fn setup_encrypted_mount(
     conn_info: Option<ClientConnectionInfo<'_>>,
 ) -> Result<EncryptedVolume, String> {
     let mut dsm_ops_handler = None;

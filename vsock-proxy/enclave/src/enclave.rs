@@ -25,7 +25,7 @@ use crate::file_system::{
     close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
     create_fortanix_directories, create_overlay_dirs, create_overlay_rw_dirs,
     fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
-    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
+    run_nbd_client, setup_dm_verity, setup_encrypted_mount, unmount_file_system_nodes,
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::converter::CertificateConfig;
@@ -526,7 +526,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         };
 
         let encrypted_fs = if enclave_manifest.enable_overlay_filesystem_persistence {
-            let encrypted_fs = mount_read_write_file_system(conn_info).await?;
+            let encrypted_fs = setup_encrypted_mount(conn_info).await?;
             info!("Finished read/write file system mount.");
             Some(encrypted_fs)
         } else {
@@ -1294,12 +1294,12 @@ mod tests {
 
     async fn parent(
         mut parent_socket: InMemorySocket,
-        overlay_fsp_enabled: bool,
+        persistence_enabled: bool,
     ) -> Result<(), String> {
         parent_lib::setup_file_system(
             &mut parent_socket,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            overlay_fsp_enabled,
+            persistence_enabled,
         )
         .await
     }
@@ -1345,11 +1345,11 @@ mod tests {
     #[test]
     fn setup_enclave_file_system_correct_pass() {
         let rt = Runtime::new().expect("Tokio runtime OK");
-        for overlay_fsp_enabled in [true, false] {
+        for persistence_enabled in [true, false] {
             let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
 
             rt.block_on(async move {
-                let a = tokio::spawn(parent(parent_socket, overlay_fsp_enabled));
+                let a = tokio::spawn(parent(parent_socket, persistence_enabled));
                 let b = tokio::spawn(enclave(enclave_socket));
 
                 let (a_result, b_result) = tokio::join!(a, b);

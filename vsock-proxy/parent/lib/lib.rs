@@ -21,7 +21,7 @@ pub struct NBDExportConfig {
     pub is_read_only: bool,
 }
 
-pub fn get_filtered_nbd_exports(overlay_fsp_enabled: bool) -> Vec<NBDExportConfig> {
+pub fn get_filtered_nbd_exports(persistence_enabled: bool) -> Vec<NBDExportConfig> {
     let mut nbd_exports: Vec<NBDExportConfig> = Vec::new();
     nbd_exports.push(NBDExportConfig {
         name: "enclave-fs",
@@ -30,7 +30,7 @@ pub fn get_filtered_nbd_exports(overlay_fsp_enabled: bool) -> Vec<NBDExportConfi
         is_read_only: true,
     });
 
-    if overlay_fsp_enabled {
+    if persistence_enabled {
         nbd_exports.push(NBDExportConfig {
             name: "enclave-rw-fs",
             block_file_path: "/opt/fortanix/enclave-os/overlayfs/Blockfile-rw.ext4",
@@ -165,19 +165,19 @@ pub trait CertificateApi {
 pub async fn setup_file_system<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     enclave_port: &mut Socket,
     tap_l3_address: IpAddr,
-    overlay_fsp_enabled: bool,
+    persistence_enabled: bool,
 ) -> Result<(), String> {
-    send_nbd_configuration(enclave_port, tap_l3_address, overlay_fsp_enabled).await?;
+    send_nbd_configuration(enclave_port, tap_l3_address, persistence_enabled).await?;
 
-    log_encrypted_space_available(enclave_port).await
+    log_encrypted_space_available(enclave_port, persistence_enabled).await
 }
 
 async fn send_nbd_configuration<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     enclave_port: &mut Socket,
     tap_l3_address: IpAddr,
-    overlay_fsp_enabled: bool,
+    persistence_enabled: bool,
 ) -> Result<(), String> {
-    let exports = get_filtered_nbd_exports(overlay_fsp_enabled)
+    let exports = get_filtered_nbd_exports(persistence_enabled)
         .iter()
         .map(|e| NBDExport {
             name: e.name.to_string(),
@@ -197,8 +197,14 @@ async fn send_nbd_configuration<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
 
 async fn log_encrypted_space_available<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     vsock: &mut Socket,
+    persistence_enabled: bool,
 ) -> Result<(), String> {
-    let encrypted_space_size = extract_enum_value!(vsock.read_lv().await?, SetupMessages::EncryptedSpaceAvailable(s) => s)?;
-    info!("Encrypted space available = {}B", encrypted_space_size);
+    let space_size = extract_enum_value!(vsock.read_lv().await?, SetupMessages::EncryptedSpaceAvailable(s) => s)?;
+    let space_type = if persistence_enabled {
+        "Encrypted"
+    } else {
+        "Ephemeral"
+    };
+    info!("{} space available = {}B", space_type, space_size);
     Ok(())
 }

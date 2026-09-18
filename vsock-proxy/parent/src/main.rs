@@ -64,25 +64,6 @@ impl ParentConsoleArguments {
             .find(|e| e.0 == "RW_STORAGE_SIZE")
             .map(|e| ByteUnit::from_str(&e.1));
 
-        let rw_block_file_size = match rw_storage_size {
-            Some(Ok(result)) => result,
-            Some(Err(err)) => {
-                warn!(
-                    "Cannot parse RW_STORAGE_SIZE.{:?}. Setting read/write block file size to a default value of {}",
-                    err,
-                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
-                );
-                ParentConsoleArguments::default_rw_block_file_size()
-            }
-            None => {
-                warn!(
-                    "RW_STORAGE_SIZE is not present. Setting read/write block file size to a default value of {}",
-                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
-                );
-                ParentConsoleArguments::default_rw_block_file_size()
-            }
-        };
-
         let mut enclave_extra_args: Vec<String> = matches
             .values_of("unknown")
             .unwrap_or_default()
@@ -101,6 +82,30 @@ impl ParentConsoleArguments {
         });
 
         info!("enclave_extra_args is {:?}", enclave_extra_args);
+
+        let rw_block_file_size = match rw_storage_size {
+            Some(Ok(result)) => {
+                if !enable_filesystem_persistence {
+                    warn!("RW_STORAGE_SIZE will not be used if persistence is disabled");
+                }
+                result
+            }
+            Some(Err(err)) => {
+                warn!(
+                    "Cannot parse RW_STORAGE_SIZE.{:?}. Setting read/write block file size to a default value of {}",
+                    err,
+                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
+                );
+                ParentConsoleArguments::default_rw_block_file_size()
+            }
+            None => {
+                warn!(
+                    "RW_STORAGE_SIZE is not present. Setting read/write block file size to a default value of {}",
+                    ParentConsoleArguments::RW_BLOCK_FILE_DEFAULT_SIZE
+                );
+                ParentConsoleArguments::default_rw_block_file_size()
+            }
+        };
 
         Self {
             rw_block_file_size,
