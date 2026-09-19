@@ -163,11 +163,20 @@ pub struct ConverterOptions {
     #[cfg_attr(feature = "serde", serde(default = "default_to_true"))]
     pub push_converted_image: Option<bool>,
 
+    /// Lists of static environment variables that will be applied to the entrypoint
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub env_vars: Vec<String>,
+
+    /// Lists of environment variables that will be allowed to be passed from the host
+    /// to the enclave as a dynamic environment variables
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    pub host_env_var_key_allowlist: Vec<String>,
 
     /// Type of the Java JVM used
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]

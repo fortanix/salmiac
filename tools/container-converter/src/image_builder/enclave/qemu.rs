@@ -51,6 +51,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
         mut env_vars: Vec<String>,
+        host_env_var_key_allowlist: Vec<String>,
         _sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<Self::Measurements> {
         let work_dir = self.enclave_image_builder().dir.path();
@@ -79,6 +80,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
             file_system_config,
             is_debug,
             env_vars,
+            host_env_var_key_allowlist,
             enable_overlay_filesystem_persistence,
             ccm_backend_url,
             dsm_configuration,

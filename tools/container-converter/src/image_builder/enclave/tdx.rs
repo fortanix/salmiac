@@ -36,6 +36,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
         env_vars: Vec<String>,
+        host_env_var_key_allowlist: Vec<String>,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<TdxEnclavesMeasurements> {
         QemuEnclaveImageBuilder::create_image(
@@ -44,6 +45,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             enclave_settings,
             user_config,
             env_vars,
+            host_env_var_key_allowlist,
             sender,
         )
         .await

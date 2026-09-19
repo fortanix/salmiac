@@ -216,6 +216,7 @@ mod tests {
             entry_point_args: vec![],
             push_converted_image: None,
             env_vars: vec![],
+            host_env_var_key_allowlist: vec![],
             java_mode: None,
             enable_overlay_filesystem_persistence: None,
             ccm_configuration: None,
