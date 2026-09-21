@@ -10,25 +10,29 @@ use sdkms::SdkmsClient;
 
 use crate::app_configuration::EmAppCredentials;
 
-// This the counterpart of how em_app configures tls connection.
-// For the security reasons rustls's TlsClient should be configured
-// in a similar fashion.
-// Reference: https://github.com/fortanix/rust-sgx/blob/5d33ab498ec96a7a429816501287f790a2b5bcfe/em-app/src/utils.rs#L53
+// Configure rustls TLS using em_app's configuration as a reference.
+// The following differences are intentional:
 //
-// `ca_cert_list`
-// em_app sets to `AuthMode::Required` only when `ca_cert_list` is provided.
-// For rustls, if `ca_cert_list` is not provided, rustls always do checks against the
-// default CA list.
-// Reference: https://docs.rs/crate/hyper-rustls/0.6.2/source/src/lib.rs#200
-// To disable completely `DangerousClientConfig` must be used:
-// Reference: https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#209
+// Server certificate verification:
+// em_app requires verification when ca_cert_list is provided; otherwise,
+// it uses AuthMode::Optional. This connector always verifies the server
+// certificate, using hyper-rustls's default trust roots plus any supplied
+// CA certificates. Omitting CA certificates does not disable verification.
+// Disabling verification requires a custom verifier via DangerousClientConfig.
 //
-// Tls version 1.2
-// em_app explicitly sets to tls version 1.2 However rustls by default expects
-// tls 1.2 or 1.3.
-// Reference: https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#144
+// TLS versions:
+// em_app sets TLS 1.2 as the minimum version. rustls 0.13.1 enables
+// TLS 1.2 and TLS 1.3 by default.
 //
-// SNI configuration is ignored for now.
+// References:
+// em_app configuration:
+// https://github.com/fortanix/rust-sgx/blob/5d33ab498ec96a7a429816501287f790a2b5bcfe/em-app/src/utils.rs#L53
+// hyper-rustls default trust roots:
+// https://docs.rs/crate/hyper-rustls/0.6.2/source/src/lib.rs#200
+// rustls custom certificate verification:
+// https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#209
+// rustls default TLS versions:
+// https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#144
 pub fn get_hyper_tls_connector(
     credentials: &EmAppCredentials,
 ) -> Result<HttpsConnector<TlsClient>, String> {
