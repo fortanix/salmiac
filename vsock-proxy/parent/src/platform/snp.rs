@@ -82,8 +82,8 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
-    SnpPlatform.launch_guest()
+pub(crate) fn launch_guest(is_debug: bool) -> Result<GuestLaunchResult, String> {
+    SnpPlatform.launch_guest(is_debug)
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
@@ -98,30 +98,36 @@ mod tests {
 
     #[test]
     fn test_build_qemu_snp_args() {
-        // Captured before the QemuPlatform refactoring, with modifications to the memory size.
-        // Ignore formatting to keep logical key/value pairs align better in a single line.
-        #[rustfmt::skip]
-        let expected = vec![
-            "-enable-kvm", "-nographic", "-monitor", "none", "-no-reboot",
-            "-machine", "q35,confidential-guest-support=sev0,vmport=off,memory-backend=ram1",
-            "-cpu", "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0", "-smp", "2", "-m", "8G",
-            "-object", "memory-backend-memfd,id=ram1,size=8G,share=true,prealloc=false",
-            "-object", "sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,kernel-hashes=on,policy=0x20000",
-            "-bios", "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
-            "-kernel", "/opt/fortanix/enclave-os/bzImage",
-            "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
-            "-append", "console=null rdinit=/init loglevel=7",
-            "-device", "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd=0,guest-cid=3",
-            "-serial", "mon:stdio",
-            "-nodefaults",
-        ];
-
         let platform = SnpPlatform {};
-        let args: Vec<String> = platform
-            .build_qemu_args(None, 0, 3)
-            .unwrap()
-            .into_iter()
-            .collect();
-        diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
+        for is_debug in [true, false] {
+            let expected_cmdline = if is_debug {
+                "console=ttyS0 rdinit=/init loglevel=7"
+            } else {
+                "console=null rdinit=/init loglevel=7"
+            };
+            // Captured before the QemuPlatform refactoring, with modifications to the memory size.
+            // Ignore formatting to keep logical key/value pairs align better in a single line.
+            #[rustfmt::skip]
+            let expected = vec![
+                "-enable-kvm", "-nographic", "-monitor", "none", "-no-reboot",
+                "-machine", "q35,confidential-guest-support=sev0,vmport=off,memory-backend=ram1",
+                "-cpu", "EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0", "-smp", "2", "-m", "8G",
+                "-object", "memory-backend-memfd,id=ram1,size=8G,share=true,prealloc=false",
+                "-object", "sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,kernel-hashes=on,policy=0x20000",
+                "-bios", "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
+                "-kernel", "/opt/fortanix/enclave-os/bzImage",
+                "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
+                "-append", expected_cmdline,
+                "-device", "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd=0,guest-cid=3",
+                "-serial", "mon:stdio",
+                "-nodefaults",
+            ];
+            let args: Vec<String> = platform
+                .build_qemu_args(None, 0, 3, is_debug)
+                .unwrap()
+                .into_iter()
+                .collect();
+            diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
+        }
     }
 }

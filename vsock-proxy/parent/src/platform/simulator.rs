@@ -41,8 +41,8 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
-    SimulatorPlatform.launch_guest()
+pub(crate) fn launch_guest(is_debug: bool) -> Result<GuestLaunchResult, String> {
+    SimulatorPlatform.launch_guest(is_debug)
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {

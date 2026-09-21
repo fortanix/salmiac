@@ -120,7 +120,7 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
                 mut parent_vsock_listener,
                 guest_vsock_cid: _,
             },
-    } = crate::platform::launch_guest()?;
+    } = crate::platform::launch_guest(args.is_debug)?;
 
     #[cfg(platform = "nitro")]
     let GuestLaunchResult {

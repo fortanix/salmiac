@@ -49,6 +49,9 @@ struct ParentConsoleArguments {
     pub enclave_extra_args: Vec<String>,
 
     pub enable_filesystem_persistence: bool,
+
+    #[cfg(not(platform = "nitro"))]
+    pub is_debug: bool,
 }
 
 impl ParentConsoleArguments {
@@ -72,10 +75,18 @@ impl ParentConsoleArguments {
             .collect();
 
         let mut enable_filesystem_persistence = false;
+        #[cfg(not(platform = "nitro"))]
+        let mut is_debug = false;
         enclave_extra_args.retain(|arg| match arg.as_str() {
             "--enable-persistence" => {
                 enable_filesystem_persistence = true;
                 warn!("overlay_filesystem_persistence is enabled");
+                false
+            }
+            #[cfg(not(platform = "nitro"))]
+            "--debug" => {
+                is_debug = true;
+                warn!("debug mode is enabled");
                 false
             }
             _ => true,
@@ -111,6 +122,8 @@ impl ParentConsoleArguments {
             rw_block_file_size,
             enclave_extra_args,
             enable_filesystem_persistence,
+            #[cfg(not(platform = "nitro"))]
+            is_debug,
         }
     }
 }

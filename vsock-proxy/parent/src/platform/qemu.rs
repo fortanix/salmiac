@@ -23,7 +23,6 @@ pub(super) mod constants {
     pub const MEM_SIZE: &str = "8G";
     pub const CPU_COUNT_ENV_VAR: &str = "CPU_COUNT";
     pub const MEM_SIZE_ENV_VAR: &str = "MEM_SIZE";
-    pub const DEBUG_ENV_VAR: &str = "DEBUG";
 
     pub const KERNEL_PATH: &str = "/opt/fortanix/enclave-os/bzImage";
 
@@ -227,8 +226,7 @@ pub(super) trait QemuPlatform {
         Ok(vec![])
     }
 
-    fn kernel_cmdline(&self) -> &str {
-        let is_debug = env::var(constants::DEBUG_ENV_VAR).is_ok_and(|value| value == "true");
+    fn kernel_cmdline(&self, is_debug: bool) -> &str {
         if is_debug {
             info!("Serial console is enabled in KERNEL CMDLINE");
             return constants::KERNEL_CMDLINE_WITH_CONSOLE;
@@ -241,11 +239,12 @@ pub(super) trait QemuPlatform {
         gpu_settings: Option<&GPUSettings>,
         vsock_fd: RawFd,
         vsock_cid: u64,
+        is_debug: bool,
     ) -> Result<Vec<String>, String> {
         let cpu = self.cpu();
         let cpu_count = self.cpu_count();
         let memory_size = self.memory_size();
-        let kernel_cmdline = self.kernel_cmdline();
+        let kernel_cmdline = self.kernel_cmdline(is_debug);
         let mut args: Vec<&str> = vec![
             "-enable-kvm",
             "-m",
@@ -310,7 +309,7 @@ pub(super) trait QemuPlatform {
             .collect::<Vec<_>>())
     }
 
-    fn launch_guest(&self) -> Result<GuestLaunchResult, String> {
+    fn launch_guest(&self, is_debug: bool) -> Result<GuestLaunchResult, String> {
         self.check_files()?;
 
         let gpu_settings = self.gpu_settings()?;
@@ -319,6 +318,7 @@ pub(super) trait QemuPlatform {
             gpu_settings.as_ref(),
             vsock_fd.as_raw_fd(),
             enclave_connection_config.guest_vsock_cid,
+            is_debug,
         )?;
 
         let enclave_process = tokio::spawn(async move {
