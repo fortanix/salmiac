@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::HashSet;
 use std::convert::{From, TryFrom};
 use std::fs;
 use std::ops::DerefMut;
@@ -83,6 +84,13 @@ const CERT_RENEWAL_BEFORE_EXPIRY: Duration =
 const CERT_RENEWAL_INTERVAL_RELEASE: Duration =
     Duration::from_secs(24 * 60 * 60 /* 24 hours */);
 const CERT_RENEWAL_INTERVAL_DEBUG: Duration = Duration::from_secs(20 /* 20 sec */);
+
+/// Salmiac internal environment variables
+const SALMIAC_ENV_KEYS: &[&str] = &[
+    "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE",
+    "NODE_AGENT",
+    "APPCONFIG_ID",
+];
 
 fn default_cert_dir() -> PathBuf {
     PathBuf::from(ENCLAVE_FS_OVERLAY_ROOT)
@@ -182,7 +190,7 @@ pub(crate) async fn run(
     let mut background_tasks = start_background_tasks(networking_setup_result.tap_devices);
 
     let skip_def_cert_req = if let Some((_, val)) = setup_result
-        .env_vars
+        .internal_env_vars
         .iter()
         .find(|(k, _)| k == "ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE")
     {
@@ -252,7 +260,7 @@ pub(crate) async fn run(
 
         let fs_setup_config = FileSystemSetupConfig {
             enclave_manifest: &setup_result.enclave_manifest,
-            env_vars: &setup_result.env_vars,
+            env_vars: &setup_result.internal_env_vars,
             cert_list: certificate_info
                 .get_mut(0)
                 .map(|e| &mut e.certificate_result),
@@ -324,6 +332,34 @@ fn enable_loopback_network_interface() -> Result<(), String> {
     Ok(())
 }
 
+fn merge_and_filter_env_vars(
+    mut manifest_env_vars: Vec<(String, String)>,
+    runtime_env_vars: Vec<(String, String)>,
+) -> (Vec<(String, String)>, Vec<(String, String)>) {
+    // First we create a hash set to get an unduplicated list of allowed environment variables
+    // from the enclave manifest.
+    let allowed_env_keys: HashSet<_> = manifest_env_vars
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect();
+
+    let internal_env_keys: HashSet<&str> = SALMIAC_ENV_KEYS.iter().copied().collect();
+
+    let (internal_env_vars, other_runtime_env_vars): (Vec<_>, Vec<_>) = runtime_env_vars
+        .into_iter()
+        .partition(|(k, _)| internal_env_keys.contains(k.as_str()));
+
+    // Then if the runtime env vars keys is present in the allowed list, its value is overwritten.
+    for (k, v) in other_runtime_env_vars {
+        if allowed_env_keys.contains(&k) {
+            if let Some((_, mv)) = manifest_env_vars.iter_mut().find(|(mk, _)| mk == &k) {
+                *mv = v;
+            }
+        }
+    }
+    (manifest_env_vars, internal_env_vars)
+}
+
 async fn startup(
     parent_port: &mut AsyncVsockStream,
     settings_path: &Path,
@@ -338,14 +374,17 @@ async fn startup(
         enclave_manifest.enable_overlay_filesystem_persistence,
     );
 
-    let mut runtime_env_vars =
+    let runtime_env_vars =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
     let node_agent_address =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
-    let mut env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
-    // TODO: Filter runtime env vars based on which variables can be overriden/restricted. This
-    // configuration must be set at conversion time.
-    env_vars.append(&mut runtime_env_vars);
+    let env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
+
+    // If a key from runtime_env_vars is present in the enclave_manifest, it can be overridden
+    // at runtime. Otherwise it will be removed from client_env_vars.
+    // internal variables are a constant defined list of variables used by salmiac.
+    let (client_env_vars, internal_env_vars) =
+        merge_and_filter_env_vars(env_vars.clone(), runtime_env_vars.clone());
 
     let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
@@ -373,7 +412,8 @@ async fn startup(
         EnclaveSetupResult {
             app_config,
             enclave_manifest,
-            env_vars,
+            client_env_vars,
+            internal_env_vars,
             node_agent_address,
         },
         networking_setup_result,
@@ -719,9 +759,9 @@ async fn start_user_program(
 
     info!(
         "Setting the following env vars {:?}",
-        enclave_setup_result.env_vars
+        enclave_setup_result.internal_env_vars
     );
-    client_command.envs(enclave_setup_result.env_vars);
+    client_command.envs(enclave_setup_result.client_env_vars);
 
     let streams = connect_to_log_ports(log_conn_addrs).await?;
 
@@ -799,7 +839,9 @@ struct EnclaveSetupResult {
 
     enclave_manifest: EnclaveManifest,
 
-    env_vars: Vec<(String, String)>,
+    client_env_vars: Vec<(String, String)>,
+
+    internal_env_vars: Vec<(String, String)>,
 
     node_agent_address: Option<String>,
 }
@@ -1291,7 +1333,9 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use tokio::runtime::Runtime;
 
-    use crate::enclave::{is_valid_hostname, FileSystemSetupApi, FileSystemSetupConfig};
+    use crate::enclave::{
+        is_valid_hostname, merge_and_filter_env_vars, FileSystemSetupApi, FileSystemSetupConfig,
+    };
 
     struct MockFileSystemApi {}
     #[async_trait]
@@ -1418,6 +1462,73 @@ search .
 options edns0 trust-ad
 "
         );
+    }
+
+    #[test]
+    fn check_enclave_env_vars() {
+        struct TestCase {
+            name: &'static str,
+            manifest_vars: Vec<(&'static str, &'static str)>,
+            runtime_vars: Vec<(&'static str, &'static str)>,
+            enclave_vars: Vec<(&'static str, &'static str)>,
+            internal_vars: Vec<(&'static str, &'static str)>,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                name: "runtime overrides manifest env",
+                manifest_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
+                runtime_vars: vec![("KEY1", "RVAL1")],
+                enclave_vars: vec![("KEY1", "RVAL1"), ("KEY2", "MVAL2")],
+                internal_vars: vec![],
+            },
+            TestCase {
+                name: "runtime env not present in manifest env",
+                manifest_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
+                runtime_vars: vec![("KEY3", "RVAL3"), ("APPCONFIG_ID", "some-config-id")],
+                enclave_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
+                internal_vars: vec![("APPCONFIG_ID", "some-config-id")],
+            },
+            TestCase {
+                name: "empty manifest env",
+                manifest_vars: vec![],
+                runtime_vars: vec![("KEY1", "RVAL1")],
+                enclave_vars: vec![],
+                internal_vars: vec![],
+            },
+            TestCase {
+                name: "empty runtime env",
+                manifest_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
+                runtime_vars: vec![],
+                enclave_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
+                internal_vars: vec![],
+            },
+        ];
+
+        for testc in test_cases {
+            let transform_to_strings = |env_vars: Vec<(&str, &str)>| {
+                env_vars
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect::<Vec<_>>()
+            };
+            let (result_enclave_vars, result_internal_vars) = merge_and_filter_env_vars(
+                transform_to_strings(testc.manifest_vars),
+                transform_to_strings(testc.runtime_vars),
+            );
+            assert_eq!(
+                result_enclave_vars,
+                transform_to_strings(testc.enclave_vars),
+                "test case {} failed",
+                testc.name
+            );
+            assert_eq!(
+                result_internal_vars,
+                transform_to_strings(testc.internal_vars),
+                "test case {} failed",
+                testc.name
+            );
+        }
     }
 }
 
