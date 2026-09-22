@@ -23,9 +23,9 @@ use crate::certificate::{
 };
 use crate::file_system::{
     close_dm_verity_volume, copy_dns_file_to_mount, copy_startup_binary_to_mount,
-    create_fortanix_directories, create_overlay_dirs, fetch_fs_mount_options,
-    mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
-    mount_read_write_file_system, run_nbd_client, setup_dm_verity, unmount_file_system_nodes,
+    create_fortanix_directories, create_overlay_dirs, create_overlay_rw_dirs,
+    fetch_fs_mount_options, mount_file_system_nodes, mount_overlay_fs, mount_read_only_file_system,
+    run_nbd_client, setup_dm_verity, setup_encrypted_mount, unmount_file_system_nodes,
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::converter::CertificateConfig;
@@ -288,7 +288,6 @@ pub(crate) async fn run(
 
         let exit_status =
             start_and_await_user_program_return(setup_result, hostname, log_conn_addrs).await?;
-
         cleanup_fs(encrypted_fs).await?;
 
         Ok(exit_status)
@@ -438,7 +437,7 @@ pub(crate) async fn setup_file_system<
     parent_socket: &mut Socket,
     api: Api,
     setup_config: FileSystemSetupConfig<'a>,
-) -> Result<EncryptedVolume, String> {
+) -> Result<Option<EncryptedVolume>, String> {
     info!("Awaiting NBD config");
     let nbd_config = extract_enum_value!(parent_socket.read_lv().await?, SetupMessages::NBDConfiguration(e) => e)?;
 
@@ -467,7 +466,7 @@ pub trait FileSystemSetupApi<'a> {
         &self,
         nbd_config: NBDConfiguration,
         arg: FileSystemSetupConfig<'a>,
-    ) -> Result<EncryptedVolume, String>;
+    ) -> Result<Option<EncryptedVolume>, String>;
 }
 
 struct FileSystemSetupApiImpl {}
@@ -477,7 +476,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
         &self,
         nbd_config: NBDConfiguration,
         arg: FileSystemSetupConfig<'a>,
-    ) -> Result<EncryptedVolume, String> {
+    ) -> Result<Option<EncryptedVolume>, String> {
         let enclave_manifest = arg.enclave_manifest;
         let auth_cert = arg.cert_list;
         let dsm_url = (&arg.enclave_manifest.dsm_configuration.dsm_url).to_string();
@@ -526,9 +525,14 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
             None
         };
 
-        let encrypted_fs = mount_read_write_file_system(conn_info).await?;
-        info!("Finished read/write file system mount.");
-
+        let encrypted_fs = if enclave_manifest.enable_overlay_filesystem_persistence {
+            let encrypted_fs = setup_encrypted_mount(conn_info).await?;
+            info!("Finished read/write file system mount.");
+            Some(encrypted_fs)
+        } else {
+            None
+        };
+        create_overlay_rw_dirs().await?;
         mount_overlay_fs().await?;
         info!("Mounted enclave root with overlay-fs.");
 
@@ -547,7 +551,7 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
     }
 }
 
-async fn cleanup_fs(encrypted_fs: EncryptedVolume) -> Result<(), String> {
+async fn cleanup_fs(encrypted_fs: Option<EncryptedVolume>) -> Result<(), String> {
     let fs_mount_opts = fetch_fs_mount_options()?;
     unmount_file_system_nodes(FILE_SYSTEM_NODES, fs_mount_opts).await?;
     info!("Unmounted file system nodes.");
@@ -555,8 +559,9 @@ async fn cleanup_fs(encrypted_fs: EncryptedVolume) -> Result<(), String> {
     unmount_overlay_fs().await?;
     info!("Unmounted overlay file system.");
 
-    encrypted_fs.cleanup_encrypted_volume().await?;
-    info!("Closed dm-crypt device.");
+    if let Some(encrypted_fs) = encrypted_fs {
+        encrypted_fs.cleanup_encrypted_volume().await?;
+    };
 
     close_dm_verity_volume().await?;
     info!("Closed dm-verity volume.");
@@ -1295,16 +1300,26 @@ mod tests {
             &self,
             _nbd_config: NBDConfiguration,
             _arg: FileSystemSetupConfig<'a>,
-        ) -> Result<EncryptedVolume, String> {
-            Ok(EncryptedVolume::init("", ""))
+        ) -> Result<Option<EncryptedVolume>, String> {
+            Ok(Some(EncryptedVolume::init("", "")))
         }
     }
 
-    async fn parent(mut parent_socket: InMemorySocket) -> Result<(), String> {
-        parent_lib::setup_file_system(&mut parent_socket, IpAddr::V4(Ipv4Addr::LOCALHOST)).await
+    async fn parent(
+        mut parent_socket: InMemorySocket,
+        persistence_enabled: bool,
+    ) -> Result<(), String> {
+        parent_lib::setup_file_system(
+            &mut parent_socket,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            persistence_enabled,
+        )
+        .await
     }
 
-    async fn enclave(mut enclave_socket: InMemorySocket) -> Result<EncryptedVolume, String> {
+    async fn enclave(
+        mut enclave_socket: InMemorySocket,
+    ) -> Result<Option<EncryptedVolume>, String> {
         let setup_config = FileSystemSetupConfig {
             enclave_manifest: &EnclaveManifest {
                 user_config: UserConfig {
@@ -1342,18 +1357,20 @@ mod tests {
 
     #[test]
     fn setup_enclave_file_system_correct_pass() {
-        let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
         let rt = Runtime::new().expect("Tokio runtime OK");
+        for persistence_enabled in [true, false] {
+            let (enclave_socket, parent_socket) = InMemorySocket::socket_pair();
 
-        rt.block_on(async move {
-            let a = tokio::spawn(parent(parent_socket));
-            let b = tokio::spawn(enclave(enclave_socket));
+            rt.block_on(async move {
+                let a = tokio::spawn(parent(parent_socket, persistence_enabled));
+                let b = tokio::spawn(enclave(enclave_socket));
 
-            let (a_result, b_result) = tokio::join!(a, b);
+                let (a_result, b_result) = tokio::join!(a, b);
 
-            assert!(a_result.is_ok());
-            assert!(b_result.is_ok());
-        });
+                assert!(a_result.is_ok());
+                assert!(b_result.is_ok());
+            });
+        }
     }
 
     #[test]

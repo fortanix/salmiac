@@ -250,6 +250,10 @@ async fn run0(
     };
 
     let parent_builder = PlatformParentImageBuilder {
+        file_system_persistence_enabled: conversion_request
+            .request
+            .converter_options
+            .enable_overlay_filesystem_persistence,
         parent_image_builder: ParentImageBuilder {
             parent_image: parent_image.expect("parent_image should not be None at this point"),
             dir: &temp_dir,
@@ -368,6 +372,20 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
             message: "java_mode is not supported on this platform".to_string(),
             kind: ConverterErrorKind::UnsupportedConfig,
         });
+    }
+
+    #[cfg(not(platform = "nitro"))]
+    if let Some(enable_ovelay_fsp) = request
+        .converter_options
+        .enable_overlay_filesystem_persistence
+    {
+        if enable_ovelay_fsp {
+            return Err(ConverterError {
+                message: "enable_overlay_filesystem_persistence is not supported on this platform"
+                    .to_string(),
+                kind: ConverterErrorKind::UnsupportedConfig,
+            });
+        }
     }
 
     Ok(())
@@ -1051,6 +1069,32 @@ mod tests {
             "java_mode is not supported on this platform"
         );
         assert_eq!(converter_error.kind, ConverterErrorKind::UnsupportedConfig);
+    }
+
+    #[test]
+    #[cfg(not(platform = "nitro"))]
+    fn validate_converter_request_overlay_filesystem_persistence() -> () {
+        let mut request = SAMPLE_REQUEST.clone();
+        // Test 1 - enable_overlay_filesystem_persistence as None, false
+        for enable_ovelay_fsp in [None, Some(false)] {
+            request
+                .converter_options
+                .enable_overlay_filesystem_persistence = enable_ovelay_fsp;
+            assert!(validate_request(&request).is_ok());
+        }
+
+        // Test 2 - enable_overlay_filesystem_persistence as true
+        request
+            .converter_options
+            .enable_overlay_filesystem_persistence = Some(true);
+        let res = validate_request(&request);
+        assert!(res.is_err());
+
+        let converter_error = res.expect_err("");
+        assert_eq!(
+            converter_error.message,
+            "enable_overlay_filesystem_persistence is not supported on this platform"
+        );
     }
 }
 

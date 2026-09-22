@@ -27,6 +27,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
     fn cpu_count(&self) -> u8;
     fn mem_size(&self) -> &Option<api_model::ByteUnit>;
     fn enable_gpu_passthrough(&self) -> Option<bool>;
+    fn file_system_persistence(&self) -> Option<bool>;
     fn platform_name(&self) -> &'static str;
     fn initramfs_filename(&self) -> &'static str;
     fn ovmf_filename(&self) -> &'static str;
@@ -151,17 +152,23 @@ pub(crate) trait QemuParentImageBuilder<'a> {
 
         let from = self.parent_image_builder().parent_image.clone();
 
+        let mut entrypoint: Vec<String> = vec![
+            run_parent_cmd,
+            "--platform".to_string(),
+            self.platform_name().to_string(),
+        ];
+
+        if self.file_system_persistence().unwrap_or_default() {
+            entrypoint.push("--enable-persistence".to_string());
+        }
+
         DockerFile {
             from,
             add: Some(add),
             env: env_vars,
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(vec![
-                run_parent_cmd,
-                "--platform".to_string(),
-                self.platform_name().to_string(),
-            ]),
+            entrypoint: Some(entrypoint),
         }
     }
 

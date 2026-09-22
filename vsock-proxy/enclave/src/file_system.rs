@@ -125,7 +125,7 @@ pub(crate) fn fetch_fs_mount_options() -> Result<FsMountOptions, String> {
     })
 }
 
-pub(crate) async fn mount_read_write_file_system(
+pub(crate) async fn setup_encrypted_mount(
     conn_info: Option<ClientConnectionInfo<'_>>,
 ) -> Result<EncryptedVolume, String> {
     let mut dsm_ops_handler = None;
@@ -143,8 +143,6 @@ pub(crate) async fn mount_read_write_file_system(
     let encrypted_fs =
         EncryptedVolume::setup_encrypted_volume(dsm_ops_handler, NBD_RW_DEVICE, ENCLAVE_FS_RW_ROOT)
             .await?;
-
-    create_overlay_rw_dirs().await?;
 
     Ok(encrypted_fs)
 }

@@ -18,6 +18,7 @@ use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PAT
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
 pub(crate) struct ParentImageBuilder<'a> {
+    pub(crate) file_system_persistence_enabled: Option<bool>,
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: NitroEnclavesConversionRequestOptions,
 }
@@ -137,17 +138,22 @@ impl<'a> ParentImageBuilder<'a> {
 
         let from = self.parent_image_builder.parent_image.clone();
 
+        let mut entrypoint = vec![
+            run_parent_cmd,
+            "--platform".to_string(),
+            "nitro".to_string(),
+        ];
+        if self.file_system_persistence_enabled.unwrap_or_default() {
+            entrypoint.push("--enable-persistence".to_string());
+        }
+
         DockerFile {
             from,
             add: Some(add),
             env: env_vars.to_vec(),
             run: Some(save_envs_run_command),
             cmd: None,
-            entrypoint: Some(vec![
-                run_parent_cmd,
-                "--platform".to_string(),
-                "nitro".to_string(),
-            ]),
+            entrypoint: Some(entrypoint),
         }
     }
 

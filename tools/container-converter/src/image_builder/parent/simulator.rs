@@ -18,6 +18,7 @@ use crate::Result;
 use super::qemu::QemuParentImageBuilder;
 
 pub(crate) struct ParentImageBuilder<'a> {
+    pub(crate) file_system_persistence_enabled: Option<bool>,
     pub(crate) parent_image_builder: crate::image_builder::parent::ParentImageBuilder<'a>,
     pub(crate) start_options: EnclavesOptions,
 }
@@ -48,6 +49,10 @@ impl<'a> QemuParentImageBuilder<'a> for ParentImageBuilder<'a> {
 
     fn enable_gpu_passthrough(&self) -> Option<bool> {
         None
+    }
+
+    fn file_system_persistence(&self) -> Option<bool> {
+        self.file_system_persistence_enabled
     }
 
     fn platform_name(&self) -> &'static str {

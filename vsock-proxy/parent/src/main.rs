@@ -12,6 +12,7 @@ mod parent;
 mod platform;
 mod utils;
 
+use std::env;
 use std::process;
 
 use api_model::ByteUnit;
@@ -46,6 +47,8 @@ struct ParentConsoleArguments {
     pub rw_block_file_size: ByteUnit,
 
     pub enclave_extra_args: Vec<String>,
+
+    pub enable_filesystem_persistence: bool,
 }
 
 impl ParentConsoleArguments {
@@ -57,12 +60,36 @@ impl ParentConsoleArguments {
     }
 
     fn new(matches: &ArgMatches) -> Self {
-        let rw_storage_size = std::env::vars()
+        let rw_storage_size = env::vars()
             .find(|e| e.0 == "RW_STORAGE_SIZE")
             .map(|e| ByteUnit::from_str(&e.1));
 
+        let mut enclave_extra_args: Vec<String> = matches
+            .values_of("unknown")
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect();
+
+        let mut enable_filesystem_persistence = false;
+        enclave_extra_args.retain(|arg| match arg.as_str() {
+            "--enable-persistence" => {
+                enable_filesystem_persistence = true;
+                warn!("overlay_filesystem_persistence is enabled");
+                false
+            }
+            _ => true,
+        });
+
+        info!("enclave_extra_args is {:?}", enclave_extra_args);
+
         let rw_block_file_size = match rw_storage_size {
-            Some(Ok(result)) => result,
+            Some(Ok(result)) => {
+                if !enable_filesystem_persistence {
+                    warn!("RW_STORAGE_SIZE will not be used if persistence is disabled");
+                }
+                result
+            }
             Some(Err(err)) => {
                 warn!(
                     "Cannot parse RW_STORAGE_SIZE.{:?}. Setting read/write block file size to a default value of {}",
@@ -80,17 +107,10 @@ impl ParentConsoleArguments {
             }
         };
 
-        let enclave_extra_args = matches
-            .values_of("unknown")
-            .unwrap_or_default()
-            .into_iter()
-            .map(|e| e.to_string())
-            .collect();
-        info!("enclave_extra_args is {:?}", enclave_extra_args);
-
         Self {
             rw_block_file_size,
             enclave_extra_args,
+            enable_filesystem_persistence,
         }
     }
 }
