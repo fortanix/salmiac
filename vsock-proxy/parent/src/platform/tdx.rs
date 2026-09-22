@@ -97,7 +97,7 @@ mod tests {
             let expected_cmdline = if is_debug {
                 "console=ttyS0 rdinit=/init loglevel=7"
             } else {
-                "console=null rdinit=/init loglevel=7"
+                "console=ttynull rdinit=/init loglevel=7"
             };
             // Ignore formatting to keep logical key/value pairs align better in a single line.
             #[rustfmt::skip]

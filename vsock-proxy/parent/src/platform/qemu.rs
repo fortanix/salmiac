@@ -28,7 +28,7 @@ pub(super) mod constants {
 
     // serial console is enabled only for debug option is selected during conversion
     pub const KERNEL_CMDLINE_WITH_CONSOLE: &str = "console=ttyS0 rdinit=/init loglevel=7";
-    pub const KERNEL_CMDLINE: &str = "console=null rdinit=/init loglevel=7";
+    pub const KERNEL_CMDLINE: &str = "console=ttynull rdinit=/init loglevel=7";
 
     pub const KVM_DEVICE_PATH: &str = "/dev/kvm";
     pub const VSOCK_HOST_DEVICE_PATH: &str = "/dev/vhost-vsock";

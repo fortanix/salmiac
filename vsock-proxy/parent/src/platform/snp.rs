@@ -103,7 +103,7 @@ mod tests {
             let expected_cmdline = if is_debug {
                 "console=ttyS0 rdinit=/init loglevel=7"
             } else {
-                "console=null rdinit=/init loglevel=7"
+                "console=ttynull rdinit=/init loglevel=7"
             };
             // Captured before the QemuPlatform refactoring, with modifications to the memory size.
             // Ignore formatting to keep logical key/value pairs align better in a single line.

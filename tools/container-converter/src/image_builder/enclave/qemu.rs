@@ -123,7 +123,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
         if is_debug {
             "console=ttyS0 rdinit=/init loglevel=7"
         } else {
-            "console=null rdinit=/init loglevel=7"
+            "console=ttynull rdinit=/init loglevel=7"
         }
     }
 }
