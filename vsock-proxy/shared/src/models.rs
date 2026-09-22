@@ -256,9 +256,9 @@ pub enum UserProgramExitStatus {
 
 /// Public failure codes crossing the enclave boundary.
 /// Should not contain internal error details.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnclaveErrorCode {
-    EnclaveFailure(String),
+    EnclaveFailure,
 }
 
 /// Certificate failures without payload to prevent
