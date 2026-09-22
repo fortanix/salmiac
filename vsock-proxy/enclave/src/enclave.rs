@@ -386,10 +386,6 @@ async fn startup(
     // internal variables are a constant defined list of variables used by salmiac.
     let (client_env_vars, internal_env_vars) =
         merge_and_filter_env_vars(env_vars.clone(), runtime_env_vars.clone());
-    debug!(
-        "ajdebug >> runtime vars {:?} \n manifest vars {:?} \n enclave vars {:?} \n internal vars {:?}\n",
-        runtime_env_vars, env_vars, client_env_vars, internal_env_vars
-    );
 
     let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
