@@ -59,8 +59,9 @@ pub fn get_em_client(
 ) -> Result<EmClient, String> {
     // Base path expected to have url scheme.
     let base_path = &format!("https://{}", ccm_backend_url.to_string());
-    let em_client = EmClient::try_new_with_connector(base_path, Some("https"), connector)
+    let mut em_client = EmClient::try_new_with_connector(base_path, Some("https"), connector)
         .map_err(|err| format!("Unable to construct em_client: {}", err))?;
+    em_client.set_use_new_paths(true);
     Ok(em_client)
 }
 
