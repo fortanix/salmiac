@@ -9,6 +9,7 @@ mod certificate;
 mod enclave;
 mod file_system;
 mod platform;
+mod utils;
 
 use std::path::Path;
 use std::process;

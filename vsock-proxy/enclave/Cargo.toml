@@ -18,11 +18,13 @@ clap = "2.33"
 const_format = "0.2.32"
 em-app = { workspace = true }
 em-client = { workspace = true }
+em-node-agent-client = { workspace = true }
 enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
 futures = "0.3"
 hmac = "0.12.1"
 hyper = "0.10"
+hyper-rustls = "0.6.2"
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
@@ -31,6 +33,7 @@ nix = "0.15.0"
 openssl = "0.10"
 pkix = "0.2.6"
 rand = "0.8.5"
+rustls = "0.13"
 rtnetlink = "0.8.0"
 sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
 serde = { version = "1.0.127", features = ["derive"] }
@@ -57,6 +60,7 @@ walkdir = "2"
 lazy_static = "1.0"
 parent_lib = { path = "../parent/lib" }
 tempdir = "0.3.7"
+test-case = "3.3.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "deny" }
