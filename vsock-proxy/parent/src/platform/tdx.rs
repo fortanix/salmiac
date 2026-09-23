@@ -76,8 +76,8 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
-    TdxPlatform.launch_guest()
+pub(crate) fn launch_guest(is_debug: bool) -> Result<GuestLaunchResult, String> {
+    TdxPlatform.launch_guest(is_debug)
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
@@ -90,8 +90,12 @@ mod tests {
     use crate::platform::qemu::tests::diff_args;
     use std::iter::FromIterator;
 
-    #[test]
-    fn test_build_qemu_tdx_args() {
+    fn expected_qemu_args(is_debug: bool) -> Vec<&'static str> {
+        let expected_cmdline = if is_debug {
+            "console=ttyS0 rdinit=/init loglevel=7"
+        } else {
+            "console=ttynull rdinit=/init loglevel=7"
+        };
         // Ignore formatting to keep logical key/value pairs align better in a single line.
         #[rustfmt::skip]
         let expected = vec![
@@ -103,17 +107,27 @@ mod tests {
             "-bios", "/opt/fortanix/enclave-os/OVMF.inteltdx.fd",
             "-kernel", "/opt/fortanix/enclave-os/bzImage",
             "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
-            "-append", "console=ttyS0 rdinit=/init loglevel=7",
+            "-append", expected_cmdline,
             "-device", "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd=0,guest-cid=3",
             "-serial", "mon:stdio",
             "-nodefaults",
         ];
+        expected
+    }
+
+    #[test]
+    fn test_build_qemu_tdx_args() {
         let platform = TdxPlatform {};
-        let args: Vec<String> = platform
-            .build_qemu_args(None, 0, 3)
-            .unwrap()
-            .into_iter()
-            .collect();
-        diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
+        for is_debug in [true, false] {
+            let args: Vec<String> = platform
+                .build_qemu_args(None, 0, 3, is_debug)
+                .unwrap()
+                .into_iter()
+                .collect();
+            diff_args(
+                &expected_qemu_args(is_debug),
+                &Vec::from_iter(args.iter().map(String::as_str)),
+            );
+        }
     }
 }

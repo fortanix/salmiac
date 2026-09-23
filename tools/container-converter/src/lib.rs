@@ -259,6 +259,7 @@ async fn run0(
             dir: &temp_dir,
         },
         start_options: conversion_request.enclaves_options,
+        is_debug: conversion_request.request.converter_options.debug,
     };
 
     info!("Building result image!");

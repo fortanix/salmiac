@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use futures::stream::futures_unordered::FuturesUnordered;
+use std::env;
 use tokio::task::JoinHandle;
 
 #[cfg(platform = "nitro")]
@@ -42,4 +43,8 @@ pub(crate) struct GuestLaunchResult {
 
     #[cfg(any(platform = "snp", platform = "tdx", platform = "simulator"))]
     pub(crate) enclave_connection_config: VmConnectionConfig,
+}
+
+pub(crate) fn env_var_or_default<T: ToString>(var_name: &str, default: T) -> String {
+    env::var(var_name).unwrap_or_else(|_| default.to_string())
 }

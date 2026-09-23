@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::{GuestLaunchResult, GuestTasks};
-use crate::platform::qemu::{env_or_default, QemuPlatform};
+use super::{env_var_or_default, GuestLaunchResult, GuestTasks};
+use crate::platform::qemu::QemuPlatform;
 
 const OVMF_PATH: &str = "/opt/fortanix/enclave-os/OVMF.amdsev.fd";
 
@@ -40,9 +40,10 @@ impl SnpPlatform {
     }
 
     fn snp_guest() -> String {
-        let cbitpos = env_or_default("SNP_CBITPOS", DEFAULT_CBITPOS);
-        let reduced_phys_bits = env_or_default("SNP_REDUCED_PHYS_BITS", DEFAULT_REDUCED_PHYS_BITS);
-        let policy = env_or_default("SNP_POLICY", DEFAULT_POLICY);
+        let cbitpos = env_var_or_default("SNP_CBITPOS", DEFAULT_CBITPOS);
+        let reduced_phys_bits =
+            env_var_or_default("SNP_REDUCED_PHYS_BITS", DEFAULT_REDUCED_PHYS_BITS);
+        let policy = env_var_or_default("SNP_POLICY", DEFAULT_POLICY);
         let snp_guest = format!(
             "sev-snp-guest,id={SNP_GUEST_ID},cbitpos={cbitpos},reduced-phys-bits={reduced_phys_bits},kernel-hashes=on,policy={policy}"
         );
@@ -62,7 +63,7 @@ impl QemuPlatform for SnpPlatform {
     }
 
     fn cpu(&self) -> String {
-        env_or_default("SNP_CPU", DEFAULT_CPU)
+        env_var_or_default("SNP_CPU", DEFAULT_CPU)
     }
 
     fn machine(&self) -> Option<String> {
@@ -81,8 +82,8 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
-    SnpPlatform.launch_guest()
+pub(crate) fn launch_guest(is_debug: bool) -> Result<GuestLaunchResult, String> {
+    SnpPlatform.launch_guest(is_debug)
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {
@@ -95,8 +96,12 @@ mod tests {
     use crate::platform::qemu::tests::diff_args;
     use std::iter::FromIterator;
 
-    #[test]
-    fn test_build_qemu_snp_args() {
+    fn expected_qemu_args(is_debug: bool) -> Vec<&'static str> {
+        let expected_cmdline = if is_debug {
+            "console=ttyS0 rdinit=/init loglevel=7"
+        } else {
+            "console=ttynull rdinit=/init loglevel=7"
+        };
         // Captured before the QemuPlatform refactoring, with modifications to the memory size.
         // Ignore formatting to keep logical key/value pairs align better in a single line.
         #[rustfmt::skip]
@@ -109,18 +114,27 @@ mod tests {
             "-bios", "/opt/fortanix/enclave-os/OVMF.amdsev.fd",
             "-kernel", "/opt/fortanix/enclave-os/bzImage",
             "-initrd", "/opt/fortanix/enclave-os/initramfs.gz",
-            "-append", "console=ttyS0 rdinit=/init loglevel=7",
+            "-append", expected_cmdline,
             "-device", "vhost-vsock-pci,id=vhost-vsock-pci0,vhostfd=0,guest-cid=3",
             "-serial", "mon:stdio",
             "-nodefaults",
         ];
+        expected
+    }
 
+    #[test]
+    fn test_build_qemu_snp_args() {
         let platform = SnpPlatform {};
-        let args: Vec<String> = platform
-            .build_qemu_args(None, 0, 3)
-            .unwrap()
-            .into_iter()
-            .collect();
-        diff_args(&expected, &Vec::from_iter(args.iter().map(String::as_str)));
+        for is_debug in [true, false] {
+            let args: Vec<String> = platform
+                .build_qemu_args(None, 0, 3, is_debug)
+                .unwrap()
+                .into_iter()
+                .collect();
+            diff_args(
+                &expected_qemu_args(is_debug),
+                &Vec::from_iter(args.iter().map(String::as_str)),
+            );
+        }
     }
 }

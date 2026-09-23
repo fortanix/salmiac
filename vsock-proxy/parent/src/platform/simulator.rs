@@ -3,8 +3,8 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use super::{GuestLaunchResult, GuestTasks};
-use crate::platform::qemu::{constants, env_or_default, QemuPlatform};
+use super::{env_var_or_default, GuestLaunchResult, GuestTasks};
+use crate::platform::qemu::{constants, QemuPlatform};
 
 const DEFAULT_MEMORY_SIZE: &str = "2048M";
 
@@ -25,7 +25,7 @@ impl QemuPlatform for SimulatorPlatform {
 
     // Simulator is mostly used locally; setting a reasonable default.
     fn memory_size(&self) -> String {
-        env_or_default(constants::MEM_SIZE_ENV_VAR, DEFAULT_MEMORY_SIZE)
+        env_var_or_default(constants::MEM_SIZE_ENV_VAR, DEFAULT_MEMORY_SIZE)
     }
 
     fn machine(&self) -> Option<String> {
@@ -41,8 +41,8 @@ pub(crate) fn should_forward_client_logs() -> bool {
     true
 }
 
-pub(crate) fn launch_guest() -> Result<GuestLaunchResult, String> {
-    SimulatorPlatform.launch_guest()
+pub(crate) fn launch_guest(is_debug: bool) -> Result<GuestLaunchResult, String> {
+    SimulatorPlatform.launch_guest(is_debug)
 }
 
 pub(crate) fn start_post_connect_guest_tasks() -> GuestTasks {

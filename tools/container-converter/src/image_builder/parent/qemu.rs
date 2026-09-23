@@ -28,6 +28,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
     fn mem_size(&self) -> &Option<api_model::ByteUnit>;
     fn enable_gpu_passthrough(&self) -> Option<bool>;
     fn file_system_persistence(&self) -> Option<bool>;
+    fn is_debug(&self) -> Option<bool>;
     fn platform_name(&self) -> &'static str;
     fn initramfs_filename(&self) -> &'static str;
     fn ovmf_filename(&self) -> &'static str;
@@ -141,7 +142,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
             cpu_count_env,
             enable_gpu_passthrough_env,
             mem_size_env,
-            eos_debug_env,
+            eos_debug_env, // This is from debug_assertions
         ];
 
         let abs_orig_env_list_path = Path::new(INSTALLATION_DIR)
@@ -161,7 +162,9 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         if self.file_system_persistence().unwrap_or_default() {
             entrypoint.push("--enable-persistence".to_string());
         }
-
+        if self.is_debug().unwrap_or_default() {
+            entrypoint.push("--debug".to_string())
+        }
         DockerFile {
             from,
             add: Some(add),
