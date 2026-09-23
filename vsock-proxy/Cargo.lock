@@ -215,7 +215,7 @@ dependencies = [
  "once_cell",
  "pkix",
  "serde",
- "sgx-isa 0.6.0",
+ "sgx-isa",
  "sgx_pkix",
  "tdx-ql",
  "thiserror 1.0.69",
@@ -813,9 +813,9 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "em-app"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9d3e405d735845dd5785a7507f31b7a75f1a1240188c384f2b7c085229b87cc"
+checksum = "08f80401fb67d9befdc2e98a2659d4d3e38e40618d325b80869df7bb2e6264a1"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "b64-ct",
@@ -830,7 +830,7 @@ dependencies = [
  "serde_bytes",
  "serde_derive",
  "serde_json 1.0.68",
- "sgx-isa 0.5.0",
+ "sgx-isa",
  "sgx_pkix",
  "url 1.7.2",
  "uuid 0.6.5",
@@ -1540,7 +1540,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -2524,9 +2524,9 @@ checksum = "9c8132065adcfd6e02db789d9285a0deb2f3fcb04002865ab67d5fb103533898"
 
 [[package]]
 name = "sdkms"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b12e3cb05862db268118482cbad26eee384b479de1924fe5404028e3444481a"
+checksum = "6d2e70f9b18786894511f918b4d95cc7b0db138cce7b7ee05a7be6fb4a25e3ee"
 dependencies = [
  "bitflags 1.3.2",
  "chrono",
@@ -2536,7 +2536,6 @@ dependencies = [
  "rustc-serialize",
  "serde",
  "serde_json 1.0.68",
- "url 1.7.2",
  "uuid 0.8.2",
 ]
 
@@ -2662,15 +2661,6 @@ dependencies = [
 
 [[package]]
 name = "sgx-isa"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6e0a0ec672089f6662b6b5fc4ca8a88e979aae8ceb3e24f1c63ffdab681a12e"
-dependencies = [
- "bitflags 1.3.2",
-]
-
-[[package]]
-name = "sgx-isa"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8dd5abc237863ebc66a61eacd95622cc282f532bb829fb0e5add5cfd6e0542"
@@ -2688,7 +2678,7 @@ dependencies = [
  "lazy_static 1.4.0",
  "pkix",
  "quick-error",
- "sgx-isa 0.5.0",
+ "sgx-isa",
 ]
 
 [[package]]
@@ -2869,7 +2859,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e45842c8a4244b497ac570a590ab0c463fe17d65ae34ceb457acd4145aa8570"
 dependencies = [
  "nix 0.30.1",
- "sgx-isa 0.6.0",
+ "sgx-isa",
 ]
 
 [[package]]
