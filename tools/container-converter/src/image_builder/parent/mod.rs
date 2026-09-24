@@ -137,39 +137,37 @@ pub(crate) fn move_file(from: &Path, to: &Path) -> Result<()> {
             copy_file(from, to)?;
             delete_file(from, to)
         }
-        _ => Err(ConverterError {
-            message: format!(
-                "Failed moving file {} into build context {}. {:?}",
-                from.display(),
-                to.display(),
-                error
-            ),
-            kind: ConverterErrorKind::RequisitesCreation,
-        }),
+        _ => Err(ConverterError::from_error_with_message(
+            error,
+            format!("Failed moving file {:?} into build context {:?}", from, to),
+            ConverterErrorKind::RequisitesCreation,
+        )),
     })
 }
 
 pub(crate) fn copy_file(from: &Path, to: &Path) -> Result<()> {
-    fs::copy(from, to).map_err(|error| ConverterError {
-        message: format!(
-            "Failed moving file {} into build context {} at copy. {:?}",
-            from.display(),
-            to.display(),
-            error
-        ),
-        kind: ConverterErrorKind::RequisitesCreation,
+    fs::copy(from, to).map_err(|err| {
+        ConverterError::from_error_with_message(
+            err,
+            format!(
+                "Failed moving file {:?} into build context {:?} at copy",
+                from, to
+            ),
+            ConverterErrorKind::RequisitesCreation,
+        )
     })?;
     Ok(())
 }
 
 pub(crate) fn delete_file(from: &Path, to: &Path) -> Result<()> {
-    fs::remove_file(from).map_err(|error| ConverterError {
-        message: format!(
-            "Failed moving file {} into build context {} at delete. {:?}",
-            from.display(),
-            to.display(),
-            error
-        ),
-        kind: ConverterErrorKind::RequisitesCreation,
+    fs::remove_file(from).map_err(|err| {
+        ConverterError::from_error_with_message(
+            err,
+            format!(
+                "Failed moving file {:?} into build context {:?} at delete",
+                from, to
+            ),
+            ConverterErrorKind::RequisitesCreation,
+        )
     })
 }
