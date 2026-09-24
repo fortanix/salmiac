@@ -255,9 +255,12 @@ pub enum UserProgramExitStatus {
 }
 
 /// Public failure codes crossing the enclave boundary.
-/// Should not contain internal error details.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+/// Internal error details are included only in debug builds.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum EnclaveErrorCode {
+    #[cfg(debug_assertions)]
+    EnclaveFailure(String),
+    #[cfg(not(debug_assertions))]
     EnclaveFailure,
 }
 

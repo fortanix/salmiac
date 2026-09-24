@@ -304,6 +304,9 @@ pub(crate) async fn run(
         Ok(exit_status)
     });
 
+    // Flush logs before exit signal.
+    log::logger().flush();
+
     signal_user_program_exit_status(&mut parent_stream, enclave_exit_code.clone()).await?;
 
     enclave_exit_code
@@ -617,7 +620,10 @@ async fn signal_user_program_exit_status(
     parent: &mut ParentStream,
     exit_status: Result<UserProgramExitStatus, String>,
 ) -> Result<(), String> {
-    // Discard internal details before serializing anything for the untrusted parent.
+    #[cfg(debug_assertions)]
+    let exit_status = exit_status.map_err(EnclaveErrorCode::EnclaveFailure);
+    // Discard internal details before serializing anything for the untrusted parent in release builds.
+    #[cfg(not(debug_assertions))]
     let exit_status = exit_status.map_err(|_| EnclaveErrorCode::EnclaveFailure);
     match parent
         .exchange_message(&SetupMessages::UserProgramExit(exit_status))
