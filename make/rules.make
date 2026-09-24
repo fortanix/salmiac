@@ -89,7 +89,7 @@ $(SUBDIR)/run-app-test: | $(BUILD_DIR)/$(SUBDIR)/
 	@date
 	cd $$(BUILD_DIR)/$$(SUBDIR) && env "IS_NITRO=true" $$(PYTHONENV) ./$(1) \
 		--toolserver $$(REPO_ROOT)/tools/container-converter/target/$$(FLAVOR)/container-converter \
-		--container-env=nitro \
+		--container-env=$(PLATFORM) \
 		--privileged \
 		--no-results-db \
 		$$(DOCKER_SECURITY_OPT) \
