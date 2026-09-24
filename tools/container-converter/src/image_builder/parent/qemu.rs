@@ -18,7 +18,7 @@ use crate::image_builder::parent::ParentImageBuilder as GenericParentImageBuilde
 use crate::image_builder::{rust_log_env_var, INSTALLATION_DIR, ORIG_ENV_LIST_PATH};
 use crate::{file, ConverterError, ConverterErrorKind, Result};
 
-use super::move_file;
+use super::copy_file;
 use crate::image_builder::blob_finder::BlobFinder;
 
 #[async_trait]
@@ -53,7 +53,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
                 self.initramfs_filename(),
             )?;
 
-        let blob_filenames = self.move_blobs_into_build_context(&build_context)?;
+        let blob_filenames = self.copy_blobs_into_build_context(&build_context)?;
         let mut copy_dependencies: Vec<String> = vec![
             GenericParentImageBuilder::STARTUP_SCRIPT_NAME.to_string(),
             GenericParentImageBuilder::BINARY_NAME.to_string(),
@@ -203,8 +203,8 @@ pub(crate) trait QemuParentImageBuilder<'a> {
         format!("MEM_SIZE={}M", mem_size)
     }
 
-    // Moves blobs located at system to build context and returns filenames only
-    fn move_blobs_into_build_context(&self, build_context: &BuildContext) -> Result<Vec<String>> {
+    // Copy blobs located at system to build context and returns filenames only
+    fn copy_blobs_into_build_context(&self, build_context: &BuildContext) -> Result<Vec<String>> {
         let blobs = self.collect_blob_paths()?;
         let mut filenames = Vec::with_capacity(blobs.len());
         for blob in blobs {
@@ -216,7 +216,7 @@ pub(crate) trait QemuParentImageBuilder<'a> {
                     kind: ConverterErrorKind::RequisitesCreation,
                 })?;
             let dest = build_context.path().join(filename);
-            move_file(blob.as_path(), &dest)?;
+            copy_file(blob.as_path(), &dest)?;
             filenames.push(filename.to_owned());
         }
 

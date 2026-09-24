@@ -133,7 +133,10 @@ impl<'a> ParentImageBuilder<'a> {
 
 pub(crate) fn move_file(from: &Path, to: &Path) -> Result<()> {
     fs::rename(from, to).or_else(|error| match error.kind() {
-        ErrorKind::CrossesDevices => copy_and_delete_file(from, to),
+        ErrorKind::CrossesDevices => {
+            copy_file(from, to)?;
+            delete_file(from, to)
+        }
         _ => Err(ConverterError {
             message: format!(
                 "Failed moving file {} into build context {}. {:?}",
@@ -146,7 +149,7 @@ pub(crate) fn move_file(from: &Path, to: &Path) -> Result<()> {
     })
 }
 
-pub(crate) fn copy_and_delete_file(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn copy_file(from: &Path, to: &Path) -> Result<()> {
     fs::copy(from, to).map_err(|error| ConverterError {
         message: format!(
             "Failed moving file {} into build context {} at copy. {:?}",
@@ -156,6 +159,10 @@ pub(crate) fn copy_and_delete_file(from: &Path, to: &Path) -> Result<()> {
         ),
         kind: ConverterErrorKind::RequisitesCreation,
     })?;
+    Ok(())
+}
+
+pub(crate) fn delete_file(from: &Path, to: &Path) -> Result<()> {
     fs::remove_file(from).map_err(|error| ConverterError {
         message: format!(
             "Failed moving file {} into build context {} at delete. {:?}",
