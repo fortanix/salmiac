@@ -255,10 +255,17 @@ pub enum UserProgramExitStatus {
 }
 
 /// Public failure codes crossing the enclave boundary.
-/// Should not contain internal error details.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+/// Internal error details are included only when conversion debug mode is enabled.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum EnclaveErrorCode {
-    EnclaveFailure,
+    EnclaveFailure(Option<String>),
+}
+
+impl EnclaveErrorCode {
+    /// Discard internal details unless the enclave manifest enables debug mode.
+    pub fn enclave_failure(message: String, is_debug: bool) -> Self {
+        Self::EnclaveFailure(if is_debug { Some(message) } else { None })
+    }
 }
 
 /// Certificate failures without payload to prevent
