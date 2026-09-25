@@ -8,7 +8,7 @@ repository = "https://github.com/fortanix/salmiac"
 
 [dependencies]
 async-process = "1.2.0"
-em-app = "0.5.1"
+em-app = "0.5.3"
 hyper = "0.10.16"
 log = "0.4"
 mbedtls = { version = "0.13.5", features = ["std", "x509", "ssl", "rdrand"] }
