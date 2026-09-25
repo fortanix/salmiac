@@ -4,15 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashSet;
-use std::convert::{From, TryFrom};
-use std::fs;
-use std::ops::DerefMut;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::string::ToString;
-use std::sync::Arc;
-
+#[cfg(platform = "nitro")]
 use crate::app_configuration::{
     setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
@@ -30,10 +22,13 @@ use crate::file_system::{
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::converter::CertificateConfig;
-use api_model::enclave::{CcmBackendUrl, EnclaveManifest};
+#[cfg(platform = "nitro")]
+use api_model::enclave::CcmBackendUrl;
+use api_model::enclave::EnclaveManifest;
 use async_process::{Child, Command};
 use async_trait::async_trait;
 use chrono::Utc;
+#[cfg(platform = "nitro")]
 use em_client::Sha256Hash;
 use em_node_agent_client::{models::IssueCertificateRequest, Api, Client as NodeAgentClient};
 use enclaveos_encrypted_fs::dsm_key_config::{ClientCertificate, ClientConnectionInfo};
@@ -58,6 +53,16 @@ use shared::{
     DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, MAX_HOSTNAME_LABEL_LEN, MAX_HOSTNAME_LEN,
     RESTRICTED_HOSTS, VSOCK_PARENT_CID,
 };
+use std::collections::HashSet;
+use std::convert::From;
+#[cfg(platform = "nitro")]
+use std::convert::TryFrom;
+use std::fs;
+use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::string::ToString;
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
@@ -280,16 +285,20 @@ pub(crate) async fn run(
             write_certificate(certificate, Some(default_cert_dir()))?;
         }
 
-        let first_certificate = certificate_info
-            .into_iter()
-            .next()
-            .map(|e| e.certificate_result);
+        #[cfg(platform = "nitro")]
+        // Fetch datasets using app config ID
+        {
+            let first_certificate = certificate_info
+                .into_iter()
+                .next()
+                .map(|e| e.certificate_result);
 
-        setup_app_configuration(
-            &setup_result.app_config,
-            first_certificate,
-            &setup_result.enclave_manifest.ccm_backend_url,
-        )?;
+            setup_app_configuration(
+                &setup_result.app_config,
+                first_certificate,
+                &setup_result.enclave_manifest.ccm_backend_url,
+            )?;
+        }
 
         drop(parent_guard);
 
@@ -442,6 +451,7 @@ fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, St
     Ok(res)
 }
 
+#[cfg(platform = "nitro")]
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
