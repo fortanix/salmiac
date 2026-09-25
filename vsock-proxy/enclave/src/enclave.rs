@@ -307,7 +307,8 @@ pub(crate) async fn run(
     // Flush logs before exit signal.
     log::logger().flush();
 
-    signal_user_program_exit_status(&mut parent_stream, enclave_exit_code.clone(), is_debug).await?;
+    signal_user_program_exit_status(&mut parent_stream, enclave_exit_code.clone(), is_debug)
+        .await?;
 
     enclave_exit_code
 }
