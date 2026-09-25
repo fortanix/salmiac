@@ -45,9 +45,13 @@ copy_lib() {
   copied_name="$(basename "${src}")"
 
   echo "Staging ${capability} library: ${soname} from ${src}"
-  cp -aL "${src}" "${dst_dir}/${copied_name}"
+  # Replace stale destination symlinks, including loops from earlier staging runs.
+  cp -aL --remove-destination "${src}" "${dst_dir}/${copied_name}"
 
-  ln -sf "${copied_name}" "${dst_dir}/${soname}"
+  # ldconfig may resolve directly to the SONAME; never replace it with a self-link.
+  if [ "${soname}" != "${copied_name}" ]; then
+    ln -sf "${copied_name}" "${dst_dir}/${soname}"
+  fi
 
   if [ "${cache_name}" != "${soname}" ] && [ "${cache_name}" != "${copied_name}" ]; then
     ln -sf "${copied_name}" "${dst_dir}/${cache_name}"
