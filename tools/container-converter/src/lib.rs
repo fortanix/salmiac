@@ -97,6 +97,19 @@ impl fmt::Display for ConverterError {
 
 impl Error for ConverterError {}
 
+impl ConverterError {
+    pub fn from_error_with_message<E: Error>(
+        err: E,
+        msg: String,
+        kind: ConverterErrorKind,
+    ) -> Self {
+        ConverterError {
+            message: format!("{} (reason: {})", msg, err.to_string()),
+            kind,
+        }
+    }
+}
+
 const PARENT_IMAGE_PATH: &str = "parent-base.tar";
 const ENCLAVE_IMAGE_PATH: &str = "enclave-base.tar";
 
