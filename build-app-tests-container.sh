@@ -13,11 +13,12 @@ if [ -z "$SKIP_RUNNING_TESTS" ]; then
   PARENT_BASE="parent-base-${SALMIAC_PLATFORM}"
   docker build qemu/parent-base --build-context common-build-context=./common-build-context -t $PARENT_BASE
   popd
+  echo "build-app-tests-container.sh ${SALMIAC_PLATFORM}"
   make tests-container FLAVOR=$FLAVOR PLATFORM=$SALMIAC_PLATFORM PARENT_BASE=$PARENT_BASE
-  TESTS_CONTAINER_TAG=$(cat build/nitro-$FLAVOR/tests-container-tag)
+  TESTS_CONTAINER_TAG=$(cat build/$SALMIAC_PLATFORM-$FLAVOR/tests-container-tag)
   TESTS_CONTAINER_ECR="513076507034.dkr.ecr.us-west-1.amazonaws.com/salmiac-github-ci/$TESTS_CONTAINER_TAG"
 
-  docker load -i build/nitro-$FLAVOR/salmiac-tests-container.tar.gz
+  docker load -i build/$SALMIAC_PLATFORM-$FLAVOR/salmiac-tests-container.tar.gz
   docker tag $TESTS_CONTAINER_TAG $TESTS_CONTAINER_ECR
   docker push $TESTS_CONTAINER_ECR
 
