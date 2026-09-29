@@ -264,10 +264,10 @@ components:
         cpu_count:
           type: "integer"
           format: "int32"
-          description: "number of (v)CPUs to be used"
+          description: "Number of (v)CPUs to be used. Minimum value must be 1."
         mem_size:
           type: "string"
-          description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
+          description: "Enclave memory size. Suffixes K, M, and G are supported. Minimum size recommended is 3G when enable_gpu_passthrough is set to true."
         enable_gpu_passthrough:
           type: "boolean"
           default: false
@@ -343,14 +343,14 @@ components:
         cpu_count:
           type: "integer"
           format: "int32"
-          description: "number of (v)CPUs to be used"
+          description: "Number of (v)CPUs to be used. Minimum value must be 1."
         mem_size:
           type: "string"
-          description: "Enclave memory size, e.g. 2048M. Suffixes K, M, and G are supported."
+          description: "Enclave memory size. Suffixes K, M, and G are supported. Minimum size recommended is 3G when enable_gpu_passthrough is set to true."
         enable_gpu_passthrough:
           type: "boolean"
           default: false
-          description: "Flag to enable/disable gpu_passthrough, off by default"
+          description: "Flag to enable/disable gpu_passthrough, off by default."
         nvidia_driver_capabilities:
           type: "array"
           items:
