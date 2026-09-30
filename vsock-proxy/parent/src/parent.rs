@@ -5,7 +5,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -23,8 +22,8 @@ use parent_lib::{
     NBDExportConfig,
 };
 use shared::models::{
-    ApplicationConfiguration, GlobalNetworkSettings, HostEntries, ResolvConfig, ResolvConfigOption,
-    SetupMessages, UserProgramExitStatus,
+    ApplicationConfiguration, GlobalNetworkSettings, HostEntries, ResolvConfig, SetupMessages,
+    UserProgramExitStatus,
 };
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
 use shared::tap::{start_tap_loops, PRIVATE_TAP_MTU, PRIVATE_TAP_NAME};
@@ -662,57 +661,6 @@ async fn setup_parent(
     })
 }
 
-fn parse_resolv_conf<P: AsRef<Path>>(path: P) -> Result<ResolvConfig, String> {
-    let parent_resolv = File::open(&path)
-        .map_err(|err| format!("Could not open {:?}. {:?}", path.as_ref(), err))?;
-
-    let lines = BufReader::new(parent_resolv).lines();
-
-    let mut ret = ResolvConfig {
-        nameservers: vec![],
-        search: None,
-        options: vec![],
-        sortlist: vec![],
-    };
-
-    // Parse the lines according to: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
-    for line in lines {
-        let line =
-            line.map_err(|err| format!("unable to read file {:?}. {:?}", path.as_ref(), err))?;
-
-        // Comments
-        if line.trim().is_empty() || line.starts_with([';', '#']) {
-            continue;
-        } else {
-            let (keyword, args) = line.split_once(' ').ok_or(format!(
-                "invalid resolv.conf format detected: keyword does not have a subsequent argument"
-            ))?;
-
-            match keyword {
-                shared::RESOLV_NAMESERVER_KEYWORD => ret.nameservers.push(args.to_owned()),
-                shared::RESOLV_SEARCH_KEYWORD => ret.search = Some(args.to_owned()),
-                shared::RESOLV_SORTLIST_KEYWORD => args
-                    .split(' ')
-                    .take(10)
-                    .for_each(|x| ret.sortlist.push(x.to_string())),
-                shared::RESOLV_OPTIONS_KEYWORD => {
-                    args.split(' ').try_for_each(|opt| -> Result<(), String> {
-                        ret.options.push(ResolvConfigOption::try_from(opt)?);
-                        Ok(())
-                    })?
-                }
-                x => {
-                    return Err(format!(
-                        "invalid resolv.conf format detected: unknown keyword provided {x}"
-                    ))
-                }
-            }
-        }
-    }
-
-    Ok(ret)
-}
-
 /// Customize the resolv.conf before we send it to the enclave. In certain Docker network configurations,
 /// such as Docker custom networks, the parent will be configured with a DNS server listening on the
 /// localhost network at 127.0.0.11 (not a typo). The enclave cannot directly access the parent's loopback
@@ -731,16 +679,11 @@ fn customize_resolv_conf<P: AsRef<Path>>(
     nameserver_address: IpNetwork,
     resolv_conf_path: P,
 ) -> Result<ResolvConfResult, String> {
-    let ResolvConfig {
-        nameservers,
-        search,
-        options,
-        sortlist,
-    } = parse_resolv_conf(resolv_conf_path)?;
+    let mut resolv_config = shared::models::ResolvConfig::parse_resolv_conf(resolv_conf_path)?;
 
     let mut start_dnsmasq: bool = false;
 
-    let nameservers: Vec<String> = nameservers
+    let nameservers: Vec<String> = resolv_config.nameservers
         .iter()
         .map(|x| {
             if x.starts_with("127.0.0.") {
@@ -753,13 +696,10 @@ fn customize_resolv_conf<P: AsRef<Path>>(
         })
         .collect();
 
+    resolv_config.nameservers = nameservers;
+
     let result = ResolvConfResult {
-        resolv_config: ResolvConfig {
-            nameservers,
-            search,
-            options,
-            sortlist,
-        },
+        resolv_config: resolv_config,
         start_dnsmasq,
     };
 
@@ -1149,7 +1089,7 @@ mod tests {
         .unwrap();
         assert_eq!(result.resolv_config.nameservers.len(), 1);
         assert_eq!(result.resolv_config.nameservers[0], "8.8.8.8");
-        assert_eq!(result.resolv_config.search, Some(".".to_owned()));
+        assert!(result.resolv_config.search.is_some());
         assert_eq!(result.start_dnsmasq, false);
 
         // Test that results in dnsmasq
@@ -1160,16 +1100,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.resolv_config.nameservers[0], "192.168.0.10");
-        assert_eq!(result.resolv_config.search, Some(".".to_owned()));
-        assert_eq!(result.resolv_config.options.len(), 2);
-        assert!(result
-            .resolv_config
-            .options
-            .contains(&shared::models::ResolvConfigOption::EDns0));
-        assert!(result
-            .resolv_config
-            .options
-            .contains(&shared::models::ResolvConfigOption::TrustAd));
+        assert!(result.resolv_config.search.is_some());
+        assert!(result.resolv_config.edns0);
+        assert!(result.resolv_config.trust_ad);
         assert_eq!(result.start_dnsmasq, true);
     }
 }

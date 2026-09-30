@@ -4,9 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::convert::TryFrom;
-use std::fmt::{Display, Formatter};
+use std::convert::{TryFrom, TryInto};
+use std::fs::File;
+use std::io::Read;
 use std::net::IpAddr;
+use std::path::Path;
+use std::str::FromStr;
 
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
@@ -15,6 +18,8 @@ use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
 use crate::AppLogPortInfo;
 use std::collections::HashMap;
+
+use resolv_conf::{Config, Family, Lookup, Network, ScopedIp};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -125,120 +130,259 @@ pub struct GlobalNetworkSettings {
 /// from: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ResolvConfig {
-    /// Lists of nameservers, in the order of appearance
     pub nameservers: Vec<String>,
-    /// The entry of search domain, only the last one is considered
-    pub search: Option<String>,
-    /// lists of option entry, if any, and has to be as
-    pub options: Vec<ResolvConfigOption>,
-    /// list of sort-list IP
+    pub last_search: String,
+    pub domain: Option<String>,
+    pub search: Option<Vec<String>>,
     pub sortlist: Vec<String>,
+    pub debug: bool,
+    pub ndots: u32,
+    pub timeout: u32,
+    pub attempts: u32,
+    pub rotate: bool,
+    pub no_check_names: bool,
+    pub inet6: bool,
+    pub ip6_bytestring: bool,
+    pub ip6_dotint: bool,
+    pub edns0: bool,
+    pub single_request: bool,
+    pub single_request_reopen: bool,
+    pub no_tld_query: bool,
+    pub use_vc: bool,
+    pub no_reload: bool,
+    pub trust_ad: bool,
+    pub lookup: Vec<String>,
+    pub family: Vec<String>,
+    pub no_aaaa: bool,
 }
 
 impl ResolvConfig {
     pub fn empty() -> Self {
         Self {
             nameservers: vec![],
+            last_search: "".to_string(),
+            domain: None,
             search: None,
-            options: vec![],
             sortlist: vec![],
+            debug: false,
+            ndots: 1,
+            timeout: 5,
+            attempts: 2,
+            rotate: false,
+            no_check_names: false,
+            inet6: false,
+            ip6_bytestring: false,
+            ip6_dotint: false,
+            edns0: false,
+            single_request: false,
+            single_request_reopen: false,
+            no_tld_query: false,
+            use_vc: false,
+            no_reload: false,
+            trust_ad: false,
+            lookup: vec![],
+            family: vec![],
+            no_aaaa: false,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum ResolvConfigOption {
-    Debug,
-    NDots(u8),
-    Timeout(u8),
-    Attempts(u8),
-    Rotate,
-    NoAAAA,
-    NoCheckNames,
-    Inet6,
-    Ip6ByteString,
-    Ip6DotInt,
-    NoIp6DotInt,
-    EDns0,
-    SingleRequest,
-    SingleRequestReopen,
-    NoTldQuery,
-    UseVc,
-    NoReload,
-    TrustAd,
-}
-
-impl Display for ResolvConfigOption {
-    #[rustfmt::skip]
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use ResolvConfigOption::*;
-        match self {
-            Debug               => write!(f, "debug"),
-            Rotate              => write!(f, "rotate"),
-            NoAAAA              => write!(f, "no-aaaa"),
-            NoCheckNames        => write!(f, "no-check-names"),
-            Inet6               => write!(f, "inet6"),
-            Ip6ByteString       => write!(f, "ip6-bytestring"),
-            Ip6DotInt           => write!(f, "ip6-dotint"),
-            NoIp6DotInt         => write!(f, "no-ip6-dotint"),
-            EDns0               => write!(f, "edns0"),
-            SingleRequest       => write!(f, "single-request"),
-            SingleRequestReopen => write!(f, "single-request-reopen"),
-            NoTldQuery          => write!(f, "no-tld-query"),
-            UseVc               => write!(f, "use-vc"),
-            TrustAd             => write!(f, "trust-ad"),
-            NoReload            => write!(f, "no-reload"),
-            NDots(n)            => write!(f, "ndots:{n}"),
-            Timeout(n)          => write!(f, "timeout:{n}"),
-            Attempts(n)         => write!(f, "attempts:{n}"),
+impl ResolvConfig {
+    pub fn from_lookup(lookup: &Lookup) -> String {
+        match lookup {
+            Lookup::File => "file",
+            Lookup::Bind => "bind",
+            Lookup::Extra(s) => s.as_str(),
         }
+        .to_string()
+    }
+
+    pub fn to_lookup(value: &str) -> Lookup {
+        match value.to_lowercase().as_str() {
+            "file" => Lookup::File,
+            "bind" => Lookup::Bind,
+            s => Lookup::Extra(s.to_string()),
+        }
+    }
+
+    pub fn from_family(family: &Family) -> String {
+        match family {
+            Family::Inet4 => "inet4",
+            Family::Inet6 => "inet6",
+        }
+        .to_string()
+    }
+
+    pub fn to_family(value: &str) -> Result<Family, String> {
+        match value.to_lowercase().as_str() {
+            "inet4" => Ok(Family::Inet4),
+            "inet6" => Ok(Family::Inet6),
+            s => Err(format!(
+                "invalid family enumeration '{s}', expected 'inet4' or 'inet6'"
+            )),
+        }
+    }
+
+    fn check_last_search(value: &Config) -> String {
+        let domain_list: Vec<&String> = value.get_last_search_or_domain().collect();
+
+        let ret = if domain_list.len() == 0 {
+            "none" // If nothing, it is "none"
+        } else if domain_list.len() > 1 {
+            "search" // If it is more than one, it is definitely "search"
+        } else {
+            if let Some(domain) = value.get_domain() {
+                if domain.eq(domain_list[0]) {
+                    "domain"
+                } else {
+                    "search"
+                }
+            } else {
+                "search"
+            }
+        };
+
+        ret.to_string()
+    }
+
+    pub fn parse_resolv_conf<P: AsRef<Path>>(path: P) -> Result<ResolvConfig, String> {
+        let mut parent_resolv = File::open(&path)
+            .map_err(|err| format!("Could not open {:?}. {:?}", path.as_ref(), err))?;
+
+        let mut config_bytes: Vec<u8> = vec![];
+        let _ = parent_resolv
+            .read_to_end(&mut config_bytes)
+            .map_err(|e| format!("unable to read resolv.conf file: {e}"))?;
+
+        let config =
+            Config::parse(&config_bytes).map_err(|e| format!("resolv.conf parsing error: {e}"))?;
+
+        config.try_into()
+    }
+
+    pub fn write_resolv_conf(&self) -> Result<String, String> {
+        let config: Config = self.try_into()?;
+        Ok(config.to_string())
     }
 }
 
-impl TryFrom<&str> for ResolvConfigOption {
+impl TryFrom<Config> for ResolvConfig {
     type Error = String;
 
-    #[rustfmt::skip]
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        use ResolvConfigOption::*;
-        Ok(match value {
-            "debug"                 => Debug,
-            "rotate"                => Rotate,
-            "no-aaaa"               => NoAAAA,
-            "no-check-names"        => NoCheckNames,
-            "inet6"                 => Inet6,
-            "ip6-bytestring"        => Ip6ByteString,
-            "ip6-dotint"            => Ip6DotInt,
-            "no-ip6-dotint"         => NoIp6DotInt,
-            "edns0"                 => EDns0,
-            "single-request"        => SingleRequest,
-            "single-request-reopen" => SingleRequestReopen,
-            "no-tld-query"          => NoTldQuery,
-            "use-vc"                => UseVc,
-            "no-reload"             => NoReload,
-            "trust-ad"              => TrustAd,
-            x => {
-                let mut splitted = x.split(':');
-                let first_part = splitted
-                    .next()
-                    .ok_or(format!("invalid resolv.conf option, missing option token"))?;
-                let second_num = splitted
-                    .next()
-                    .ok_or(format!("invalid resolv.conf option, missing numeric token"))
-                    .and_then(|x| {
-                        u8::from_str_radix(x, 10).map_err(|_| {
-                            format!("invalid resolv.conf option, invalid numeric token: {x}")
-                        })
-                    })?;
-
-                match first_part {
-                    "ndots" => NDots(second_num),
-                    "timeout" => Timeout(second_num),
-                    "attempts" => Attempts(second_num),
-                    _ => return Err(format!("invalid resolv.conf option")),
-                }
-            }
+    fn try_from(value: Config) -> Result<Self, Self::Error> {
+        Ok(Self {
+            nameservers: value.nameservers.iter().map(|f| f.to_string()).collect(),
+            last_search: ResolvConfig::check_last_search(&value),
+            domain: value.get_domain().cloned(),
+            search: value.get_search().cloned(),
+            sortlist: value.sortlist.iter().map(|f| f.to_string()).collect(),
+            debug: value.debug,
+            ndots: value.ndots,
+            timeout: value.timeout,
+            attempts: value.attempts,
+            rotate: value.rotate,
+            no_check_names: value.no_check_names,
+            inet6: value.inet6,
+            ip6_bytestring: value.ip6_bytestring,
+            ip6_dotint: value.ip6_dotint,
+            edns0: value.edns0,
+            single_request: value.single_request,
+            single_request_reopen: value.single_request_reopen,
+            no_tld_query: value.no_tld_query,
+            use_vc: value.use_vc,
+            no_reload: value.no_reload,
+            trust_ad: value.trust_ad,
+            lookup: value
+                .lookup
+                .iter()
+                .map(|f| ResolvConfig::from_lookup(f))
+                .collect(),
+            family: value
+                .family
+                .iter()
+                .map(|f| ResolvConfig::from_family(f))
+                .collect(),
+            no_aaaa: value.no_aaaa,
         })
+    }
+}
+
+impl TryInto<Config> for &ResolvConfig {
+    type Error = String;
+
+    fn try_into(self) -> Result<Config, Self::Error> {
+        let mut config = Config::new();
+        config.nameservers = self
+            .nameservers
+            .iter()
+            .map(|f| ScopedIp::from_str(f))
+            .collect::<Result<Vec<ScopedIp>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        match self.last_search.as_str() {
+            "none" => Ok(()),
+            "search" => {
+                if let Some(domain) = &self.domain {
+                    config.set_domain(domain.clone());
+                }
+                if let Some(search) = &self.search {
+                    config.set_search(search.clone());
+                }
+                Ok(())
+            }
+            "domain" => {
+                if let Some(search) = &self.search {
+                    config.set_search(search.clone());
+                }
+                if let Some(domain) = &self.domain {
+                    config.set_domain(domain.clone());
+                }
+                Ok(())
+            }
+            x => Err(format!(
+                "invalid last_search value '{x}', allowed: none, search, domain"
+            )),
+        }?;
+
+        config.sortlist = self
+            .sortlist
+            .iter()
+            .map(|f| Network::from_str(&f))
+            .collect::<Result<Vec<Network>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        config.debug = self.debug;
+        config.ndots = self.ndots;
+        config.timeout = self.timeout;
+        config.attempts = self.attempts;
+        config.rotate = self.rotate;
+        config.no_check_names = self.no_check_names;
+        config.inet6 = self.inet6;
+        config.ip6_bytestring = self.ip6_bytestring;
+        config.ip6_dotint = self.ip6_dotint;
+        config.edns0 = self.edns0;
+        config.single_request = self.single_request;
+        config.single_request_reopen = self.single_request_reopen;
+        config.no_tld_query = self.no_tld_query;
+        config.use_vc = self.use_vc;
+        config.no_reload = self.no_reload;
+        config.trust_ad = self.trust_ad;
+
+        config.lookup = self
+            .lookup
+            .iter()
+            .map(|f| ResolvConfig::to_lookup(f.as_str()))
+            .collect();
+
+        config.family = self
+            .family
+            .iter()
+            .map(|f| ResolvConfig::to_family(f.as_str()))
+            .collect::<Result<Vec<Family>, _>>()?;
+
+        config.no_aaaa = self.no_aaaa;
+
+        Ok(config)
     }
 }
 
