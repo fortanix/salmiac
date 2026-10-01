@@ -38,9 +38,11 @@ tests-container: $(TESTS-CONTAINER)
 # the container.
 run-tests-container:  $(if $(TESTS_CONTAINER_NO_REBUILD),,$(TESTS-CONTAINER))
 	[ $$(docker images -q $$(cat $(TESTS-CONTAINER-TAGFILE)) | wc -l) -gt 0 ] ||  docker load < $(BUILD_DIR)/$(TESTS-CONTAINER-BASE).tar.gz
-	echo "AWS_CONFIG=$$($(BASE64) < ~/.aws/config)" > $(DOCKER-ENV-FILE)
-	echo "AWS_CREDENTIALS=$$($(BASE64) < ~/.aws/credentials)" >> $(DOCKER-ENV-FILE)
-	echo "ECR_PASSWORD=$$(aws ecr get-login-password)" >> $(DOCKER-ENV-FILE)
+	ifeq ($(PLATFOM),nitro)
+		echo "AWS_CONFIG=$$($(BASE64) < ~/.aws/config)" > $(DOCKER-ENV-FILE)
+		echo "AWS_CREDENTIALS=$$($(BASE64) < ~/.aws/credentials)" >> $(DOCKER-ENV-FILE)
+		echo "ECR_PASSWORD=$$(aws ecr get-login-password)" >> $(DOCKER-ENV-FILE)
+	endif
 	$(RM) -rf /tmp/tests-container-tmp
 	$(MKDIR) -p /tmp/tests-container-tmp
 	docker run --security-opt "seccomp=unconfined" \
@@ -88,6 +90,7 @@ TESTS-STAGE-CONTENTS := \
 #
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/aws-cli-gpg-pub-key,$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements.txt,$(TESTS-STAGE-DIR)/requirements.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements_frozen.txt,$(TESTS-STAGE-DIR)/requirements_frozen.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/strings/generated_string_table.py,$(TESTS-STAGE-DIR)/generated_string_table.py))
@@ -120,6 +123,7 @@ $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
 		--tag $(TESTS-TAG) \
 		--build-arg FLAVOR=$(FLAVOR) \
 		--build-arg PLATFORM=$(PLATFORM) \
+		--build-arg PARENT_BASE=$(PARENT_BASE) \
 		-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
 		$(TESTS-STAGE-DIR)
 	docker save $(TESTS-TAG) | gzip > $@

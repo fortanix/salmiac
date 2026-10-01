@@ -161,7 +161,7 @@ TESTS-DEV-VERSION := dev-$(shell date +%Y%m%d)-$(shell openssl rand -hex 6)
 TESTS-VERSION := $(strip $(if $(filter zircon-release,$(JOB_NAME)),$(TESTS-RELEASE-VERSION),\
 	$(if $(JOB_NAME),$(TESTS-JENKINS-VERSION),$(TESTS-DEV-VERSION))))
 
-TESTS-TAG := $(TESTS-CONTAINER-BASE):$(TESTS-VERSION)
+TESTS-TAG := $(TESTS-CONTAINER-BASE)-$(PLATFORM):$(TESTS-VERSION)
 
 TESTS_CONTAINER_DOCKERFILE := Dockerfile-salmiac-ub24
 
