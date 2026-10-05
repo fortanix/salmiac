@@ -71,6 +71,7 @@ $(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(
 TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key \
 	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24 \
+	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24 \
 	$(TESTS-STAGE-DIR)/requirements.txt \
 	$(TESTS-STAGE-DIR)/requirements_frozen.txt \
 	$(TESTS-STAGE-DIR)/generated_string_table.py \
@@ -90,7 +91,7 @@ TESTS-STAGE-CONTENTS := \
 #
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/aws-cli-gpg-pub-key,$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24))
-$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-tdx24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements.txt,$(TESTS-STAGE-DIR)/requirements.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements_frozen.txt,$(TESTS-STAGE-DIR)/requirements_frozen.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/strings/generated_string_table.py,$(TESTS-STAGE-DIR)/generated_string_table.py))

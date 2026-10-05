@@ -163,7 +163,7 @@ TESTS-VERSION := $(strip $(if $(filter zircon-release,$(JOB_NAME)),$(TESTS-RELEA
 
 TESTS-TAG := $(TESTS-CONTAINER-BASE)-$(PLATFORM):$(TESTS-VERSION)
 
-TESTS_CONTAINER_DOCKERFILE := Dockerfile-salmiac-ub24
+TESTS_CONTAINER_DOCKERFILE ?= Dockerfile-salmiac-ub24
 
 #
 # Location of the stage directory for the tests container

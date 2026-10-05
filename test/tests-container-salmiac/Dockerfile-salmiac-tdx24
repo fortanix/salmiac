@@ -68,9 +68,9 @@ RUN usermod -aG sudo zircon-tests && \
 WORKDIR /home/zircon-tests/tests
 
 ENV PYTHONPATH="${PYTHONPATH}:/home/zircon-tests/tests/tools/app-test-infra/python:/home/zircon-tests/tests/codegen/python" \
-    PLATFORM=$PLATFORM \
+    PLATFORM=tdx \
     FLAVOR=$FLAVOR \
     DOCKER_REGISTRY=$DOCKER_REGISTRY \
     IS_NITRO=false
 
-ENTRYPOINT [ "/home/zircon-tests/tests/tools/app-test-infra/bin/tests-container-entry.sh" , "--app-test-salmiac", "--frequency", "daily"]
+ENTRYPOINT [ "/home/zircon-tests/tests/tools/app-test-infra/bin/tests-container-entry.sh" , "--app-test-salmiac", "--frequency", "daily", "--container-platform", "tdx"]
