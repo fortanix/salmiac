@@ -38,11 +38,9 @@ tests-container: $(TESTS-CONTAINER)
 # the container.
 run-tests-container:  $(if $(TESTS_CONTAINER_NO_REBUILD),,$(TESTS-CONTAINER))
 	[ $$(docker images -q $$(cat $(TESTS-CONTAINER-TAGFILE)) | wc -l) -gt 0 ] ||  docker load < $(BUILD_DIR)/$(TESTS-CONTAINER-BASE).tar.gz
-	ifeq ($(PLATFOM),nitro)
-		echo "AWS_CONFIG=$$($(BASE64) < ~/.aws/config)" > $(DOCKER-ENV-FILE)
-		echo "AWS_CREDENTIALS=$$($(BASE64) < ~/.aws/credentials)" >> $(DOCKER-ENV-FILE)
-		echo "ECR_PASSWORD=$$(aws ecr get-login-password)" >> $(DOCKER-ENV-FILE)
-	endif
+	echo "AWS_CONFIG=$$($(BASE64) < ~/.aws/config)" > $(DOCKER-ENV-FILE)
+	echo "AWS_CREDENTIALS=$$($(BASE64) < ~/.aws/credentials)" >> $(DOCKER-ENV-FILE)
+	echo "ECR_PASSWORD=$$(aws ecr get-login-password)" >> $(DOCKER-ENV-FILE)
 	$(RM) -rf /tmp/tests-container-tmp
 	$(MKDIR) -p /tmp/tests-container-tmp
 	docker run --security-opt "seccomp=unconfined" \
@@ -120,17 +118,32 @@ $(foreach lib,$($(SUBDIR)/PYTHON-LIB-FILES) $($(SUBDIR)/BIN-FILES),$(eval $(call
 # to always be rebuilt isn't costing us much time. We can revisit
 # if populating the stage directory starts taking longer.
 $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
-	docker build \
-		--tag $(TESTS-TAG) \
-		--build-arg FLAVOR=$(FLAVOR) \
-		--build-arg PLATFORM=$(PLATFORM) \
-		--build-arg PARENT_BASE=$(PARENT_BASE) \
-		-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
-		$(TESTS-STAGE-DIR)
-	docker save $(TESTS-TAG) | gzip > $@
-	echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
-	docker rmi -f $(TESTS-TAG)
-	$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
+	ifeq ($(PLATFOM),nitro)
+		docker build \
+			--tag $(TESTS-TAG) \
+			--build-arg FLAVOR=$(FLAVOR) \
+			--build-arg PLATFORM=$(PLATFORM) \
+			--build-arg PARENT_BASE=$(PARENT_BASE) \
+			-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
+			$(TESTS-STAGE-DIR)
+		docker save $(TESTS-TAG) | gzip > $@
+		echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
+		docker rmi -f $(TESTS-TAG)
+		$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
+	endif
+	ifeq ($(PLATFORM),tdx)
+		docker build \
+			--tag $(TESTS-TAG) \
+			--build-arg FLAVOR=$(FLAVOR) \
+			--build-arg PLATFORM=$(PLATFORM) \
+			--build-arg PARENT_BASE=$(PARENT_BASE) \
+			-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
+			$(TESTS-STAGE-DIR)
+		docker save $(TESTS-TAG) | gzip > $@
+		echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
+		docker rmi -f $(TESTS-TAG)
+		$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
+	endif
 
 $(TESTS-CONTAINER-APP-TESTS-FILE)::    | $(dir $(TESTS-CONTAINER-APP-TESTS-FILE))
 
