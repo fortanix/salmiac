@@ -52,6 +52,8 @@ COPY tests /home/zircon-tests/tests/
 COPY docker-credential-ecr-login /usr/local/bin/
 COPY docker-config.json /home/zircon-tests/.docker/config.json
 COPY container-converter /home/zircon-tests/tests/tools/converter/bin/container-converter
+COPY parent-base.tar /home/zircon-tests/tests
+COPY enclave-base.tar /home/zircon-tests/tests
 RUN mkdir /home/zircon-tests/tests/codegen && mkdir /home/zircon-tests/tests/codegen/python
 COPY generated_string_table.py /home/zircon-tests/tests/codegen/python
 

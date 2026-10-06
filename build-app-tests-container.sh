@@ -10,11 +10,10 @@ FLAVOR=debug
 if [ -z "$SKIP_RUNNING_TESTS" ]; then
   pushd docker
   cp -a "staging/${SALMIAC_PLATFORM}/kernel_enabled_gpu/nvidia-artifacts.tar.gz" common-build-context/.
-  PARENT_BASE="parent-base-${SALMIAC_PLATFORM}"
-  docker build qemu/parent-base --build-context common-build-context=./common-build-context -t $PARENT_BASE
+  docker build qemu/parent-base --build-context common-build-context=./common-build-context -t parent-base
   popd
   echo "build-app-tests-container.sh ${SALMIAC_PLATFORM}"
-  make tests-container FLAVOR=$FLAVOR PLATFORM=$SALMIAC_PLATFORM PARENT_BASE=$PARENT_BASE
+  make tests-container FLAVOR=$FLAVOR PLATFORM=$SALMIAC_PLATFORM
   TESTS_CONTAINER_TAG=$(cat build/$SALMIAC_PLATFORM-$FLAVOR/tests-container-tag)
   TESTS_CONTAINER_ECR="513076507034.dkr.ecr.us-west-1.amazonaws.com/salmiac-github-ci/$TESTS_CONTAINER_TAG"
 

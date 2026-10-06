@@ -75,6 +75,8 @@ TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/generated_string_table.py \
 	$(TESTS-STAGE-DIR)/docker-config.json \
 	$(TESTS-STAGE-DIR)/container-converter \
+	$(TESTS-STAGE-DIR)/parent-base.tar \
+	$(TESTS-STAGE-DIR)/enclave-base.tar \
 	$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR) \
 	$(TESTS-STAGE-DIR)/amzn-linux-nbd \
 	$($(SUBDIR)/STAGED-BIN-FILES) \
@@ -97,6 +99,8 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-inrfa/bin/tests-container
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-infra/bin/tests-container-run.py,$(TESTS-STAGE-DIR)/tests-container-run.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/docker-config.json,$(TESTS-STAGE-DIR)/docker-config.json))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/container-converter/target/$(FLAVOR)/container-converter,$(TESTS-STAGE-DIR)/container-converter))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/enclave-base.tar,$(TESTS-STAGE-DIR)/enclave-base.tar))
 $(eval $(call pull-s3,s3\://downloads.fortanix.com/salmiac/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR)))
 $(eval $(call untar-pkg,$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/amzn-linux-nbd))
 
@@ -118,32 +122,16 @@ $(foreach lib,$($(SUBDIR)/PYTHON-LIB-FILES) $($(SUBDIR)/BIN-FILES),$(eval $(call
 # to always be rebuilt isn't costing us much time. We can revisit
 # if populating the stage directory starts taking longer.
 $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
-	ifeq ($(PLATFOM),nitro)
-		docker build \
-			--tag $(TESTS-TAG) \
-			--build-arg FLAVOR=$(FLAVOR) \
-			--build-arg PLATFORM=$(PLATFORM) \
-			--build-arg PARENT_BASE=$(PARENT_BASE) \
-			-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
-			$(TESTS-STAGE-DIR)
-		docker save $(TESTS-TAG) | gzip > $@
-		echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
-		docker rmi -f $(TESTS-TAG)
-		$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
-	endif
-	ifeq ($(PLATFORM),tdx)
-		docker build \
-			--tag $(TESTS-TAG) \
-			--build-arg FLAVOR=$(FLAVOR) \
-			--build-arg PLATFORM=$(PLATFORM) \
-			--build-arg PARENT_BASE=$(PARENT_BASE) \
-			-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
-			$(TESTS-STAGE-DIR)
-		docker save $(TESTS-TAG) | gzip > $@
-		echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
-		docker rmi -f $(TESTS-TAG)
-		$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
-	endif
+	docker build \
+		--tag $(TESTS-TAG) \
+		--build-arg FLAVOR=$(FLAVOR) \
+		--build-arg PLATFORM=$(PLATFORM) \
+		-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
+		$(TESTS-STAGE-DIR)
+	docker save $(TESTS-TAG) | gzip > $@
+	echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
+	docker rmi -f $(TESTS-TAG)
+	$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
 
 $(TESTS-CONTAINER-APP-TESTS-FILE)::    | $(dir $(TESTS-CONTAINER-APP-TESTS-FILE))
 
