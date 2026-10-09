@@ -78,7 +78,9 @@ TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/parent-base.tar \
 	$(TESTS-STAGE-DIR)/enclave-base.tar \
 	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init \
+	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug \
 	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init \
+	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug \
 	$(TESTS-STAGE-DIR)/tdx/OVMF.inteltdx.fd \
 	$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/.config \
 	$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/bzImage \
@@ -114,6 +116,8 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/container-converter/target/$(FLAVO
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/enclave-base.tar,$(TESTS-STAGE-DIR)/enclave-base.tar))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/kernel_disabled_gpu/init,$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/kernel_enabled_gpu/init,$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/kernel_disabled_gpu/init-debug,$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/kernel_enabled_gpu/init-debug,$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/OVMF.inteltdx.fd,$(TESTS-STAGE-DIR)/tdx/OVMF.inteltdx.fd))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_disabled_gpu/.config,$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/.config))
