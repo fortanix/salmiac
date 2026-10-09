@@ -77,6 +77,18 @@ TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/container-converter \
 	$(TESTS-STAGE-DIR)/parent-base.tar \
 	$(TESTS-STAGE-DIR)/enclave-base.tar \
+	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init \
+	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init \
+	$(TESTS-STAGE-DIR)/tdx/OVMF.inteltdx.fd \
+	$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/.config \
+	$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/bzImage \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/.config \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/bzImage \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-artifacts.tar.gz \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-drm.ko \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-modeset.ko \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-uvm.ko \
+	$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia.ko \
 	$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR) \
 	$(TESTS-STAGE-DIR)/amzn-linux-nbd \
 	$($(SUBDIR)/STAGED-BIN-FILES) \
@@ -99,8 +111,21 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-inrfa/bin/tests-container
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-infra/bin/tests-container-run.py,$(TESTS-STAGE-DIR)/tests-container-run.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/docker-config.json,$(TESTS-STAGE-DIR)/docker-config.json))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/container-converter/target/$(FLAVOR)/container-converter,$(TESTS-STAGE-DIR)/container-converter))
-$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/enclave-base.tar,$(TESTS-STAGE-DIR)/enclave-base.tar))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/kernel_disabled_gpu/init,$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/kernel_enabled_gpu/init,$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/OVMF.inteltdx.fd,$(TESTS-STAGE-DIR)/tdx/OVMF.inteltdx.fd))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_disabled_gpu/.config,$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/.config))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_disabled_gpu/bzImage,$(TESTS-STAGE-DIR)/tdx/kernel_disabled_gpu/bzImage))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/.config,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/.config))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/bzImage,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/bzImage))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-artifacts.tar.gz))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-drm.ko,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-drm.ko))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-modeset.ko))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia-uvm.ko))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/$(PLATFORM)/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko,$(TESTS-STAGE-DIR)/tdx/kernel_enabled_gpu/nvidia.ko))
+
 $(eval $(call pull-s3,s3\://downloads.fortanix.com/salmiac/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR)))
 $(eval $(call untar-pkg,$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/amzn-linux-nbd))
 

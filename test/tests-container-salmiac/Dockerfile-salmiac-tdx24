@@ -52,8 +52,27 @@ COPY tests /home/zircon-tests/tests/
 COPY docker-credential-ecr-login /usr/local/bin/
 COPY docker-config.json /home/zircon-tests/.docker/config.json
 COPY container-converter /home/zircon-tests/tests/tools/converter/bin/container-converter
-COPY parent-base.tar /home/zircon-tests/tests
-COPY enclave-base.tar /home/zircon-tests/tests
+
+# Copy custom OVMF
+COPY tdx/OVMF.inteltdx.fd /opt/fortanix/enclave-os/blobs/OVMF.inteltdx.fd
+
+# Copy gpu disabled artifacts
+COPY kernel_disabled_gpu/init /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/init
+COPY tdx/kernel_disabled_gpu/.config /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/bzImage.config
+COPY tdx/kernel_disabled_gpu/bzImage /opt/fortanix/enclave-os/blobs/kernel_disabled_gpu/bzImage
+
+# Copy gpu enabled artifacts
+COPY kernel_enabled_gpu/init /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/init
+COPY tdx/kernel_enabled_gpu/.config /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/bzImage.config
+COPY tdx/kernel_enabled_gpu/bzImage /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/bzImage
+COPY tdx/kernel_enabled_gpu/nvidia-uvm.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia-uvm.ko
+COPY tdx/kernel_enabled_gpu/nvidia.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia.ko
+COPY tdx/kernel_enabled_gpu/nvidia-drm.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia-drm.ko
+COPY tdx/kernel_enabled_gpu/nvidia-modeset.ko /opt/fortanix/enclave-os/blobs/kernel_enabled_gpu/nvidia-modeset.ko
+
+# Copy the parts that change often last to reuse layers
+COPY parent-base.tar enclave-base.tar /app/
+
 RUN mkdir /home/zircon-tests/tests/codegen && mkdir /home/zircon-tests/tests/codegen/python
 COPY generated_string_table.py /home/zircon-tests/tests/codegen/python
 
