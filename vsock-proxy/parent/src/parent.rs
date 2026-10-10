@@ -696,7 +696,7 @@ fn customize_resolv_conf<P: AsRef<Path>>(
     })?;
 
     let result = ResolvConfResult {
-        resolv_config: resolv_config,
+        resolv_config,
         start_dnsmasq,
     };
 
