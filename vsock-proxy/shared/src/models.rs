@@ -3,13 +3,10 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-use std::convert::{TryFrom, TryInto};
 use std::fs::File;
 use std::io::Read;
 use std::net::IpAddr;
 use std::path::Path;
-use std::str::FromStr;
 
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
@@ -19,7 +16,7 @@ use crate::netlink::route::{Gateway, Route};
 use crate::AppLogPortInfo;
 use std::collections::HashMap;
 
-use resolv_conf::{Config, Family, Lookup, Network, ScopedIp};
+use resolv_conf::Config;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -128,124 +125,33 @@ pub struct GlobalNetworkSettings {
 /// Data structure that represents the content of /etc/resolv.conf file from
 /// the parents that we want to pass to the enclave. It is following the description
 /// from: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ResolvConfig {
-    pub nameservers: Vec<String>,
-    pub last_search: String,
-    pub domain: Option<String>,
-    pub search: Option<Vec<String>>,
-    pub sortlist: Vec<String>,
-    pub debug: bool,
-    pub ndots: u32,
-    pub timeout: u32,
-    pub attempts: u32,
-    pub rotate: bool,
-    pub no_check_names: bool,
-    pub inet6: bool,
-    pub ip6_bytestring: bool,
-    pub ip6_dotint: bool,
-    pub edns0: bool,
-    pub single_request: bool,
-    pub single_request_reopen: bool,
-    pub no_tld_query: bool,
-    pub use_vc: bool,
-    pub no_reload: bool,
-    pub trust_ad: bool,
-    pub lookup: Vec<String>,
-    pub family: Vec<String>,
-    pub no_aaaa: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvConfig(Config);
+
+impl Serialize for ResolvConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
 }
 
-impl ResolvConfig {
-    pub fn empty() -> Self {
-        Self {
-            nameservers: vec![],
-            last_search: "".to_string(),
-            domain: None,
-            search: None,
-            sortlist: vec![],
-            debug: false,
-            ndots: 1,
-            timeout: 5,
-            attempts: 2,
-            rotate: false,
-            no_check_names: false,
-            inet6: false,
-            ip6_bytestring: false,
-            ip6_dotint: false,
-            edns0: false,
-            single_request: false,
-            single_request_reopen: false,
-            no_tld_query: false,
-            use_vc: false,
-            no_reload: false,
-            trust_ad: false,
-            lookup: vec![],
-            family: vec![],
-            no_aaaa: false,
-        }
+impl<'de> Deserialize<'de> for ResolvConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        Config::parse(&s)
+            .map(ResolvConfig)
+            .map_err(serde::de::Error::custom)
     }
 }
 
 impl ResolvConfig {
-    pub fn from_lookup(lookup: &Lookup) -> String {
-        match lookup {
-            Lookup::File => "file",
-            Lookup::Bind => "bind",
-            Lookup::Extra(s) => s.as_str(),
-        }
-        .to_string()
-    }
-
-    pub fn to_lookup(value: &str) -> Lookup {
-        match value.to_lowercase().as_str() {
-            "file" => Lookup::File,
-            "bind" => Lookup::Bind,
-            s => Lookup::Extra(s.to_string()),
-        }
-    }
-
-    pub fn from_family(family: &Family) -> String {
-        match family {
-            Family::Inet4 => "inet4",
-            Family::Inet6 => "inet6",
-        }
-        .to_string()
-    }
-
-    pub fn to_family(value: &str) -> Result<Family, String> {
-        match value.to_lowercase().as_str() {
-            "inet4" => Ok(Family::Inet4),
-            "inet6" => Ok(Family::Inet6),
-            s => Err(format!(
-                "invalid family enumeration '{s}', expected 'inet4' or 'inet6'"
-            )),
-        }
-    }
-
-    fn check_last_search(value: &Config) -> String {
-        let domain_list: Vec<&String> = value.get_last_search_or_domain().collect();
-
-        let ret = if domain_list.len() == 0 {
-            "none" // If nothing, it is "none"
-        } else if domain_list.len() > 1 {
-            "search" // If it is more than one, it is definitely "search"
-        } else {
-            if let Some(domain) = value.get_domain() {
-                if domain.eq(domain_list[0]) {
-                    "domain"
-                } else {
-                    "search"
-                }
-            } else {
-                "search"
-            }
-        };
-
-        ret.to_string()
-    }
-
-    pub fn parse_resolv_conf<P: AsRef<Path>>(path: P) -> Result<ResolvConfig, String> {
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let mut parent_resolv = File::open(&path)
             .map_err(|err| format!("Could not open {:?}. {:?}", path.as_ref(), err))?;
 
@@ -257,132 +163,28 @@ impl ResolvConfig {
         let config =
             Config::parse(&config_bytes).map_err(|e| format!("resolv.conf parsing error: {e}"))?;
 
-        config.try_into()
+        Ok(Self(config))
     }
 
-    pub fn write_resolv_conf(&self) -> Result<String, String> {
-        let config: Config = self.try_into()?;
-        Ok(config.to_string())
-    }
-}
+    pub fn transform_nameservers<F>(&mut self, mut mapper: F) -> Result<(), String>
+    where
+        F: FnMut(IpAddr) -> Result<Option<IpAddr>, String>,
+    {
+        self.0.nameservers.iter_mut().try_for_each(|entry| {
+            let res = mapper(entry.clone().into())?;
 
-impl TryFrom<Config> for ResolvConfig {
-    type Error = String;
+            if let Some(new_ip) = res {
+                *entry = new_ip.into();
+            }
 
-    fn try_from(value: Config) -> Result<Self, Self::Error> {
-        Ok(Self {
-            nameservers: value.nameservers.iter().map(|f| f.to_string()).collect(),
-            last_search: ResolvConfig::check_last_search(&value),
-            domain: value.get_domain().cloned(),
-            search: value.get_search().cloned(),
-            sortlist: value.sortlist.iter().map(|f| f.to_string()).collect(),
-            debug: value.debug,
-            ndots: value.ndots,
-            timeout: value.timeout,
-            attempts: value.attempts,
-            rotate: value.rotate,
-            no_check_names: value.no_check_names,
-            inet6: value.inet6,
-            ip6_bytestring: value.ip6_bytestring,
-            ip6_dotint: value.ip6_dotint,
-            edns0: value.edns0,
-            single_request: value.single_request,
-            single_request_reopen: value.single_request_reopen,
-            no_tld_query: value.no_tld_query,
-            use_vc: value.use_vc,
-            no_reload: value.no_reload,
-            trust_ad: value.trust_ad,
-            lookup: value
-                .lookup
-                .iter()
-                .map(|f| ResolvConfig::from_lookup(f))
-                .collect(),
-            family: value
-                .family
-                .iter()
-                .map(|f| ResolvConfig::from_family(f))
-                .collect(),
-            no_aaaa: value.no_aaaa,
+            Ok(())
         })
     }
 }
 
-impl TryInto<Config> for &ResolvConfig {
-    type Error = String;
-
-    fn try_into(self) -> Result<Config, Self::Error> {
-        let mut config = Config::new();
-        config.nameservers = self
-            .nameservers
-            .iter()
-            .map(|f| ScopedIp::from_str(f))
-            .collect::<Result<Vec<ScopedIp>, _>>()
-            .map_err(|e| e.to_string())?;
-
-        match self.last_search.as_str() {
-            "none" => Ok(()),
-            "search" => {
-                if let Some(domain) = &self.domain {
-                    config.set_domain(domain.clone());
-                }
-                if let Some(search) = &self.search {
-                    config.set_search(search.clone());
-                }
-                Ok(())
-            }
-            "domain" => {
-                if let Some(search) = &self.search {
-                    config.set_search(search.clone());
-                }
-                if let Some(domain) = &self.domain {
-                    config.set_domain(domain.clone());
-                }
-                Ok(())
-            }
-            x => Err(format!(
-                "invalid last_search value '{x}', allowed: none, search, domain"
-            )),
-        }?;
-
-        config.sortlist = self
-            .sortlist
-            .iter()
-            .map(|f| Network::from_str(&f))
-            .collect::<Result<Vec<Network>, _>>()
-            .map_err(|e| e.to_string())?;
-
-        config.debug = self.debug;
-        config.ndots = self.ndots;
-        config.timeout = self.timeout;
-        config.attempts = self.attempts;
-        config.rotate = self.rotate;
-        config.no_check_names = self.no_check_names;
-        config.inet6 = self.inet6;
-        config.ip6_bytestring = self.ip6_bytestring;
-        config.ip6_dotint = self.ip6_dotint;
-        config.edns0 = self.edns0;
-        config.single_request = self.single_request;
-        config.single_request_reopen = self.single_request_reopen;
-        config.no_tld_query = self.no_tld_query;
-        config.use_vc = self.use_vc;
-        config.no_reload = self.no_reload;
-        config.trust_ad = self.trust_ad;
-
-        config.lookup = self
-            .lookup
-            .iter()
-            .map(|f| ResolvConfig::to_lookup(f.as_str()))
-            .collect();
-
-        config.family = self
-            .family
-            .iter()
-            .map(|f| ResolvConfig::to_family(f.as_str()))
-            .collect::<Result<Vec<Family>, _>>()?;
-
-        config.no_aaaa = self.no_aaaa;
-
-        Ok(config)
+impl ToString for ResolvConfig {
+    fn to_string(&self) -> String {
+        self.0.to_string()
     }
 }
 
@@ -420,4 +222,37 @@ pub enum CertificateErrorCode {
     Timeout,
     RequestFailed,
     InternalError,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{net::Ipv4Addr, str::FromStr};
+
+    use resolv_conf::Config;
+
+    use crate::models::ResolvConfig;
+
+    #[test]
+    fn verify_resolv_conf_generation() {
+        let mut resolv_conf = Config::new();
+        resolv_conf.nameservers.push(resolv_conf::ScopedIp::V4(
+            Ipv4Addr::from_str("192.168.0.10").unwrap(),
+        ));
+        resolv_conf.set_search(vec![".".to_string()]);
+        resolv_conf.edns0 = true;
+        resolv_conf.trust_ad = true;
+
+        let conf = ResolvConfig(resolv_conf);
+
+        let res = conf.to_string();
+
+        assert_eq!(
+            res,
+            r"nameserver 192.168.0.10
+search .
+options edns0
+options trust-ad
+"
+        );
+    }
 }

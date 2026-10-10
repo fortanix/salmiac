@@ -1000,7 +1000,7 @@ fn write_hostname_file(hostname: &str) -> Result<(), String> {
 
 fn write_network_files(global_settings: &GlobalNetworkSettings) -> Result<(), String> {
     // Write resolv conf file
-    let resolv_conf = &global_settings.resolv_config.write_resolv_conf()?;
+    let resolv_conf = &global_settings.resolv_config.to_string();
     write_to_file(Path::new(DNS_RESOLV_FILE), &resolv_conf, DNS_RESOLV_FILE)?;
     Ok(())
 }
@@ -1295,7 +1295,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use enclaveos_encrypted_fs::EncryptedVolume;
-    use shared::models::{NBDConfiguration, ResolvConfig};
+    use shared::models::NBDConfiguration;
     use shared::socket::InMemorySocket;
     use std::net::{IpAddr, Ipv4Addr};
     use tokio::runtime::Runtime;
@@ -1407,47 +1407,6 @@ mod tests {
         assert!(!is_valid_hostname("host_name"));
         assert!(!is_valid_hostname(&"a".repeat(64)));
         assert!(!is_valid_hostname(&format!("{}.com", "a".repeat(251))));
-    }
-
-    #[test]
-    fn verify_resolv_conf_generation() {
-        let conf = ResolvConfig {
-            nameservers: vec!["192.168.0.10".to_string()],
-            last_search: "search".to_string(),
-            domain: None,
-            search: Some(vec![".".to_string()]),
-            sortlist: vec![],
-            debug: false,
-            ndots: 1,
-            timeout: 5,
-            attempts: 2,
-            rotate: false,
-            no_check_names: false,
-            inet6: false,
-            ip6_bytestring: false,
-            ip6_dotint: false,
-            edns0: true,
-            single_request: false,
-            single_request_reopen: false,
-            no_tld_query: false,
-            use_vc: false,
-            no_reload: false,
-            trust_ad: true,
-            lookup: vec![],
-            family: vec![],
-            no_aaaa: false,
-        };
-
-        let res = conf.write_resolv_conf().unwrap();
-
-        assert_eq!(
-            res,
-            r"nameserver 192.168.0.10
-search .
-options edns0
-options trust-ad
-"
-        );
     }
 
     #[test]
