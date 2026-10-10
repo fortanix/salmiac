@@ -40,8 +40,8 @@ use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
 use shared::models::{
     ApplicationConfiguration, EnclaveErrorCode, GlobalNetworkSettings, HostEntries,
-    NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, ResolvConfig,
-    SetupMessages, UserProgramExitStatus,
+    NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
+    UserProgramExitStatus,
 };
 use shared::netlink::arp::NetlinkARP;
 use shared::netlink::route::NetlinkRoute;
@@ -998,61 +998,9 @@ fn write_hostname_file(hostname: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn write_resolv_conf(resolv_conf: &ResolvConfig) -> Result<String, String> {
-    let mut s = String::new();
-
-    use shared::{
-        RESOLV_NAMESERVER_KEYWORD, RESOLV_OPTIONS_KEYWORD, RESOLV_SEARCH_KEYWORD,
-        RESOLV_SORTLIST_KEYWORD,
-    };
-    use std::fmt::Write as _;
-
-    // Write nameservers
-    resolv_conf.nameservers.iter().try_for_each(|ns| {
-        write!(&mut s, "{RESOLV_NAMESERVER_KEYWORD} {ns}\n")
-            .map_err(|e| format!("write resolv.conf failed: {e}"))
-    })?;
-
-    // Write search
-    if let Some(search) = &resolv_conf.search {
-        write!(&mut s, "{RESOLV_SEARCH_KEYWORD} {search}\n")
-            .map_err(|e| format!("write resolv.conf failed: {e}"))?;
-    }
-
-    // Write sortlist
-    if !resolv_conf.sortlist.is_empty() {
-        write!(
-            &mut s,
-            "{RESOLV_SORTLIST_KEYWORD} {}\n",
-            resolv_conf
-                .sortlist
-                .iter()
-                .fold(String::new(), |c, n| c + " " + n)
-                .trim()
-        )
-        .map_err(|e| format!("write resolv.conf failed: {e}"))?;
-    }
-
-    // Write options
-    if !resolv_conf.options.is_empty() {
-        write!(
-            &mut s,
-            "{RESOLV_OPTIONS_KEYWORD} {}\n",
-            resolv_conf
-                .options
-                .iter()
-                .fold(String::new(), |c, n| c + " " + &n.to_string())
-                .trim()
-        )
-        .map_err(|e| format!("write resolv.conf failed: {e}"))?;
-    }
-
-    Ok(s)
-}
-
 fn write_network_files(global_settings: &GlobalNetworkSettings) -> Result<(), String> {
     // Write resolv conf file
-    let resolv_conf = write_resolv_conf(&global_settings.resolv_config)?;
+    let resolv_conf = &global_settings.resolv_config.to_string();
     write_to_file(Path::new(DNS_RESOLV_FILE), &resolv_conf, DNS_RESOLV_FILE)?;
     Ok(())
 }
@@ -1347,7 +1295,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use enclaveos_encrypted_fs::EncryptedVolume;
-    use shared::models::{NBDConfiguration, ResolvConfig, ResolvConfigOption};
+    use shared::models::NBDConfiguration;
     use shared::socket::InMemorySocket;
     use std::net::{IpAddr, Ipv4Addr};
     use tokio::runtime::Runtime;
@@ -1459,28 +1407,6 @@ mod tests {
         assert!(!is_valid_hostname("host_name"));
         assert!(!is_valid_hostname(&"a".repeat(64)));
         assert!(!is_valid_hostname(&format!("{}.com", "a".repeat(251))));
-    }
-
-    #[test]
-    fn verify_resolv_conf_generation() {
-        use crate::enclave::write_resolv_conf;
-
-        let conf = ResolvConfig {
-            nameservers: vec!["192.168.0.10".to_string()],
-            search: Some(".".to_string()),
-            options: vec![ResolvConfigOption::EDns0, ResolvConfigOption::TrustAd],
-            sortlist: vec![],
-        };
-
-        let res = write_resolv_conf(&conf).unwrap();
-
-        assert_eq!(
-            res,
-            r"nameserver 192.168.0.10
-search .
-options edns0 trust-ad
-"
-        );
     }
 
     #[test]

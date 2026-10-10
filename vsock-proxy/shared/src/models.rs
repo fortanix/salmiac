@@ -3,10 +3,10 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-use std::convert::TryFrom;
-use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::Read;
 use std::net::IpAddr;
+use std::path::Path;
 
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,8 @@ use crate::netlink::arp::ARPEntry;
 use crate::netlink::route::{Gateway, Route};
 use crate::AppLogPortInfo;
 use std::collections::HashMap;
+
+use resolv_conf::Config;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SetupMessages {
@@ -123,122 +125,66 @@ pub struct GlobalNetworkSettings {
 /// Data structure that represents the content of /etc/resolv.conf file from
 /// the parents that we want to pass to the enclave. It is following the description
 /// from: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ResolvConfig {
-    /// Lists of nameservers, in the order of appearance
-    pub nameservers: Vec<String>,
-    /// The entry of search domain, only the last one is considered
-    pub search: Option<String>,
-    /// lists of option entry, if any, and has to be as
-    pub options: Vec<ResolvConfigOption>,
-    /// list of sort-list IP
-    pub sortlist: Vec<String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvConfig(Config);
+
+impl Serialize for ResolvConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for ResolvConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        Config::parse(&s)
+            .map(ResolvConfig)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 impl ResolvConfig {
-    pub fn empty() -> Self {
-        Self {
-            nameservers: vec![],
-            search: None,
-            options: vec![],
-            sortlist: vec![],
-        }
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+        let mut parent_resolv = File::open(&path)
+            .map_err(|err| format!("Could not open {:?}. {:?}", path.as_ref(), err))?;
+
+        let mut config_bytes: Vec<u8> = vec![];
+        let _ = parent_resolv
+            .read_to_end(&mut config_bytes)
+            .map_err(|e| format!("unable to read resolv.conf file: {e}"))?;
+
+        let config =
+            Config::parse(&config_bytes).map_err(|e| format!("resolv.conf parsing error: {e}"))?;
+
+        Ok(Self(config))
     }
-}
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum ResolvConfigOption {
-    Debug,
-    NDots(u8),
-    Timeout(u8),
-    Attempts(u8),
-    Rotate,
-    NoAAAA,
-    NoCheckNames,
-    Inet6,
-    Ip6ByteString,
-    Ip6DotInt,
-    NoIp6DotInt,
-    EDns0,
-    SingleRequest,
-    SingleRequestReopen,
-    NoTldQuery,
-    UseVc,
-    NoReload,
-    TrustAd,
-}
+    pub fn transform_nameservers<F>(&mut self, mut mapper: F) -> Result<(), String>
+    where
+        F: FnMut(IpAddr) -> Result<Option<IpAddr>, String>,
+    {
+        self.0.nameservers.iter_mut().try_for_each(|entry| {
+            let res = mapper(entry.clone().into())?;
 
-impl Display for ResolvConfigOption {
-    #[rustfmt::skip]
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use ResolvConfigOption::*;
-        match self {
-            Debug               => write!(f, "debug"),
-            Rotate              => write!(f, "rotate"),
-            NoAAAA              => write!(f, "no-aaaa"),
-            NoCheckNames        => write!(f, "no-check-names"),
-            Inet6               => write!(f, "inet6"),
-            Ip6ByteString       => write!(f, "ip6-bytestring"),
-            Ip6DotInt           => write!(f, "ip6-dotint"),
-            NoIp6DotInt         => write!(f, "no-ip6-dotint"),
-            EDns0               => write!(f, "edns0"),
-            SingleRequest       => write!(f, "single-request"),
-            SingleRequestReopen => write!(f, "single-request-reopen"),
-            NoTldQuery          => write!(f, "no-tld-query"),
-            UseVc               => write!(f, "use-vc"),
-            TrustAd             => write!(f, "trust-ad"),
-            NoReload            => write!(f, "no-reload"),
-            NDots(n)            => write!(f, "ndots:{n}"),
-            Timeout(n)          => write!(f, "timeout:{n}"),
-            Attempts(n)         => write!(f, "attempts:{n}"),
-        }
-    }
-}
-
-impl TryFrom<&str> for ResolvConfigOption {
-    type Error = String;
-
-    #[rustfmt::skip]
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        use ResolvConfigOption::*;
-        Ok(match value {
-            "debug"                 => Debug,
-            "rotate"                => Rotate,
-            "no-aaaa"               => NoAAAA,
-            "no-check-names"        => NoCheckNames,
-            "inet6"                 => Inet6,
-            "ip6-bytestring"        => Ip6ByteString,
-            "ip6-dotint"            => Ip6DotInt,
-            "no-ip6-dotint"         => NoIp6DotInt,
-            "edns0"                 => EDns0,
-            "single-request"        => SingleRequest,
-            "single-request-reopen" => SingleRequestReopen,
-            "no-tld-query"          => NoTldQuery,
-            "use-vc"                => UseVc,
-            "no-reload"             => NoReload,
-            "trust-ad"              => TrustAd,
-            x => {
-                let mut splitted = x.split(':');
-                let first_part = splitted
-                    .next()
-                    .ok_or(format!("invalid resolv.conf option, missing option token"))?;
-                let second_num = splitted
-                    .next()
-                    .ok_or(format!("invalid resolv.conf option, missing numeric token"))
-                    .and_then(|x| {
-                        u8::from_str_radix(x, 10).map_err(|_| {
-                            format!("invalid resolv.conf option, invalid numeric token: {x}")
-                        })
-                    })?;
-
-                match first_part {
-                    "ndots" => NDots(second_num),
-                    "timeout" => Timeout(second_num),
-                    "attempts" => Attempts(second_num),
-                    _ => return Err(format!("invalid resolv.conf option")),
-                }
+            if let Some(new_ip) = res {
+                *entry = new_ip.into();
             }
+
+            Ok(())
         })
+    }
+}
+
+impl ToString for ResolvConfig {
+    fn to_string(&self) -> String {
+        self.0.to_string()
     }
 }
 
@@ -276,4 +222,37 @@ pub enum CertificateErrorCode {
     Timeout,
     RequestFailed,
     InternalError,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{net::Ipv4Addr, str::FromStr};
+
+    use resolv_conf::Config;
+
+    use crate::models::ResolvConfig;
+
+    #[test]
+    fn verify_resolv_conf_generation() {
+        let mut resolv_conf = Config::new();
+        resolv_conf.nameservers.push(resolv_conf::ScopedIp::V4(
+            Ipv4Addr::from_str("192.168.0.10").unwrap(),
+        ));
+        resolv_conf.set_search(vec![".".to_string()]);
+        resolv_conf.edns0 = true;
+        resolv_conf.trust_ad = true;
+
+        let conf = ResolvConfig(resolv_conf);
+
+        let res = conf.to_string();
+
+        assert_eq!(
+            res,
+            r"nameserver 192.168.0.10
+search .
+options edns0
+options trust-ad
+"
+        );
+    }
 }

@@ -300,7 +300,7 @@ fn field_offset_in_packet<'a>(
     header: &'a [u8],
     header_field_index: usize,
 ) -> usize {
-    assert!(full_packet.len() <= (isize::max_value() as usize)); // assertion 1
+    assert!(full_packet.len() <= (isize::MAX as usize)); // assertion 1
     let full_packet = full_packet.as_ptr_range();
     let field = header[header_field_index..].as_ptr_range();
     assert!(full_packet.start <= field.start); // assertion 2
