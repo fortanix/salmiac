@@ -152,11 +152,15 @@ impl<'de> Deserialize<'de> for ResolvConfig {
 
 impl ResolvConfig {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let mut parent_resolv = File::open(&path)
-            .map_err(|err| format!("Could not open {:?}. {:?}", path.as_ref(), err))?;
+        let mut resolv_conf_file = File::open(&path).map_err(|err| {
+            format!(
+                "Could not open {}. {err}",
+                path.as_ref().to_str().unwrap_or_default()
+            )
+        })?;
 
         let mut config_bytes: Vec<u8> = vec![];
-        let _ = parent_resolv
+        let _ = resolv_conf_file
             .read_to_end(&mut config_bytes)
             .map_err(|e| format!("unable to read resolv.conf file: {e}"))?;
 
