@@ -38,7 +38,14 @@ async fn main() -> Result<(), String> {
     let request_file = fs::read_to_string(request_file_path)
         .map_err(|err| format!("Failed reading request file. {:?}", err))?;
 
-    process_request(&request_file).await
+    let response_serialized = process_request(&request_file).await?;
+
+    if let Some(response_file) = console_arguments.value_of("response-file") {
+        fs::write(response_file, response_serialized)
+            .map_err(|err| format!("Failed writing response file. {:?}", err))?;
+    }
+
+    Ok(())
 }
 
 fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
@@ -51,6 +58,13 @@ fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
                 .long("request-file")
                 .takes_value(true)
                 .required(true),
+        )
+        .arg(
+            Arg::with_name("response-file")
+                .help("Path to a file that contains conversion response, if successful")
+                .long("response-file")
+                .takes_value(true)
+                .required(false),
         )
         .get_matches()
 }
