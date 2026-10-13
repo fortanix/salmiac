@@ -25,6 +25,9 @@ static ABOUT: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+const REQUEST_FILE_PARAM_NAME: &str = "request-file";
+const RESPONSE_FILE_PARAM_NAME: &str = "response-file";
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
@@ -32,17 +35,17 @@ async fn main() -> Result<(), String> {
     let console_arguments = console_arguments(&ABOUT);
 
     let request_file_path = console_arguments
-        .value_of("request-file")
+        .value_of(REQUEST_FILE_PARAM_NAME)
         .expect("Request file must be provided");
 
     let request_file = fs::read_to_string(request_file_path)
-        .map_err(|err| format!("Failed reading request file. {:?}", err))?;
+        .map_err(|err| format!("Failed reading request file: {:?}", err))?;
 
     let response_serialized = process_request(&request_file).await?;
 
-    if let Some(response_file) = console_arguments.value_of("response-file") {
+    if let Some(response_file) = console_arguments.value_of(RESPONSE_FILE_PARAM_NAME) {
         fs::write(response_file, response_serialized)
-            .map_err(|err| format!("Failed writing response file. {:?}", err))?;
+            .map_err(|err| format!("Failed writing response file: {:?}", err))?;
     }
 
     Ok(())
@@ -53,16 +56,16 @@ fn console_arguments<'a>(platform: &'static str) -> ArgMatches<'a> {
         .about(platform)
         .setting(AppSettings::DisableVersion)
         .arg(
-            Arg::with_name("request-file")
+            Arg::with_name(REQUEST_FILE_PARAM_NAME)
                 .help("Path to a file that contains conversion request")
-                .long("request-file")
+                .long(REQUEST_FILE_PARAM_NAME)
                 .takes_value(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name("response-file")
+            Arg::with_name(RESPONSE_FILE_PARAM_NAME)
                 .help("Path to a file that contains conversion response, if successful")
-                .long("response-file")
+                .long(RESPONSE_FILE_PARAM_NAME)
                 .takes_value(true)
                 .required(false),
         )
