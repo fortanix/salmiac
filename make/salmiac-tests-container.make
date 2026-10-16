@@ -69,11 +69,29 @@ $(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(
 TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key \
 	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24 \
+	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24 \
 	$(TESTS-STAGE-DIR)/requirements.txt \
 	$(TESTS-STAGE-DIR)/requirements_frozen.txt \
 	$(TESTS-STAGE-DIR)/generated_string_table.py \
 	$(TESTS-STAGE-DIR)/docker-config.json \
 	$(TESTS-STAGE-DIR)/container-converter \
+	$(wildcard $(TESTS-STAGE-DIR)/parent-base.tar) \
+	$(wildcard $(TESTS-STAGE-DIR)/enclave-base.tar) \
+	$(wildcard $(TESTS-STAGE-DIR)/enclave-base-gpu.tar) \
+	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init \
+	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug \
+	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init \
+	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/OVMF.inteltdx.fd) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/.config) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/bzImage) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/.config) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/bzImage) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-drm.ko) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko) \
+	$(wildcard $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko) \
 	$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR) \
 	$(TESTS-STAGE-DIR)/amzn-linux-nbd \
 	$($(SUBDIR)/STAGED-BIN-FILES) \
@@ -88,6 +106,7 @@ TESTS-STAGE-CONTENTS := \
 #
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/aws-cli-gpg-pub-key,$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-ub24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/Dockerfile-salmiac-tdx24,$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements.txt,$(TESTS-STAGE-DIR)/requirements.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/requirements_frozen.txt,$(TESTS-STAGE-DIR)/requirements_frozen.txt))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/strings/generated_string_table.py,$(TESTS-STAGE-DIR)/generated_string_table.py))
@@ -95,6 +114,30 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-inrfa/bin/tests-container
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/app-test-infra/bin/tests-container-run.py,$(TESTS-STAGE-DIR)/tests-container-run.py))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/test/tests-container-salmiac/docker-config.json,$(TESTS-STAGE-DIR)/docker-config.json))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/tools/container-converter/target/$(FLAVOR)/container-converter,$(TESTS-STAGE-DIR)/container-converter))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/../artifacts/enclave-base.tar,$(TESTS-STAGE-DIR)/enclave-base.tar))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/../artifacts/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
+define make-optional-cp-rule
+$(2):
+	@if [ -f "$(1)" ]; then \
+		cp "$(1)" "$(2)"; \
+	fi 
+endef
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/../artifacts/enclave-base-gpu.tar,$(TESTS-STAGE-DIR)/enclave-base-gpu.tar))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_disabled_gpu/init,$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_enabled_gpu/init,$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_disabled_gpu/init-debug,$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_enabled_gpu/init-debug,$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/OVMF.inteltdx.fd,$(TESTS-STAGE-DIR)/$(PLATFORM)/OVMF.inteltdx.fd))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_disabled_gpu/.config,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/.config))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_disabled_gpu/bzImage,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/bzImage))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/.config,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/.config))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/bzImage,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/bzImage))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-drm.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-drm.ko))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko))
+$(eval $(call make-optional-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko))
+
 $(eval $(call pull-s3,s3\://downloads.fortanix.com/salmiac/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR)))
 $(eval $(call untar-pkg,$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/amzn-linux-nbd))
 

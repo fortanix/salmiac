@@ -8,11 +8,16 @@ aws ecr get-login-password | docker login --username AWS --password-stdin 513076
 # Build application tests container
 FLAVOR=debug
 if [ -z "$SKIP_RUNNING_TESTS" ]; then
-  make tests-container FLAVOR=$FLAVOR
-  TESTS_CONTAINER_TAG=$(cat build/nitro-$FLAVOR/tests-container-tag)
+  pushd docker
+  cp -a "staging/${SALMIAC_PLATFORM}/kernel_enabled_gpu/nvidia-artifacts.tar.gz" common-build-context/.
+  docker build qemu/parent-base --build-context common-build-context=./common-build-context -t parent-base
+  popd
+  echo "build-app-tests-container.sh ${SALMIAC_PLATFORM}"
+  make tests-container FLAVOR=$FLAVOR PLATFORM=$SALMIAC_PLATFORM
+  TESTS_CONTAINER_TAG=$(cat build/$SALMIAC_PLATFORM-$FLAVOR/tests-container-tag)
   TESTS_CONTAINER_ECR="513076507034.dkr.ecr.us-west-1.amazonaws.com/salmiac-github-ci/$TESTS_CONTAINER_TAG"
 
-  docker load -i build/nitro-$FLAVOR/salmiac-tests-container.tar.gz
+  docker load -i build/$SALMIAC_PLATFORM-$FLAVOR/salmiac-tests-container.tar.gz
   docker tag $TESTS_CONTAINER_TAG $TESTS_CONTAINER_ECR
   docker push $TESTS_CONTAINER_ECR
 
