@@ -20,19 +20,21 @@ The following list of variables is used while running the image converter
 - ENCLAVE_IMAGE - Image name for the enclave base image, defaults to `enclave-base`,
   or `enclave-base-gpu` if converting a GPU-enabled image.
   Image must be present in Docker cache.
+- PRESERVE_IMAGES - The converter cleans up the input, intermediate and output images
+  from the local docker cache. In order to prevent clean up of these images, you can
+  use this variables. Allowed values - `input`, `intermediate`, `result`. Multiple
+  values can be provided using comma as the delimiter.
 
-### EnclaveOS Runtime variables
+### EnclaveOS Runtime Environment Variables
 
-The following list of variables is used while running the converted salmiac image.
+The following list of environment variables is used while running the converted salmiac image.
 
-##### Filesystem related variables
-- FS_API_KEY - API key used for authenticating with DSM if the salmiac app is not converted with app
-  certs enabled.
-- DSM_APP_ID - ID of the app within the specified DSM instance.
-- DSM_ENDPOINT - URL for the DSM instance which holds the device passphrase.
-- RW_STORAGE_SIZE - Size in bytes for parent's read/write block file.
+##### Variables used for filesystem persistence feature
+The following variables are applicable only when filesystem persistence feature is enabled at conversion time.
+- FS_API_KEY - API key used for authenticating with DSM. This is applicable only for debug conversions.
+- RW_STORAGE_SIZE - Size (in bytes) of the block file used for backing the encrypted filesystem.
 
-##### Environment variables that help with application certificates
+##### Variables that help with application certificates
 - ENCLAVEOS_DISABLE_DEFAULT_CERTIFICATE - If set, can be used to skip fetching
   a default certificate from CCM
 - NODE_AGENT - The url of the nitro node agent which can be used by salmiac
@@ -42,7 +44,7 @@ Note - Application certificates can't be issued by CCM when ENCLAVEOS_DEBUG is
 set i.e. when the enclave is running in debug mode. Unless the build/app is
 registered as a debug build in a test-only deployment account.
 
-##### Environmental variables that relate to workflows
+##### Variables that relate to workflows
 - APPCONFIG_ID/ENCLAVEOS_APPCONFIG_ID - A 256-bit hash of the workflow runtime configuration,
   represented as a 64-character lower-case hexadecimal string. This is only
   necessary to set if using a workflow with an app that expects one to be present.
@@ -62,13 +64,13 @@ registered as a debug build in a test-only deployment account.
   passed to the qemu run command.
 - MEM_SIZE - Override the `-m` param & memory backend object passed while running
   the enclave i.e. passed to the qemu run command.
-- SNP_GPU_BDF/TDX_GPU_BDF - Explicitly select GPUs for an EnclaveOS container
+- GPU_BDF - Explicitly select GPUs for an EnclaveOS container
   with GPU passthrough. Set the platform-specific variable to one PCI BDF
   (Bus/Device/Function) or a comma-separated list of PCI BDFs.
 - GPU_COUNT - Discover GPUs exposed under `/dev/vfio/devices`. Set it to a
   positive integer to select exactly that many available VFIO GPUs, or to
   `all` to select every available VFIO GPU. Devices already in use are skipped.
-  Do not set `GPU_COUNT` together with `SNP_GPU_BDF` or `TDX_GPU_BDF`.
+  Do not set `GPU_COUNT` together with `GPU_BDF`.
 
 ##### AMD SEV-SNP-specific enclave settings variables
 - SNP_CPU - QEMU CPU type, defaults to `EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0`.
