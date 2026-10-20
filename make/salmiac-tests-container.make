@@ -66,27 +66,6 @@ $(SUBDIR)/STAGED-BIN-FILES := $(subst $(REPO_ROOT),$(TESTS-STAGE-DIR)/tests,$($(
 # included here.
 #
 # amzn-linux-nbd contains the updated nitro enclave kernel image
-TESTS-STAGE-CONTENTS-NITRO := \
-	$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key \
-	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24 \
-	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-tdx24 \
-	$(TESTS-STAGE-DIR)/requirements.txt \
-	$(TESTS-STAGE-DIR)/requirements_frozen.txt \
-	$(TESTS-STAGE-DIR)/generated_string_table.py \
-	$(TESTS-STAGE-DIR)/docker-config.json \
-	$(TESTS-STAGE-DIR)/container-converter \
-	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init \
-	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug \
-	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init \
-	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug \
-	$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR) \
-	$(TESTS-STAGE-DIR)/amzn-linux-nbd \
-	$($(SUBDIR)/STAGED-BIN-FILES) \
-	$(TESTS-CONTAINER-APP-TESTS-FILE) \
-	$($(SUBDIR)/STAGED-PYTHON-LIB-FILES) \
-	$(TESTS-STAGE-DIR)/$(DOCKER-AWS-HELPER) \
-	$(TESTS-CONTAINER-REGRESSION-TESTS)
-
 TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/aws-cli-gpg-pub-key \
 	$(TESTS-STAGE-DIR)/Dockerfile-salmiac-ub24 \
@@ -100,19 +79,6 @@ TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug \
 	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init \
 	$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug \
-	$(TESTS-STAGE-DIR)/parent-base.tar \
-	$(TESTS-STAGE-DIR)/enclave-base.tar \
-	$(TESTS-STAGE-DIR)/enclave-base-gpu.tar \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/OVMF.inteltdx.fd \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/.config \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/bzImage \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/.config \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/bzImage \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-drm.ko \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko \
-	$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko \
 	$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR) \
 	$(TESTS-STAGE-DIR)/amzn-linux-nbd \
 	$($(SUBDIR)/STAGED-BIN-FILES) \
@@ -121,6 +87,25 @@ TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/$(DOCKER-AWS-HELPER) \
 	$(TESTS-CONTAINER-REGRESSION-TESTS)
 
+ifneq ($(PLATFORM), nitro)
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/parent-base.tar
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/enclave-base.tar
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/.config
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/bzImage
+ifeq ($(PLATFORM), tdx)
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/OVMF.inteltdx.fd
+endif
+ifneq ($(or $(filter $(SALMIAC_PLATFORM),tdx),$(filter $(SALMIAC_PLATFORM),snp)),)
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/enclave-base-gpu.tar
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/.config
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/bzImage
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-drm.ko
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko
+	TESTS-STAGE-CONTENTS := $(TESTS-STAGE-CONTENTS)$(newline) $(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko
+endif
+endif
 
 #
 # Rules for generating stage directory contents, mostly by copying files
@@ -142,11 +127,10 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_enabled_gpu/init,$
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_disabled_gpu/init-debug,$(TESTS-STAGE-DIR)/kernel_disabled_gpu/init-debug))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/kernel_enabled_gpu/init-debug,$(TESTS-STAGE-DIR)/kernel_enabled_gpu/init-debug))
 ifneq ($(PLATFORM), nitro)
-$(eval $(call make-cp-rule,$(REPO_ROOT)/../artifacts/$(PLATFORM)/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
-$(eval $(call make-cp-rule,$(REPO_ROOT)/../artifacts/$(PLATFORM)/enclave-base-gpu.tar,$(TESTS-STAGE-DIR)/enclave-base-gpu.tar))
+ifeq ($(PLATFORM), tdx)
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/OVMF.inteltdx.fd,$(TESTS-STAGE-DIR)/$(PLATFORM)/OVMF.inteltdx.fd))
-$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_disabled_gpu/.config,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/.config))
-$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_disabled_gpu/bzImage,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/bzImage))
+endif
+ifneq ($(or $(filter $(SALMIAC_PLATFORM),tdx),$(filter $(SALMIAC_PLATFORM),snp)),)
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/.config,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/.config))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/bzImage,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/bzImage))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-artifacts.tar.gz))
@@ -154,6 +138,11 @@ $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enable
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-modeset.ko))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia-uvm.ko))
 $(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_enabled_gpu/nvidia.ko))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/../artifacts/$(PLATFORM)/enclave-base-gpu.tar,$(TESTS-STAGE-DIR)/enclave-base-gpu.tar))
+endif
+$(eval $(call make-cp-rule,$(REPO_ROOT)/../artifacts/$(PLATFORM)/parent-base.tar,$(TESTS-STAGE-DIR)/parent-base.tar))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_disabled_gpu/.config,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/.config))
+$(eval $(call make-cp-rule,$(REPO_ROOT)/docker/staging/$(PLATFORM)/kernel_disabled_gpu/bzImage,$(TESTS-STAGE-DIR)/$(PLATFORM)/kernel_disabled_gpu/bzImage))
 endif
 $(eval $(call pull-s3,s3\://downloads.fortanix.com/salmiac/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR)))
 $(eval $(call untar-pkg,$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR),$(TESTS-STAGE-DIR)/amzn-linux-nbd))
@@ -175,23 +164,6 @@ $(foreach lib,$($(SUBDIR)/PYTHON-LIB-FILES) $($(SUBDIR)/BIN-FILES),$(eval $(call
 # directory (at least right now), so forcing the stage directory
 # to always be rebuilt isn't costing us much time. We can revisit
 # if populating the stage directory starts taking longer.
-ifeq ($(PLATFORM), nitro)
-$(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS-NITRO)
-	docker build \
-		--tag $(TESTS-TAG) \
-		--build-arg FLAVOR=$(FLAVOR) \
-		--build-arg PLATFORM=$(PLATFORM) \
-		-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
-		$(TESTS-STAGE-DIR)
-	docker save $(TESTS-TAG) | gzip > $@
-	echo "$(TESTS-TAG)" > $(TESTS-CONTAINER-TAGFILE)
-	docker rmi -f $(TESTS-TAG)
-	$(RM) -rf --preserve-root $(TESTS-STAGE-DIR)
-
-$(TESTS-CONTAINER-APP-TESTS-FILE)::    | $(dir $(TESTS-CONTAINER-APP-TESTS-FILE))
-
-$(eval $(call make-cp-rule,/usr/local/bin/$(DOCKER-AWS-HELPER),$(TESTS-STAGE-DIR)/$(DOCKER-AWS-HELPER)))
-else
 $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
 	docker build \
 		--tag $(TESTS-TAG) \
@@ -207,4 +179,3 @@ $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
 $(TESTS-CONTAINER-APP-TESTS-FILE)::    | $(dir $(TESTS-CONTAINER-APP-TESTS-FILE))
 
 $(eval $(call make-cp-rule,/usr/local/bin/$(DOCKER-AWS-HELPER),$(TESTS-STAGE-DIR)/$(DOCKER-AWS-HELPER)))
-endif
