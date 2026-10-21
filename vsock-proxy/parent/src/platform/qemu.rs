@@ -37,6 +37,7 @@ pub(super) mod constants {
     pub const CID_START: u16 = 1024;
     pub const QEMU_BINARY: &str = "qemu-system-x86_64";
     pub const ENABLE_GPU_PASSTHROUGH_ENV_VAR: &str = "ENABLE_GPU_PASSTHROUGH";
+    pub const GPU_BDF_ENV_VAR: &str = "GPU_BDF";
     pub const GPU_COUNT_ENV_VAR: &str = "GPU_COUNT";
     pub const DEFAULT_SERIAL_DEVICE: &str = "mon:stdio";
 
@@ -58,15 +59,13 @@ pub struct GPUSettings {
 }
 
 impl GPUSettings {
-    pub fn try_new_from_env_variable(
-        env_var: Option<&'static str>,
-    ) -> Result<Option<Self>, String> {
-        let gpu_bdfs_value = env_var.and_then(|name| env::var(name).ok());
+    pub fn try_new() -> Result<Option<Self>, String> {
+        let gpu_bdfs_value = env::var(constants::GPU_BDF_ENV_VAR).ok();
         let gpu_count_value = env::var(constants::GPU_COUNT_ENV_VAR).ok();
         if gpu_bdfs_value.is_some() && gpu_count_value.is_some() {
             return Err(format!(
                 "{:?} and {} are mutually exclusive",
-                env_var,
+                constants::GPU_BDF_ENV_VAR,
                 constants::GPU_COUNT_ENV_VAR
             ));
         }
@@ -170,8 +169,6 @@ impl GPUSettings {
 }
 
 pub(super) trait QemuPlatform {
-    const GPU_BDFS_ENV_VAR_NAME: Option<&'static str> = None;
-
     fn firmware_path(&self) -> Option<&'static str>;
     // Device paths related to confidential-computing
     fn host_cc_device_paths(&self) -> Vec<&'static str>;
@@ -180,15 +177,14 @@ pub(super) trait QemuPlatform {
     fn objects(&self) -> Vec<String>;
 
     fn gpu_settings(&self) -> Result<Option<GPUSettings>, String> {
-        let gpu_settings = GPUSettings::try_new_from_env_variable(Self::GPU_BDFS_ENV_VAR_NAME)?;
+        let gpu_settings = GPUSettings::try_new()?;
         if gpu_settings.is_none() {
-            let supports_gpu_passthrough = Self::GPU_BDFS_ENV_VAR_NAME.is_some();
             let gpu_passthrough_enabled = env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
                 .is_ok_and(|value| value == "true");
-            if supports_gpu_passthrough && gpu_passthrough_enabled {
+            if gpu_passthrough_enabled {
                 return Err(format!(
                     "GPU passthrough was enabled at conversion time but neither {} nor {} is set.",
-                    Self::GPU_BDFS_ENV_VAR_NAME.unwrap_or_default(),
+                    constants::GPU_BDF_ENV_VAR,
                     constants::GPU_COUNT_ENV_VAR,
                 ));
             }
