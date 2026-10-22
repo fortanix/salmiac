@@ -154,10 +154,7 @@ mod tests {
         payload.extend_from_slice(&[0xab; 32]);
         assert_eq!(&workflow[..32], Sha256Digest::digest(&payload).as_slice());
         assert_eq!(&workflow[32..], &[0xab; 32]);
-        assert_eq!(
-            workflow,
-            get_user_data(key, Some(&id)).unwrap()
-        );
+        assert_eq!(workflow, get_user_data(key, Some(&id)).unwrap());
         for invalid in ["", "ab", &"gg".repeat(32), &"é".repeat(32)] {
             assert!(get_user_data(key, Some(invalid)).is_err());
         }
