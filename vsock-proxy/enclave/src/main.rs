@@ -9,7 +9,6 @@ mod certificate;
 mod enclave;
 mod file_system;
 mod platform;
-#[cfg(platform = "nitro")]
 mod utils;
 
 use std::path::Path;
