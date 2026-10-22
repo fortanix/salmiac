@@ -156,7 +156,7 @@ mod tests {
         assert_eq!(&workflow[32..], &[0xab; 32]);
         assert_eq!(
             workflow,
-            get_user_data(key, Some(&id.to_uppercase())).unwrap()
+            get_user_data(key, Some(&id)).unwrap()
         );
         for invalid in ["", "ab", &"gg".repeat(32), &"é".repeat(32)] {
             assert!(get_user_data(key, Some(invalid)).is_err());
@@ -168,7 +168,7 @@ mod tests {
         use pkix::{pem::pem_to_der, pkcs10::DerCertificationRequest, FromDer};
 
         let mut key = Pk::generate_rsa(&mut Rdrand, 2048, 65537).unwrap();
-        let document = vec![1, 2, 3];
+        let document = vec![1, 2, 3, 4, 5, 6, 7, 8];
         let pem = get_csr(
             &common_name_to_subject("example.com"),
             &mut key,
