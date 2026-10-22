@@ -254,6 +254,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-nitro-enclaves-nsm-api"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "986ca4c3a91a67cadc5ae92b3dfe9de373c2b432bb2288eed90203343e9f47c4"
+dependencies = [
+ "libc",
+ "log 0.4.33",
+ "nix 0.31.3",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+]
+
+[[package]]
 name = "b64-ct"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -817,7 +831,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08f80401fb67d9befdc2e98a2659d4d3e38e40618d325b80869df7bb2e6264a1"
 dependencies = [
- "aws-nitro-enclaves-nsm-api",
+ "aws-nitro-enclaves-nsm-api 0.2.1",
  "b64-ct",
  "em-client",
  "em-node-agent-client",
@@ -890,7 +904,7 @@ dependencies = [
  "api-model",
  "async-process",
  "async-trait",
- "aws-nitro-enclaves-nsm-api",
+ "aws-nitro-enclaves-nsm-api 0.5.2",
  "base64 0.13.0",
  "chrono",
  "clap",
@@ -1560,7 +1574,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
