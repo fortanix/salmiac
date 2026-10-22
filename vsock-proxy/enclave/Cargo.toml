@@ -9,7 +9,7 @@ repository = "https://github.com/fortanix/salmiac"
 
 [dependencies]
 attestation-client = { workspace = true }
-aws-nitro-enclaves-nsm-api = "0.2.0"
+aws-nitro-enclaves-nsm-api = "0.5"
 api-model = { path = "../../api-model", features = ["serde"] }
 async-process = "1.2.0"
 async-trait = "0.1.51"
