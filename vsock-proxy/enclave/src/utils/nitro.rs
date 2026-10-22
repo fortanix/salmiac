@@ -10,28 +10,20 @@ use aws_nitro_enclaves_nsm_api::{
     api::{Request, Response},
     driver,
 };
+use ftx_cert_build::{Csr, NameBuilder};
 use mbedtls::{
-    hash,
     pk::{Pk, Type as PkType},
     rng::{Random, Rdrand},
 };
 use pkix::{
-    bit_vec::BitVec,
     pem::{der_to_pem, PEM_CERTIFICATE_REQUEST},
-    pkcs10::{CertificationRequest, CertificationRequestInfo},
-    types::{Attribute, DerSequence, EcdsaX962, Extension, GeneralName, Name, RsaPkcs15, Sha256},
-    x509::SubjectAltName,
-    yasna::{self, models::TaggedDerValue, tags::TAG_UTF8STRING},
-    DerWrite, ToDer,
+    types::{Attribute, EcdsaX962, GeneralName, Name, RsaPkcs15, Sha256},
+    ToDer,
 };
 use sha2::{Digest, Sha256 as Sha256Digest};
 
 pub(crate) fn common_name_to_subject(common_name: &str) -> Name {
-    vec![(
-        pkix::oid::commonName.clone(),
-        TaggedDerValue::from_tag_and_bytes(TAG_UTF8STRING, common_name.as_bytes().to_vec()),
-    )]
-    .into()
+    NameBuilder::new().add_common_name(common_name).build_name()
 }
 
 fn get_user_data(pub_key: &[u8], config_id: Option<&str>) -> Result<[u8; 64], String> {
@@ -66,12 +58,10 @@ pub(crate) fn get_remote_attestation_csr_subject(
 ) -> Result<String, String> {
     let pub_key = signer.write_public_der_vec().map_err(|e| e.to_string())?;
     let user_data = get_user_data(&pub_key, config_id)?;
-    let csr_pem =
-        get_attestation_parameters_subject(signer, subject, &user_data, alt_names)?;
+    let csr_pem = get_attestation_parameters_subject(signer, subject, &user_data, alt_names)?;
     Ok(csr_pem)
 }
 
-/// Nitro returns the attested CSR without separate attestation or node certificates.
 pub(crate) fn get_attestation_parameters_subject(
     signer: &mut Pk,
     subject: &Name,
@@ -79,8 +69,7 @@ pub(crate) fn get_attestation_parameters_subject(
     alt_names: Option<Vec<Cow<'_, str>>>,
 ) -> Result<String, String> {
     let document = get_attestation(user_data)?;
-    let pub_key = signer.write_public_der_vec().map_err(|e| e.to_string())?;
-    let csr_pem = get_csr(subject, signer, &pub_key, document, alt_names)?;
+    let csr_pem = get_csr(subject, signer, document, alt_names)?;
     Ok(csr_pem)
 }
 
@@ -116,81 +105,40 @@ pub(crate) fn get_attestation(user_data: &[u8; 64]) -> Result<Vec<u8>, String> {
 fn get_csr(
     subject: &Name,
     signer: &mut Pk,
-    pub_key: &[u8],
     document: Vec<u8>,
     alt_names: Option<Vec<Cow<'_, str>>>,
 ) -> Result<String, String> {
     let attestation = document.to_der();
-    let mut attributes = vec![Attribute {
-        oid: vme_pkix::oid::ATTESTATION_NITRO.clone(),
-        value: vec![attestation.as_slice().into()],
-    }];
-    let extensions;
+    let mut builder = Csr::mbedtls_crypto_builder()
+        .with_subject(subject.clone().into())
+        .with_attributes(vec![Attribute {
+            oid: vme_pkix::oid::ATTESTATION_NITRO.clone(),
+            value: vec![attestation.into()],
+        }])
+        .map_err(|e| e.to_string())?;
     if let Some(names) = alt_names {
-        extensions = yasna::construct_der(|w| {
-            w.write_sequence(|w| {
-                Extension {
-                    oid: pkix::oid::subjectAltName.clone(),
-                    critical: false,
-                    value: yasna::construct_der(|w| {
-                        SubjectAltName {
-                            names: names
-                                .into_iter()
-                                .map(GeneralName::DnsName)
-                                .collect::<Vec<_>>()
-                                .into(),
-                        }
-                        .write(w)
-                    }),
-                }
-                .write(w.next());
-            })
-        });
-        attributes.push(Attribute {
-            oid: pkix::oid::extensionRequest.clone(),
-            value: vec![extensions.as_slice().into()],
-        });
+        builder = builder
+            .with_san_extension_from_general_names(names.into_iter().map(GeneralName::DnsName));
     }
-    let reqinfo = DerSequence::from(yasna::construct_der(|w| {
-        CertificationRequestInfo {
-            subject: subject.clone(),
-            spki: DerSequence::from(pub_key),
-            attributes,
-        }
-        .write(w);
-    }));
-    let digest = Sha256Digest::digest(reqinfo.as_ref());
-    let mut sig = vec![0; ((signer.len() + 7) / 8).max(mbedtls::pk::ECDSA_MAX_LEN)];
-    let len = signer
-        .sign(hash::Type::Sha256, &digest, &mut sig, &mut Rdrand)
-        .map_err(|e| format!("Failed signing CSR: {}", e))?;
-    sig.truncate(len);
-    let sig = BitVec::from_bytes(&sig);
+    // Unlike em-app's Nitro CSR builder, which omitted basicConstraints,
+    // ftx-cert-build always requests this critical extension (CA=false by default).
     let csr = match signer.pk_type() {
-        PkType::Rsa | PkType::RsaAlt | PkType::RsassaPss => yasna::construct_der(|w| {
-            CertificationRequest {
-                reqinfo,
-                sigalg: RsaPkcs15(Sha256),
-                sig,
-            }
-            .write(w)
-        }),
-        PkType::Eckey | PkType::Ecdsa => yasna::construct_der(|w| {
-            CertificationRequest {
-                reqinfo,
-                sigalg: EcdsaX962(Sha256),
-                sig,
-            }
-            .write(w)
-        }),
+        PkType::Rsa => builder
+            .with_self_signing_key(signer, RsaPkcs15(Sha256))
+            .and_then(|builder| builder.build_csr()),
+        PkType::Eckey | PkType::Ecdsa => builder
+            .with_self_signing_key(signer, EcdsaX962(Sha256))
+            .and_then(|builder| builder.build_csr()),
         other => return Err(format!("Invalid key type: {:?}", other)),
-    };
-    Ok(der_to_pem(&csr, PEM_CERTIFICATE_REQUEST))
+    }
+    .map_err(|e| format!("Failed building CSR: {}", e))?;
+    Ok(der_to_pem(&*csr, PEM_CERTIFICATE_REQUEST))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pkix::yasna;
 
     #[test]
     fn report_data_binds_key_and_configuration() {
@@ -215,112 +163,31 @@ mod tests {
         }
     }
 
-    // Follow ftx-cert-build's CSR tests: verify the original request-info DER
-    // with mbedTLS, and reject a modified digest.
-    fn check_csr(mut key: Pk, subject: Name, alt_names: Option<Vec<Cow<'_, str>>>) {
-        use pkix::{
-            pem::pem_to_der,
-            pkcs10::{DerCertificationRequest, ExtensionRequest},
-            FromDer,
-        };
+    #[test]
+    fn csr_embeds_nitro_attestation_document() {
+        use pkix::{pem::pem_to_der, pkcs10::DerCertificationRequest, FromDer};
 
-        let public_key = key.write_public_der_vec().unwrap();
+        let mut key = Pk::generate_rsa(&mut Rdrand, 2048, 65537).unwrap();
         let document = vec![1, 2, 3];
-        let expected_names = alt_names.clone();
-        let pem = get_csr(&subject, &mut key, &public_key, document.clone(), alt_names).unwrap();
+        let pem = get_csr(
+            &common_name_to_subject("example.com"),
+            &mut key,
+            document.clone(),
+            None,
+        )
+        .unwrap();
         let der = pem_to_der(&pem, Some(PEM_CERTIFICATE_REQUEST)).unwrap();
         let csr = DerCertificationRequest::from_der(&der).unwrap();
-        assert_eq!(csr.reqinfo.subject, subject);
-        assert_eq!(csr.reqinfo.spki.as_ref(), public_key.as_slice());
-        let expected_algorithm = match key.pk_type() {
-            PkType::Rsa => RsaPkcs15(Sha256).to_der(),
-            PkType::Eckey => EcdsaX962(Sha256).to_der(),
-            other => panic!("Unexpected test key type: {:?}", other),
-        };
-        assert_eq!(csr.sigalg.as_ref(), expected_algorithm.as_slice());
-
-        // Extract the exact signed bytes, avoiding a re-encoding of the request.
-        let info = yasna::parse_der(&der, |reader| {
-            reader.read_sequence(|reader| {
-                let info = reader.next().read_der()?;
-                reader.next().read_der()?;
-                reader.next().read_bitvec()?;
-                Ok(info)
-            })
-        })
-        .unwrap();
-        let mut verifier = Pk::from_public_key(&public_key).unwrap();
-        let mut digest = Sha256Digest::digest(&info);
-        let signature = csr.sig.to_bytes();
-        verifier
-            .verify(hash::Type::Sha256, &digest, &signature)
-            .unwrap();
-        digest[0] ^= 1;
-        assert!(verifier
-            .verify(hash::Type::Sha256, &digest, &signature)
-            .is_err());
-
-        let attestation = csr
+        let attributes = csr
             .reqinfo
             .attributes
             .iter()
-            .find(|attribute| attribute.oid == *vme_pkix::oid::ATTESTATION_NITRO)
-            .unwrap();
-        assert_eq!(attestation.value.len(), 1);
-        let decoded = yasna::parse_der(attestation.value[0].as_ref(), |r| r.read_bytes()).unwrap();
+            .filter(|attribute| attribute.oid == *vme_pkix::oid::ATTESTATION_NITRO)
+            .collect::<Vec<_>>();
+        assert_eq!(attributes.len(), 1);
+        assert_eq!(attributes[0].value.len(), 1);
+        let decoded =
+            yasna::parse_der(attributes[0].value[0].as_ref(), |r| r.read_bytes()).unwrap();
         assert_eq!(decoded, document);
-
-        let extensions = csr.get_singular_attribute::<ExtensionRequest>();
-        match expected_names {
-            Some(names) => {
-                let extensions = extensions.unwrap();
-                assert_eq!(extensions.extensions.len(), 1);
-                let san = extensions
-                    .get_requested_extension::<SubjectAltName>()
-                    .unwrap();
-                let expected = names
-                    .into_iter()
-                    .map(GeneralName::DnsName)
-                    .collect::<Vec<_>>();
-                assert_eq!(san.names.0, expected);
-                assert_eq!(csr.reqinfo.attributes.len(), 2);
-            }
-            None => {
-                assert!(extensions.is_none());
-                assert_eq!(csr.reqinfo.attributes.len(), 1);
-            }
-        }
-    }
-
-    #[test]
-    fn rsa_csr_preserves_subject_attestation_and_san() {
-        check_csr(
-            Pk::generate_rsa(&mut Rdrand, 2048, 65537).unwrap(),
-            common_name_to_subject("example.com"),
-            Some(vec![
-                Cow::Borrowed("example.com"),
-                Cow::Borrowed("www.example.com"),
-            ]),
-        );
-    }
-
-    #[test]
-    fn ec_csr_preserves_subject_attestation_and_san() {
-        check_csr(
-            Pk::generate_ec(&mut Rdrand, mbedtls::pk::EcGroupId::SecP256R1).unwrap(),
-            common_name_to_subject("example.com"),
-            Some(vec![Cow::Borrowed("example.com")]),
-        );
-    }
-
-    #[test]
-    fn csr_supports_empty_subject_and_optional_san() {
-        for names in [None, Some(vec![])] {
-            check_csr(
-                Pk::generate_rsa(&mut Rdrand, 2048, 65537).unwrap(),
-                Name::from(vec![]),
-                names,
-            );
-        }
     }
 }

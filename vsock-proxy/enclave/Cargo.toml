@@ -21,6 +21,7 @@ em-client = { workspace = true }
 em-node-agent-client = { workspace = true }
 enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
+ftx-cert-build = { git = "https://github.com/fortanix/ftx-cert-build.git", features = ["mbedtls_adapter"] }
 futures = "0.3"
 hmac = "0.12.1"
 hyper = "0.10"
