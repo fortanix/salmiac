@@ -5,10 +5,10 @@ use em_client::client::Client as EmClient;
 use em_client::models::ApplicationConfigSdkmsCredentials;
 use hyper::client::{Client, Pool};
 use hyper::net::HttpsConnector;
-use hyper_rustls::TlsClient;
 use sdkms::SdkmsClient;
 
 use crate::app_configuration::EmAppCredentials;
+use crate::utils::tls_client::TlsClient;
 
 // Configure rustls TLS using em_app's configuration as a reference.
 // The following differences are intentional:
@@ -16,8 +16,8 @@ use crate::app_configuration::EmAppCredentials;
 // Server certificate verification:
 // em_app requires verification when ca_cert_list is provided; otherwise,
 // it uses AuthMode::Optional. This connector always verifies the server
-// certificate, using hyper-rustls's default trust roots plus any supplied
-// CA certificates. Omitting CA certificates does not disable verification.
+// certificate, using built time trust roots from OS plus any supplied CA
+// certificates. Omitting CA certificates does not disable verification.
 // Disabling verification requires a custom verifier via DangerousClientConfig.
 //
 // TLS versions:
@@ -27,8 +27,6 @@ use crate::app_configuration::EmAppCredentials;
 // References:
 // em_app configuration:
 // https://github.com/fortanix/rust-sgx/blob/5d33ab498ec96a7a429816501287f790a2b5bcfe/em-app/src/utils.rs#L53
-// hyper-rustls default trust roots:
-// https://docs.rs/crate/hyper-rustls/0.6.2/source/src/lib.rs#200
 // rustls custom certificate verification:
 // https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#209
 // rustls default TLS versions:
@@ -119,7 +117,7 @@ mod tests {
             host: host.to_string(),
             port,
         };
-        let connector = hyper::net::HttpsConnector::new(hyper_rustls::TlsClient::new());
+        let connector = hyper::net::HttpsConnector::new(super::TlsClient::new());
         assert!(super::get_em_client(&backend, connector).is_ok());
     }
 
