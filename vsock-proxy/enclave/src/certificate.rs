@@ -16,7 +16,6 @@ use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use mbedtls::x509::Certificate as MbedtlsCertificate;
-#[cfg(platform = "nitro")]
 use rustls::Certificate;
 use shared::get_relative_path;
 use shared::models::SetupMessages;
@@ -250,7 +249,6 @@ pub(crate) fn read_root_certificates_mbedtls() -> MbedtlsList<MbedtlsCertificate
     result
 }
 
-#[cfg(platform = "nitro")]
 pub(crate) fn read_root_certificates() -> Vec<Certificate> {
     let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
 

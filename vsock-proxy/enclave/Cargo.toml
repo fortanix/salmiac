@@ -24,7 +24,6 @@ env_logger = "0.7"
 futures = "0.3"
 hmac = "0.12.1"
 hyper = "0.10"
-hyper-rustls = "0.6.2"
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
@@ -47,6 +46,7 @@ tokio-vsock = "0.3.1"
 tun = { version = "0.5.3", features = ["async"] }
 url = "2.3.1"
 uuid = "0.7.4"
+webpki = "0.18"
 
 [build-dependencies]
 mbedtls = { version = "0.13.5", features = ["rdrand", "std", "ssl"], default-features = false }
