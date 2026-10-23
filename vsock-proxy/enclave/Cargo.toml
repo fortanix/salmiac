@@ -9,7 +9,7 @@ repository = "https://github.com/fortanix/salmiac"
 
 [dependencies]
 attestation-client = { workspace = true }
-aws-nitro-enclaves-nsm-api = "0.5"
+aws-nitro-enclaves-nsm-api = { workspace = true }
 api-model = { path = "../../api-model", features = ["serde"] }
 async-process = "1.2.0"
 async-trait = "0.1.51"
@@ -21,8 +21,9 @@ em-client = { workspace = true }
 em-node-agent-client = { workspace = true }
 enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
-ftx-cert-build = { git = "https://github.com/fortanix/ftx-cert-build.git", features = ["mbedtls_adapter"] }
+ftx-cert-build = { workspace = true }
 futures = "0.3"
+hex = { workspace = true }
 hmac = "0.12.1"
 hyper = "0.10"
 hyper-rustls = "0.6.2"
@@ -31,16 +32,15 @@ ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
 mbedtls = { version = "0.13.5", features = ["chrono"] }
 nix = "0.15.0"
-openssl = "0.10"
 pkix = "0.2.6"
 rand = "0.8.5"
 rustls = "0.13"
 rtnetlink = "0.8.0"
 sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
-serde = { version = "1.0.127", features = ["derive"] }
-serde_cbor = "0.11.2"
-serde_bytes = "0.11"
-serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+serde = { workspace = true, features = ["derive"] }
+serde_cbor = { workspace = true }
+serde_bytes = { workspace = true }
+serde_json =  { workspace = true }
 sha2 = "0.10.9"
 shared = { path = "../shared" }
 sysinfo = "0.29.8"
@@ -49,8 +49,7 @@ tokio-vsock = "0.3.1"
 tun = { version = "0.5.3", features = ["async"] }
 url = "2.3.1"
 uuid = "0.7.4"
-vme-pkix = "0.1.0"
-hex = "0.4.3"
+vme-pkix = { workspace = true }
 
 [build-dependencies]
 mbedtls = { version = "0.13.5", features = ["rdrand", "std", "ssl"], default-features = false }

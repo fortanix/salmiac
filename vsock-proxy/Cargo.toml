@@ -7,6 +7,14 @@ members = [
 ]
 
 [workspace.dependencies]
+attestation-client = { git = "https://github.com/fortanix/attestation.git", package = "client" }
+aws-nitro-enclaves-nsm-api = "0.5"
 em-client = { version = "4.0.2" }
 em-node-agent-client = { version = "1.0.0" }
-attestation-client = { git = "https://github.com/fortanix/attestation.git", package = "client" }
+ftx-cert-build = { git = "https://github.com/fortanix/ftx-cert-build.git", features = ["mbedtls_adapter"] }
+hex = "0.4.3"
+serde = "1.0.127"
+serde_cbor = "0.11.2"
+serde_bytes = "0.11"
+serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
+vme-pkix = "0.1.0"
