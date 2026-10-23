@@ -17,7 +17,7 @@ use mbedtls::{
 };
 use pkix::{
     pem::{der_to_pem, PEM_CERTIFICATE_REQUEST},
-    types::{Attribute, EcdsaX962, GeneralName, Name, RsaPkcs15, Sha256},
+    types::{Attribute, EcdsaX962, Name, RsaPkcs15, Sha256},
     ToDer,
 };
 use sha2::{Digest, Sha256 as Sha256Digest};
@@ -117,8 +117,7 @@ fn get_csr(
         }])
         .map_err(|e| e.to_string())?;
     if let Some(names) = alt_names {
-        builder = builder
-            .with_san_extension_from_general_names(names.into_iter().map(GeneralName::DnsName));
+        builder = builder.with_san_extension_from_strs(&names);
     }
     // Unlike em-app's Nitro CSR builder, which omitted basicConstraints,
     // ftx-cert-build always requests this critical extension (CA=false by default).
