@@ -16,7 +16,7 @@ futures = "0.3"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
 rtnetlink = "0.8.0"
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_cbor = { workspace = true }
 threadpool = "1.7.1"
 tokio = { version = "1.0.1", features = ["macros", "rt", "rt-multi-thread", "io-util", "net"] }
