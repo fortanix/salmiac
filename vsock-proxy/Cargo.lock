@@ -903,7 +903,6 @@ dependencies = [
  "futures 0.3.16",
  "hmac",
  "hyper",
- "hyper-rustls",
  "interfaces",
  "ipnetwork",
  "lazy_static 1.4.0",
@@ -933,6 +932,7 @@ dependencies = [
  "url 2.3.1",
  "uuid 0.7.4",
  "walkdir",
+ "webpki",
 ]
 
 [[package]]
@@ -1336,18 +1336,6 @@ dependencies = [
  "antidote",
  "hyper",
  "native-tls",
-]
-
-[[package]]
-name = "hyper-rustls"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71f7b2e5858ab9e19771dc361159f09ee5031734a6f7471fe0947db0238d92b7"
-dependencies = [
- "hyper",
- "rustls",
- "webpki",
- "webpki-roots",
 ]
 
 [[package]]
@@ -3435,16 +3423,6 @@ checksum = "17d7967316d8411ca3b01821ee6c332bde138ba4363becdb492f12e514daa17f"
 dependencies = [
  "ring",
  "untrusted",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85d1f408918fd590908a70d36b7ac388db2edc221470333e4d6e5b598e44cabf"
-dependencies = [
- "untrusted",
- "webpki",
 ]
 
 [[package]]
