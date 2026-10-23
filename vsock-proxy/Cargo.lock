@@ -926,7 +926,6 @@ dependencies = [
  "log 0.4.33",
  "mbedtls",
  "nix 0.15.0",
- "openssl",
  "parent_lib",
  "pkix",
  "rand 0.8.5",
