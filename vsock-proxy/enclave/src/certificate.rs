@@ -187,6 +187,7 @@ pub(crate) trait CSRApi {
 }
 
 pub(crate) struct EmAppCSRApi {}
+
 impl CSRApi for EmAppCSRApi {
     fn get_remote_attestation_csr(
         &self,
@@ -203,7 +204,7 @@ impl CSRApi for EmAppCSRApi {
         if common_name.is_empty() {
             subject = pkix::types::Name::from(vec![]);
         } else {
-            subject = em_app::common_name_to_subject(common_name);
+            subject = crate::utils::nitro::common_name_to_subject(common_name);
         }
 
         let alt_names = cert_config
@@ -213,8 +214,7 @@ impl CSRApi for EmAppCSRApi {
             .map(|s| Cow::Owned(s))
             .collect();
 
-        em_app::get_remote_attestation_csr_subject(
-            "localhost", //this param is not used for now
+        crate::utils::nitro::get_remote_attestation_csr_subject(
             &subject,
             key,
             Some(alt_names),
