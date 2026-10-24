@@ -619,7 +619,7 @@ async fn signal_user_program_exit_status(
 ) -> Result<(), String> {
     // Discard internal details before serializing anything for the untrusted parent.
     info!("exit status - {:?}", exit_status);
-    let exit_status = exit_status.map_err(|_| EnclaveErrorCode::EnclaveFailure);
+    let exit_status = exit_status.map_err(|err| EnclaveErrorCode::enclave_failure(err, true));
     match parent
         .exchange_message(&SetupMessages::UserProgramExit(exit_status))
         .await?
