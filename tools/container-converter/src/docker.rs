@@ -468,3 +468,80 @@ impl Iterator for FrameFileRead {
         }
     }
 }
+
+#[cfg(test)]
+mod ssrf_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn rejects_internal_registries() {
+        for n in [
+            "127.0.0.1:2375/x",
+            "127.0.0.1:9092/x:latest",
+            "localhost/x",
+            "localhost./x",
+            "LOCALHOST:5000/x",
+            "0x7f.1/x",
+            "0177.0.0.1/x",
+            "127.1/x",
+            "[::1]:5000/x",
+            "[::ffff:127.0.0.1]/x",
+            "10.233.125.150:9093/x",
+            "10.7.202.11:10250/x",
+            "169.254.169.254/x",
+            "100.64.0.1/x",
+            "u:p@host.io/x",
+        ] {
+            assert!(
+                ensure_registry_allowed(n).await.is_err(),
+                "should reject {n}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn accepts_docker_hub_names_without_dns() {
+        for n in [
+            "alpine",
+            "alpine:latest",
+            "library/alpine:3.19",
+            "myuser/app:1.0",
+        ] {
+            assert!(
+                ensure_registry_allowed(n).await.is_ok(),
+                "should accept {n}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_host_cases() {
+        assert_eq!(registry_host("alpine"), None);
+        assert_eq!(registry_host("library/alpine"), None);
+        assert_eq!(registry_host("ghcr.io/a/b:1"), Some("ghcr.io"));
+        assert_eq!(registry_host("localhost:5000/x"), Some("localhost:5000"));
+        assert_eq!(registry_host("[::1]:5000/x"), Some("[::1]:5000"));
+    }
+
+    #[test]
+    fn blocked_ranges() {
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(blocked(ip.parse().unwrap()), "should block {ip}");
+        }
+        for ip in ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"] {
+            assert!(!blocked(ip.parse().unwrap()), "should allow {ip}");
+        }
+    }
+}
