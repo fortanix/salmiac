@@ -119,17 +119,19 @@ const ENCLAVE_GPU_IMAGE_PATH: &str = "enclave-base-gpu.tar";
 const DEFAULT_RSA_SIZE: u32 = 3072;
 const RSA_KEY_SIZES: [u32; 3] = [2048, DEFAULT_RSA_SIZE, 4096];
 
-pub async fn process_request(request_file: &str) -> std::result::Result<(), String> {
+/// This function accepts a request JSON string and outputs a response JSON string.
+/// If the structures are desired, use the `run` function instead.
+pub async fn process_request(request_file: &str) -> std::result::Result<String, String> {
     let request = serde_json::from_str::<PlatformConversionRequest>(&request_file)
-        .map_err(|err| format!("Failed deserializing conversion request. {:?}", err))?;
+        .map_err(|err| format!("Failed deserializing conversion request: {:?}", err))?;
 
     match run(request).await {
         Ok(response) => {
             let response_serialized = serde_json::to_string(&response)
-                .map_err(|err| format!("Failed serializing conversion request. {:?}", err))?;
+                .map_err(|err| format!("Failed serializing conversion response: {:?}", err))?;
 
             println!("Successful conversion: {:?}", response_serialized);
-            Ok(())
+            Ok(response_serialized)
         }
         Err(err) => {
             error!("Converter exited with error: {}", err.message);
