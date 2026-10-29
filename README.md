@@ -207,7 +207,7 @@ Ability to build the converter from source will be possible in the future but cu
    - Set `GPU_BDF`, depending on the converter used, to one PCI BDF for a single GPU or a comma-separated list for multiple GPUs.
    - Alternatively, set `GPU_COUNT` to a positive integer to select exactly that many available VFIO GPUs, or to `all` to select every available VFIO GPU.
 
-   Do not set `GPU_COUNT` together with `GPU_BDF`. Skip all of these variables if GPU passthrough was not configured at conversion time.
+   When `GPU_BDF` is unset, `TDX_GPU_BDF` (TDX) or `SNP_GPU_BDF` (SNP) is accepted for backward compatibility, using the same BDF format. `GPU_BDF` takes priority when set, including when empty. The other platform's variable is ignored. Do not set `GPU_COUNT` together with `GPU_BDF` or the selected platform's fallback variable. Skip all of these variables if GPU passthrough was not configured at conversion time.
 
    The `APPCONFIG_ID` is the runtime configuration hash of the workflow, which can be created through the CCM UI. It is only necessary for workflows, and not needed if only the application is to be run in the container. Set `APPCONFIG_ID` if one has been created for this instance.
 

@@ -70,7 +70,7 @@ registered as a debug build in a test-only deployment account.
 - GPU_COUNT - Discover GPUs exposed under `/dev/vfio/devices`. Set it to a
   positive integer to select exactly that many available VFIO GPUs, or to
   `all` to select every available VFIO GPU. Devices already in use are skipped.
-  Do not set `GPU_COUNT` together with `GPU_BDF`.
+  When `GPU_BDF` is unset, `TDX_GPU_BDF` (TDX) or `SNP_GPU_BDF` (SNP) is accepted for backward compatibility, using the same BDF format. `GPU_BDF` takes priority when set, including when empty. The other platform's variable is ignored. Do not set `GPU_COUNT` together with `GPU_BDF` or the selected platform's fallback variable.
 
 ##### AMD SEV-SNP-specific enclave settings variables
 - SNP_CPU - QEMU CPU type, defaults to `EPYC-v4,-tsa-sq-no,-tsa-l1-no,family=0,model=0,stepping=0`.

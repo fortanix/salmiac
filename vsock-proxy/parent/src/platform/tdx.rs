@@ -31,6 +31,10 @@ impl TdxPlatform {
 }
 
 impl QemuPlatform for TdxPlatform {
+    fn legacy_gpu_bdf_env_var(&self) -> Option<&'static str> {
+        Some("TDX_GPU_BDF")
+    }
+
     fn firmware_path(&self) -> Option<&'static str> {
         Some(OVMF_PATH)
     }

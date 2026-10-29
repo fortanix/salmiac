@@ -59,8 +59,10 @@ pub struct GPUSettings {
 }
 
 impl GPUSettings {
-    pub fn try_new() -> Result<Option<Self>, String> {
-        let gpu_bdfs_value = env::var(constants::GPU_BDF_ENV_VAR).ok();
+    pub fn try_new(legacy_bdf_env_var: Option<&str>) -> Result<Option<Self>, String> {
+        let gpu_bdfs_value = env::var(constants::GPU_BDF_ENV_VAR)
+            .ok()
+            .or_else(|| legacy_bdf_env_var.and_then(|name| env::var(name).ok()));
         let gpu_count_value = env::var(constants::GPU_COUNT_ENV_VAR).ok();
         if gpu_bdfs_value.is_some() && gpu_count_value.is_some() {
             return Err(format!(
@@ -176,8 +178,12 @@ pub(super) trait QemuPlatform {
     fn machine(&self) -> Option<String>;
     fn objects(&self) -> Vec<String>;
 
+    fn legacy_gpu_bdf_env_var(&self) -> Option<&'static str> {
+        None
+    }
+
     fn gpu_settings(&self) -> Result<Option<GPUSettings>, String> {
-        let gpu_settings = GPUSettings::try_new()?;
+        let gpu_settings = GPUSettings::try_new(self.legacy_gpu_bdf_env_var())?;
         if gpu_settings.is_none() {
             let gpu_passthrough_enabled = env::var(constants::ENABLE_GPU_PASSTHROUGH_ENV_VAR)
                 .is_ok_and(|value| value == "true");
