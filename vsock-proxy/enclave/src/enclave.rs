@@ -1158,6 +1158,7 @@ pub(crate) async fn setup_enclave_certification<
         .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))?;
 
     let node_agent_cli = NodeAgentClient::init()
+        .await
         .map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
 
     // Due to having no provision in the client for a separate Subject and SAN extension,
@@ -1179,6 +1180,7 @@ pub(crate) async fn setup_enclave_certification<
         app_config_id.clone().map(|id| id.as_bytes().to_vec()),
         Some(alt_names),
     )
+    .await
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
     #[cfg(platform = "snp")]
     BaremetalSevSnp::attest_and_request_app_cert(
@@ -1187,6 +1189,7 @@ pub(crate) async fn setup_enclave_certification<
         app_config_id.clone().map(|id| id.as_bytes().to_vec()),
         Some(alt_names),
     )
+    .await
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
 
     if let AppCert {

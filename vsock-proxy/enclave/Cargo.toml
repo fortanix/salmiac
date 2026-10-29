@@ -23,7 +23,7 @@ enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
 futures = "0.3"
 hmac = "0.12.1"
-hyper = "0.10"
+hyper-v0 = { workspace = true }
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"

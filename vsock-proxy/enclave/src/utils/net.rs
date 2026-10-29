@@ -3,8 +3,8 @@ use std::sync::Arc;
 use api_model::enclave::CcmBackendUrl;
 use em_client::client::Client as EmClient;
 use em_client::models::ApplicationConfigSdkmsCredentials;
-use hyper::client::{Client, Pool};
-use hyper::net::HttpsConnector;
+use hyper_v0::client::{Client, Pool};
+use hyper_v0::net::HttpsConnector;
 use sdkms::SdkmsClient;
 
 use crate::app_configuration::EmAppCredentials;
@@ -89,7 +89,9 @@ pub fn get_sdkms_client(
 
 #[cfg(test)]
 mod tests {
-    use hyper::status::StatusCode;
+    use hyper_v0::client::Client as HyperClient;
+    use hyper_v0::net::HttpsConnector;
+    use hyper_v0::status::StatusCode;
     use mbedtls::{
         hash::Type,
         pk::Pk,
@@ -117,7 +119,7 @@ mod tests {
             host: host.to_string(),
             port,
         };
-        let connector = hyper::net::HttpsConnector::new(super::TlsClient::new());
+        let connector = HttpsConnector::new(super::TlsClient::new());
         assert!(super::get_em_client(&backend, connector).is_ok());
     }
 
@@ -176,7 +178,7 @@ mod tests {
             root_certificate: Some(vec![ca_cert.clone()]),
         };
         let connector = get_hyper_tls_connector(&credentials).unwrap();
-        let mut client = hyper::Client::with_connector(connector);
+        let mut client = HyperClient::with_connector(connector);
         client.set_read_timeout(Some(TIMEOUT));
         client.set_write_timeout(Some(TIMEOUT));
 
