@@ -3,8 +3,8 @@ use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use hyper_v0::Result as HyperResult;
 use hyper_v0::net::{HttpStream, NetworkStream, SslClient};
+use hyper_v0::Result as HyperResult;
 
 use crate::certificate::read_root_certificates;
 
