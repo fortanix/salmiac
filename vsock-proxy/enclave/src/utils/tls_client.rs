@@ -3,7 +3,8 @@ use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use hyper::net::{HttpStream, NetworkStream, SslClient};
+use hyper_v0::Result as HyperResult;
+use hyper_v0::net::{HttpStream, NetworkStream, SslClient};
 
 use crate::certificate::read_root_certificates;
 
@@ -77,7 +78,7 @@ impl TlsClient {
 impl SslClient for TlsClient {
     type Stream = WrappedStream;
 
-    fn wrap_client(&self, stream: HttpStream, host: &str) -> hyper::Result<WrappedStream> {
+    fn wrap_client(&self, stream: HttpStream, host: &str) -> HyperResult<WrappedStream> {
         let dns_name = webpki::DNSNameRef::try_from_ascii_str(host).expect("invalid DNS name");
         let session = rustls::ClientSession::new(&self.cfg, dns_name);
         let tls = rustls::StreamOwned::new(session, stream);

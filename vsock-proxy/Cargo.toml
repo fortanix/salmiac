@@ -10,4 +10,6 @@ members = [
 em-app = { version = "0.5.3" }
 em-client = { version = "4.0.2" }
 em-node-agent-client = { version = "1.0.0" }
-attestation-client = { git = "https://github.com/fortanix/attestation.git", package = "client" }
+# TODO: Remove with RTE-1166
+hyper-v0 = { version = "0.10", package = "hyper" }
+attestation-client = { git = "https://github.com/fortanix/attestation.git", package = "client", rev = "2d6abaa" }

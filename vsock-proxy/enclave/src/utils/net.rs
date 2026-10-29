@@ -3,8 +3,8 @@ use std::sync::Arc;
 use api_model::enclave::CcmBackendUrl;
 use em_client::client::Client as EmClient;
 use em_client::models::ApplicationConfigSdkmsCredentials;
-use hyper::client::{Client, Pool};
-use hyper::net::HttpsConnector;
+use hyper_v0::client::{Client, Pool};
+use hyper_v0::net::HttpsConnector;
 use sdkms::SdkmsClient;
 
 use crate::app_configuration::EmAppCredentials;
@@ -89,7 +89,7 @@ pub fn get_sdkms_client(
 
 #[cfg(test)]
 mod tests {
-    use hyper::status::StatusCode;
+    use hyper_v0::status::StatusCode;
     use mbedtls::{
         hash::Type,
         pk::Pk,
