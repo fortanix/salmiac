@@ -302,6 +302,13 @@ async fn run0(
 }
 
 fn validate_request(request: &ConversionRequest) -> Result<()> {
+    for name in [&request.input_image.name, &request.output_image.name] {
+        crate::docker::check_registry_syntax(name).map_err(|message| ConverterError {
+            message,
+            kind: ConverterErrorKind::BadRequest,
+        })?;
+    }
+
     if request.input_image.name == request.output_image.name {
         return Err(ConverterError {
             message: "Input and output images must be different".to_string(),

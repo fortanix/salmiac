@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::net::IpAddr;
 
 use api_model::converter::AuthConfig;
 use async_trait::async_trait;
@@ -19,6 +20,7 @@ use shiplift::image::{BuildParams, ImageBuildChunk, ImageDetails, PushOptions};
 use shiplift::{
     ContainerOptions, Docker, Image, PullOptions, RegistryAuth, RmContainerOptions, TagOptions,
 };
+use url::{Host, Url};
 
 use crate::image::ImageWithDetails;
 
@@ -213,12 +215,127 @@ impl DockerDaemon {
     }
 }
 
+const PULL_FAILED: &str = "image could not be pulled";
+
+/// Local development only: set ALLOW_INTERNAL_REGISTRIES=1 to pull from or push to
+/// localhost/private registries (for example when running the converter CLI by hand).
+/// Never set this in the deployed service. Delete this function if you do not want an opt-out.
+fn internal_registries_allowed() -> bool {
+    std::env::var("ALLOW_INTERNAL_REGISTRIES").map_or(false, |v| v == "1")
+}
+
+/// Returns the registry host (with optional port) if the image names one.
+/// Docker rule: the first path part is a registry only if it contains '.' or ':',
+/// is "localhost", or is a bracketed IPv6 literal. Otherwise the image is on Docker Hub.
+fn registry_host(image: &str) -> Option<&str> {
+    let (first, _) = image.split_once('/')?;
+    (first.contains('.')
+        || first.contains(':')
+        || first.contains('@')
+        || first.starts_with('[')
+        || first.eq_ignore_ascii_case("localhost"))
+    .then_some(first)
+}
+
+/// Sync, no DNS. Ok(None) = nothing to resolve (Docker Hub, or opt-out set).
+pub(crate) fn check_registry_syntax(image: &str) -> Result<Option<(Host<String>, u16)>, String> {
+    if internal_registries_allowed() {
+        return Ok(None);
+    }
+    let deny = |reason: &str| {
+        warn!("registry check rejected image {}: {}", image, reason);
+        PULL_FAILED.to_string()
+    };
+    let Some(reg) = registry_host(image) else {
+        return Ok(None); // Docker Hub
+    };
+    let url =
+        Url::parse(&format!("https://{}", reg)).map_err(|_| deny("unparsable registry host"))?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(deny("userinfo in registry host"));
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let host = url
+        .host()
+        .ok_or_else(|| deny("missing registry host"))?
+        .to_owned();
+    match &host {
+        Host::Ipv4(ip) if blocked(IpAddr::V4(*ip)) => Err(deny("blocked IPv4 address")),
+        Host::Ipv6(ip) if blocked(IpAddr::V6(*ip)) => Err(deny("blocked IPv6 address")),
+        Host::Domain(d) => {
+            let d = d.trim_end_matches('.');
+            if d.eq_ignore_ascii_case("localhost") || d.to_ascii_lowercase().ends_with(".localhost")
+            {
+                return Err(deny("localhost"));
+            }
+            Ok(Some((host.clone(), port)))
+        }
+        _ => Ok(Some((host.clone(), port))),
+    }
+}
+
+/// Full check: syntax, then resolve domain names and reject if ANY answer is blocked.
+async fn ensure_registry_allowed(image: impl AsRef<str>) -> Result<(), String> {
+    let image = image.as_ref();
+    if let Some((Host::Domain(d), port)) = check_registry_syntax(image)? {
+        let d = d.trim_end_matches('.').to_string();
+        let addrs = tokio::net::lookup_host((d.as_str(), port))
+            .await
+            .map_err(|_| {
+                warn!(
+                    "registry check rejected image {}: DNS resolution failed",
+                    image
+                );
+                PULL_FAILED.to_string()
+            })?;
+        for a in addrs {
+            if blocked(a.ip()) {
+                warn!(
+                    "registry check rejected image {}: hostname resolves to a blocked address",
+                    image
+                );
+                return Err(PULL_FAILED.to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn blocked(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return blocked(IpAddr::V4(v4));
+            }
+            let s = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (s & 0xfe00) == 0xfc00 // fc00::/7
+                || (s & 0xffc0) == 0xfe80 // fe80::/10
+        }
+    }
+}
+
 #[async_trait]
 impl DockerUtil for DockerDaemon {
     async fn get_latest_image_details(
         &self,
         image: &DockerReference<'_>,
     ) -> Result<ImageDetails, String> {
+        // Reject internal registries before anything is dialed.
+        ensure_registry_allowed(image.name().to_string()).await?;
+
         // Do a pull first to make sure that we always pick the latest image version from remote repository
         match self.pull_image(image).await {
             Err(shiplift::Error::Fault { code, .. }) if code == http::StatusCode::NOT_FOUND => {
@@ -228,16 +345,22 @@ impl DockerUtil for DockerDaemon {
                 );
             }
             Err(err) => {
-                return Err(format!(
+                // Raw daemon error stays in the logs; the caller gets a generic message.
+                error!(
                     "Failed pulling image {} from remote repository. {:?}",
                     image.to_string(),
                     err
-                ));
+                );
+                return Err(PULL_FAILED.to_string());
             }
             Ok(_) => {}
         }
 
-        self.get_local_image_details(&image).await
+        // Same message as a failed pull, so "not found" and "refused" look identical.
+        self.get_local_image_details(&image).await.map_err(|e| {
+            warn!("{}", e);
+            PULL_FAILED.to_string()
+        })
     }
 
     async fn get_local_image_details(&self, image: &Reference<'_>) -> Result<ImageDetails, String> {
@@ -298,6 +421,9 @@ impl DockerUtil for DockerDaemon {
 
     async fn push_image(&self, image: &ImageWithDetails) -> Result<(), String> {
         let repository = image.reference.name();
+        // The output registry is also dialed (and receives credentials), so check it too.
+        ensure_registry_allowed(repository.to_string()).await?;
+
         let mut tag_options = TagOptions::builder();
         tag_options.repo(repository);
 
