@@ -245,9 +245,10 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attestation"
-version = "0.1.0"
-source = "git+https://github.com/fortanix/attestation.git?rev=2d6abaa#2d6abaa3aab90cab77a09ccba63c2e77bf958249"
+version = "0.2.0"
+source = "git+https://github.com/fortanix/attestation.git?rev=c53d9dc#c53d9dca55ec174e5e5308d3eb4372ada3663036"
 dependencies = [
+ "aws-nitro-enclaves-nsm-api 0.5.2",
  "b64-ct",
  "der",
  "iocuddle",
@@ -257,6 +258,7 @@ dependencies = [
  "once_cell",
  "pkix",
  "serde",
+ "serde_bytes",
  "sgx-isa",
  "sgx_pkix",
  "tdx-ql",
@@ -290,6 +292,20 @@ dependencies = [
  "libc",
  "log 0.4.33",
  "nix 0.20.0",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+]
+
+[[package]]
+name = "aws-nitro-enclaves-nsm-api"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "986ca4c3a91a67cadc5ae92b3dfe9de373c2b432bb2288eed90203343e9f47c4"
+dependencies = [
+ "libc",
+ "log 0.4.33",
+ "nix 0.31.3",
  "serde",
  "serde_bytes",
  "serde_cbor",
@@ -527,8 +543,8 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "1.0.0"
-source = "git+https://github.com/fortanix/attestation.git?rev=2d6abaa#2d6abaa3aab90cab77a09ccba63c2e77bf958249"
+version = "1.1.0"
+source = "git+https://github.com/fortanix/attestation.git?rev=c53d9dc#c53d9dca55ec174e5e5308d3eb4372ada3663036"
 dependencies = [
  "async-trait",
  "attestation",
@@ -884,7 +900,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08f80401fb67d9befdc2e98a2659d4d3e38e40618d325b80869df7bb2e6264a1"
 dependencies = [
- "aws-nitro-enclaves-nsm-api",
+ "aws-nitro-enclaves-nsm-api 0.2.1",
  "b64-ct",
  "em-client",
  "em-node-agent-client 1.0.0",
