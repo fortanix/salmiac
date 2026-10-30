@@ -1,4 +1,4 @@
-FROM fortanix/parent-base-nitro:4.1.0 as nitro-cli
+FROM parent-base-nitro:4.0.0 as nitro-cli
 
 FROM ubuntu:24.04
 
