@@ -1132,7 +1132,7 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     }
 }
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
+#[cfg(any(platform = "nitro", platform = "snp", platform = "tdx"))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,
@@ -1149,12 +1149,26 @@ pub(crate) async fn setup_enclave_certification<
     use attestation_client::BaremetalSevSnp;
     #[cfg(platform = "tdx")]
     use attestation_client::BaremetalTdx;
+    #[cfg(platform = "nitro")]
+    use attestation_client::Nitro;
     use attestation_client::{Attest, NodeAgentClient};
 
     info!("Requesting attestation certificate");
 
     // Initialize the RSA key pair used to request an app cert
-    let mut app_cert = AppCert::init()
+    #[cfg(platform = "nitro")]
+    let app_cert = {
+        let key_size = cert_config
+            .key_param
+            .as_ref()
+            .ok_or_else(|| format!("key param not specified for cert config {:?}", cert_config))?
+            .as_u64()
+            .unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+        AppCert::init_with_rsa_key_size(key_size as u32)
+    };
+    #[cfg(any(platform = "snp", platform = "tdx"))]
+    let app_cert = AppCert::init();
+    let mut app_cert = app_cert
         .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))?;
 
     let node_agent_cli = NodeAgentClient::init()
@@ -1173,6 +1187,16 @@ pub(crate) async fn setup_enclave_certification<
     }
 
     // If attestation succeeds, app_cert is populated with the certificate
+    #[cfg(platform = "nitro")]
+    Nitro::attest_and_request_app_cert(
+        &mut app_cert,
+        &node_agent_cli,
+        app_config_id.clone().map(|id| id.as_bytes().to_vec()),
+        Some(alt_names),
+    )
+    .await
+    .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
+
     #[cfg(platform = "tdx")]
     BaremetalTdx::attest_and_request_app_cert(
         &mut app_cert,
@@ -1182,6 +1206,7 @@ pub(crate) async fn setup_enclave_certification<
     )
     .await
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
+
     #[cfg(platform = "snp")]
     BaremetalSevSnp::attest_and_request_app_cert(
         &mut app_cert,
@@ -1211,7 +1236,7 @@ pub(crate) async fn setup_enclave_certification<
     }
 }
 
-#[cfg(not(any(platform = "snp", platform = "tdx")))]
+#[cfg(not(any(platform = "nitro", platform = "snp", platform = "tdx")))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,
