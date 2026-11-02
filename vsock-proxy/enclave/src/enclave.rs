@@ -1188,10 +1188,15 @@ pub(crate) async fn setup_enclave_certification<
 
     // If attestation succeeds, app_cert is populated with the certificate
     #[cfg(platform = "nitro")]
+    let nitro_app_config_id = app_config_id
+        .as_deref()
+        .map(|id| hex::decode(id).map_err(|err| format!("Failed decoding app config id: {}", err)))
+        .transpose()?;
+    #[cfg(platform = "nitro")]
     Nitro::attest_and_request_app_cert(
         &mut app_cert,
         &node_agent_cli,
-        app_config_id.clone().map(|id| id.as_bytes().to_vec()),
+        nitro_app_config_id,
         Some(alt_names),
     )
     .await
