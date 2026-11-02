@@ -1171,9 +1171,17 @@ pub(crate) async fn setup_enclave_certification<
     let mut app_cert = app_cert
         .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))?;
 
-    let node_agent_cli = NodeAgentClient::init()
-        .await
-        .map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
+    #[cfg(platform = "nitro")]
+    let node_agent_cli = {
+        let address = _node_agent.as_deref().unwrap_or("localhost");
+        let client = em_node_agent_client_async::Client::try_new_http(address)
+            .map_err(|e| format!("Failed to construct Node Agent HTTP client: {}", e))?;
+        NodeAgentClient::init_with_client(client).await
+    };
+    #[cfg(any(platform = "snp", platform = "tdx"))]
+    let node_agent_cli = NodeAgentClient::init().await;
+    let node_agent_cli =
+        node_agent_cli.map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
 
     // Due to having no provision in the client for a separate Subject and SAN extension,
     // the two should be combined into one list of names - First name is the Subject and
