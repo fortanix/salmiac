@@ -181,6 +181,10 @@ pub(crate) async fn run(args: ParentConsoleArguments) -> Result<UserProgramExitS
     }
 
     let (exit_code, mut enclave_port) = with_background_tasks!(background_tasks, {
+        // Nitro requests certificates over TCP from inside the enclave, so parent
+        // packet forwarding must be running before waiting for certificate setup.
+        communicate_certificates(&mut enclave_port, EmAppCertificateApi {}).await?;
+
         setup_file_system(&mut enclave_port, tap_l3_address, persistence_enabled).await?;
 
         // Pass the ports which the enclave can connect to for forwarding logs
@@ -651,8 +655,6 @@ async fn setup_parent(
         )
         .await?
     };
-
-    communicate_certificates(vsock, EmAppCertificateApi {}).await?;
 
     Ok(ParentSetupResult {
         network_devices: paired_network_devices,
