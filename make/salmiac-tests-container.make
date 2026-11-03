@@ -74,7 +74,6 @@ TESTS-STAGE-CONTENTS := \
 	$(TESTS-STAGE-DIR)/generated_string_table.py \
 	$(TESTS-STAGE-DIR)/docker-config.json \
 	$(TESTS-STAGE-DIR)/container-converter \
-	$(TESTS-STAGE-DIR)/$(ENCLAVE-KERNEL-TAR) \
 	$(TESTS-STAGE-DIR)/amzn-linux-nbd \
 	$($(SUBDIR)/STAGED-BIN-FILES) \
 	$(TESTS-CONTAINER-APP-TESTS-FILE) \
