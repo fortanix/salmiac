@@ -23,11 +23,7 @@ if [ ! -z "$2" ]; then
   features_list="--features "$2
 fi;
 
-set -a
-. ${SALMIAC_ROOT}/ci-constants.txt
-set +a
-
-pushd "${SALMIAC_ROOT}/salmiac-runner/docker"
+pushd docker
 pushd ./enclave-base
 export ENCLAVE_TAG=$(cat ./tag)
 export ENCLAVE_IMAGE="${ENCLAVE_IMAGE:-encalve-base}:${ENCLAVE_TAG}"
