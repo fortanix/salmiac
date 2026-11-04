@@ -26,11 +26,11 @@ COPY staging/server staging/parent-base.tar staging/enclave-base.tar /app/
 # amzn-linux-nbd directory is available in the project root directory
 # when ci.sh is run. ci.sh is responsible for fetching amzn-linux-nbd
 # artifact from the fortanix S3
-COPY amzn-linux-nbd/blobs/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
-COPY amzn-linux-nbd/blobs/bzImage /usr/share/nitro_enclaves/blobs/bzImage
-COPY amzn-linux-nbd/blobs/cmdline /usr/share/nitro_enclaves/blobs/cmdline
-COPY amzn-linux-nbd/blobs/init /usr/share/nitro_enclaves/blobs/init
-COPY amzn-linux-nbd/blobs/linuxkit /usr/share/nitro_enclaves/blobs/linuxkit
-COPY amzn-linux-nbd/blobs/nsm.ko /usr/share/nitro_enclaves/blobs/nsm.ko
+COPY x86_64/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
+COPY x86_64/bzImage /usr/share/nitro_enclaves/blobs/bzImage
+COPY x86_64/cmdline /usr/share/nitro_enclaves/blobs/cmdline
+COPY x86_64/init /usr/share/nitro_enclaves/blobs/init
+COPY x86_64/linuxkit /usr/share/nitro_enclaves/blobs/linuxkit
+COPY x86_64/nsm.ko /usr/share/nitro_enclaves/blobs/nsm.ko
 
 ENTRYPOINT [ "./server" ]
