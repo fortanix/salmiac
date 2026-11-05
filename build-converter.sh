@@ -26,18 +26,18 @@ fi;
 pushd docker
 pushd ./enclave-base
 export ENCLAVE_TAG=$(cat ./tag)
-export ENCLAVE_IMAGE="${ENCLAVE_IMAGE:-encalve-base}:${ENCLAVE_TAG}"
+export ENCLAVE_IMAGE="${ENCLAVE_IMAGE:-enclave-base}:${ENCLAVE_TAG}"
 docker build --no-cache -t "${ENCLAVE_IMAGE}" .
 popd
 docker save $ENCLAVE_IMAGE -o "${ARTIFACTS_DIR}/enclave-base.tar"
 
+export NITRO_PARENT_TAG=$(cat nitro/parent-base/tag)
+export NITRO_PARENT_IMAGE="${PARENT_IMAGE:-parent-base-nitro}:${NITRO_PARENT_TAG}"
+docker build --no-cache --build-context common-build-context=./common-build-context -t $NITRO_PARENT_IMAGE nitro/parent-base/
+
 case "$SALMIAC_PLATFORM" in
   nitro)
-    export PARENT_TAG=$(cat nitro/parent-base/tag)
-    export PARENT_IMAGE="${PARENT_IMAGE:-parent-base-nitro}:${PARENT_TAG}"
-    docker build --no-cache --build-context common-build-context=./common-build-context -t $PARENT_IMAGE nitro/parent-base/
-    popd
-    docker save $PARENT_IMAGE -o "${ARTIFACTS_DIR}/${SALMIAC_PLATFORM}/parent-base.tar"
+    export PARENT_IMAGE=$NITRO_PARENT_IMAGE
     ;;
   snp | tdx)
     export PARENT_TAG=$(cat qemu/parent-base/tag)
@@ -47,11 +47,13 @@ case "$SALMIAC_PLATFORM" in
     cp -a "staging/${SALMIAC_PLATFORM}/kernel_enabled_gpu/nvidia-artifacts.tar.gz" common-build-context/.
     docker build --no-cache enclave-base-gpu --build-context common-build-context=./common-build-context -t $ENCLAVE_GPU_IMAGE
     docker build --no-cache qemu/parent-base --build-context common-build-context=./common-build-context -t $PARENT_IMAGE
-    popd
-    docker save $PARENT_IMAGE -o "${ARTIFACTS_DIR}/${SALMIAC_PLATFORM}/parent-base.tar"
-    docker save $ENCLAVE_GPU_IMAGE -o "${ARTIFACTS_DIR}/${SALMIAC_PLATFORM}/enclave-base-gpu.tar"
     ;;
 esac
+
+popd
+docker save $PARENT_IMAGE -o "${ARTIFACTS_DIR}/${SALMIAC_PLATFORM}/parent-base.tar"
+docker save $ENCLAVE_GPU_IMAGE -o "${ARTIFACTS_DIR}/${SALMIAC_PLATFORM}/enclave-base-gpu.tar"
+docker save $NITRO_PARENT_IMAGE -o "${ARTIFACTS_DIR}/${SALMIAC_PLATFORM}/parent-base.tar"
 
 pushd tools/container-converter
 cargo build $cargo_build_flag $features_list --locked

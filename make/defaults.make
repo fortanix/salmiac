@@ -32,6 +32,7 @@ endif
 FLAVOR ?= debug
 PLATFORM = nitro
 FREQUENCY ?= smoke ci
+PARENT_BASE_IMAGE ?= fortanix/parent-base-nitro:4.1.0
 
 #
 # Check that FLAVOR and PLATFORM have valid values.
