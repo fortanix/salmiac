@@ -1,4 +1,6 @@
-FROM fortanix/parent-base-nitro:4.0.0 as nitro-cli
+ARG BASE_IMAGE=fortanix/parent-base-nitro:4.0.0
+
+FROM ${BASE_IMAGE} as nitro-cli
 
 FROM ubuntu:24.04
 
