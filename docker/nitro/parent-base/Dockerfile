@@ -8,7 +8,7 @@ FROM ubuntu:24.04 as nitro-cli
 ENV DEBIAN_FRONTEND=noninteractive
 # Install packages for rust toolchain
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         apt-utils \
         clang \
@@ -30,7 +30,7 @@ RUN apt-get update \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 # Setup the right rust ver
-ENV RUST_VERSION=1.71.1
+ENV RUST_VERSION=1.97.0
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
@@ -51,7 +51,7 @@ FROM ubuntu:24.04 as parent-base
 # versions of all installed packages at the time the image is built.
 # We do this primarily to pick up security fixes.
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         curl  \
         dnsmasq \
