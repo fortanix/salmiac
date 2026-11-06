@@ -30,7 +30,7 @@ RUN apt-get update \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 # Setup the right rust ver
-ENV RUST_VERSION=1.97.0
+ENV RUST_VERSION=1.71.1
 RUN rustup toolchain install ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup default ${RUST_VERSION}-x86_64-unknown-linux-gnu
 RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
@@ -39,7 +39,7 @@ RUN rustup target add --toolchain ${RUST_VERSION} x86_64-unknown-linux-musl
 ENV NITRO_CLI_INSTALL_DIR=./install
 RUN git clone https://github.com/aws/aws-nitro-enclaves-cli.git \
     && cd aws-nitro-enclaves-cli \
-    && git checkout v1.5.2 \
+    && git checkout v1.4.2 \
     && make nitro-cli-native \
     && make vsock-proxy-native \
     && make install-tools
