@@ -19,4 +19,4 @@ docker save -o ./staging/parent-base.tar parent-base-nitro
 docker tag parent-base-nitro fortanix/parent-base-nitro:4.1.0
 
 # Build the converter
-docker build -t nitro-converter .
+docker build -no-cache -t nitro-converter .

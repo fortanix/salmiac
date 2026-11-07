@@ -17,7 +17,7 @@
 define make-cp-rule
 $(2): $(1) | $$(dir $(2))
 	$$(RM) -f $(2)
-	$$(CP) $(1) $(2)
+	$$(CP) -aL $(1) $(2)
 
 endef
 
