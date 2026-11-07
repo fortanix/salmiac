@@ -120,6 +120,7 @@ $(TESTS-CONTAINER): $(TESTS-STAGE-CONTENTS)
 		--tag $(TESTS-TAG) \
 		--build-arg FLAVOR=$(FLAVOR) \
 		--build-arg PLATFORM=$(PLATFORM) \
+		--build-arg BASE_IMAGE=$(PARENT_BASE_IMAGE) \
 		-f $(TESTS-STAGE-DIR)/$(TESTS_CONTAINER_DOCKERFILE) \
 		$(TESTS-STAGE-DIR)
 	docker save $(TESTS-TAG) | gzip > $@
