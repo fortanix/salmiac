@@ -29,8 +29,8 @@ COPY staging/server staging/parent-base.tar staging/enclave-base.tar /app/
 COPY x86_64/bzImage.config /usr/share/nitro_enclaves/blobs/bzImage.config
 COPY x86_64/bzImage /usr/share/nitro_enclaves/blobs/bzImage
 COPY x86_64/cmdline /usr/share/nitro_enclaves/blobs/cmdline
-COPY x86_64/init /usr/share/nitro_enclaves/blobs/init
-COPY x86_64/linuxkit /usr/share/nitro_enclaves/blobs/linuxkit
+COPY --chmod=u=rwx,go=rx x86_64/init /usr/share/nitro_enclaves/blobs/init
+COPY --chmod=u=rwx,go=rx x86_64/linuxkit /usr/share/nitro_enclaves/blobs/linuxkit
 COPY x86_64/nsm.ko /usr/share/nitro_enclaves/blobs/nsm.ko
 
 ENTRYPOINT [ "./server" ]
