@@ -11,7 +11,7 @@ use crate::app_configuration::{
 #[allow(unused_imports)]
 use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
-    CertificatePaths, CertificateResult, CertificateWithPath, EmAppCSRApi, DEFAULT_CERT_DIR,
+    CertificatePaths, CertificateResult, CertificateWithPath, DEFAULT_CERT_DIR,
     DEFAULT_CERT_RSA_KEY_SIZE,
 };
 use crate::file_system::{
@@ -113,9 +113,7 @@ async fn auto_cert_renewal(
     let expiry_date = certificate::get_certificate_expiry(&cert)?.and_utc();
     if expiry_date < Utc::now() + CERT_RENEWAL_BEFORE_EXPIRY {
         let mut cert = setup_enclave_certification(
-            None::<&mut AsyncVsockStream>,
             node_agent,
-            &EmAppCSRApi {},
             app_config_id,
             &cert_config,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
@@ -247,7 +245,6 @@ pub(crate) async fn run(
         let mut certificate_info = setup_enclave_certifications(
             parent_guard.deref_mut(),
             setup_result.node_agent_address.clone(),
-            &EmAppCSRApi {},
             &setup_result.app_config.id,
             &mut setup_result
                 .enclave_manifest
@@ -1059,13 +1056,9 @@ async fn setup_network_device(
     Ok(tap_device)
 }
 
-pub(crate) async fn setup_enclave_certifications<
-    Socket: AsyncWrite + AsyncRead + Unpin + Send,
-    Api: CSRApi,
->(
+pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead + Unpin + Send>(
     vsock: &mut Socket,
     node_agent: Option<String>,
-    csr_api: &Api,
     app_config_id: &Option<String>,
     cert_settings: &mut Vec<CertificateConfig>,
     fs_root: &Path,
@@ -1081,9 +1074,7 @@ pub(crate) async fn setup_enclave_certifications<
     for cert_config in cert_settings {
         certs.push(
             setup_enclave_certification(
-                Some(vsock),
                 node_agent.clone(),
-                csr_api,
                 app_config_id,
                 cert_config,
                 fs_root,
@@ -1133,13 +1124,8 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
 }
 
 #[cfg(any(platform = "nitro", platform = "snp", platform = "tdx"))]
-pub(crate) async fn setup_enclave_certification<
-    Socket: AsyncWrite + AsyncRead + Unpin + Send,
-    Api: CSRApi,
->(
-    _vsock: Option<&mut Socket>,
+pub(crate) async fn setup_enclave_certification(
     _node_agent: Option<String>,
-    _csr_api: &Api,
     app_config_id: &Option<String>,
     cert_config: &CertificateConfig,
     fs_root: &Path,
@@ -1242,51 +1228,6 @@ pub(crate) async fn setup_enclave_certification<
         ))
     } else {
         Err("No certificate present in attestation client response".to_string())
-    }
-}
-
-#[cfg(not(any(platform = "nitro", platform = "snp", platform = "tdx")))]
-pub(crate) async fn setup_enclave_certification<
-    Socket: AsyncWrite + AsyncRead + Unpin + Send,
-    Api: CSRApi,
->(
-    vsock: Option<&mut Socket>,
-    node_agent: Option<String>,
-    csr_api: &Api,
-    app_config_id: &Option<String>,
-    cert_config: &CertificateConfig,
-    fs_root: &Path,
-) -> Result<CertificateWithPath, String> {
-    if let Some(kp) = &cert_config.key_param {
-        let key_size = kp.as_u64().unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
-        let mut key = create_signer_key(key_size as u32)?;
-        let csr = csr_api.get_remote_attestation_csr(cert_config, app_config_id, &mut key)?;
-        // This needs some cleanup: initially the certificates need to be fetched by connecting to
-        // the node agent through the parent (i.e., a vsock connection). For auto cert renewal the
-        // node agent need to be contacted directly on the host (i.e., a tcp connection). Refactoring
-        // of the startup/parent code is required to always use a tcp connection directly to the node
-        // agent
-        let certificate = match vsock {
-            None => {
-                debug!("Requesting certificate by contacting the node agent on the host");
-                em_request_issue_certificate(node_agent.unwrap_or("localhost".into()), csr).await
-            }
-            Some(vsock) => {
-                debug!("Requesting certificate by contacting the node agent via the parent");
-                request_certificate(vsock, csr).await
-            }
-        }?;
-
-        Ok(CertificateWithPath::new(
-            CertificateResult { certificate, key },
-            cert_config,
-            fs_root,
-        ))
-    } else {
-        Err(format!(
-            "key param not specified for cert config {:?}",
-            cert_config
-        ))
     }
 }
 

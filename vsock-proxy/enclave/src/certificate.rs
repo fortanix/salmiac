@@ -4,7 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
@@ -186,44 +185,6 @@ pub(crate) trait CSRApi {
     ) -> Result<String, String>;
 }
 
-pub(crate) struct EmAppCSRApi {}
-impl CSRApi for EmAppCSRApi {
-    fn get_remote_attestation_csr(
-        &self,
-        cert_config: &CertificateConfig,
-        app_config_id: &Option<String>,
-        key: &mut Pk,
-    ) -> Result<String, String> {
-        let subject;
-        let common_name = cert_config
-            .subject
-            .as_ref()
-            .map(|e| e.as_str())
-            .unwrap_or_default();
-        if common_name.is_empty() {
-            subject = pkix::types::Name::from(vec![]);
-        } else {
-            subject = em_app::common_name_to_subject(common_name);
-        }
-
-        let alt_names = cert_config
-            .alt_names
-            .clone()
-            .into_iter()
-            .map(|s| Cow::Owned(s))
-            .collect();
-
-        em_app::get_remote_attestation_csr_subject(
-            "localhost", //this param is not used for now
-            &subject,
-            key,
-            Some(alt_names),
-            app_config_id.as_deref(),
-        )
-        .map_err(|err| format!("Failed to get CSR. {:?}", err))
-    }
-}
-
 // Returns the expiry of a certificate. `cert_pem` is expected to be pem encoded (without
 // terminating zero byte).
 pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, String> {
@@ -267,14 +228,13 @@ mod tests {
 
     use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
     use chrono::NaiveDate;
-    use mbedtls::pk::Pk;
     use parent_lib::{communicate_certificates, CertificateApi};
     use serde_json::value::Value;
     use shared::socket::InMemorySocket;
     use tokio::runtime::Runtime;
 
     use crate::certificate::{
-        create_signer_key, get_certificate_expiry, write_certificate, CSRApi, CertificateResult,
+        create_signer_key, get_certificate_expiry, write_certificate, CertificateResult,
         CertificateWithPath, DEFAULT_CERT_FILE, DEFAULT_CERT_RSA_KEY_SIZE, DEFAULT_KEY_FILE,
     };
     use crate::enclave::setup_enclave_certifications;
@@ -291,18 +251,6 @@ mod tests {
         }
     }
 
-    struct MockCSRApi {}
-    impl CSRApi for MockCSRApi {
-        fn get_remote_attestation_csr(
-            &self,
-            _cert_config: &CertificateConfig,
-            _app_config_id: &Option<String>,
-            _key: &mut Pk,
-        ) -> Result<String, String> {
-            Ok("csr".to_string())
-        }
-    }
-
     async fn parent(mut parent_socket: InMemorySocket) -> Result<(), String> {
         std::env::set_var("NODE_AGENT", "test");
         communicate_certificates(&mut parent_socket, MockCertApi {}).await
@@ -315,7 +263,6 @@ mod tests {
         let result = setup_enclave_certifications(
             &mut enclave_socket,
             None,
-            &MockCSRApi {},
             &None,
             &mut cert_configs,
             Path::new("/"),
@@ -331,7 +278,6 @@ mod tests {
         let result = setup_enclave_certifications(
             &mut enclave_socket,
             None,
-            &MockCSRApi {},
             &None,
             &mut vec![],
             Path::new("/"),
