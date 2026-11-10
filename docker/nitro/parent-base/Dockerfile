@@ -8,7 +8,7 @@ FROM ubuntu:24.04 as nitro-cli
 ENV DEBIAN_FRONTEND=noninteractive
 # Install packages for rust toolchain
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         apt-utils \
         clang \
@@ -51,7 +51,7 @@ FROM ubuntu:24.04 as parent-base
 # versions of all installed packages at the time the image is built.
 # We do this primarily to pick up security fixes.
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         curl  \
         dnsmasq \
