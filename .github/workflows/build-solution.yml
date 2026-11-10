@@ -34,7 +34,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get update && sudo apt upgrade -y -o Acquire::Retries=0
           sudo apt-get install -y libpcap-dev
 
       # The 3 steps below to install clang, cmake and set LD_LIBRARY_PATH
