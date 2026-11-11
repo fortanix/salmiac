@@ -245,8 +245,8 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attestation"
-version = "0.2.0"
-source = "git+https://github.com/fortanix/attestation.git?rev=a6dfcfa#a6dfcfa4651fd29f70805273fc9915155f5c7a8e"
+version = "0.1.1"
+source = "git+https://github.com/fortanix/attestation.git?rev=e0e4e41#e0e4e41dbda69b2c1552aa5517adea4f60dace53"
 dependencies = [
  "aws-nitro-enclaves-nsm-api 0.5.2",
  "b64-ct",
@@ -544,7 +544,7 @@ dependencies = [
 [[package]]
 name = "client"
 version = "1.1.0"
-source = "git+https://github.com/fortanix/attestation.git?rev=a6dfcfa#a6dfcfa4651fd29f70805273fc9915155f5c7a8e"
+source = "git+https://github.com/fortanix/attestation.git?rev=e0e4e41#e0e4e41dbda69b2c1552aa5517adea4f60dace53"
 dependencies = [
  "async-trait",
  "attestation",
