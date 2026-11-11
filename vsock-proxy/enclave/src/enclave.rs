@@ -1156,8 +1156,7 @@ pub(crate) async fn setup_enclave_certification<
     info!("Requesting attestation certificate");
 
     // Initialize the RSA key pair used to request an app cert
-    #[cfg(platform = "nitro")]
-    let app_cert = {
+    let mut app_cert = {
         let key_size = cert_config
             .key_param
             .as_ref()
@@ -1165,11 +1164,8 @@ pub(crate) async fn setup_enclave_certification<
             .as_u64()
             .unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
         AppCert::init_with_rsa_key_size(key_size as u32)
-    };
-    #[cfg(any(platform = "snp", platform = "tdx"))]
-    let app_cert = AppCert::init();
-    let mut app_cert = app_cert
-        .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))?;
+            .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))
+    }?;
 
     #[cfg(platform = "nitro")]
     let node_agent_cli = {
