@@ -35,7 +35,7 @@ nix = "0.15.0"
 openssl = "0.10"
 pkix = "0.2.6"
 rand = "0.8.5"
-rustls = "0.13"
+rustls = "0.23"
 rtnetlink = "0.8.0"
 sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
 serde = { version = "1.0.127", features = ["derive"] }
@@ -49,7 +49,6 @@ tokio-vsock = "0.3.1"
 tun = { version = "0.5.3", features = ["async"] }
 url = "2.3.1"
 uuid = "0.7.4"
-webpki = "0.18"
 
 [build-dependencies]
 mbedtls = { version = "0.13.5", features = ["rdrand", "std", "ssl"], default-features = false }
