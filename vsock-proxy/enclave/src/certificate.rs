@@ -12,12 +12,10 @@ use std::path::{Path, PathBuf};
 use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
 use chrono::NaiveDateTime;
 use log::debug;
-use mbedtls::alloc::List as MbedtlsList;
 use mbedtls::pk::Pk;
 use mbedtls::rng::Rdrand;
 use mbedtls::x509::Certificate as MbedtlsCertificate;
-#[cfg(platform = "nitro")]
-use rustls::Certificate;
+use rustls::pki_types::CertificateDer;
 use shared::get_relative_path;
 use shared::models::SetupMessages;
 use shared::socket::{AsyncReadLvStream, AsyncWriteLvStream};
@@ -236,28 +234,13 @@ pub(crate) fn get_certificate_expiry(cert_pem: &str) -> Result<NaiveDateTime, St
         .map_err(|_e| String::from("Couldn't convert cert expiry date"))
 }
 
-pub(crate) fn read_root_certificates_mbedtls() -> MbedtlsList<MbedtlsCertificate> {
+pub(crate) fn read_root_certificates() -> Vec<CertificateDer<'static>> {
     let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
 
     let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
         .expect("Failed deserializing root certificate list");
 
-    let mut result = MbedtlsList::<MbedtlsCertificate>::new();
-    for i in ca_cert_list {
-        result.push(MbedtlsCertificate::from_der(&i).expect("Failed parsing ca certificate"));
-    }
-
-    result
-}
-
-#[cfg(platform = "nitro")]
-pub(crate) fn read_root_certificates() -> Vec<Certificate> {
-    let file_contents = include_bytes!(concat!(env!("OUT_DIR"), "/cert_list"));
-
-    let ca_cert_list: Vec<Vec<u8>> = serde_cbor::from_slice(&file_contents[..])
-        .expect("Failed deserializing root certificate list");
-
-    ca_cert_list.into_iter().map(Certificate).collect()
+    ca_cert_list.into_iter().map(CertificateDer::from).collect()
 }
 
 #[cfg(test)]

@@ -13,9 +13,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use tokio::fs;
 
-use crate::certificate::read_root_certificates_mbedtls;
-use crate::certificate::DEFAULT_CERT_DIR;
-use std::sync::Arc;
+use crate::certificate::{read_root_certificates, DEFAULT_CERT_DIR};
 #[cfg(not(test))]
 const ENCLAVE_FS_LOWER: &str = "/mnt/lower";
 #[cfg(test)]
@@ -134,7 +132,7 @@ pub(crate) async fn setup_encrypted_mount(
             conn_info,
             OVERLAY_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
-            Some(Arc::new(read_root_certificates_mbedtls())),
+            Some(read_root_certificates()),
             None,
         )?;
         dsm_ops_handler = Some(dsm_fs_ops);

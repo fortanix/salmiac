@@ -10,45 +10,13 @@ use sdkms::SdkmsClient;
 use crate::app_configuration::EmAppCredentials;
 use crate::utils::tls_client::TlsClient;
 
-// Configure rustls TLS using em_app's configuration as a reference.
-// The following differences are intentional:
-//
-// Server certificate verification:
-// em_app requires verification when ca_cert_list is provided; otherwise,
-// it uses AuthMode::Optional. This connector always verifies the server
-// certificate, using built time trust roots from OS plus any supplied CA
-// certificates. Omitting CA certificates does not disable verification.
-// Disabling verification requires a custom verifier via DangerousClientConfig.
-//
-// TLS versions:
-// em_app sets TLS 1.2 as the minimum version. rustls 0.13.1 enables
-// TLS 1.2 and TLS 1.3 by default.
-//
-// References:
-// em_app configuration:
-// https://github.com/fortanix/rust-sgx/blob/5d33ab498ec96a7a429816501287f790a2b5bcfe/em-app/src/utils.rs#L53
-// rustls custom certificate verification:
-// https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#209
-// rustls default TLS versions:
-// https://docs.rs/crate/rustls/0.13.1/source/src/client/mod.rs#144
+// Always verify the server against the built-in roots plus any supplied CA
+// certificates, including when credentials omit additional trust roots.
+// TLS 1.2 and 1.3 are enabled; the connector also sends SNI for DNS hosts.
 pub fn get_hyper_tls_connector(
     credentials: &EmAppCredentials,
 ) -> Result<HttpsConnector<TlsClient>, String> {
-    let mut ssl = TlsClient::new();
-    let tls_config = Arc::get_mut(&mut ssl.cfg).expect("TlsClient config unexpectedly shared");
-
-    if let Some(root_cert) = &credentials.root_certificate {
-        for cert in root_cert {
-            tls_config
-                .root_store
-                .add(cert)
-                .map_err(|err| format!("Unable to add CCM root cert: {:?}", err))?;
-        }
-    }
-
-    tls_config.set_single_client_cert(credentials.certificate.clone(), credentials.key.clone());
-
-    Ok(HttpsConnector::new(ssl))
+    Ok(HttpsConnector::new(TlsClient::new(Some(credentials))?))
 }
 
 pub fn get_em_client(
@@ -100,7 +68,8 @@ mod tests {
     };
     use pkix::types::{GeneralName, GeneralNames, ObjectIdentifier, TaggedDerValue};
     use pkix::{FromDer, ToDer};
-    use rustls::{Certificate, PrivateKey};
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    use std::convert::TryFrom;
     use std::io::Read;
     use std::str::FromStr;
     use std::time::Duration;
@@ -119,12 +88,12 @@ mod tests {
             host: host.to_string(),
             port,
         };
-        let connector = HttpsConnector::new(super::TlsClient::new());
+        let connector = HttpsConnector::new(super::TlsClient::new(None).unwrap());
         assert!(super::get_em_client(&backend, connector).is_ok());
     }
 
     // Creates a test certificate to be used by both client & server
-    fn test_certificate(key_der: &[u8], is_ca: bool, padding: usize) -> Certificate {
+    fn test_certificate(key_der: &[u8], is_ca: bool, padding: usize) -> CertificateDer<'static> {
         let mut subject_key = Pk::from_private_key(key_der, None).unwrap();
         let mut issuer_key = Pk::from_private_key(key_der, None).unwrap();
         let mut cert = Builder::new();
@@ -155,7 +124,7 @@ mod tests {
             cert.extension(encoded_oid.value(), &vec![0u8; padding].to_der(), false)
                 .unwrap();
         }
-        Certificate(cert.write_der_vec(&mut Rdrand).unwrap())
+        CertificateDer::from(cert.write_der_vec(&mut Rdrand).unwrap())
     }
 
     #[test_case(16, true; "minimum 16KB")]
@@ -169,16 +138,30 @@ mod tests {
             .unwrap();
         let ca_cert = test_certificate(&key, true, 0);
         let server_cert = test_certificate(&key, false, 0);
-        let private_key = PrivateKey(key);
+        let private_key = PrivateKeyDer::try_from(key).unwrap();
 
-        let client_cert = test_certificate(&private_key.0, false, padding * 1024);
+        let client_cert = test_certificate(private_key.secret_der(), false, padding * 1024);
         let credentials = EmAppCredentials {
             certificate: vec![client_cert.clone()],
-            key: private_key.clone(),
+            key: private_key.clone_key(),
             root_certificate: Some(vec![ca_cert.clone()]),
         };
-        let connector = get_hyper_tls_connector(&credentials).unwrap();
-        let mut client = HyperClient::with_connector(connector);
+        let connector = get_hyper_tls_connector(&credentials);
+        if !should_succeed {
+            // rustls 0.23 parses the client certificate during configuration and
+            // rejects this oversized certificate before opening a connection.
+            let err = match connector {
+                Err(err) => err,
+                Ok(_) => panic!("Oversized client certificate was accepted"),
+            };
+            assert!(
+                err.contains("TLS client certificate configuration failed"),
+                "{}",
+                err
+            );
+            return;
+        }
+        let mut client = HyperClient::with_connector(connector.unwrap());
         client.set_read_timeout(Some(TIMEOUT));
         client.set_write_timeout(Some(TIMEOUT));
 
@@ -188,22 +171,6 @@ mod tests {
 
         // Join before checking response, so the server doesn't leak.
         let server_result = server.join().expect("TLS server panicked");
-        if !should_succeed {
-            let err = server_result.expect_err("Oversized certificate was accepted");
-            let rustls_err = err
-                .get_ref()
-                .and_then(|err| err.downcast_ref::<rustls::TLSError>());
-            assert!(
-                matches!(rustls_err, Some(rustls::TLSError::CorruptMessagePayload(_))),
-                "Unexpected TLS error: {:?}",
-                err
-            );
-            assert!(
-                response.is_err(),
-                "HTTPS request with 64 KiB certificate padding succeeded"
-            );
-            return;
-        }
         let mut response = response.expect("HTTPS request with large client certificate failed");
         server_result.expect("TLS server failed");
         assert_eq!(response.status, StatusCode::Ok);
@@ -221,10 +188,8 @@ mod tests {
         use std::thread::{self, JoinHandle};
         use std::time::{Duration, Instant};
 
-        use rustls::{
-            AllowAnyAuthenticatedClient, Certificate, PrivateKey, ProtocolVersion, RootCertStore,
-            ServerConfig, ServerSession, Session, StreamOwned,
-        };
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+        use rustls::{RootCertStore, ServerConfig, ServerConnection, StreamOwned};
 
         use super::TIMEOUT;
 
@@ -235,17 +200,25 @@ mod tests {
 
         // Starts a rustls based http server
         pub fn create_rustls_server(
-            ca_cert: Certificate,
-            server_cert: Certificate,
-            private_key: PrivateKey,
-            client_cert: Certificate,
+            ca_cert: CertificateDer<'static>,
+            server_cert: CertificateDer<'static>,
+            private_key: PrivateKeyDer<'static>,
+            client_cert: CertificateDer<'static>,
         ) -> (u16, JoinHandle<std::io::Result<()>>) {
             let mut roots = RootCertStore::empty();
-            roots.add(&ca_cert).unwrap();
-            let mut config = ServerConfig::new(AllowAnyAuthenticatedClient::new(roots));
-            config.versions = vec![ProtocolVersion::TLSv1_2];
-            config
-                .set_single_cert(vec![server_cert], private_key)
+            roots.add(ca_cert).unwrap();
+            let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+            let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+                Arc::new(roots),
+                provider.clone(),
+            )
+            .build()
+            .unwrap();
+            let config = ServerConfig::builder_with_provider(provider)
+                .with_protocol_versions(&[&rustls::version::TLS12])
+                .unwrap()
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(vec![server_cert], private_key)
                 .unwrap();
 
             // Configure listener
@@ -271,7 +244,7 @@ mod tests {
                 socket.set_read_timeout(Some(TIMEOUT)).unwrap();
                 socket.set_write_timeout(Some(TIMEOUT)).unwrap();
 
-                let session = ServerSession::new(&Arc::new(config));
+                let session = ServerConnection::new(Arc::new(config)).unwrap();
                 let mut tls = StreamOwned::new(session, socket);
                 let mut request = Vec::new();
                 while !request.ends_with(HTTP_LINE_ENDING) {
@@ -282,7 +255,12 @@ mod tests {
                     assert!(request.len() < 8192);
                 }
                 assert!(request.starts_with(HTTP_START));
-                assert_eq!(tls.sess.get_peer_certificates().unwrap(), vec![client_cert]);
+                assert_eq!(tls.conn.peer_certificates().unwrap(), &[client_cert]);
+                assert_eq!(tls.conn.server_name(), Some("localhost"));
+                assert_eq!(
+                    tls.conn.protocol_version(),
+                    Some(rustls::ProtocolVersion::TLSv1_2)
+                );
                 tls.write_all(HTTP_END)?;
                 tls.flush()
             });
