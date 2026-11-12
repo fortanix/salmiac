@@ -4,28 +4,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use em_app::mbedtls_hyper::MbedSSLClient;
-use hyper::client::Pool;
-use hyper::net::HttpsConnector;
-use hyper::Client;
 use log::info;
-use mbedtls::alloc::List as MbedtlsList;
-use mbedtls::pk::Pk;
-use mbedtls::ssl::config::{AuthMode, Endpoint, Preset, Transport};
-use mbedtls::ssl::{Config, Version};
-use mbedtls::x509::Certificate;
-use mbedtls::x509::Crl;
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
 use sdkms::api_model::{
     Algorithm, Blob, CipherMode, CryptMode, DecryptRequest, DeriveKeyMechanism, DeriveKeyRequest,
     DigestAlgorithm, EncryptRequest, KeyOperations, ListSobjectsParams, MacRequest, ObjectType,
     Sobject, SobjectDescriptor, VerifyMacRequest,
 };
 use sdkms::SdkmsClient;
-use std::ffi::CString;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+use crate::tls_client::create_http_client;
 use crate::utils::find_env_or_err;
 
 pub const DEFAULT_DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
@@ -60,8 +51,8 @@ pub struct DsmFsOps {
 impl DsmFsOps {
     fn create_client(
         conn_info: ClientConnectionInfo,
-        ca_cert_list: Option<Arc<MbedtlsList<Certificate>>>,
-        ca_crl: Option<Arc<Crl>>,
+        ca_cert_list: Option<Vec<CertificateDer<'static>>>,
+        ca_crl: Option<Vec<CertificateRevocationListDer<'static>>>,
     ) -> Result<SdkmsClient, String> {
         info!("Looking for API key needed to create DSM client.");
         let api_key = conn_info.fs_api_key.unwrap_or_default();
@@ -73,22 +64,17 @@ impl DsmFsOps {
             let app_id = Uuid::parse_str(&app_id_str).ok();
 
             let endpoint = conn_info.dsm_url;
-            let endoint_url = url::Url::parse(&*endpoint)
-                .map_err(|e| format!("Unable to parse endpoint : {:?}", e))?;
-            let host = endoint_url
-                .host_str()
-                .ok_or_else(|| format!("Unable to get host from endpoint"))?;
-            let hyper_client = Self::create_hyper_client_with_cert(
-                host.to_string(),
-                conn_info
-                    .auth_cert
-                    .ok_or_else(|| format!("Unable to get auth cert for connection to DSM"))?,
-                ca_cert_list,
-                ca_crl,
-            )?;
+            let hyper_client =
+                create_http_client(
+                    Some(conn_info.auth_cert.ok_or_else(|| {
+                        "Unable to get auth cert for connection to DSM".to_string()
+                    })?),
+                    ca_cert_list,
+                    ca_crl,
+                )?;
 
             Ok(SdkmsClient::builder()
-                .with_hyper_client(hyper_client)
+                .with_http_client(hyper_client)
                 .with_api_endpoint(&*endpoint)
                 .build()
                 .map_err(|_| format!("DSM client build failed"))?
@@ -99,61 +85,15 @@ impl DsmFsOps {
             let endpoint = conn_info.dsm_url;
             // Note - mapping an empty error here, mapping an error type results in a hang
             // Needs to be investigated.
+            let http_client = create_http_client(None, ca_cert_list, ca_crl)?;
             Ok(SdkmsClient::builder()
+                .with_http_client(http_client)
                 .with_api_endpoint(&endpoint)
                 .build()
                 .map_err(|_| format!("DSM client build failed"))?
                 .authenticate_with_api_key(&*api_key)
                 .map_err(|_| format!("Unable to auth with api key"))?)
         }
-    }
-
-    fn create_hyper_client_with_cert(
-        host: String,
-        auth_cert: &mut ClientCertificate,
-        ca_cert_list: Option<Arc<MbedtlsList<Certificate>>>,
-        ca_crl: Option<Arc<Crl>>,
-    ) -> Result<Arc<Client>, String> {
-        let mut config = Config::new(Endpoint::Client, Transport::Stream, Preset::Default);
-
-        if let Some(ca_cert_list) = ca_cert_list {
-            config.set_ca_list(ca_cert_list, ca_crl);
-            config.set_authmode(AuthMode::Required);
-        } else {
-            #[cfg(debug_assertions)]
-            config.set_authmode(AuthMode::Optional);
-            #[cfg(not(debug_assertions))]
-            return Err("CA list is required when connecting to DSM".to_string());
-        }
-
-        config.set_rng(Arc::new(mbedtls::rng::Rdrand));
-        config
-            .set_min_version(Self::TLS_MIN_VERSION)
-            .map_err(|e| format!("TLS configuration failed: {:?}", e))?;
-
-        let cert = {
-            let cert_pem = CString::new(&*auth_cert.certificate)
-                .map_err(|e| format!("Can't create cstring from cert pem {:?}", e.to_string()))?;
-            let app_cert = Certificate::from_pem_multiple(cert_pem.as_bytes_with_nul())
-                .map_err(|e| format!("Parsing certificate failed: {:?}", e))?;
-
-            Arc::new(app_cert)
-        };
-
-        let der_key = auth_cert.key.clone();
-        let pk_key = Pk::from_private_key(&*der_key, None)
-            .map_err(|e| format!("Failed creating private key from der format. {:?}", e))?;
-        let key = Arc::new(pk_key);
-
-        config
-            .push_cert(cert, key)
-            .map_err(|e| format!("TLS configuration failed: {:?}", e))?;
-
-        let ssl = MbedSSLClient::new_with_sni(Arc::new(config), true, Some(host));
-        let connector = HttpsConnector::new(ssl);
-        Ok(Arc::new(hyper::Client::with_connector(
-            Pool::with_connector(Default::default(), connector),
-        )))
     }
 
     fn get_keys(
@@ -401,8 +341,8 @@ impl DsmFsOps {
         conn_info: ClientConnectionInfo<'_>,
         sobject_prefix: String,
         derivation_data_iv: String,
-        ca_cert_list: Option<Arc<MbedtlsList<Certificate>>>,
-        ca_crl: Option<Arc<Crl>>,
+        ca_cert_list: Option<Vec<CertificateDer<'static>>>,
+        ca_crl: Option<Vec<CertificateRevocationListDer<'static>>>,
     ) -> Result<DsmFsOps, String> {
         let cli = Self::create_client(conn_info, ca_cert_list, ca_crl)?;
         let client = Arc::new(Mutex::new(cli));
@@ -417,7 +357,6 @@ impl DsmFsOps {
 pub trait DsmInterface {
     const GCM_TAG_LEN_BITS: usize = 128;
     const SOBJECT_LIST_LIMIT: usize = 10;
-    const TLS_MIN_VERSION: Version = Version::Tls1_2;
 
     const DERIVED_KEY_SIZE: u32 = 256;
     const DERIVATION_DATA_PASSPHRASE: &'static str = "nt-storage-key00";
@@ -563,13 +502,11 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
     use std::path::PathBuf;
-    use std::sync::Arc;
     use std::{env, println as info};
 
-    use mbedtls::{alloc::List as MbedtlsList, x509::Certificate};
+    use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 
     use lazy_static::lazy_static;
-    use mbedtls::pk::Pk;
     use sdkms::api_model::Blob;
 
     use crate::dsm_key_config::{
@@ -591,18 +528,8 @@ mod tests {
         );
     }
 
-    fn load_ca_list() -> MbedtlsList<Certificate> {
-        let native = rustls_native_certs::load_native_certs();
-
-        let mut ca_list = MbedtlsList::<Certificate>::new();
-
-        for cert in native.certs {
-            if let Ok(parsed) = Certificate::from_der(cert.as_ref()) {
-                ca_list.push(parsed);
-            }
-        }
-
-        ca_list
+    fn load_ca_list() -> Vec<CertificateDer<'static>> {
+        rustls_native_certs::load_native_certs().certs
     }
 
     #[test]
@@ -649,7 +576,6 @@ mod tests {
             .unwrap()
             .read_to_end(&mut key_contents)
             .unwrap();
-        key_contents.push(0);
 
         let mut certpath = PathBuf::from(test_resource.clone());
         certpath.push(cert_path);
@@ -659,10 +585,10 @@ mod tests {
             .read_to_end(&mut cert_contents)
             .unwrap();
 
-        let mut key = Pk::from_private_key(key_contents.as_slice(), None).unwrap();
+        let key = PrivateKeyDer::from_pem_slice(&key_contents).unwrap();
         let mut cert_res = ClientCertificate {
             certificate: String::from_utf8(cert_contents.clone()).unwrap(),
-            key: key.write_private_der_vec().unwrap(),
+            key: key.secret_der().to_vec(),
         };
 
         // Note - Do not pass api key here otherwise the API key will be used for auth to DSM
@@ -685,19 +611,20 @@ mod tests {
                 .unwrap()
                 .read_to_end(&mut ca_contents)
                 .unwrap();
-            ca_contents.push(0);
 
-            let ca_list = Certificate::from_pem_multiple(&ca_contents).unwrap();
+            let ca_list = CertificateDer::pem_slice_iter(&ca_contents)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
 
             dsm_fs_enc = DsmFsOps::new(
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
-                Some(Arc::new(ca_list)),
+                Some(ca_list),
                 None,
             );
         }
-        // Tests that a CA list must be passed in non-debug builds
+        // Release builds require explicit trust roots for certificate authentication.
         #[cfg(not(debug_assertions))]
         {
             dsm_fs_enc = DsmFsOps::new(
@@ -707,8 +634,11 @@ mod tests {
                 None,
                 None,
             );
+            assert_eq!(
+                dsm_fs_enc.as_ref().err().map(String::as_str),
+                Some("CA list is required when connecting to DSM")
+            );
         }
-
         assert!(dsm_fs_enc.is_err());
     }
 
@@ -740,7 +670,6 @@ mod tests {
                 .unwrap()
                 .read_to_end(&mut key_contents)
                 .unwrap();
-            key_contents.push(0);
 
             let mut certpath = PathBuf::from(test_resource);
             certpath.push(cert_path);
@@ -750,10 +679,10 @@ mod tests {
                 .read_to_end(&mut cert_contents)
                 .unwrap();
 
-            let mut key = Pk::from_private_key(key_contents.as_slice(), None).unwrap();
+            let key = PrivateKeyDer::from_pem_slice(&key_contents).unwrap();
             let mut cert_res = ClientCertificate {
                 certificate: String::from_utf8(cert_contents).unwrap(),
-                key: key.write_private_der_vec().unwrap(),
+                key: key.secret_der().to_vec(),
             };
 
             let ca_list = load_ca_list();
@@ -769,7 +698,7 @@ mod tests {
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
-                Some(Arc::new(ca_list.clone())),
+                Some(ca_list.clone()),
                 None,
             )
             .unwrap();
@@ -788,7 +717,7 @@ mod tests {
                 conn_info_dec,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
-                Some(Arc::new(ca_list)),
+                Some(ca_list),
                 None,
             )
             .unwrap();

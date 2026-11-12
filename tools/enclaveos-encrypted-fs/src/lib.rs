@@ -7,6 +7,7 @@
 pub mod dsm_key_config;
 pub mod error;
 pub mod utils;
+mod tls_client;
 
 use std::convert::TryInto;
 use std::mem;
