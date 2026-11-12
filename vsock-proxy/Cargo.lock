@@ -1079,7 +1079,6 @@ name = "enclaveos-encrypted-fs"
 version = "0.1.0"
 dependencies = [
  "async-process",
- "hyper 1.12.0",
  "log 0.4.33",
  "rand 0.8.5",
  "rustls",
@@ -3053,7 +3052,7 @@ dependencies = [
 [[package]]
 name = "sdkms"
 version = "0.6.0"
-source = "git+https://github.com/fortanix/sdkms-client-rust.git?rev=f8ccafa#f8ccafaf440705f6c7bba5807b144daa0e5ce74b"
+source = "git+https://github.com/fortanix/sdkms-client-rust.git?rev=3b96c89#3b96c89b55f6f974e356dda73016959e8a9ae630"
 dependencies = [
  "base64 0.13.0",
  "bitflags 1.3.2",
