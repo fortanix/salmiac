@@ -1000,7 +1000,6 @@ dependencies = [
  "clap",
  "client",
  "const_format",
- "em-app",
  "em-client",
  "em-node-agent-client 1.0.0",
  "em-node-agent-client 2.0.0",
