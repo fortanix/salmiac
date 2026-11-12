@@ -128,13 +128,14 @@ pub(crate) async fn setup_encrypted_mount(
 ) -> Result<EncryptedVolume, String> {
     let mut dsm_ops_handler = None;
     if let Some(conn_info) = conn_info {
-        let dsm_fs_ops = DsmFsOps::new(
+        let dsm_fs_ops = DsmFsOps::new_async(
             conn_info,
             OVERLAY_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
             Some(read_root_certificates()),
             None,
-        )?;
+        )
+        .await?;
         dsm_ops_handler = Some(dsm_fs_ops);
     }
 
