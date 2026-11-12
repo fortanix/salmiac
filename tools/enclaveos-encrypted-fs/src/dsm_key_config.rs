@@ -22,6 +22,7 @@ use crate::utils::find_env_or_err;
 pub const DEFAULT_DSM_ENDPOINT: &str = "https://amer.smartkey.io/";
 pub const DEFAULT_DSM_APPS_ENDPOINT: &str = "https://apps.amer.smartkey.io/";
 
+#[derive(Clone)]
 pub struct ClientCertificate {
     pub certificate: String,
     pub key: Vec<u8>,
@@ -43,9 +44,33 @@ pub struct ClientConnectionInfo<'a> {
 
 #[derive(Clone)]
 pub struct DsmFsOps {
-    client: Arc<Mutex<SdkmsClient>>,
+    client: Arc<Mutex<DsmClient>>,
     sobject_prefix: String,
     derivation_data_iv: String,
+}
+
+struct DsmClient(Option<SdkmsClient>);
+
+impl std::ops::Deref for DsmClient {
+    type Target = SdkmsClient;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("DSM client is present until drop")
+    }
+}
+
+// The SdkmsClient terminates the session over HTTP in Drop.
+// See https://github.com/fortanix/sdkms-client-rust/blob/3b96c89b55f6f974e356dda73016959e8a9ae630/src/client.rs#L255
+// Therefore the destruction of sdkms-client must also happen outside an async task.
+impl Drop for DsmClient {
+    fn drop(&mut self) {
+        let client = self.0.take();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(move || drop(client));
+        } else {
+            drop(client);
+        }
+    }
 }
 
 impl DsmFsOps {
@@ -337,6 +362,12 @@ impl DsmFsOps {
         Ok(decrypt_passphrase_resp.plain)
     }
 
+    /// Creates and authenticates a DSM client synchronously.
+    /// Authentication issues http request. We're using a blocking HttpClient
+    /// from simple-hyper-client to due to missing support for asynchronous
+    /// http client in sdkms-client. Blocking operations in HttpClient
+    /// from async function causes Tokio runtime error.
+    /// Use [`Self::new_async`] when calling from a Tokio async task.
     pub fn new(
         conn_info: ClientConnectionInfo<'_>,
         sobject_prefix: String,
@@ -344,13 +375,42 @@ impl DsmFsOps {
         ca_cert_list: Option<Vec<CertificateDer<'static>>>,
         ca_crl: Option<Vec<CertificateRevocationListDer<'static>>>,
     ) -> Result<DsmFsOps, String> {
-        let cli = Self::create_client(conn_info, ca_cert_list, ca_crl)?;
-        let client = Arc::new(Mutex::new(cli));
+        let sdkms_client = Self::create_client(conn_info, ca_cert_list, ca_crl)?;
+        let client = Arc::new(Mutex::new(DsmClient(Some(sdkms_client))));
         Ok(DsmFsOps {
             client,
             sobject_prefix,
             derivation_data_iv,
         })
+    }
+
+    /// Creates and authenticates a DSM client on Tokio's blocking thread pool.
+    pub async fn new_async(
+        conn_info: ClientConnectionInfo<'_>,
+        sobject_prefix: String,
+        derivation_data_iv: String,
+        ca_cert_list: Option<Vec<CertificateDer<'static>>>,
+        ca_crl: Option<Vec<CertificateRevocationListDer<'static>>>,
+    ) -> Result<Self, String> {
+        // The spawn_blocking closure needs to own the variables passed to it.
+        let mut auth_cert = conn_info.auth_cert.as_deref().cloned();
+        let fs_api_key = conn_info.fs_api_key;
+        let dsm_url = conn_info.dsm_url;
+        tokio::task::spawn_blocking(move || {
+            Self::new(
+                ClientConnectionInfo {
+                    fs_api_key,
+                    auth_cert: auth_cert.as_mut(),
+                    dsm_url,
+                },
+                sobject_prefix,
+                derivation_data_iv,
+                ca_cert_list,
+                ca_crl,
+            )
+        })
+        .await
+        .map_err(|e| format!("Unable to initialize DSM client: {e}"))?
     }
 }
 
@@ -616,24 +676,26 @@ mod tests {
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
 
-            dsm_fs_enc = DsmFsOps::new(
+            dsm_fs_enc = DsmFsOps::new_async(
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
                 Some(ca_list),
                 None,
-            );
+            )
+            .await;
         }
         // Release builds require explicit trust roots for certificate authentication.
         #[cfg(not(debug_assertions))]
         {
-            dsm_fs_enc = DsmFsOps::new(
+            dsm_fs_enc = DsmFsOps::new_async(
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
                 None,
                 None,
-            );
+            )
+            .await;
             assert_eq!(
                 dsm_fs_enc.as_ref().err().map(String::as_str),
                 Some("CA list is required when connecting to DSM")
@@ -694,13 +756,14 @@ mod tests {
                 auth_cert: Some(&mut cert_res),
                 dsm_url: DEFAULT_DSM_APPS_ENDPOINT.to_string(),
             };
-            let dsm_fs_enc = DsmFsOps::new(
+            let dsm_fs_enc = DsmFsOps::new_async(
                 conn_info_enc,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
                 Some(ca_list.clone()),
                 None,
             )
+            .await
             .unwrap();
             let resp = dsm_fs_enc
                 .dsm_encrypt_passphrase(Blob::from(PLAINTEXT))
@@ -713,13 +776,14 @@ mod tests {
                 dsm_url: DEFAULT_DSM_APPS_ENDPOINT.to_string(),
             };
 
-            let dsm_fs_dec = DsmFsOps::new(
+            let dsm_fs_dec = DsmFsOps::new_async(
                 conn_info_dec,
                 sobject_prefix.to_string(),
                 DERIVATION_DATA_IV.to_string(),
                 Some(ca_list),
                 None,
             )
+            .await
             .unwrap();
             let dec_resp = dsm_fs_dec.dsm_decrypt_passphrase(resp).await.unwrap();
             assert_eq!(Blob::from(PLAINTEXT), dec_resp);
@@ -733,13 +797,14 @@ mod tests {
             auth_cert: None,
             dsm_url: DEFAULT_DSM_ENDPOINT.to_string(),
         };
-        let dsm_fs_enc = DsmFsOps::new(
+        let dsm_fs_enc = DsmFsOps::new_async(
             conn_info_enc,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
             None,
             None,
         )
+        .await
         .unwrap();
         let wrapped_passhrase = dsm_fs_enc
             .dsm_encrypt_passphrase(Blob::from(PLAINTEXT))
@@ -751,13 +816,14 @@ mod tests {
             auth_cert: None,
             dsm_url: DEFAULT_DSM_ENDPOINT.to_string(),
         };
-        let dsm_fs_dec = DsmFsOps::new(
+        let dsm_fs_dec = DsmFsOps::new_async(
             conn_info_dec,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
             None,
             None,
         )
+        .await
         .unwrap();
         let unwrapped_passphrase = dsm_fs_dec
             .dsm_decrypt_passphrase(wrapped_passhrase)
@@ -774,13 +840,14 @@ mod tests {
             auth_cert: None,
             dsm_url: DEFAULT_DSM_ENDPOINT.to_string(),
         };
-        let dsm_fs_mac = DsmFsOps::new(
+        let dsm_fs_mac = DsmFsOps::new_async(
             conn_info_mac,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
             None,
             None,
         )
+        .await
         .unwrap();
         let mac = dsm_fs_mac
             .dsm_mac_header(Blob::from(PLAINTEXT))
@@ -792,13 +859,14 @@ mod tests {
             auth_cert: None,
             dsm_url: DEFAULT_DSM_ENDPOINT.to_string(),
         };
-        let dsm_fs_macv = DsmFsOps::new(
+        let dsm_fs_macv = DsmFsOps::new_async(
             conn_info_macv,
             SALM_FS_SECURITY_OBJECT_PREFIX.to_string(),
             DERIVATION_DATA_IV.to_string(),
             None,
             None,
         )
+        .await
         .unwrap();
         dsm_fs_macv
             .dsm_mac_verify_header(Blob::from(PLAINTEXT), mac)

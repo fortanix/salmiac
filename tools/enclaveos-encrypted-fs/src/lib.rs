@@ -6,8 +6,8 @@
 
 pub mod dsm_key_config;
 pub mod error;
-pub mod utils;
 mod tls_client;
+pub mod utils;
 
 use std::convert::TryInto;
 use std::mem;
@@ -429,7 +429,10 @@ impl EncryptedVolume {
             )
         })?;
 
-        info!("Luks2 token read successfully (length: {}).", token_contents.len());
+        info!(
+            "Luks2 token read successfully (length: {}).",
+            token_contents.len()
+        );
 
         let token_json_obj: LuksToken = serde_json::from_slice(&token_contents)
             .map_err(|err| format!("Unable to decode Token json object from slice : {:?}", err))?;
