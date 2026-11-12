@@ -1073,13 +1073,8 @@ pub(crate) async fn setup_enclave_certifications<Socket: AsyncWrite + AsyncRead 
     // Zero or more certificate requests.
     for cert_config in cert_settings {
         certs.push(
-            setup_enclave_certification(
-                node_agent.clone(),
-                app_config_id,
-                cert_config,
-                fs_root,
-            )
-            .await?,
+            setup_enclave_certification(node_agent.clone(), app_config_id, cert_config, fs_root)
+                .await?,
         );
     }
 
