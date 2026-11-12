@@ -1132,7 +1132,7 @@ async fn em_request_issue_certificate(node_agent: String, csr: String) -> Result
     }
 }
 
-#[cfg(any(platform = "snp", platform = "tdx"))]
+#[cfg(any(platform = "nitro", platform = "snp", platform = "tdx"))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,
@@ -1149,17 +1149,35 @@ pub(crate) async fn setup_enclave_certification<
     use attestation_client::BaremetalSevSnp;
     #[cfg(platform = "tdx")]
     use attestation_client::BaremetalTdx;
+    #[cfg(platform = "nitro")]
+    use attestation_client::Nitro;
     use attestation_client::{Attest, NodeAgentClient};
 
     info!("Requesting attestation certificate");
 
     // Initialize the RSA key pair used to request an app cert
-    let mut app_cert = AppCert::init()
-        .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))?;
+    let mut app_cert = {
+        let key_size = cert_config
+            .key_param
+            .as_ref()
+            .ok_or_else(|| format!("key param not specified for cert config {:?}", cert_config))?
+            .as_u64()
+            .unwrap_or(DEFAULT_CERT_RSA_KEY_SIZE.into());
+        AppCert::init_with_rsa_key_size(key_size as u32)
+            .map_err(|e| format!("Failed to initialize key pair for app cert request:{}", e))
+    }?;
 
-    let node_agent_cli = NodeAgentClient::init()
-        .await
-        .map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
+    #[cfg(platform = "nitro")]
+    let node_agent_cli = {
+        let address = _node_agent.as_deref().unwrap_or("localhost");
+        let client = em_node_agent_client_async::Client::try_new_http(address)
+            .map_err(|e| format!("Failed to construct Node Agent HTTP client: {}", e))?;
+        NodeAgentClient::init_with_client(client).await
+    };
+    #[cfg(any(platform = "snp", platform = "tdx"))]
+    let node_agent_cli = NodeAgentClient::init().await;
+    let node_agent_cli =
+        node_agent_cli.map_err(|e| format!("Failed to initialize Node Agent Client :{}", e))?;
 
     // Due to having no provision in the client for a separate Subject and SAN extension,
     // the two should be combined into one list of names - First name is the Subject and
@@ -1173,6 +1191,21 @@ pub(crate) async fn setup_enclave_certification<
     }
 
     // If attestation succeeds, app_cert is populated with the certificate
+    #[cfg(platform = "nitro")]
+    let nitro_app_config_id = app_config_id
+        .as_deref()
+        .map(|id| hex::decode(id).map_err(|err| format!("Failed decoding app config id: {}", err)))
+        .transpose()?;
+    #[cfg(platform = "nitro")]
+    Nitro::attest_and_request_app_cert(
+        &mut app_cert,
+        &node_agent_cli,
+        nitro_app_config_id,
+        Some(alt_names),
+    )
+    .await
+    .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
+
     #[cfg(platform = "tdx")]
     BaremetalTdx::attest_and_request_app_cert(
         &mut app_cert,
@@ -1182,6 +1215,7 @@ pub(crate) async fn setup_enclave_certification<
     )
     .await
     .map_err(|e| format!("Failed to attest and request app cert: {}", e))?;
+
     #[cfg(platform = "snp")]
     BaremetalSevSnp::attest_and_request_app_cert(
         &mut app_cert,
@@ -1211,7 +1245,7 @@ pub(crate) async fn setup_enclave_certification<
     }
 }
 
-#[cfg(not(any(platform = "snp", platform = "tdx")))]
+#[cfg(not(any(platform = "nitro", platform = "snp", platform = "tdx")))]
 pub(crate) async fn setup_enclave_certification<
     Socket: AsyncWrite + AsyncRead + Unpin + Send,
     Api: CSRApi,

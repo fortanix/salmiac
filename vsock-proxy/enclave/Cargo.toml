@@ -19,10 +19,13 @@ const_format = "0.2.32"
 em-app = { workspace = true }
 em-client = { workspace = true }
 em-node-agent-client = { workspace = true }
+# TODO: RTE-1339: Update em-node-agent in workspace and remove the following entry
+em-node-agent-client-async = { git = "https://github.com/fortanix/em-client-rust.git", package = "em-node-agent-client", rev = "c77da24966bc0f9d395c99fd333ee40711633baf" }
 enclaveos-encrypted-fs = { path = "../../tools/enclaveos-encrypted-fs" }
 env_logger = "0.7"
 futures = "0.3"
 hmac = "0.12.1"
+hex = "0.4"
 hyper-v0 = { workspace = true }
 interfaces = "0.0.8"
 ipnetwork = { version = "0.18.0", features = ["serde"] }
