@@ -35,13 +35,14 @@ async fn main() -> Result<()> {
         dsm_url: dsm_url.clone(),
     };
 
-    let dsm_ops_handler = DsmFsOps::new(
+    let dsm_ops_handler = DsmFsOps::new_async(
         conn_info,
         SECURITY_OBJECT_PREFIX.into(),
         DERIVATION_DATA_IV.into(),
         None,
         None,
     )
+    .await
     .map_err(|e| Error::GenericError(e.to_string()))?;
 
     // Create a test blockfile of size 1GB
@@ -96,13 +97,14 @@ async fn main() -> Result<()> {
         dsm_url,
     };
 
-    let dsm_ops_handler = DsmFsOps::new(
+    let dsm_ops_handler = DsmFsOps::new_async(
         conn_info,
         SECURITY_OBJECT_PREFIX.into(),
         DERIVATION_DATA_IV.into(),
         None,
         None,
     )
+    .await
     .map_err(|e| Error::GenericError(e.to_string()))?;
 
     let efs = EncryptedVolume::setup_encrypted_volume(

@@ -8,24 +8,25 @@ repository = "https://github.com/fortanix/salmiac"
 
 [dependencies]
 async-process = "1.2.0"
-em-app = "0.5.3"
-hyper = "0.10.16"
 log = "0.4"
-mbedtls = { version = "0.13.5", features = ["std", "x509", "ssl", "rdrand"] }
 rand = "0.8"
-sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
+sdkms = { git = "https://github.com/fortanix/sdkms-client-rust.git", rev = "3b96c89", default-features = false }
 serde = "1.0"
 serde_json = { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
 sha2 = "0.10"
+simple-hyper-client = "0.4"
+simple-hyper-client-rustls = "0.2.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 sysinfo = "0.29.8"
 thiserror = "1.0.69"
 tokio = { version = "1.35", features = ["full"] } 
 url = "2.3"
-uuid = "0.8.2"
+uuid = "1"
 
 [dev-dependencies]
 lazy_static = "1.4.0"
-rustls-native-certs = "0.8"
 
 [[example]]
 name = "setup-using-dsm"

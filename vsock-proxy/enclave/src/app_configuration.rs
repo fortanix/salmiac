@@ -5,8 +5,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::fs;
-use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
 
 use api_model::enclave::CcmBackendUrl;
@@ -16,7 +16,7 @@ use em_client::models::{
 };
 use em_client::{ApplicationConfigApiMut, Sha256Hash};
 use log::{info, warn};
-use rustls::{Certificate, PrivateKey};
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use sdkms::api_model::Blob;
 
 use crate::certificate::{read_root_certificates, CertificateResult};
@@ -376,11 +376,11 @@ pub(crate) trait SdkmsDataset {
 }
 
 pub(crate) struct EmAppCredentials {
-    pub(crate) certificate: Vec<Certificate>,
+    pub(crate) certificate: Vec<CertificateDer<'static>>,
 
-    pub(crate) key: PrivateKey,
+    pub(crate) key: PrivateKeyDer<'static>,
 
-    pub(crate) root_certificate: Option<Vec<Certificate>>,
+    pub(crate) root_certificate: Option<Vec<CertificateDer<'static>>>,
 }
 
 impl EmAppCredentials {
@@ -388,25 +388,23 @@ impl EmAppCredentials {
         mut certificate_info: CertificateResult,
         skip_server_verify: bool,
     ) -> Result<Self, String> {
-        let certificate = {
-            let mut reader = Cursor::new(certificate_info.certificate.as_bytes());
-            rustls::internal::pemfile::certs(&mut reader)
-                .map_err(|_| "Parsing client certificate failed".to_string())
-        }?;
+        let certificate = CertificateDer::pem_slice_iter(certificate_info.certificate.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Parsing client certificate failed: {e}"))?;
 
         if certificate.is_empty() {
             return Err("Client certificate chain is empty".to_string());
         }
 
         // We already have the ability to export the key as DER.
-        // rustls::PrivateKey is just the DER representation needed
-        // by ClientConfig::set_single_client_cert().
+        // rustls accepts the exported DER key directly.
         let der_buf = certificate_info
             .key
             .write_private_der_vec()
             .map_err(|e| format!("Exporting private key failed: {:?}", e))?;
 
-        let key = PrivateKey(der_buf);
+        let key = PrivateKeyDer::try_from(der_buf)
+            .map_err(|e| format!("Parsing private key failed: {e}"))?;
 
         // CA(s) for authenticating the CCM server.
         let root_certificate = if skip_server_verify {
@@ -453,10 +451,8 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 -----END RSA PRIVATE KEY-----
 \0";
 
-        let mut reader = Cursor::new(key.as_bytes());
-        let key = rustls::internal::pemfile::rsa_private_keys(&mut reader)
-            .expect("Failed parsing test private key")
-            .remove(0);
+        let key =
+            PrivateKeyDer::from_pem_slice(key.as_bytes()).expect("Failed parsing test private key");
 
         EmAppCredentials {
             certificate: Vec::new(),
