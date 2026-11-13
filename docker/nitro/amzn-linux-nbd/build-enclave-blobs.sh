@@ -18,7 +18,7 @@ cloneDependency() {
 buildArtifacts() {
 
   # Build all blobs required by nitro-cli
-  docker build -t blobs_all .
+  docker build --no-cache -t blobs_all .
 
   # Once build is complete, we would need a copy of the artifacts
   docker create --name extract_blobs blobs_all
