@@ -23,7 +23,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 
 use crate::dsm_key_config::{DsmInterface, EncryptedPassphrase};
 use crate::utils::{
-    run_fsck, run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig,
+    run_fsck, run_subprocess, run_subprocess_with_output_setup, CommandOutputConfig, get_available_space
 };
 const DM_CRYPT_DEVICE: &str = "cryptdevice";
 const DM_CRYPT_FOLDER: &str = "/run/cryptsetup";
@@ -629,29 +629,12 @@ impl EncryptedVolume {
         Self::run_mount(&[&dm_crypt_mapped_device, mount_path]).await?;
         result.is_mounted = true;
 
-        // Print the available encrypted space available
-        Self::get_available_encrypted_space().await?;
-
         Ok(result)
     }
 
-    pub async fn get_available_encrypted_space() -> Result<usize, String> {
-        use sysinfo::{DiskExt, System, SystemExt};
-
-        let mut system = System::new();
-        system.refresh_disks_list();
-        for disk in system.disks() {
-            if disk.name() == Path::new("/dev/mapper/").join(DM_CRYPT_DEVICE) {
-                info!(
-                    "{:?} total space = {}B free space = {}B",
-                    disk.name(),
-                    disk.total_space(),
-                    disk.available_space()
-                );
-                return Ok(disk.available_space() as usize);
-            }
-        }
-        Ok(0)
+    pub async fn get_available_encrypted_space(&self) -> Result<usize, String> {
+        let dm_crypt_mapped_device = DEVICE_MAPPER.to_string() + DM_CRYPT_DEVICE;
+        get_available_space(&dm_crypt_mapped_device).await
     }
 
     async fn generate_volume_passkey() -> Result<Blob, String> {
