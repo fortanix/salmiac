@@ -27,7 +27,8 @@ fn obtain_vsock_cid() -> Result<u32, String> {
 
         pub const VSOCK_DEVICE_PATH: &str = "/dev/vsock";
         // https://github.com/torvalds/linux/blob/786262be6048deab760f68c8acc2c85607165894/include/uapi/linux/vm_sockets.h#L196
-        pub const IOCTL_VM_SOCKETS_GET_LOCAL_CID: ioctl_num_type = nix::request_code_none!(0x7, 0xb9);
+        pub const IOCTL_VM_SOCKETS_GET_LOCAL_CID: ioctl_num_type =
+            nix::request_code_none!(0x7, 0xb9);
     }
 
     nix::ioctl_read_bad!(
