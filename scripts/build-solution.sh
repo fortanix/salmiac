@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -exo pipefail
+set -eo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/inc.sh"
 

@@ -1,20 +1,19 @@
 #!/bin/bash
 
-set -exo pipefail
+set -eo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/inc.sh"
 
-cargo_build_flag=""
+cargo_args=(--locked)
 
 if [ "${FLAVOR}" == "release" ]; then
-  cargo_build_flag="--release"
+  cargo_args+=(--release)
 fi;
 
-features_list=""
 if [ -n "$2" ]; then
-  features_list="--features "$2
+  cargo_args+=(--features "${2}")
 fi;
 
 pushd "${repo_root}/tools/container-converter"
-cargo build $cargo_build_flag "${features_list}" --locked
+cargo build "${cargo_args[@]}"
 popd
