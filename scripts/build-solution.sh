@@ -11,6 +11,12 @@ SALMIAC_PLATFORMS=(
     simulator
 )
 
+clanup() {
+    "${scripts_dir}/build-enclave-startup-musl.sh" --remove-cache
+}
+
+trap clanup EXIT
+
 # Build converters
 for platform in "${SALMIAC_PLATFORMS[@]}"
 do
