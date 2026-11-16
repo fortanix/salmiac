@@ -31,12 +31,11 @@ ipnetwork = { version = "0.18.0", features = ["serde"] }
 log = "0.4"
 mbedtls = { version = "0.13.5", features = ["chrono"] }
 nix = "0.15.0"
-openssl = "0.10"
 pkix = "0.2.6"
 rand = "0.8.5"
 rustls = "0.23"
 rtnetlink = "0.8.0"
-sdkms = { version = "0.3", default-features = false, features = ["hyper-native-tls"] }
+sdkms = { version = "0.3", default-features = false }
 serde = { version = "1.0.127", features = ["derive"] }
 serde_cbor = "0.11.2"
 serde_json =  { git = "https://github.com/fortanix/serde-json.git", branch = "base64_bytes" }
