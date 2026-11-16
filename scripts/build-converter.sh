@@ -2,6 +2,8 @@
 
 set -exo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/inc.sh"
+
 cargo_build_flag=""
 vsock_proxy_bin_folder=""
 enclave_startup_bin_folder=""
@@ -23,6 +25,6 @@ if [ ! -z "$2" ]; then
   features_list="--features "$2
 fi;
 
-pushd tools/container-converter
+pushd "${repo_root}/tools/container-converter"
 cargo build $cargo_build_flag $features_list --locked
 popd
