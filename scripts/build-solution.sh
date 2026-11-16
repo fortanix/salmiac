@@ -12,7 +12,7 @@ SALMIAC_PLATFORMS=(
 )
 
 clanup() {
-    "${scripts_dir}/build-enclave-startup-musl.sh" --remove-cache
+    "${scripts_dir}/build-vsock-proxy-musl.sh" --remove-cache
 }
 
 trap clanup EXIT
