@@ -11,11 +11,11 @@ SALMIAC_PLATFORMS=(
     simulator
 )
 
-clanup() {
+cleanup() {
     "${scripts_dir}/build-vsock-proxy-musl.sh" --remove-cache
 }
 
-trap clanup EXIT
+trap cleanup EXIT
 
 # Build converters
 for platform in "${SALMIAC_PLATFORMS[@]}"
