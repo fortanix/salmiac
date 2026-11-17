@@ -9,6 +9,7 @@ pub(crate) mod nitro;
 #[cfg(platform = "nitro")]
 pub(crate) use self::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
 
+use std::collections::HashMap;
 #[cfg(platform = "snp")]
 pub(crate) mod snp;
 #[cfg(platform = "snp")]
@@ -44,7 +45,7 @@ use std::ops::Add;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
-use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
+use api_model::converter::{CertificateConfig, ConverterOptions, EnvConfig, DsmConfiguration};
 #[cfg(platform = "nitro")]
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
@@ -69,7 +70,7 @@ use crate::file::{BuildContext, DockerCopyArgs, DockerFile};
 use crate::image::ImageWithDetails;
 #[cfg(platform = "nitro")]
 use crate::image_builder::INSTALLATION_DIR;
-use crate::image_builder::{bytes_to_mb_ceil, path_as_str, rust_log_env_var, MEGA_BYTE};
+use crate::image_builder::{bytes_to_mb_ceil, path_as_str, MEGA_BYTE};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 const NVIDIA_DRIVER_PAYLOAD_ROOT: &str = "/opt/fortanix/enclave-os/nvidia-driver-payload";
@@ -80,29 +81,48 @@ const NVIDIA_DRIVER_TARGET_BIN: &str = "opt/fortanix/nvidia-driver/bin";
 pub(crate) fn get_image_env(
     input_image: &ImageWithDetails<'_>,
     converter_options: &ConverterOptions,
-) -> Vec<String> {
-    let mut result = input_image
+) -> HashMap<String, EnvConfig> {
+    let mut result = image_env_to_map(input_image
         .details
         .config
-        .env
-        .as_ref()
-        .map(|e| e.clone())
-        .unwrap_or(vec![]);
+        .env);
 
     // Docker `ENV` assigns environment variables by the order of definition, thus making
     // latest definition of the same variable override previous definition.
     // We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
     // by adding all `conversion_request` variables to the end of `env_vars` vector.
-    for request_env in &converter_options.env_vars {
-        result.push(request_env.clone());
+    for (key, config) in &converter_options.env_vars {
+        if config.overrides_input_image {
+            match result.entry(key.clone()) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.insert(config.value.clone());
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(None);
+                }
+            }
+
+        }
     }
     result
 }
+
+fn image_env_to_map(env:Option<Vec<String>>) -> HashMap<String, EnvConfig> {
+    env.into_iter().flatten().filter_map(|entry| {
+        let (key, value) = entry.split_once('=')?;
+        Some((key.to_string(), EnvConfig {
+            value: Some(value.to_string()),
+            overrides_input_image: false,
+            overridable_at_runtime: false,
+        }))
+    }).collect()
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct EnclaveSettings {
     pub(crate) user_name: String,
 
-    pub(crate) env_vars: Vec<String>,
+    pub(crate) env_vars: HashMap<String, EnvConfig>,
 
     pub(crate) is_debug: bool,
 
@@ -133,7 +153,7 @@ impl EnclaveSettings {
     ) -> Self {
         EnclaveSettings {
             user_name: input_image.details.config.user.clone().unwrap_or_default(),
-            env_vars: vec![rust_log_env_var("enclave")],
+            env_vars: {}, // vec![rust_log_env_var("enclave")],
             is_debug: converter_options.debug.unwrap_or(false),
             enable_overlay_filesystem_persistence: converter_options
                 .enable_overlay_filesystem_persistence
@@ -431,7 +451,7 @@ impl<'a> GenericEnclaveImageBuilder<'a> {
         let run_enclave_cmd =
             Self::enclave_command_string(&enclave_settings, install_dir_path, "enclave");
 
-        enclave_settings.env_vars.push(rust_log_env_var("enclave"));
+        //enclave_settings.env_vars.push(rust_log_env_var("enclave"));
 
         DockerFile {
             from: self.enclave_base_image.to_string(),

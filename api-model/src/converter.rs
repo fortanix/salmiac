@@ -10,7 +10,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::HexString;
-
+use std::collections::HashMap;
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ConversionRequest {
@@ -119,6 +119,23 @@ pub enum KeyType {
 
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct EnvConfig {
+  pub value: Option<String>,
+  pub overrides_input_image: bool,
+  pub overridable_at_runtime: bool,
+}
+
+impl Default for EnvConfig {
+    fn default() -> Self {
+        Self { value: None, 
+            overrides_input_image: false, 
+            overridable_at_runtime: false, }
+    }
+}
+
+
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ConverterOptions {
     /// Allow command line arguments to EnclaveOS application
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -163,11 +180,8 @@ pub struct ConverterOptions {
     #[cfg_attr(feature = "serde", serde(default = "default_to_true"))]
     pub push_converted_image: Option<bool>,
 
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Vec::is_empty")
-    )]
-    pub env_vars: Vec<String>,
+    #[cfg_attr(feature = "serde",serde(default))]
+    pub env_vars: HashMap<String, EnvConfig>,
 
     /// Type of the Java JVM used
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -263,4 +277,8 @@ impl Default for DsmConfiguration {
             dsm_url: "https://apps.amer.smartkey.io/".to_string(),
         }
     }
+}
+
+mod tests {
+
 }

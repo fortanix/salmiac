@@ -8,8 +8,8 @@ use std::ops::Deref;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
-use crate::converter::{CertificateConfig, DsmConfiguration};
+use std::collections::HashMap;
+use crate::converter::{CertificateConfig, DsmConfiguration, EnvConfig};
 
 /// Required information needed to start an enclave
 /// Created by the container-converter and consumed by
@@ -23,7 +23,7 @@ pub struct EnclaveManifest {
 
     pub is_debug: bool,
 
-    pub env_vars: Vec<String>,
+    pub env_vars: HashMap<String, EnvConfig>,
 
     pub enable_overlay_filesystem_persistence: bool,
 

@@ -6,7 +6,8 @@
 
 use std::path::Path;
 use std::sync::mpsc::Sender;
-
+use std::collections::HashMap;
+use api_model::converter::EnvConfig;
 use api_model::enclave::{EnclaveManifest, UserConfig};
 use api_model::nitro::NitroEnclavesConversionRequestOptions;
 use docker_image_reference::Reference as DockerReference;
@@ -84,7 +85,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        env_vars: Vec<String>,
+        env_vars: HashMap<String, EnvConfig>,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;

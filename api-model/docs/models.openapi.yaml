@@ -102,6 +102,7 @@ components:
           description: "Enables Pushing Converted Image"
           default: true
         env_vars:
+        # todo - to be updated as per new api review
           description: |
             List of manifest environment variables.
             For ACI, these fixed values become part of the security policy.

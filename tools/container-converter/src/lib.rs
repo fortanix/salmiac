@@ -12,6 +12,8 @@ pub mod snp;
 #[cfg(platform = "tdx")]
 pub mod tdx;
 
+use std::collections::HashMap;
+use api_model::converter::EnvConfig;
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -87,6 +89,7 @@ pub enum ConverterErrorKind {
     BadDsmConfiguration,
     DockerLoad,
     UnsupportedConfig,
+    BadEnvConfig,
 }
 
 impl fmt::Display for ConverterError {
@@ -402,6 +405,35 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
         }
     }
 
+    validate_env_vars(&request.converter_options.env_vars)?;
+
+    Ok(())
+}
+
+fn validate_env_vars(env_vars: &HashMap<String, EnvConfig>) -> Result<()> {
+    for (key, config) in env_vars {
+        if key.is_empty() {
+            return Err(ConverterError {
+                message: "empty environment key is unsupported".to_string(),
+                kind: ConverterErrorKind::BadEnvConfig,
+            });
+        }
+        if key.contains('=') || key.contains('\0') {
+            return Err(ConverterError {
+                message: "environment key contains invalid characters".to_string(),
+                kind: ConverterErrorKind::BadEnvConfig,
+            });
+        }
+        if config.value.is_some() && !config.overrides_input_image {
+            return Err(ConverterError {
+                message: format!(
+                    "environment value provided but overrides_input_image is set to {:?}",
+                    config.overrides_input_image
+                ),
+                kind: ConverterErrorKind::BadEnvConfig,
+            });
+        }
+    }
     Ok(())
 }
 
@@ -713,7 +745,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -782,7 +814,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -829,7 +861,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -870,7 +902,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -917,7 +949,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,

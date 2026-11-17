@@ -8,6 +8,7 @@
 use crate::app_configuration::{
     setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
+use std::collections::HashMap;
 #[allow(unused_imports)]
 use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
@@ -21,7 +22,7 @@ use crate::file_system::{
     run_nbd_client, setup_dm_verity, setup_encrypted_mount, unmount_file_system_nodes,
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
-use api_model::converter::CertificateConfig;
+use api_model::converter::{CertificateConfig, EnvConfig};
 #[cfg(platform = "nitro")]
 use api_model::enclave::CcmBackendUrl;
 use api_model::enclave::EnclaveManifest;
@@ -38,6 +39,7 @@ use futures::stream::FuturesUnordered;
 use futures::{AsyncBufReadExt, StreamExt};
 use log::{debug, error, info, warn};
 use nix::net::if_::if_nametoindex;
+use sdkms::operations::TupleRef;
 use shared::models::{
     ApplicationConfiguration, EnclaveErrorCode, GlobalNetworkSettings, HostEntries,
     NBDConfiguration, NetworkDeviceSettings, PrivateNetworkDeviceSettings, SetupMessages,
@@ -436,22 +438,13 @@ async fn startup(
     ))
 }
 
-fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, String> {
-    let mut res = vec![];
-    for env in env_strs {
-        let pair = env.split_once("=");
-        match pair {
-            None => {
-                info!(
-                    "Env string doesn't contain equal sign separating key value pair - {:?}",
-                    env
-                );
-            }
-            Some(e) => {
-                res.push((e.0.to_string(), e.1.to_string()));
-            }
-        }
-    }
+fn convert_to_tuples(_env_strs: &HashMap<String, EnvConfig>) -> Result<Vec<(String, String)>, String> {
+    let res = vec![];
+    // for (key, config) in env_strs {
+    //     if config.value.is_some() {
+    //             res.push((key.clone(), config.value.as_ref().unwrap()));
+    //         }
+    // }
     Ok(res)
 }
 
@@ -734,7 +727,7 @@ async fn write_lines_to_client<R: futures::io::AsyncRead + Unpin + Send>(
     while let Some(line) = lines.next().await {
         let line1 = line.unwrap_or_default();
         stream
-            .write_all(line1.as_ref())
+            .write_all(AsRef::as_ref(&line1))
             .await
             .map_err(|e| format!("Unable to write to tcp sock : {:?}", e))?;
         stream
@@ -1348,7 +1341,7 @@ mod tests {
                     hash_offset: 0,
                 },
                 is_debug: false,
-                env_vars: vec![],
+                env_vars: {},
                 enable_overlay_filesystem_persistence: false,
                 ccm_backend_url: CcmBackendUrl {
                     host: "".to_string(),
@@ -1358,7 +1351,7 @@ mod tests {
                     dsm_url: "".to_string(),
                 },
             },
-            env_vars: &[],
+            env_vars: {},
             cert_list: None,
         };
 
