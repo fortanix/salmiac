@@ -973,6 +973,7 @@ mod tests {
         for testcase in testcases {
             setup_rw_blockfile(testcase.0, testcase.1);
             check_create_rw_block_file_res(testcase.0, testcase.2, testcase.3);
+            let _ = std::fs::remove_file(testcase.0);
         }
     }
 
