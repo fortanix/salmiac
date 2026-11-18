@@ -16,7 +16,6 @@ base64 = "0.13.0"
 chrono = "0.4"
 clap = "2.33"
 const_format = "0.2.32"
-em-app = { workspace = true }
 em-client = { workspace = true }
 em-node-agent-client = { workspace = true }
 # TODO: RTE-1339: Update em-node-agent in workspace and remove the following entry
