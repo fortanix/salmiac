@@ -27,16 +27,11 @@ check_prequisites() {
     local -a std_libraries
 
     command -v "$musl_cc" >/dev/null || error "Musl C compiler not found, install musl-tools"
-    command -v cargo >/dev/null || error "cargo is not available"
     command -v rustc >/dev/null || error "rustc is not available"
 
     target_libdir="$(rustc --print target-libdir --target "$target")" || error "Unable to query the active Rust toolchain"
     std_libraries=("$target_libdir"/libstd-*.rlib)
-    [[ -f "${std_libraries[0]}" ]] || error "Rust target $target is not installed; run: rustup target add $target"
-
-    if [[ -n "$enclave_out_path" || -n "$parent_out_path" ]]; then
-        command -v cp >/dev/null || error "cp is required to copy the output binaries"
-    fi
+    [[ -f "${std_libraries[0]}" ]] || error "Rust target $target is not installed"
 }
 
 download_libpcap() (
