@@ -4,10 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::env;
+use std::{env, path::Path};
 
 use async_process::{Command, Stdio};
-use log::debug;
+use log::{debug, info};
 
 #[derive(Default)]
 pub struct CommandOutputConfig {
@@ -120,3 +120,24 @@ pub async fn run_mount(args: &[&str]) -> Result<(), String> {
 pub async fn run_fsck(block_device: &str) {
     let _ = run_subprocess("/usr/sbin/fsck.ext4", &["-y", block_device]).await;
 }
+
+pub async fn get_available_space(path: impl AsRef<Path>) -> Result<usize, String> {
+        use sysinfo::{DiskExt, System, SystemExt};
+
+        let path = path.as_ref();
+
+        let mut system = System::new();
+        system.refresh_disks_list();
+        for disk in system.disks() {
+            if disk.name() == path {
+                info!(
+                    "{:?} total space = {}B free space = {}B",
+                    disk.name(),
+                    disk.total_space(),
+                    disk.available_space()
+                );
+                return Ok(disk.available_space() as usize);
+            }
+        }
+        Ok(0)
+    }
