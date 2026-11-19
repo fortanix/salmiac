@@ -14,7 +14,7 @@ ARG QEMU_TARBALL_SHA256
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y --no-install-recommends \
         bison \
         build-essential \
@@ -99,7 +99,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #
 #     curl, jq, sudo, systemctl, strace, tcpdump
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         dnsmasq \
