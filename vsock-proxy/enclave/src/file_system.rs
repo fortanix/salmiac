@@ -238,11 +238,12 @@ pub(crate) async fn run_nbd_client(
     block_file_port: u16,
     mount_name: &str,
 ) -> Result<(), String> {
-    let args: [&str; 4] = [
-        &server_address.to_string(),
-        &block_file_port.to_string(),
+    let args: [&str; 5] = [
         "-N",
         mount_name,
+        &server_address.to_string(),
+        &block_file_port.to_string(),
+        "/dev/nbd0",
     ];
     // NBD client exits with zero if it is able to connect to the server
     // and create /dev/nbdX device. After that we can `mount` said device
@@ -385,11 +386,11 @@ pub(crate) async fn close_dm_verity_volume() -> Result<(), String> {
 }
 
 async fn run_unmount(args: &[&str]) -> Result<(), String> {
-    run_subprocess("/usr/bin/umount", args).await
+    run_subprocess("/bin/umount", args).await
 }
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {
-    run_subprocess("/usr/bin/mount", args).await
+    run_subprocess("/bin/mount", args).await
 }
 
 #[cfg(test)]
