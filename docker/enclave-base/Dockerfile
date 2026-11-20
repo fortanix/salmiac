@@ -6,7 +6,7 @@
 # confidential VMs and TDX confidential VMs without GPU passthrough. The SEV-SNP and TDX paths
 # with GPU passthrough uses docker/enclave-base-gpu/ instead, which
 # adds the userspace NVIDIA driver bits.
-FROM alpine:edge
+FROM alpine:20260805
 
 RUN apk add --no-cache ca-certificates \
     && apk upgrade --no-cache ca-certificates ca-certificates-bundle \

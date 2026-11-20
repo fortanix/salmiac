@@ -3,7 +3,7 @@
 # built-in or paired as pre-built .ko files separately). This image
 # carries only the userspace NVIDIA driver (libcuda, nvidia-smi,
 # libnvidia-ml) that applications and tooling use to talk to them.
-FROM alpine:edge
+FROM alpine:20260805
 
 RUN apk add --no-cache ca-certificates \
     && apk upgrade --no-cache ca-certificates ca-certificates-bundle \
