@@ -6,16 +6,13 @@
 # confidential VMs and TDX confidential VMs without GPU passthrough. The SEV-SNP and TDX paths
 # with GPU passthrough uses docker/enclave-base-gpu/ instead, which
 # adds the userspace NVIDIA driver bits.
+FROM alpine:edge
 
-FROM ubuntu:24.04
-ENV DEBIAN_FRONTEND=noninteractive
+RUN apk add --no-cache ca-certificates \
+    && apk upgrade --no-cache ca-certificates ca-certificates-bundle \
+    && update-ca-certificates
 
-RUN apt-get update \
-    && apt-get upgrade -y -o Acquire::Retries=0 \
-    && apt-get install -y \
-        ca-certificates \
-        cryptsetup \
-        nbd-client \
-        openssl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists
+RUN apk info -V ca-certificates ca-certificates-bundle
+
+# The options passed to umount are not supported by busybox umount
+RUN apk add --no-cache cryptsetup mount umount

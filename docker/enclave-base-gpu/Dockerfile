@@ -3,35 +3,30 @@
 # built-in or paired as pre-built .ko files separately). This image
 # carries only the userspace NVIDIA driver (libcuda, nvidia-smi,
 # libnvidia-ml) that applications and tooling use to talk to them.
+FROM alpine:edge
 
-#TODO: RTE-944 Userspace hardening
-ARG UBUNTU_VERSION=24.04
+RUN apk add --no-cache ca-certificates \
+    && apk upgrade --no-cache ca-certificates ca-certificates-bundle \
+    && update-ca-certificates
 
-FROM ubuntu:${UBUNTU_VERSION} AS enclave-base-gpu
-ENV DEBIAN_FRONTEND=noninteractive
+RUN apk info -V ca-certificates ca-certificates-bundle
 
-# Runtime packages. Groups:
-#
-#   Guest utilities shared with the Nitro enclave-base:
-#     ca-certificates - TLS trust anchors for HTTPS inside the guest
-#     cryptsetup      - opens LUKS-encrypted persistent volumes
-#     nbd-client      - mounts the NBD-served disk from the host
-#
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        cryptsetup \
-        nbd-client \
-        openssl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# The options passed to umount are not supported by busybox umount
+RUN apk add --no-cache cryptsetup mount umount
 
 COPY --from=common-build-context nvidia-artifacts.tar.gz /
 RUN tar xpf /nvidia-artifacts.tar.gz -C /
 RUN ldconfig
 RUN rm /nvidia-artifacts.tar.gz
 
-# Fail-fast sanity checks. Catch kernel-module leakage from apt
+# nvidia-smi tool is built against glibc, here we're explicitly
+# installing glibc compatibility packages to satisfy the following
+# nvidia-smi sanity check.
+# After app container is mounted, the files from these package
+# will be unused.
+RUN apk add --no-cache gcompat libstdc++
+
+# Fail-fast sanity checks. Catch kernel-module leakage from package manager
 # dependencies, and verify the two artifacts the workload actually needs.
 RUN if find /lib/modules -name 'nvidia*.ko*' 2>/dev/null | grep -q .; then \
         echo "ERROR: NVIDIA kernel modules unexpectedly present in image"; \
