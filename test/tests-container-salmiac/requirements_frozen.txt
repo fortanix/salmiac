@@ -45,7 +45,7 @@ msgpack==1.0.5
 mysqlclient==2.2.0
 numexpr
 numpy
-oauthlib==3.2.2
+oauthlib==4.0.1
 olefile==0.46
 openpyxl==3.0.3
 packaging
