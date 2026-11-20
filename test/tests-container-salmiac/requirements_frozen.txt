@@ -73,7 +73,7 @@ s3transfer==0.11.4
 scipy==1.11.4
 sdkms==4.18.2231
 six==1.17.0
-soupsieve==2.6
+soupsieve==4.0
 tables==3.9.2
 urllib3==1.26.15
 wcwidth==0.1.8
