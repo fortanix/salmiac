@@ -29,7 +29,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         cryptsetup-bin \
         python3 \

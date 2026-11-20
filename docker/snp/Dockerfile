@@ -14,7 +14,7 @@ RUN apt-get download ovmf \
 
 FROM debian:bookworm-slim AS sev_snp_measurement
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         python3 \
         python3-pip \
@@ -42,7 +42,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
         cryptsetup-bin \
         python3 \

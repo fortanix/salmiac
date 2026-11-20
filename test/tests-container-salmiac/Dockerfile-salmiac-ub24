@@ -6,7 +6,7 @@ ARG DOCKER_REGISTRY
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get upgrade -y \
+    && apt-get upgrade -y -o Acquire::Retries=0 \
     && apt-get install -y \
        build-essential \
        cryptsetup-bin \
