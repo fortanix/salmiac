@@ -3,13 +3,12 @@
 # built-in or paired as pre-built .ko files separately). This image
 # carries only the userspace NVIDIA driver (libcuda, nvidia-smi,
 # libnvidia-ml) that applications and tooling use to talk to them.
-FROM alpine:20260805 AS enclave-base-gpu
+FROM alpine:3.24 AS enclave-base-gpu
+
+RUN apk update && apk upgrade
 
 RUN apk add --no-cache ca-certificates \
-    && apk upgrade --no-cache ca-certificates ca-certificates-bundle \
     && update-ca-certificates
-
-RUN apk info -V ca-certificates ca-certificates-bundle
 
 # The options passed to umount are not supported by busybox umount
 RUN apk add --no-cache cryptsetup mount nbd-client umount
