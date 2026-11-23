@@ -21,10 +21,12 @@ images_file="${artifacts_dir}/docker_images"
 rm -f $images_file
 
 pushd docker
-export ENCLAVE_TAG=$(get_image_tag enclave-base/tag)
-export ENCLAVE_IMAGE="${ENCLAVE_IMAGE:-enclave-base}:${ENCLAVE_TAG}"
-docker build --no-cache -t "${ENCLAVE_IMAGE}" ./enclave-base
-echo $ENCLAVE_IMAGE >> $images_file
+if [ "${SKIP_ENCLAVE_BASE}" != "true" ]; then
+  export ENCLAVE_TAG=$(get_image_tag enclave-base/tag)
+  export ENCLAVE_IMAGE="${ENCLAVE_IMAGE:-enclave-base}:${ENCLAVE_TAG}"
+  docker build --no-cache -t "${ENCLAVE_IMAGE}" ./enclave-base
+  echo $ENCLAVE_IMAGE >> $images_file
+fi
 
 case "$SALMIAC_PLATFORM" in
   nitro)
@@ -33,12 +35,19 @@ case "$SALMIAC_PLATFORM" in
     docker build --no-cache --build-context common-build-context=./common-build-context -t $PARENT_IMAGE nitro/parent-base/
     echo $PARENT_IMAGE >> $images_file
     popd
+    if [ "${SKIP_ENCLAVE_BASE}" != "true" ]; then
+      docker save $ENCLAVE_IMAGE -o "${artifacts_dir}/enclave-base.tar"
+    fi
+    docker save $PARENT_IMAGE -o "${artifacts_dir}/${SALMIAC_PLATFORM}/parent-base.tar"
     ;;
   snp | tdx | simulator)
-    export PARENT_TAG=$(get_image_tag qemu/parent-base/tag)
-    export PARENT_IMAGE="${PARENT_IMAGE:-parent-base-${SALMIAC_PLATFORM}}:${PARENT_TAG}"
-    echo $PARENT_IMAGE >> $images_file
-    docker build --no-cache qemu/parent-base --build-context common-build-context=./common-build-context -t $PARENT_IMAGE
+    if [ "${SKIP_PARENT_BASE_QEMU}" != "true" ]; then
+      export PARENT_TAG=$(get_image_tag qemu/parent-base/tag)
+      export PARENT_IMAGE="${PARENT_IMAGE:-parent-base-${SALMIAC_PLATFORM}}:${PARENT_TAG}"
+      echo $PARENT_IMAGE >> $images_file
+      docker build --no-cache qemu/parent-base --build-context common-build-context=./common-build-context -t $PARENT_IMAGE
+      docker save $PARENT_IMAGE -o "${artifacts_dir}/${SALMIAC_PLATFORM}/parent-base.tar"
+    fi
     
     if [[ "${SKIP_ENCLAVE_BASE_GPU}" != "true" ]]; then
       export ENCLAVE_GPU_TAG=$(get_image_tag enclave-base-gpu/tag)
@@ -53,6 +62,3 @@ case "$SALMIAC_PLATFORM" in
     fi
     ;;
 esac
-
-docker save $ENCLAVE_IMAGE -o "${artifacts_dir}/enclave-base.tar"
-docker save $PARENT_IMAGE -o "${artifacts_dir}/${SALMIAC_PLATFORM}/parent-base.tar"
