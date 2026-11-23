@@ -238,12 +238,11 @@ pub(crate) async fn run_nbd_client(
     block_file_port: u16,
     mount_name: &str,
 ) -> Result<(), String> {
-    let args: [&str; 5] = [
-        "-N",
-        mount_name,
+    let args: [&str; 4] = [
         &server_address.to_string(),
         &block_file_port.to_string(),
-        "/dev/nbd0",
+        "-N",
+        mount_name,
     ];
     // NBD client exits with zero if it is able to connect to the server
     // and create /dev/nbdX device. After that we can `mount` said device
