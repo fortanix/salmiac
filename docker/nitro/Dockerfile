@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=fortanix/parent-base-nitro:4.0.0
+ARG BASE_IMAGE=fortanix/parent-base-nitro:4.1.0
 
 FROM ${BASE_IMAGE} as nitro-cli
 
