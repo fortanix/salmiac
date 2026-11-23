@@ -3,7 +3,7 @@
 # built-in or paired as pre-built .ko files separately). This image
 # carries only the userspace NVIDIA driver (libcuda, nvidia-smi,
 # libnvidia-ml) that applications and tooling use to talk to them.
-FROM alpine:20260805
+FROM alpine:20260805 AS enclave-base-gpu
 
 RUN apk add --no-cache ca-certificates \
     && apk upgrade --no-cache ca-certificates ca-certificates-bundle \
@@ -12,11 +12,12 @@ RUN apk add --no-cache ca-certificates \
 RUN apk info -V ca-certificates ca-certificates-bundle
 
 # The options passed to umount are not supported by busybox umount
-RUN apk add --no-cache cryptsetup mount umount
+RUN apk add --no-cache cryptsetup mount nbd-client umount
 
 COPY --from=common-build-context nvidia-artifacts.tar.gz /
 RUN tar xpf /nvidia-artifacts.tar.gz -C /
-RUN ldconfig
+# The musl loader searches paths declared in `ld-musl-x86_64.path`.
+RUN printf '%s\n' /lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu > /etc/ld-musl-x86_64.path
 RUN rm /nvidia-artifacts.tar.gz
 
 # nvidia-smi tool is built against glibc, here we're explicitly

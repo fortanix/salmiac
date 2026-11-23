@@ -15,4 +15,4 @@ RUN apk add --no-cache ca-certificates \
 RUN apk info -V ca-certificates ca-certificates-bundle
 
 # The options passed to umount are not supported by busybox umount
-RUN apk add --no-cache cryptsetup mount umount
+RUN apk add --no-cache cryptsetup mount nbd-client umount
