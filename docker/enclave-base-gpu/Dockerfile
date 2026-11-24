@@ -7,6 +7,13 @@ FROM alpine:3.24 AS enclave-base-gpu
 
 RUN apk update && apk upgrade
 
+#  Runtime packages. Groups:
+#
+#   Guest utilities shared with the Nitro enclave-base:
+#     ca-certificates - TLS trust anchors for HTTPS inside the guest
+#     cryptsetup      - opens LUKS-encrypted persistent volumes
+#     nbd-client      - mounts the NBD-served disk from the host
+
 RUN apk add --no-cache ca-certificates \
     && update-ca-certificates
 
