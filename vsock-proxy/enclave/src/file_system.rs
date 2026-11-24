@@ -385,11 +385,11 @@ pub(crate) async fn close_dm_verity_volume() -> Result<(), String> {
 }
 
 async fn run_unmount(args: &[&str]) -> Result<(), String> {
-    run_subprocess("/usr/bin/umount", args).await
+    run_subprocess("/bin/umount", args).await
 }
 
 async fn run_mount(args: &[&str]) -> Result<(), String> {
-    run_subprocess("/usr/bin/mount", args).await
+    run_subprocess("/bin/mount", args).await
 }
 
 #[cfg(test)]
