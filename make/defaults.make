@@ -30,18 +30,37 @@ endif
 #
 
 FLAVOR ?= debug
-PLATFORM = nitro
+PLATFORM ?= nitro
 FREQUENCY ?= smoke ci
+
+# 
+# Default value for TESTS_CONTAINER_DOCKERFILE
+# 
+
+TESTS_CONTAINER_DOCKERFILE ?= Dockerfile-salmiac-ub24
 
 #
 # Check that FLAVOR and PLATFORM have valid values.
 #
 
+valid_platforms = nitro snp tdx
+ifneq (1,$(words $(PLATFORM)))
+$(info Invalid PLATFORM value of "$(PLATFORM)")
+$(info PLATFORM should be a single word)
+$(error Valid values for PLATFORM are: $(valid_platforms))
+endif
+
+ifeq ($(filter $(PLATFORM),$(valid_platforms)),)
+$(info Invalid PLATFORM value of "$(PLATFORM)")
+$(info Valid values for PLATFORM are: $(valid_platforms))
+$(error Invalid PLATFORM detected)
+endif
+
 valid_flavors = debug release
 ifneq (1,$(words $(FLAVOR)))
 $(info Invalid FLAVOR value of "$(FLAVOR)")
 $(info FLAVOR should be a single word)
-$(info Valid values for FLAVOR are: $(valid_flavors))
+$(error Valid values for FLAVOR are: $(valid_flavors))
 endif
 
 ifeq ($(filter $(FLAVOR),$(valid_flavors)),)
