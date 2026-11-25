@@ -239,8 +239,8 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attestation"
-version = "0.1.1"
-source = "git+https://github.com/fortanix/attestation.git?rev=e0e4e41#e0e4e41dbda69b2c1552aa5517adea4f60dace53"
+version = "0.1.2"
+source = "git+https://github.com/fortanix/attestation.git?rev=c0cb12d#c0cb12d82051eedbc4ec1f589be2f8a29d152534"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "b64-ct",
@@ -253,9 +253,11 @@ dependencies = [
  "pkix",
  "serde",
  "serde_bytes",
+ "serde_json 1.0.68",
  "sgx-isa",
  "sgx_pkix",
  "tdx-ql",
+ "tempfile",
  "thiserror 1.0.69",
  "yasna 0.3.2",
 ]
@@ -422,7 +424,7 @@ dependencies = [
  "async-channel",
  "async-task",
  "atomic-waker",
- "fastrand",
+ "fastrand 1.5.0",
  "futures-lite 1.12.0",
  "once_cell",
 ]
@@ -552,8 +554,8 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "1.1.0"
-source = "git+https://github.com/fortanix/attestation.git?rev=e0e4e41#e0e4e41dbda69b2c1552aa5517adea4f60dace53"
+version = "1.1.1"
+source = "git+https://github.com/fortanix/attestation.git?rev=c0cb12d#c0cb12d82051eedbc4ec1f589be2f8a29d152534"
 dependencies = [
  "async-trait",
  "attestation",
@@ -1180,6 +1182,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1283,7 +1291,7 @@ version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7694489acd39452c77daa48516b894c153f192c3578d5a839b62c58099fcbf48"
 dependencies = [
- "fastrand",
+ "fastrand 1.5.0",
  "futures-core",
  "futures-io",
  "memchr",
@@ -3295,6 +3303,18 @@ checksum = "15f2b5fb00ccdf689e0149d1b1b3c03fead81c2b37735d812fa8bddbbf41b6d8"
 dependencies = [
  "rand 0.4.6",
  "remove_dir_all",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1"
+dependencies = [
+ "cfg-if 1.0.0",
+ "fastrand 2.5.0",
+ "rustix 0.38.44",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
