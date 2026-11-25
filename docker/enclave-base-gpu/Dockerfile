@@ -18,7 +18,7 @@ RUN apk add --no-cache ca-certificates \
     && update-ca-certificates
 
 # The options passed to umount are not supported by busybox umount
-RUN apk add --no-cache cryptsetup mount nbd-client umount
+RUN apk add --no-cache e2fsprogs cryptsetup mount nbd-client umount
 
 COPY --from=common-build-context nvidia-artifacts.tar.gz /
 RUN tar xpf /nvidia-artifacts.tar.gz -C /
