@@ -23,7 +23,11 @@ RUN apk add --no-cache e2fsprogs cryptsetup mount nbd-client umount
 COPY --from=common-build-context nvidia-artifacts.tar.gz /
 RUN tar xpf /nvidia-artifacts.tar.gz -C /
 # The musl loader searches paths declared in `ld-musl-x86_64.path`.
-RUN printf '%s\n' /lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu > /etc/ld-musl-x86_64.path
+RUN printf '%s\n' /lib \
+    /usr/local/lib \
+    /usr/lib \
+    /usr/lib/x86_64-linux-gnu \
+    /opt/fortanix/nvidia-driver/lib > /etc/ld-musl-x86_64.path
 RUN rm /nvidia-artifacts.tar.gz
 
 # nvidia-smi tool is built against glibc, here we're explicitly
