@@ -14,4 +14,4 @@ RUN apk add --no-cache ca-certificates \
     && update-ca-certificates
 
 # The options passed to umount are not supported by busybox umount
-RUN apk add --no-cache cryptsetup mount nbd-client umount
+RUN apk add --no-cache e2fsprogs cryptsetup mount nbd-client umount

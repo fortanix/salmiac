@@ -667,7 +667,7 @@ impl EncryptedVolume {
     }
 
     pub async fn cleanup_encrypted_volume(&self) -> Result<(), String> {
-        run_subprocess("/usr/bin/umount", &[&self.mount_path]).await?;
+        run_subprocess("umount", &[&self.mount_path]).await?;
         info!("Unmounted encrypted file system.");
 
         Self::close_dm_crypt_device().await?;
@@ -681,6 +681,6 @@ impl EncryptedVolume {
     }
 
     async fn run_mount(args: &[&str]) -> Result<(), String> {
-        run_subprocess("/usr/bin/mount", args).await
+        run_subprocess("mount", args).await
     }
 }
