@@ -11,8 +11,8 @@ use api_model::simulator::SimulatorEnclavesConversionRequestOptions;
 
 use crate::image_builder::enclave::initramfs::BasicInitramfsBuilder;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
-use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::DockerUtil;
 use crate::Result;
 

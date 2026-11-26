@@ -28,7 +28,10 @@ fn rust_log_env_var_kv(project_name: &str) -> (String, String) {
         "info"
     };
 
-    ("RUST_LOG".to_string(), format!("{}={}", project_name, log_level))
+    (
+        "RUST_LOG".to_string(),
+        format!("{}={}", project_name, log_level),
+    )
 }
 
 fn rust_log_env_var(project_name: &str) -> String {

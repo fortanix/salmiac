@@ -8,7 +8,6 @@
 use crate::app_configuration::{
     setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
-use std::hash_map;
 #[allow(unused_imports)]
 use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
@@ -59,6 +58,7 @@ use std::convert::From;
 #[cfg(platform = "nitro")]
 use std::convert::TryFrom;
 use std::fs;
+use std::hash_map;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -362,7 +362,9 @@ fn merge_and_filter_env_vars(
         .into_iter()
         .partition(|(k, _)| internal_env_keys.contains(k.as_str()));
 
-    let other_runtime_env_vars_map = other_runtime_env_vars.into_iter().collect::<HashMap<String, String>>();
+    let other_runtime_env_vars_map = other_runtime_env_vars
+        .into_iter()
+        .collect::<HashMap<String, String>>();
     for (key, config) in &mut manifest_env_vars_map {
         if let Some(runtime_value) = other_runtime_env_vars_map.get(key) {
             if config.overridable_at_runtime {
@@ -371,7 +373,16 @@ fn merge_and_filter_env_vars(
         }
     }
 
-    let manifest_env_vars = manifest_env_vars_map.iter().filter_map(|(k,config)| if let Some(ref v) = config.value { Some((k.clone(), v.clone())) } else { None } ).collect::<Vec<_>>();
+    let manifest_env_vars = manifest_env_vars_map
+        .iter()
+        .filter_map(|(k, config)| {
+            if let Some(ref v) = config.value {
+                Some((k.clone(), v.clone()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
 
     (manifest_env_vars, internal_env_vars)
 }
@@ -1518,56 +1529,342 @@ mod tests {
         }
 
         let test_cases = vec![
-            TestCase::new(1, false, false, false, false, false, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(2, false, false, false, false, true, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(3, false, false, false, true, false, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(4, false, false, false, true, true, ManifestValue::None, RuntimeValue::Runtime),
-
-            TestCase::new(5, false, false, true, false, false, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(6, false, false, true, false, true, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(7, false, false, true, true, false, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(8, false, false, true, true, true, ManifestValue::None, RuntimeValue::Runtime),
-
-            TestCase::new(9, false, true, false, false, false, ManifestValue::Error, RuntimeValue::Error),
-            TestCase::new(10, false, true, false, false, true, ManifestValue::Error, RuntimeValue::Error),
-            TestCase::new(11, false, true, false, true, false, ManifestValue::Error, RuntimeValue::Error),
-            TestCase::new(12, false, true, false, true, true, ManifestValue::Error, RuntimeValue::Error),
-
-            TestCase::new(13, false, true, true, false, false, ManifestValue::Config, RuntimeValue::Config),
-            TestCase::new(14, false, true, true, false, true, ManifestValue::Config, RuntimeValue::Config),
-            TestCase::new(15, false, true, true, true, false, ManifestValue::Config, RuntimeValue::Config),
-            TestCase::new(16, false, true, true, true, true, ManifestValue::Config, RuntimeValue::Runtime),
-
-            TestCase::new(17, true, false, false, false, false, ManifestValue::Image, RuntimeValue::Image),
-            TestCase::new(18, true, false, false, false, true, ManifestValue::Image, RuntimeValue::Image),
-            TestCase::new(19, true, false, false, true, false, ManifestValue::Image, RuntimeValue::Image),
-            TestCase::new(20, true, false, false, true, true, ManifestValue::Image, RuntimeValue::Runtime),
-
-            TestCase::new(21, true, false, true, false, false, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(22, true, false, true, false, true, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(23, true, false, true, true, false, ManifestValue::None, RuntimeValue::None),
-            TestCase::new(24, true, false, true, true, true, ManifestValue::None, RuntimeValue::Runtime),
-
-            TestCase::new(25, true, true, false, false, false, ManifestValue::Error, RuntimeValue::Error),
-            TestCase::new(26, true, true, false, false, true, ManifestValue::Error, RuntimeValue::Error),
-            TestCase::new(27, true, true, false, true, false, ManifestValue::Error, RuntimeValue::Error),
-            TestCase::new(28, true, true, false, true, true, ManifestValue::Error, RuntimeValue::Error),
-
-            TestCase::new(29, true, true, true, false, false, ManifestValue::Config, RuntimeValue::Config),
-            TestCase::new(30, true, true, true, false, true, ManifestValue::Config, RuntimeValue::Config),
-            TestCase::new(31, true, true, true, true, false, ManifestValue::Config, RuntimeValue::Config),
-            TestCase::new(32, true, true, true, true, true, ManifestValue::Config, RuntimeValue::Runtime),
+            TestCase::new(
+                1,
+                false,
+                false,
+                false,
+                false,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                2,
+                false,
+                false,
+                false,
+                false,
+                true,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                3,
+                false,
+                false,
+                false,
+                true,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                4,
+                false,
+                false,
+                false,
+                true,
+                true,
+                ManifestValue::None,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                5,
+                false,
+                false,
+                true,
+                false,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                6,
+                false,
+                false,
+                true,
+                false,
+                true,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                7,
+                false,
+                false,
+                true,
+                true,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                8,
+                false,
+                false,
+                true,
+                true,
+                true,
+                ManifestValue::None,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                9,
+                false,
+                true,
+                false,
+                false,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                10,
+                false,
+                true,
+                false,
+                false,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                11,
+                false,
+                true,
+                false,
+                true,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                12,
+                false,
+                true,
+                false,
+                true,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                13,
+                false,
+                true,
+                true,
+                false,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                14,
+                false,
+                true,
+                true,
+                false,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                15,
+                false,
+                true,
+                true,
+                true,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                16,
+                false,
+                true,
+                true,
+                true,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                17,
+                true,
+                false,
+                false,
+                false,
+                false,
+                ManifestValue::Image,
+                RuntimeValue::Image,
+            ),
+            TestCase::new(
+                18,
+                true,
+                false,
+                false,
+                false,
+                true,
+                ManifestValue::Image,
+                RuntimeValue::Image,
+            ),
+            TestCase::new(
+                19,
+                true,
+                false,
+                false,
+                true,
+                false,
+                ManifestValue::Image,
+                RuntimeValue::Image,
+            ),
+            TestCase::new(
+                20,
+                true,
+                false,
+                false,
+                true,
+                true,
+                ManifestValue::Image,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                21,
+                true,
+                false,
+                true,
+                false,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                22,
+                true,
+                false,
+                true,
+                false,
+                true,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                23,
+                true,
+                false,
+                true,
+                true,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                24,
+                true,
+                false,
+                true,
+                true,
+                true,
+                ManifestValue::None,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                25,
+                true,
+                true,
+                false,
+                false,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                26,
+                true,
+                true,
+                false,
+                false,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                27,
+                true,
+                true,
+                false,
+                true,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                28,
+                true,
+                true,
+                false,
+                true,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                29,
+                true,
+                true,
+                true,
+                false,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                30,
+                true,
+                true,
+                true,
+                false,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                31,
+                true,
+                true,
+                true,
+                true,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                32,
+                true,
+                true,
+                true,
+                true,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Runtime,
+            ),
         ];
 
         fn get_internal_vars() -> Vec<(String, String)> {
-            SALMIAC_ENV_KEYS.iter().map(|x| (String::from(*x), String::from(*x).to_lowercase())).collect()
+            SALMIAC_ENV_KEYS
+                .iter()
+                .map(|x| (String::from(*x), String::from(*x).to_lowercase()))
+                .collect()
         }
-
 
         for test_case in &test_cases {
             // For each test case, also check if internal variables are filtered out correctly
             for check_internal_var in [false, true] {
-                println!("Test Case: {:?}\ninternal vars set: {}", &test_case, check_internal_var);
+                println!(
+                    "Test Case: {:?}\ninternal vars set: {}",
+                    &test_case, check_internal_var
+                );
                 if let ManifestValue::Error = test_case.expected_manifest {
                     // If the manifest expected value is an error, the test would not happen, as there would be a conversion error
                     continue;
@@ -1576,22 +1873,29 @@ mod tests {
                 let env_config = EnvConfig {
                     value: match &test_case.expected_manifest {
                         ManifestValue::None | ManifestValue::Error => None,
-                        value @ ( ManifestValue::Image | ManifestValue::Config )=> Some(value.to_str().to_string())
+                        value @ (ManifestValue::Image | ManifestValue::Config) => {
+                            Some(value.to_str().to_string())
+                        }
                     },
                     overrides_input_image: test_case.overrides_image,
                     overridable_at_runtime: test_case.runtime_override,
                 };
 
                 let manifest_env_vars = hash_map! {
-                "TEST_ENV_VAR".to_string() => env_config,
-            };
+                    "TEST_ENV_VAR".to_string() => env_config,
+                };
 
-                let mut runtime_env_vars = if test_case.runtime_set { vec![("TEST_ENV_VAR".to_string(), "runtime".to_string())] } else { vec![] };
+                let mut runtime_env_vars = if test_case.runtime_set {
+                    vec![("TEST_ENV_VAR".to_string(), "runtime".to_string())]
+                } else {
+                    vec![]
+                };
                 if check_internal_var {
                     runtime_env_vars.extend(get_internal_vars());
                 }
 
-                let (client_env_vars, internal_env_vars) = merge_and_filter_env_vars(manifest_env_vars, runtime_env_vars);
+                let (client_env_vars, internal_env_vars) =
+                    merge_and_filter_env_vars(manifest_env_vars, runtime_env_vars);
 
                 if check_internal_var {
                     assert_eq!(internal_env_vars, get_internal_vars());
@@ -1599,20 +1903,20 @@ mod tests {
                     assert!(internal_env_vars.is_empty());
                 }
 
-
                 match &test_case.expected_runtime {
                     RuntimeValue::None => {
                         assert!(client_env_vars.is_empty());
-                    },
-                    value @ (RuntimeValue::Image | RuntimeValue::Config | RuntimeValue::Runtime) => {
+                    }
+                    value
+                    @ (RuntimeValue::Image | RuntimeValue::Config | RuntimeValue::Runtime) => {
                         assert_eq!(client_env_vars.len(), 1);
                         let (k, v) = client_env_vars.iter().next().unwrap();
                         assert_eq!(k, "TEST_ENV_VAR");
                         assert_eq!(v.as_str(), value.to_str());
-                    },
+                    }
                     RuntimeValue::Error => {
                         panic!("This test case should be unreachable");
-                    },
+                    }
                 }
             }
         }

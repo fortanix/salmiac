@@ -12,8 +12,8 @@ use api_model::enclave::{EnclaveManifest, FileSystemConfig, UserConfig};
 use async_trait::async_trait;
 
 use crate::image_builder::enclave::initramfs::InitramfsBuilder;
-use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::DockerUtil;
 use crate::{ConverterError, ConverterErrorKind, Result};
 
@@ -37,7 +37,8 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
     ) -> Result<FileSystemConfig>;
 
     // Function to update/override env variables passed to enclave manifest file
-    fn update_env_vars(&self, _enclave_settings: &EnclaveSettings, _env_vars: &mut EnclaveEnvVars) {}
+    fn update_env_vars(&self, _enclave_settings: &EnclaveSettings, _env_vars: &mut EnclaveEnvVars) {
+    }
 
     async fn compute_launch_measurements(
         &self,

@@ -17,8 +17,8 @@ use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
 use crate::image_builder::enclave::tdx_measurement::{
     compute_tdx_launch_measurement, TdxMeasurementInputs,
 };
-use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::Result;
 use crate::{ConverterError, DockerUtil};
 

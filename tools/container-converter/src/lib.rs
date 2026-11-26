@@ -404,9 +404,10 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
     for (key, _) in &request.converter_options.env_vars {
         if key.is_empty() {
             return Err(ConverterError {
-                message: "env_vars contains a key with zero length; must be 1 character or longer".to_string(),
+                message: "env_vars contains a key with zero length; must be 1 character or longer"
+                    .to_string(),
                 kind: ConverterErrorKind::UnsupportedConfig,
-            })
+            });
         }
     }
 
@@ -735,7 +736,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: hash_map!{},
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -804,7 +805,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: hash_map!{},
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -851,7 +852,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: hash_map!{},
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -892,7 +893,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: hash_map!{},
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -939,7 +940,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: hash_map!{},
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,

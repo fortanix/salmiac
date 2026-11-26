@@ -15,8 +15,8 @@ use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
 use crate::image_builder::enclave::snp_measurement::{
     compute_snp_launch_measurement, SnpMeasurementInputs,
 };
-use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::DockerUtil;
 use crate::Result;
 
