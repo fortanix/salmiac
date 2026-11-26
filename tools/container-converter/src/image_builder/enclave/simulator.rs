@@ -11,8 +11,8 @@ use api_model::simulator::SimulatorEnclavesConversionRequestOptions;
 
 use crate::image_builder::enclave::initramfs::BasicInitramfsBuilder;
 use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
-use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::DockerUtil;
 use crate::Result;
 
@@ -28,7 +28,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        env_vars: Vec<String>,
+        env_vars: EnclaveEnvVars,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<()> {
         QemuEnclaveImageBuilder::create_image(

@@ -3,7 +3,7 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
+use std::collections::HashMap;
 use std::path::Path;
 
 #[cfg(feature = "serde")]
@@ -117,6 +117,15 @@ pub enum KeyType {
     // Ec
 }
 
+/// Captures the value of an environment variable and it's configuration policy
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct EnvConfig {
+    pub value: Option<String>,
+    pub overrides_input_image: bool,
+    pub overridable_at_runtime: bool,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ConverterOptions {
@@ -163,11 +172,12 @@ pub struct ConverterOptions {
     #[cfg_attr(feature = "serde", serde(default = "default_to_true"))]
     pub push_converted_image: Option<bool>,
 
+    /// Configuration for environmental variable behavior during conversion and runtime
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "Vec::is_empty")
+        serde(default, skip_serializing_if = "HashMap::is_empty")
     )]
-    pub env_vars: Vec<String>,
+    pub env_vars: HashMap<String, EnvConfig>,
 
     /// Type of the Java JVM used
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]

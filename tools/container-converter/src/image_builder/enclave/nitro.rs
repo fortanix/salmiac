@@ -16,7 +16,7 @@ use serde::Deserialize;
 use crate::docker::DockerUtil;
 use crate::file::BuildContext;
 use crate::image::{ImageKind, ImageToClean};
-use crate::image_builder::enclave::{EnclaveSettings, GenericEnclaveImageBuilder};
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings, GenericEnclaveImageBuilder};
 use crate::{run_subprocess, ConverterError, ConverterErrorKind, Result};
 
 #[derive(Deserialize)]
@@ -84,7 +84,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        env_vars: Vec<String>,
+        env_vars: EnclaveEnvVars,
         images_to_clean_snd: Sender<ImageToClean>,
     ) -> Result<NitroEnclaveMeasurements> {
         let is_debug = enclave_settings.is_debug;
@@ -118,7 +118,7 @@ impl<'a> EnclaveImageBuilder<'a> {
             user_config,
             file_system_config,
             is_debug,
-            env_vars,
+            env_vars: env_vars.manifest_env_vars,
             enable_overlay_filesystem_persistence,
             ccm_backend_url,
             dsm_configuration,

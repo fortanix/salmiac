@@ -3,13 +3,13 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
+use std::collections::HashMap;
 use std::ops::Deref;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::converter::{CertificateConfig, DsmConfiguration};
+use crate::converter::{CertificateConfig, DsmConfiguration, EnvConfig};
 
 /// Required information needed to start an enclave
 /// Created by the container-converter and consumed by
@@ -23,7 +23,7 @@ pub struct EnclaveManifest {
 
     pub is_debug: bool,
 
-    pub env_vars: Vec<String>,
+    pub env_vars: HashMap<String, EnvConfig>,
 
     pub enable_overlay_filesystem_persistence: bool,
 

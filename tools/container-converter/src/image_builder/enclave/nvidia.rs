@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use crate::image_builder::enclave::qemu::DEFAULT_PATH;
+use crate::image_builder::enclave::EnclaveEnvVars;
 
 pub(crate) const NVIDIA_DRIVER_LIBRARY_PATH: &str = "/opt/fortanix/nvidia-driver/lib";
 pub(crate) const NVIDIA_DRIVER_BINARY_PATH: &str = "/opt/fortanix/nvidia-driver/bin";
@@ -18,7 +19,7 @@ pub(crate) const KERNEL_MODULES: &[&str] = &[
 ];
 
 pub(crate) fn insert_nvidia_env_vars(
-    env_vars: &mut Vec<String>,
+    env_vars: &mut EnclaveEnvVars,
     driver_capabilities: &Vec<String>,
 ) {
     prepend_env(
@@ -40,8 +41,11 @@ pub(crate) fn insert_nvidia_env_vars(
     );
 }
 
-fn prepend_env(env_vars: &mut Vec<String>, key: &str, prefix: &str, default: Option<&str>) {
-    let current = get_last_env_value(env_vars, key)
+fn prepend_env(env_vars: &mut EnclaveEnvVars, key: &str, prefix: &str, default: Option<&str>) {
+    let current = env_vars
+        .image_env_vars
+        .get(key)
+        .map(|value| value.clone())
         .or_else(|| default.map(|value| value.to_string()))
         .unwrap_or_default();
 
@@ -56,15 +60,14 @@ fn prepend_env(env_vars: &mut Vec<String>, key: &str, prefix: &str, default: Opt
     upsert_env(env_vars, key, &value);
 }
 
-fn get_last_env_value(env_vars: &[String], key: &str) -> Option<String> {
-    let prefix = format!("{}=", key);
-
+/// Insert or update the entries for a specific key in the enclave variables.
+fn upsert_env(env_vars: &mut EnclaveEnvVars, key: &str, value: &str) {
+    // Only update the manifest if it already had this variable in it
+    if let Some(config) = env_vars.manifest_env_vars.get_mut(key) {
+        config.value = Some(value.to_string());
+    }
+    // Upsert the hash map with env var values
     env_vars
-        .iter()
-        .rev()
-        .find_map(|env| env.strip_prefix(&prefix).map(|value| value.to_string()))
-}
-
-fn upsert_env(env_vars: &mut Vec<String>, key: &str, value: &str) {
-    env_vars.push(format!("{}={}", key, value));
+        .image_env_vars
+        .insert(key.to_string(), value.to_string());
 }

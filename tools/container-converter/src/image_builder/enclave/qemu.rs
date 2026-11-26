@@ -12,8 +12,8 @@ use api_model::enclave::{EnclaveManifest, FileSystemConfig, UserConfig};
 use async_trait::async_trait;
 
 use crate::image_builder::enclave::initramfs::InitramfsBuilder;
-use crate::image_builder::enclave::EnclaveSettings;
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::DockerUtil;
 use crate::{ConverterError, ConverterErrorKind, Result};
 
@@ -37,7 +37,8 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
     ) -> Result<FileSystemConfig>;
 
     // Function to update/override env variables passed to enclave manifest file
-    fn update_env_vars(&self, _enclave_settings: &EnclaveSettings, _env_vars: &mut Vec<String>) {}
+    fn update_env_vars(&self, _enclave_settings: &EnclaveSettings, _env_vars: &mut EnclaveEnvVars) {
+    }
 
     async fn compute_launch_measurements(
         &self,
@@ -50,7 +51,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        mut env_vars: Vec<String>,
+        mut env_vars: EnclaveEnvVars,
         _sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<Self::Measurements> {
         let work_dir = self.enclave_image_builder().dir.path();
@@ -78,7 +79,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
             user_config,
             file_system_config,
             is_debug,
-            env_vars,
+            env_vars: env_vars.manifest_env_vars.clone(),
             enable_overlay_filesystem_persistence,
             ccm_backend_url,
             dsm_configuration,

@@ -8,6 +8,7 @@
 pub(crate) mod nitro;
 #[cfg(platform = "nitro")]
 pub(crate) use self::nitro::EnclaveImageBuilder as PlatformEnclaveImageBuilder;
+use std::collections::HashMap;
 
 #[cfg(platform = "snp")]
 pub(crate) mod snp;
@@ -44,7 +45,7 @@ use std::ops::Add;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
-use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
+use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration, EnvConfig};
 #[cfg(platform = "nitro")]
 use api_model::enclave::EnclaveManifest;
 use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
@@ -77,11 +78,60 @@ const NVIDIA_DRIVER_TARGET_ROOT: &str = "opt/fortanix/nvidia-driver";
 const NVIDIA_DRIVER_TARGET_LIB: &str = "opt/fortanix/nvidia-driver/lib";
 const NVIDIA_DRIVER_TARGET_BIN: &str = "opt/fortanix/nvidia-driver/bin";
 
+fn get_enclave_env_vars(
+    image_env_vars: &Vec<(String, String)>,
+    converter_options_env_vars: &HashMap<String, EnvConfig>,
+) -> Result<EnclaveEnvVars> {
+    // Reading from first to last, push the keys/values into a HashMap, so that the last value applied is valid
+    // This will lead to a single key being mapped to a single value, without repeated setting of a key with different values
+    let mut image_env_var_map = HashMap::new();
+    for (key, value) in image_env_vars {
+        image_env_var_map.insert(key.to_string(), value.to_string());
+    }
+
+    // TODO: Implement the conversion-time overrides here
+    for (var_name, config) in converter_options_env_vars {
+        if let Some(value) = &config.value {
+            if config.overrides_input_image {
+                // Override the image value
+                image_env_var_map.insert(var_name.clone(), value.clone());
+            } else {
+                return Err(ConverterError::new(
+                    format!("env_vars contains key \"{}\" with value \"{}\" which will override the value set in docker image, but overrides_input_image is false", var_name, value),
+                    ConverterErrorKind::UnsupportedConfig));
+            }
+        } else {
+            // No value (unset var), if the image has a value and override is enabled, this is an error
+            if image_env_var_map.contains_key(var_name) {
+                if config.overrides_input_image {
+                    image_env_var_map.remove(var_name);
+                }
+                // If the image has a value, it should remain
+            }
+            // If the image has no such value, nothing needs to be done
+        }
+    }
+
+    // Update the manifest values with the final image values
+    let mut manifest_env_vars = converter_options_env_vars.clone();
+    for (var_name, config) in &mut manifest_env_vars {
+        if let Some(image_value) = image_env_var_map.get(var_name) {
+            config.value = Some(image_value.clone());
+        }
+    }
+
+    Ok(EnclaveEnvVars {
+        manifest_env_vars,
+        image_env_vars: image_env_var_map,
+    })
+}
+
+/// This function takes in the `EnvConfig` setting for a variable and creates an adjusted set of variables
 pub(crate) fn get_image_env(
     input_image: &ImageWithDetails<'_>,
     converter_options: &ConverterOptions,
-) -> Vec<String> {
-    let mut result = input_image
+) -> Result<EnclaveEnvVars> {
+    let result = input_image
         .details
         .config
         .env
@@ -93,15 +143,43 @@ pub(crate) fn get_image_env(
     // latest definition of the same variable override previous definition.
     // We exploit this logic to override variables from the `input_image` with the values from `conversion_request`
     // by adding all `conversion_request` variables to the end of `env_vars` vector.
-    for request_env in &converter_options.env_vars {
-        result.push(request_env.clone());
-    }
-    result
+
+    // Split the env var strings into key-values
+    let image_env_vars = result
+        .iter()
+        .map(|s| {
+            s.split_once("=").ok_or_else(|| {
+                ConverterError::new(
+                    "Docker image env var does not have \"=\" delimiter",
+                    ConverterErrorKind::ContainerCreation,
+                )
+            })
+        })
+        .map(|result| result.map(|(key, value)| (key.to_string(), value.to_string())))
+        .collect::<Result<Vec<_>>>()?;
+
+    get_enclave_env_vars(&image_env_vars, &converter_options.env_vars)
 }
+
+/// Structure to package the converter-provided env var config
+/// and the resulting variables from the image.
+/// Because the image may have more variables than the manifest,
+/// and the manifest values depend on env var configuration,
+/// both are provided together.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct EnclaveEnvVars {
+    /// The resulting combination of the source container env vars and converter config env var values
+    pub(crate) manifest_env_vars: HashMap<String, EnvConfig>,
+
+    pub(crate) image_env_vars: HashMap<String, String>,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct EnclaveSettings {
     pub(crate) user_name: String,
 
+    /// These environmental variables are set by the init process at the time of starting the child process
+    /// in the initramfs. These will be available to the enclave runner executable.
     pub(crate) env_vars: Vec<String>,
 
     pub(crate) is_debug: bool,
@@ -1107,18 +1185,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Seek, Write};
-    use std::path::{Path, PathBuf};
-
-    use api_model::converter::{CertIssuer, CertificateConfig, KeyType};
+    use crate::image_builder::enclave::{
+        get_enclave_env_vars, ArchiveExtensions, ArchiveSize, GenericEnclaveImageBuilder,
+    };
+    use api_model::converter::{CertIssuer, CertificateConfig, EnvConfig, KeyType};
     use api_model::enclave::{User, UserConfig, UserProgramConfig, WorkingDir};
     use rand::RngCore;
+    use std::assert_matches::assert_matches;
+    use std::io::{Seek, Write};
+    use std::path::{Path, PathBuf};
     use tar::{Archive, Builder};
     use tempfile::{NamedTempFile, TempDir};
-
-    use crate::image_builder::enclave::{
-        ArchiveExtensions, ArchiveSize, GenericEnclaveImageBuilder,
-    };
 
     #[test]
     fn archive_size_add_zero_correct_pass() {
@@ -1409,6 +1486,468 @@ mod tests {
                 "Config used: {:?}",
                 config
             )
+        }
+    }
+
+    #[test]
+    fn test_get_image_env() {
+        #[derive(Debug, Clone)]
+        enum ManifestValue {
+            None,
+            Image,
+            Config,
+            Error,
+        }
+
+        impl ManifestValue {
+            fn to_str(&self) -> &'static str {
+                match self {
+                    ManifestValue::None => "none",
+                    ManifestValue::Image => "image",
+                    ManifestValue::Config => "config",
+                    ManifestValue::Error => "error",
+                }
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        enum RuntimeValue {
+            None,
+            Image,
+            Config,
+            Runtime,
+            Error,
+        }
+
+        impl RuntimeValue {
+            #[allow(unused)]
+            fn to_str(&self) -> &'static str {
+                match self {
+                    RuntimeValue::None => "none",
+                    RuntimeValue::Image => "image",
+                    RuntimeValue::Config => "config",
+                    RuntimeValue::Runtime => "runtime",
+                    RuntimeValue::Error => "error",
+                }
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        struct TestCase {
+            /// Test case number
+            #[allow(unused)]
+            case: usize,
+            /// Does the input image have a set env var value?
+            #[allow(unused)]
+            input_image: bool,
+            /// Does the config have a Some(_) env var value?
+            #[allow(unused)]
+            config_value: bool,
+            /// Is the config set to override the image env var value?
+            overrides_image: bool,
+            /// Are runtime values allowed to override the image env vars?
+            runtime_override: bool,
+            /// Is the variable set at runtime?
+            #[allow(unused)]
+            runtime_set: bool,
+            /// What is the expected result in the manifest?
+            #[allow(unused)]
+            expected_manifest: ManifestValue,
+            /// What is the
+            /// expected result at runtime?
+            #[allow(unused)]
+            expected_runtime: RuntimeValue,
+        }
+
+        impl TestCase {
+            fn new(
+                case: usize,
+                input_image: bool,
+                config_value: bool,
+                overrides_image: bool,
+                runtime_override: bool,
+                runtime_set: bool,
+                expected_manifest: ManifestValue,
+                expected_runtime: RuntimeValue,
+            ) -> Self {
+                Self {
+                    case,
+                    input_image,
+                    config_value,
+                    overrides_image,
+                    runtime_override,
+                    runtime_set,
+                    expected_manifest,
+                    expected_runtime,
+                }
+            }
+        }
+
+        let test_cases = vec![
+            TestCase::new(
+                1,
+                false,
+                false,
+                false,
+                false,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                2,
+                false,
+                false,
+                false,
+                false,
+                true,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                3,
+                false,
+                false,
+                false,
+                true,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                4,
+                false,
+                false,
+                false,
+                true,
+                true,
+                ManifestValue::None,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                5,
+                false,
+                false,
+                true,
+                false,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                6,
+                false,
+                false,
+                true,
+                false,
+                true,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                7,
+                false,
+                false,
+                true,
+                true,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                8,
+                false,
+                false,
+                true,
+                true,
+                true,
+                ManifestValue::None,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                9,
+                false,
+                true,
+                false,
+                false,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                10,
+                false,
+                true,
+                false,
+                false,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                11,
+                false,
+                true,
+                false,
+                true,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                12,
+                false,
+                true,
+                false,
+                true,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                13,
+                false,
+                true,
+                true,
+                false,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                14,
+                false,
+                true,
+                true,
+                false,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                15,
+                false,
+                true,
+                true,
+                true,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                16,
+                false,
+                true,
+                true,
+                true,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                17,
+                true,
+                false,
+                false,
+                false,
+                false,
+                ManifestValue::Image,
+                RuntimeValue::Image,
+            ),
+            TestCase::new(
+                18,
+                true,
+                false,
+                false,
+                false,
+                true,
+                ManifestValue::Image,
+                RuntimeValue::Image,
+            ),
+            TestCase::new(
+                19,
+                true,
+                false,
+                false,
+                true,
+                false,
+                ManifestValue::Image,
+                RuntimeValue::Image,
+            ),
+            TestCase::new(
+                20,
+                true,
+                false,
+                false,
+                true,
+                true,
+                ManifestValue::Image,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                21,
+                true,
+                false,
+                true,
+                false,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                22,
+                true,
+                false,
+                true,
+                false,
+                true,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                23,
+                true,
+                false,
+                true,
+                true,
+                false,
+                ManifestValue::None,
+                RuntimeValue::None,
+            ),
+            TestCase::new(
+                24,
+                true,
+                false,
+                true,
+                true,
+                true,
+                ManifestValue::None,
+                RuntimeValue::Runtime,
+            ),
+            TestCase::new(
+                25,
+                true,
+                true,
+                false,
+                false,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                26,
+                true,
+                true,
+                false,
+                false,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                27,
+                true,
+                true,
+                false,
+                true,
+                false,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                28,
+                true,
+                true,
+                false,
+                true,
+                true,
+                ManifestValue::Error,
+                RuntimeValue::Error,
+            ),
+            TestCase::new(
+                29,
+                true,
+                true,
+                true,
+                false,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                30,
+                true,
+                true,
+                true,
+                false,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                31,
+                true,
+                true,
+                true,
+                true,
+                false,
+                ManifestValue::Config,
+                RuntimeValue::Config,
+            ),
+            TestCase::new(
+                32,
+                true,
+                true,
+                true,
+                true,
+                true,
+                ManifestValue::Config,
+                RuntimeValue::Runtime,
+            ),
+        ];
+
+        for test_case in test_cases {
+            println!("Test Case: {:?}", &test_case);
+            let image_env_vars: Vec<(String, String)> = if test_case.input_image {
+                vec![("TEST_ENV_VAR".to_string(), "image".to_string())]
+            } else {
+                vec![]
+            };
+            let converter_options = hash_map! {
+                "TEST_ENV_VAR".to_string() => EnvConfig {
+                    value: if test_case.config_value { Some("config".to_string()) } else { None },
+                    overrides_input_image: test_case.overrides_image,
+                    overridable_at_runtime: test_case.runtime_override
+                }
+            };
+            let res = get_enclave_env_vars(&image_env_vars, &converter_options);
+            match test_case.expected_manifest {
+                value @ (ManifestValue::Config | ManifestValue::Image) => {
+                    assert_matches!(res, Result::Ok(_));
+                    assert_eq!(
+                        res.unwrap()
+                            .manifest_env_vars
+                            .get("TEST_ENV_VAR")
+                            .unwrap()
+                            .value,
+                        Some(value.to_str().to_string())
+                    );
+                }
+                ManifestValue::None => {
+                    assert_matches!(res, Result::Ok(_));
+                    assert_matches!(
+                        res.unwrap()
+                            .manifest_env_vars
+                            .get("TEST_ENV_VAR")
+                            .unwrap()
+                            .value,
+                        None
+                    );
+                }
+                ManifestValue::Error => {
+                    assert_matches!(res, Result::Err(_));
+                }
+            }
         }
     }
 }

@@ -1,3 +1,5 @@
+#![feature(hash_map_macro)]
+#![feature(assert_matches)]
 /* Copyright (c) Fortanix, Inc.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
@@ -98,6 +100,13 @@ impl fmt::Display for ConverterError {
 impl Error for ConverterError {}
 
 impl ConverterError {
+    pub fn new(msg: impl AsRef<str>, kind: ConverterErrorKind) -> Self {
+        Self {
+            message: msg.as_ref().to_string(),
+            kind,
+        }
+    }
+
     pub fn from_error_with_message<E: Error>(
         err: E,
         msg: String,
@@ -243,8 +252,11 @@ async fn run0(
             #[cfg(any(platform = "snp", platform = "tdx"))]
             &conversion_request.enclaves_options,
         );
+        // These are the environmental variable to be put into the manifest that the
+        // enclave runner will provide to the converted program
         let image_env_vars =
-            get_image_env(&input_image, &conversion_request.request.converter_options);
+            get_image_env(&input_image, &conversion_request.request.converter_options)?;
+
         let user_config = UserConfig {
             user_program_config,
             certificate_config: conversion_request.request.converter_options.certificates,
@@ -386,6 +398,17 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
             message: "java_mode is not supported on this platform".to_string(),
             kind: ConverterErrorKind::UnsupportedConfig,
         });
+    }
+
+    // An env var key must have a length of at least 1
+    for (key, _) in &request.converter_options.env_vars {
+        if key.is_empty() {
+            return Err(ConverterError {
+                message: "env_vars contains a key with zero length; must be 1 character or longer"
+                    .to_string(),
+                kind: ConverterErrorKind::UnsupportedConfig,
+            });
+        }
     }
 
     #[cfg(not(platform = "nitro"))]
@@ -713,7 +736,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -782,7 +805,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -829,7 +852,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -870,7 +893,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
@@ -917,7 +940,7 @@ mod tests {
                 entry_point: vec![],
                 entry_point_args: vec![],
                 push_converted_image: None,
-                env_vars: vec![],
+                env_vars: hash_map! {},
                 java_mode: None,
                 enable_overlay_filesystem_persistence: None,
                 ccm_configuration: None,
