@@ -31,6 +31,11 @@ if [ ! -f "$artifact_dir/init" ]; then
   exit 1
 fi
 
+if [ ! -f "$artifact_dir/init-debug" ]; then
+  echo "error: init-debug not found at $artifact_dir/init-debug"
+  exit 1
+fi
+
 if [ ! -f "$artifact_dir/bzImage" ]; then
   echo "error: bzImage not found at $artifact_dir/bzImage"
   exit 1
@@ -43,6 +48,18 @@ cp "$converter_bin" "$script_dir/staging/server"
 cp "$artifact_dir/init" "$script_dir/staging/blobs/init"
 cp "$artifact_dir/init-debug" "$script_dir/staging/blobs/init-debug"
 cp "$artifact_dir/bzImage" "$script_dir/staging/blobs/bzImage"
+
+pushd "${script_dir}/enclave-base"
+
+./build.sh
+
+popd
+
+pushd "${script_dir}/parent-base"
+
+./build.sh
+
+popd
 
 docker save -o "$script_dir/staging/enclave-base.tar" enclave-base-simulator:latest
 docker save -o "$script_dir/staging/parent-base.tar" parent-base-simulator:latest

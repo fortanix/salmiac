@@ -17,7 +17,7 @@ use crate::image_builder::enclave::qemu::QemuEnclaveImageBuilder;
 use crate::image_builder::enclave::tdx_measurement::{
     compute_tdx_launch_measurement, TdxMeasurementInputs,
 };
-use crate::image_builder::enclave::EnclaveSettings;
+use crate::image_builder::enclave::{EnclaveEnvVars, EnclaveSettings};
 use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 use crate::Result;
 use crate::{ConverterError, DockerUtil};
@@ -35,7 +35,7 @@ impl<'a> EnclaveImageBuilder<'a> {
         docker_util: &dyn DockerUtil,
         enclave_settings: EnclaveSettings,
         user_config: UserConfig,
-        env_vars: Vec<String>,
+        env_vars: EnclaveEnvVars,
         sender: std::sync::mpsc::Sender<crate::image::ImageToClean>,
     ) -> Result<TdxEnclavesMeasurements> {
         QemuEnclaveImageBuilder::create_image(
@@ -97,7 +97,7 @@ impl<'a> QemuEnclaveImageBuilder<'a> for EnclaveImageBuilder<'a> {
         Ok(file_system_config)
     }
 
-    fn update_env_vars(&self, enclave_settings: &EnclaveSettings, env_vars: &mut Vec<String>) {
+    fn update_env_vars(&self, enclave_settings: &EnclaveSettings, env_vars: &mut EnclaveEnvVars) {
         if enclave_settings.gpu_passthrough {
             insert_nvidia_env_vars(env_vars, &enclave_settings.nvidia_driver_capabilities)
         }

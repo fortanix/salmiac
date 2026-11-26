@@ -1,3 +1,4 @@
+#![feature(hash_map_macro)]
 /* Copyright (c) Fortanix, Inc.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public

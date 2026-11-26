@@ -21,14 +21,19 @@ const fn bytes_to_mb_ceil(bytes: u64) -> u64 {
     bytes.div_ceil(MEGA_BYTE) * MEGA_BYTE
 }
 
-fn rust_log_env_var(project_name: &str) -> String {
+fn rust_log_env_var_kv(project_name: &str) -> (String, String) {
     let log_level = if cfg!(debug_assertions) {
         "debug"
     } else {
         "info"
     };
 
-    format!("RUST_LOG={}={}", project_name, log_level)
+    ("RUST_LOG".to_string(), format!("{}={}", project_name, log_level))
+}
+
+fn rust_log_env_var(project_name: &str) -> String {
+    let (k, v) = rust_log_env_var_kv(project_name);
+    format!("{k}={v}")
 }
 
 /// Interprets <code>&[Path]</code> as a <code>&[str]</code>
@@ -45,18 +50,16 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
 
-    use api_model::converter::ConverterOptions;
     use async_trait::async_trait;
-    use chrono::{DateTime, Utc};
     use docker_image_reference::{Reference, Reference as DockerReference};
     use shiplift::container::ContainerCreateInfo;
-    use shiplift::image::{ContainerConfig, ImageDetails};
+    use shiplift::image::ImageDetails;
     use tar::{Builder, Header};
     use tempfile::TempDir;
 
     use crate::docker::DockerUtil;
     use crate::image::ImageWithDetails;
-    use crate::image_builder::enclave::{get_image_env, GenericEnclaveImageBuilder};
+    use crate::image_builder::enclave::GenericEnclaveImageBuilder;
 
     struct TestDockerDaemon {}
 
@@ -164,110 +167,5 @@ mod tests {
             .expect("Failed reading result file");
 
         assert_eq!(result, TEST_DATA)
-    }
-
-    #[test]
-    fn enclave_settings_ctor_should_produce_correct_env_vars_string() {
-        let reference = DockerReference::from_str("test").unwrap();
-        let details = ImageDetails {
-            architecture: "".to_string(),
-            author: Some("".to_string()),
-            comment: Some("".to_string()),
-            config: ContainerConfig {
-                attach_stderr: Some(false),
-                attach_stdin: Some(false),
-                attach_stdout: Some(false),
-                cmd: None,
-                domainname: Some("".to_string()),
-                entrypoint: None,
-                env: None,
-                exposed_ports: None,
-                hostname: Some("".to_string()),
-                image: Some("".to_string()),
-                labels: None,
-                on_build: None,
-                open_stdin: Some(false),
-                stdin_once: Some(false),
-                tty: Some(false),
-                user: Some("".to_string()),
-                working_dir: Some("".to_string()),
-            },
-            created: DateTime::<Utc>::MAX_UTC,
-            docker_version: Some("".to_string()),
-            id: "".to_string(),
-            os: "".to_string(),
-            parent: Some("".to_string()),
-            repo_tags: None,
-            repo_digests: None,
-            size: 0,
-            virtual_size: Some(0),
-        };
-
-        let mut input_image = ImageWithDetails { reference, details };
-
-        let mut converter_options = ConverterOptions {
-            allow_cmdline_args: None,
-            allow_docker_pull_failure: None,
-            app: None,
-            ca_certificates: vec![],
-            certificates: vec![],
-            debug: None,
-            entry_point: vec![],
-            entry_point_args: vec![],
-            push_converted_image: None,
-            env_vars: vec![],
-            java_mode: None,
-            enable_overlay_filesystem_persistence: None,
-            ccm_configuration: None,
-            dsm_configuration: None,
-        };
-
-        let mut test = |input_image_env_vars: Option<Vec<String>>,
-                        converter_request_env_vars: Vec<String>,
-                        reference: Vec<String>|
-         -> () {
-            input_image.details.config.env = input_image_env_vars;
-            converter_options.env_vars = converter_request_env_vars;
-
-            let result = get_image_env(&input_image, &converter_options);
-
-            assert_eq!(result, reference);
-        };
-
-        test(
-            Some(vec![
-                "A=A_VALUE".to_string(),
-                "B=B_VALUE".to_string(),
-                "C=C_VALUE".to_string(),
-            ]),
-            vec!["A=A_VALUE_NEW".to_string(), "C=C_VALUE_NEW".to_string()],
-            vec![
-                "A=A_VALUE".to_string(),
-                "B=B_VALUE".to_string(),
-                "C=C_VALUE".to_string(),
-                "A=A_VALUE_NEW".to_string(),
-                "C=C_VALUE_NEW".to_string(),
-            ],
-        );
-
-        test(
-            None,
-            vec!["A=A_VALUE_NEW".to_string(), "C=C_VALUE_NEW".to_string()],
-            vec!["A=A_VALUE_NEW".to_string(), "C=C_VALUE_NEW".to_string()],
-        );
-
-        test(
-            Some(vec![
-                "A=A_VALUE".to_string(),
-                "B=B_VALUE".to_string(),
-                "C=C_VALUE".to_string(),
-            ]),
-            vec![],
-            vec![
-                "A=A_VALUE".to_string(),
-                "B=B_VALUE".to_string(),
-                "C=C_VALUE".to_string(),
-            ],
-        );
     }
 }

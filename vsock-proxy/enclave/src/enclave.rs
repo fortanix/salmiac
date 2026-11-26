@@ -8,6 +8,7 @@
 use crate::app_configuration::{
     setup_application_configuration, EmAppApplicationConfiguration, EmAppCredentials,
 };
+use std::hash_map;
 #[allow(unused_imports)]
 use crate::certificate::{
     self, create_signer_key, default_certificate, request_certificate, write_certificate, CSRApi,
@@ -21,7 +22,7 @@ use crate::file_system::{
     run_nbd_client, setup_dm_verity, setup_encrypted_mount, unmount_file_system_nodes,
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
-use api_model::converter::CertificateConfig;
+use api_model::converter::{CertificateConfig, EnvConfig};
 #[cfg(platform = "nitro")]
 use api_model::enclave::CcmBackendUrl;
 use api_model::enclave::EnclaveManifest;
@@ -53,7 +54,7 @@ use shared::{
     DNS_RESOLV_FILE, HOSTNAME_FILE, HOSTS_FILE, MAX_HOSTNAME_LABEL_LEN, MAX_HOSTNAME_LEN,
     RESTRICTED_HOSTS, VSOCK_PARENT_CID,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::From;
 #[cfg(platform = "nitro")]
 use std::convert::TryFrom;
@@ -349,15 +350,11 @@ fn enable_loopback_network_interface() -> Result<(), String> {
 }
 
 fn merge_and_filter_env_vars(
-    mut manifest_env_vars: Vec<(String, String)>,
+    mut manifest_env_vars_map: HashMap<String, EnvConfig>,
     runtime_env_vars: Vec<(String, String)>,
 ) -> (Vec<(String, String)>, Vec<(String, String)>) {
     // First we create a hash set to get an unduplicated list of allowed environment variables
     // from the enclave manifest.
-    let allowed_env_keys: HashSet<_> = manifest_env_vars
-        .iter()
-        .map(|(key, _)| key.clone())
-        .collect();
 
     let internal_env_keys: HashSet<&str> = SALMIAC_ENV_KEYS.iter().copied().collect();
 
@@ -365,14 +362,17 @@ fn merge_and_filter_env_vars(
         .into_iter()
         .partition(|(k, _)| internal_env_keys.contains(k.as_str()));
 
-    // Then if the runtime env vars keys is present in the allowed list, its value is overwritten.
-    for (k, v) in other_runtime_env_vars {
-        if allowed_env_keys.contains(&k) {
-            if let Some((_, mv)) = manifest_env_vars.iter_mut().find(|(mk, _)| mk == &k) {
-                *mv = v;
+    let other_runtime_env_vars_map = other_runtime_env_vars.into_iter().collect::<HashMap<String, String>>();
+    for (key, config) in &mut manifest_env_vars_map {
+        if let Some(runtime_value) = other_runtime_env_vars_map.get(key) {
+            if config.overridable_at_runtime {
+                config.value = Some(runtime_value.clone());
             }
         }
     }
+
+    let manifest_env_vars = manifest_env_vars_map.iter().filter_map(|(k,config)| if let Some(ref v) = config.value { Some((k.clone(), v.clone())) } else { None } ).collect::<Vec<_>>();
+
     (manifest_env_vars, internal_env_vars)
 }
 
@@ -394,13 +394,12 @@ async fn startup(
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::EnvVariables(e) => e)?;
     let node_agent_address =
         extract_enum_value!(parent_port.read_lv().await?, SetupMessages::NodeAgentUrl(a) => a)?;
-    let env_vars = convert_to_tuples(&enclave_manifest.env_vars)?;
 
     // If a key from runtime_env_vars is present in the enclave_manifest, it can be overridden
     // at runtime. Otherwise it will be removed from client_env_vars.
     // internal variables are a constant defined list of variables used by salmiac.
     let (client_env_vars, internal_env_vars) =
-        merge_and_filter_env_vars(env_vars.clone(), runtime_env_vars.clone());
+        merge_and_filter_env_vars(enclave_manifest.env_vars.clone(), runtime_env_vars.clone());
 
     let mut extra_user_program_args = extract_enum_value!(parent_port.read_lv().await?, SetupMessages::ExtraUserProgramArguments(e) => e)?;
 
@@ -434,25 +433,6 @@ async fn startup(
         },
         networking_setup_result,
     ))
-}
-
-fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, String> {
-    let mut res = vec![];
-    for env in env_strs {
-        let pair = env.split_once("=");
-        match pair {
-            None => {
-                info!(
-                    "Env string doesn't contain equal sign separating key value pair - {:?}",
-                    env
-                );
-            }
-            Some(e) => {
-                res.push((e.0.to_string(), e.1.to_string()));
-            }
-        }
-    }
-    Ok(res)
 }
 
 #[cfg(platform = "nitro")]
@@ -851,6 +831,7 @@ async fn setup_file_system_tap_device(
     })
 }
 
+#[derive(Debug)]
 struct EnclaveSetupResult {
     app_config: ApplicationConfiguration,
 
@@ -1325,7 +1306,8 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use api_model::converter::DsmConfiguration;
+    use crate::enclave::{hash_map, SALMIAC_ENV_KEYS};
+    use api_model::converter::{DsmConfiguration, EnvConfig};
     use api_model::enclave::{
         CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig,
         WorkingDir,
@@ -1385,7 +1367,7 @@ mod tests {
                     hash_offset: 0,
                 },
                 is_debug: false,
-                env_vars: vec![],
+                env_vars: hash_map! {},
                 enable_overlay_filesystem_persistence: false,
                 ccm_backend_url: CcmBackendUrl {
                     host: "".to_string(),
@@ -1448,68 +1430,191 @@ mod tests {
 
     #[test]
     fn check_enclave_env_vars() {
+        #[derive(Debug, Clone)]
+        enum ManifestValue {
+            None,
+            Image,
+            Config,
+            Error,
+        }
+
+        impl ManifestValue {
+            fn to_str(&self) -> &'static str {
+                match self {
+                    ManifestValue::None => "none",
+                    ManifestValue::Image => "image",
+                    ManifestValue::Config => "config",
+                    ManifestValue::Error => "error",
+                }
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        enum RuntimeValue {
+            None,
+            Image,
+            Config,
+            Runtime,
+            Error,
+        }
+
+        impl RuntimeValue {
+            fn to_str(&self) -> &'static str {
+                match self {
+                    RuntimeValue::None => "none",
+                    RuntimeValue::Image => "image",
+                    RuntimeValue::Config => "config",
+                    RuntimeValue::Runtime => "runtime",
+                    RuntimeValue::Error => "error",
+                }
+            }
+        }
+
+        #[derive(Debug, Clone)]
         struct TestCase {
-            name: &'static str,
-            manifest_vars: Vec<(&'static str, &'static str)>,
-            runtime_vars: Vec<(&'static str, &'static str)>,
-            enclave_vars: Vec<(&'static str, &'static str)>,
-            internal_vars: Vec<(&'static str, &'static str)>,
+            /// Test case number
+            #[allow(unused)]
+            case: usize,
+            /// Does the input image have a set env var value?
+            #[allow(unused)]
+            input_image: bool,
+            /// Does the config have a Some(_) env var value?
+            #[allow(unused)]
+            config_value: bool,
+            /// Is the config set to override the image env var value?
+            overrides_image: bool,
+            /// Are runtime values allowed to override the image env vars?
+            runtime_override: bool,
+            /// Is the variable set at runtime?
+            runtime_set: bool,
+            /// What is the expected result in the manifest?
+            expected_manifest: ManifestValue,
+            /// What is the expected result at runtime?
+            expected_runtime: RuntimeValue,
+        }
+
+        impl TestCase {
+            fn new(
+                case: usize,
+                input_image: bool,
+                config_value: bool,
+                overrides_image: bool,
+                runtime_override: bool,
+                runtime_set: bool,
+                expected_manifest: ManifestValue,
+                expected_runtime: RuntimeValue,
+            ) -> Self {
+                Self {
+                    case,
+                    input_image,
+                    config_value,
+                    overrides_image,
+                    runtime_override,
+                    runtime_set,
+                    expected_manifest,
+                    expected_runtime,
+                }
+            }
         }
 
         let test_cases = vec![
-            TestCase {
-                name: "runtime overrides manifest env",
-                manifest_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
-                runtime_vars: vec![("KEY1", "RVAL1")],
-                enclave_vars: vec![("KEY1", "RVAL1"), ("KEY2", "MVAL2")],
-                internal_vars: vec![],
-            },
-            TestCase {
-                name: "runtime env not present in manifest env",
-                manifest_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
-                runtime_vars: vec![("KEY3", "RVAL3"), ("APPCONFIG_ID", "some-config-id")],
-                enclave_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
-                internal_vars: vec![("APPCONFIG_ID", "some-config-id")],
-            },
-            TestCase {
-                name: "empty manifest env",
-                manifest_vars: vec![],
-                runtime_vars: vec![("KEY1", "RVAL1")],
-                enclave_vars: vec![],
-                internal_vars: vec![],
-            },
-            TestCase {
-                name: "empty runtime env",
-                manifest_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
-                runtime_vars: vec![],
-                enclave_vars: vec![("KEY1", "MVAL1"), ("KEY2", "MVAL2")],
-                internal_vars: vec![],
-            },
+            TestCase::new(1, false, false, false, false, false, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(2, false, false, false, false, true, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(3, false, false, false, true, false, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(4, false, false, false, true, true, ManifestValue::None, RuntimeValue::Runtime),
+
+            TestCase::new(5, false, false, true, false, false, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(6, false, false, true, false, true, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(7, false, false, true, true, false, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(8, false, false, true, true, true, ManifestValue::None, RuntimeValue::Runtime),
+
+            TestCase::new(9, false, true, false, false, false, ManifestValue::Error, RuntimeValue::Error),
+            TestCase::new(10, false, true, false, false, true, ManifestValue::Error, RuntimeValue::Error),
+            TestCase::new(11, false, true, false, true, false, ManifestValue::Error, RuntimeValue::Error),
+            TestCase::new(12, false, true, false, true, true, ManifestValue::Error, RuntimeValue::Error),
+
+            TestCase::new(13, false, true, true, false, false, ManifestValue::Config, RuntimeValue::Config),
+            TestCase::new(14, false, true, true, false, true, ManifestValue::Config, RuntimeValue::Config),
+            TestCase::new(15, false, true, true, true, false, ManifestValue::Config, RuntimeValue::Config),
+            TestCase::new(16, false, true, true, true, true, ManifestValue::Config, RuntimeValue::Runtime),
+
+            TestCase::new(17, true, false, false, false, false, ManifestValue::Image, RuntimeValue::Image),
+            TestCase::new(18, true, false, false, false, true, ManifestValue::Image, RuntimeValue::Image),
+            TestCase::new(19, true, false, false, true, false, ManifestValue::Image, RuntimeValue::Image),
+            TestCase::new(20, true, false, false, true, true, ManifestValue::Image, RuntimeValue::Runtime),
+
+            TestCase::new(21, true, false, true, false, false, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(22, true, false, true, false, true, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(23, true, false, true, true, false, ManifestValue::None, RuntimeValue::None),
+            TestCase::new(24, true, false, true, true, true, ManifestValue::None, RuntimeValue::Runtime),
+
+            TestCase::new(25, true, true, false, false, false, ManifestValue::Error, RuntimeValue::Error),
+            TestCase::new(26, true, true, false, false, true, ManifestValue::Error, RuntimeValue::Error),
+            TestCase::new(27, true, true, false, true, false, ManifestValue::Error, RuntimeValue::Error),
+            TestCase::new(28, true, true, false, true, true, ManifestValue::Error, RuntimeValue::Error),
+
+            TestCase::new(29, true, true, true, false, false, ManifestValue::Config, RuntimeValue::Config),
+            TestCase::new(30, true, true, true, false, true, ManifestValue::Config, RuntimeValue::Config),
+            TestCase::new(31, true, true, true, true, false, ManifestValue::Config, RuntimeValue::Config),
+            TestCase::new(32, true, true, true, true, true, ManifestValue::Config, RuntimeValue::Runtime),
         ];
 
-        for testc in test_cases {
-            let transform_to_strings = |env_vars: Vec<(&str, &str)>| {
-                env_vars
-                    .into_iter()
-                    .map(|(key, value)| (key.to_string(), value.to_string()))
-                    .collect::<Vec<_>>()
+        fn get_internal_vars() -> Vec<(String, String)> {
+            SALMIAC_ENV_KEYS.iter().map(|x| (String::from(*x), String::from(*x).to_lowercase())).collect()
+        }
+
+
+        for test_case in &test_cases {
+            // For each test case, also check if internal variables are filtered out correctly
+            for check_internal_var in [false, true] {
+                println!("Test Case: {:?}\ninternal vars set: {}", &test_case, check_internal_var);
+                if let ManifestValue::Error = test_case.expected_manifest {
+                    // If the manifest expected value is an error, the test would not happen, as there would be a conversion error
+                    continue;
+                }
+
+                let env_config = EnvConfig {
+                    value: match &test_case.expected_manifest {
+                        ManifestValue::None | ManifestValue::Error => None,
+                        value @ ( ManifestValue::Image | ManifestValue::Config )=> Some(value.to_str().to_string())
+                    },
+                    overrides_input_image: test_case.overrides_image,
+                    overridable_at_runtime: test_case.runtime_override,
+                };
+
+                let manifest_env_vars = hash_map! {
+                "TEST_ENV_VAR".to_string() => env_config,
             };
-            let (result_enclave_vars, result_internal_vars) = merge_and_filter_env_vars(
-                transform_to_strings(testc.manifest_vars),
-                transform_to_strings(testc.runtime_vars),
-            );
-            assert_eq!(
-                result_enclave_vars,
-                transform_to_strings(testc.enclave_vars),
-                "test case {} failed",
-                testc.name
-            );
-            assert_eq!(
-                result_internal_vars,
-                transform_to_strings(testc.internal_vars),
-                "test case {} failed",
-                testc.name
-            );
+
+                let mut runtime_env_vars = if test_case.runtime_set { vec![("TEST_ENV_VAR".to_string(), "runtime".to_string())] } else { vec![] };
+                if check_internal_var {
+                    runtime_env_vars.extend(get_internal_vars());
+                }
+
+                let (client_env_vars, internal_env_vars) = merge_and_filter_env_vars(manifest_env_vars, runtime_env_vars);
+
+                if check_internal_var {
+                    assert_eq!(internal_env_vars, get_internal_vars());
+                } else {
+                    assert!(internal_env_vars.is_empty());
+                }
+
+
+                match &test_case.expected_runtime {
+                    RuntimeValue::None => {
+                        assert!(client_env_vars.is_empty());
+                    },
+                    value @ (RuntimeValue::Image | RuntimeValue::Config | RuntimeValue::Runtime) => {
+                        assert_eq!(client_env_vars.len(), 1);
+                        let (k, v) = client_env_vars.iter().next().unwrap();
+                        assert_eq!(k, "TEST_ENV_VAR");
+                        assert_eq!(v.as_str(), value.to_str());
+                    },
+                    RuntimeValue::Error => {
+                        panic!("This test case should be unreachable");
+                    },
+                }
+            }
         }
     }
 }
