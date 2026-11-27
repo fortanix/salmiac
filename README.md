@@ -19,6 +19,10 @@ Salmiac enhances Nitro/SNP Enclaves by enabling networking for external communic
 Set up your Ubuntu based build system:
    - Install Rust:
    Follow [this](https://www.rust-lang.org/tools/install) guide.
+   - Install the Rust musl target:
+   ```bash
+   rustup target add x86_64-unknown-linux-musl
+   ```
    - Install Docker:
    Follow [this](https://docs.docker.com/engine/install/) guide to install version 24.0.x
    OR
@@ -29,7 +33,7 @@ Set up your Ubuntu based build system:
    Follow [this](https://kernelnewbies.org/KernelBuild) guide.
    - Install additional dependencies:
    ```bash
-   apt-get install pkg-config libclang-dev cmake libpcap-dev
+   apt-get install pkg-config libclang-dev cmake libpcap-dev musl-tools
    ```
    * Build `enclave-base` image
    ```bash
