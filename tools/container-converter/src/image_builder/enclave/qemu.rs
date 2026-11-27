@@ -69,7 +69,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
         let is_debug = enclave_settings.is_debug;
         let enable_overlay_filesystem_persistence =
             enclave_settings.enable_overlay_filesystem_persistence;
-        let ccm_backend_url = enclave_settings.ccm_backend_url.clone();
+        let ccm_configuration = enclave_settings.ccm_configuration.clone();
         let dsm_configuration = enclave_settings.dsm_configuration.clone();
 
         self.update_env_vars(&enclave_settings, &mut env_vars);
@@ -80,7 +80,7 @@ pub(crate) trait QemuEnclaveImageBuilder<'a> {
             is_debug,
             env_vars,
             enable_overlay_filesystem_persistence,
-            ccm_backend_url,
+            ccm_configuration,
             dsm_configuration,
         };
 

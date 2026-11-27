@@ -44,10 +44,12 @@ use std::ops::Add;
 use std::os::unix::fs as unix_fs;
 use std::path::Path;
 
-use api_model::converter::{CertificateConfig, ConverterOptions, DsmConfiguration};
+use api_model::converter::{
+    CcmConfiguration, CertificateConfig, ConverterOptions, DsmConfiguration,
+};
 #[cfg(platform = "nitro")]
 use api_model::enclave::EnclaveManifest;
-use api_model::enclave::{CcmBackendUrl, FileSystemConfig, UserConfig};
+use api_model::enclave::{FileSystemConfig, UserConfig};
 #[cfg(any(platform = "snp", platform = "tdx"))]
 use api_model::NvidiaDriverCapability;
 #[cfg(any(platform = "snp", platform = "tdx"))]
@@ -108,7 +110,7 @@ pub(crate) struct EnclaveSettings {
 
     pub(crate) enable_overlay_filesystem_persistence: bool,
 
-    pub(crate) ccm_backend_url: CcmBackendUrl,
+    pub(crate) ccm_configuration: CcmConfiguration,
 
     pub(crate) dsm_configuration: DsmConfiguration,
 
@@ -138,15 +140,10 @@ impl EnclaveSettings {
             enable_overlay_filesystem_persistence: converter_options
                 .enable_overlay_filesystem_persistence
                 .unwrap_or(false),
-            ccm_backend_url: CcmBackendUrl::new(
-                converter_options
-                    .ccm_configuration
-                    .clone()
-                    .unwrap_or_default()
-                    .ccm_url
-                    .as_str(),
-            )
-            .unwrap_or_default(),
+            ccm_configuration: converter_options
+                .ccm_configuration
+                .clone()
+                .unwrap_or_default(),
             dsm_configuration: converter_options
                 .dsm_configuration
                 .clone()

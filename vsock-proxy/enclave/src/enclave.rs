@@ -22,8 +22,6 @@ use crate::file_system::{
     unmount_overlay_fs, DMVerityConfig, FileSystemNode, ENCLAVE_FS_OVERLAY_ROOT,
 };
 use api_model::converter::CertificateConfig;
-#[cfg(platform = "nitro")]
-use api_model::enclave::CcmBackendUrl;
 use api_model::enclave::EnclaveManifest;
 use async_process::{Child, Command};
 use async_trait::async_trait;
@@ -307,7 +305,7 @@ pub(crate) async fn run(
             setup_app_configuration(
                 &setup_result.app_config,
                 first_certificate,
-                &setup_result.enclave_manifest.ccm_backend_url,
+                &setup_result.enclave_manifest.ccm_configuration,
             )?;
         }
 
@@ -470,7 +468,7 @@ fn convert_to_tuples(env_strs: &Vec<String>) -> Result<Vec<(String, String)>, St
 fn setup_app_configuration(
     app_config: &ApplicationConfiguration,
     certificate_info: Option<CertificateResult>,
-    ccm_backend_url: &CcmBackendUrl,
+    ccm_config: &CcmConfiguration,
 ) -> Result<(), String> {
     if let (Some(certificate_info), Some(id)) = (certificate_info, &app_config.id) {
         let credentials = EmAppCredentials::new(certificate_info, app_config.skip_server_verify)?;
@@ -487,7 +485,7 @@ fn setup_app_configuration(
 
         setup_application_configuration(
             &credentials,
-            ccm_backend_url,
+            ccm_config,
             api,
             Path::new(ENCLAVE_FS_OVERLAY_ROOT),
             &app_config_id,
@@ -1294,10 +1292,9 @@ pub(crate) fn write_to_file<C: AsRef<[u8]> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use api_model::converter::DsmConfiguration;
+    use api_model::converter::{CcmConfiguration, DsmConfiguration};
     use api_model::enclave::{
-        CcmBackendUrl, EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig,
-        WorkingDir,
+        EnclaveManifest, FileSystemConfig, User, UserConfig, UserProgramConfig, WorkingDir,
     };
     use async_trait::async_trait;
     use enclaveos_encrypted_fs::EncryptedVolume;
@@ -1356,9 +1353,8 @@ mod tests {
                 is_debug: false,
                 env_vars: vec![],
                 enable_overlay_filesystem_persistence: false,
-                ccm_backend_url: CcmBackendUrl {
-                    host: "".to_string(),
-                    port: 0,
+                ccm_configuration: CcmConfiguration {
+                    ccm_url: "".to_string(),
                 },
                 dsm_configuration: DsmConfiguration {
                     dsm_url: "".to_string(),

@@ -1,14 +1,12 @@
-use std::sync::Arc;
-
-use api_model::enclave::CcmBackendUrl;
+use crate::app_configuration::EmAppCredentials;
+use crate::utils::tls_client::TlsClient;
+use api_model::converter::CcmConfiguration;
 use em_client::client::Client as EmClient;
 use em_client::models::ApplicationConfigSdkmsCredentials;
 use hyper_v0::client::{Client, Pool};
 use hyper_v0::net::HttpsConnector;
 use sdkms::SdkmsClient;
-
-use crate::app_configuration::EmAppCredentials;
-use crate::utils::tls_client::TlsClient;
+use std::sync::Arc;
 
 // Always verify the server against the built-in roots plus any supplied CA
 // certificates, including when credentials omit additional trust roots.
@@ -20,12 +18,12 @@ pub fn get_hyper_tls_connector(
 }
 
 pub fn get_em_client(
-    ccm_backend_url: &CcmBackendUrl,
+    ccm_config: &CcmConfiguration,
     connector: HttpsConnector<TlsClient>,
 ) -> Result<EmClient, String> {
     // Base path expected to have url scheme.
-    let base_path = &format!("https://{}", ccm_backend_url.to_string());
-    let mut em_client = EmClient::try_new_with_connector(base_path, Some("https"), connector)
+    let base_path = &ccm_config.ccm_url;
+    let mut em_client = EmClient::try_new_with_connector(&base_path, Some("https"), connector)
         .map_err(|err| format!("Unable to construct em_client: {}", err))?;
     em_client.set_use_new_paths(true);
     Ok(em_client)
@@ -78,18 +76,18 @@ mod tests {
     use super::get_hyper_tls_connector;
     use crate::app_configuration::EmAppCredentials;
     use crate::certificate::create_signer_key;
+    use api_model::converter::CcmConfiguration;
 
     const TIMEOUT: Duration = Duration::from_secs(10);
 
-    #[test_case("ccm.fortanix.com", 443)]
-    #[test_case("192.0.2.1", 8443)]
-    fn em_client_accepts_backend_host_and_port(host: &str, port: u16) {
-        let backend = api_model::enclave::CcmBackendUrl {
-            host: host.to_string(),
-            port,
+    #[test_case("https://ccm.fortanix.com:443")]
+    #[test_case("https://api.armor.fortanix.com:443")]
+    fn em_client_accepts_backend_host_and_port(url: &str) {
+        let ccm_config = CcmConfiguration {
+            ccm_url: url.to_string(),
         };
         let connector = HttpsConnector::new(super::TlsClient::new(None).unwrap());
-        assert!(super::get_em_client(&backend, connector).is_ok());
+        assert!(super::get_em_client(&ccm_config, connector).is_ok());
     }
 
     // Creates a test certificate to be used by both client & server

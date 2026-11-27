@@ -21,7 +21,7 @@ use std::sync::mpsc::{self, Sender};
 use std::{env, fmt};
 
 use api_model::converter::{AuthConfig, ConversionRequest, ConverterOptions};
-use api_model::enclave::{CcmBackendUrl, UserConfig, UserProgramConfig};
+use api_model::enclave::{UserConfig, UserProgramConfig};
 use api_model::HexString;
 use async_process::{Command, Stdio};
 use docker_image_reference::Reference as DockerReference;
@@ -343,9 +343,9 @@ fn validate_request(request: &ConversionRequest) -> Result<()> {
     }
 
     if let Some(c) = &request.converter_options.ccm_configuration {
-        if CcmBackendUrl::new(c.ccm_url.as_str()).is_err() {
+        if url::Url::parse(&c.ccm_url).is_err() {
             return Err(ConverterError {
-                message: "CcmConfiguration:ccm_url should be in <host>:<port> format".to_string(),
+                message: "CcmConfiguration:ccm_url is not a valid url".to_string(),
                 kind: ConverterErrorKind::BadCcmConfiguration,
             });
         }
@@ -969,7 +969,7 @@ mod tests {
         let converter_error = res.expect_err("");
         assert_eq!(
             converter_error.message,
-            "CcmConfiguration:ccm_url should be in <host>:<port> format"
+            "CcmConfiguration:ccm_url is not a valid url"
         );
         assert_eq!(
             converter_error.kind,
@@ -978,7 +978,7 @@ mod tests {
 
         // Test 3 - Valid CCM configuration set
         request.converter_options.ccm_configuration = Some(CcmConfiguration {
-            ccm_url: "ccm.sample.fortanix.com:267".to_string(),
+            ccm_url: "https://ccm.sample.fortanix.com:267".to_string(),
         });
         assert!(validate_request(&request).is_ok());
     }

@@ -9,7 +9,7 @@ use std::ops::Deref;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::converter::{CertificateConfig, DsmConfiguration};
+use crate::converter::{CcmConfiguration, CertificateConfig, DsmConfiguration};
 
 /// Required information needed to start an enclave
 /// Created by the container-converter and consumed by
@@ -27,7 +27,7 @@ pub struct EnclaveManifest {
 
     pub enable_overlay_filesystem_persistence: bool,
 
-    pub ccm_backend_url: CcmBackendUrl,
+    pub ccm_configuration: CcmConfiguration,
 
     pub dsm_configuration: DsmConfiguration,
 }
@@ -121,47 +121,6 @@ impl From<&str> for User {
             User("".to_string())
         } else {
             User(value.to_string())
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct CcmBackendUrl {
-    pub host: String,
-
-    pub port: u16,
-}
-
-impl CcmBackendUrl {
-    pub fn new(url: &str) -> Result<Self, String> {
-        let split: Vec<_> = url.split(":").collect();
-
-        if split.len() != 2 {
-            return Err("ccm_url should be in format <ip address>:<port>".to_string());
-        }
-
-        match split[1].parse::<u16>() {
-            Err(err) => Err(format!("ccm_url port should be a number. {:?}", err)),
-            Ok(port) => Ok(CcmBackendUrl {
-                host: split[0].to_string(),
-                port,
-            }),
-        }
-    }
-}
-
-impl ToString for CcmBackendUrl {
-    fn to_string(&self) -> String {
-        format!("{}:{}", self.host, self.port)
-    }
-}
-
-impl Default for CcmBackendUrl {
-    fn default() -> Self {
-        CcmBackendUrl {
-            host: "ccm.fortanix.com".to_string(),
-            port: 443,
         }
     }
 }

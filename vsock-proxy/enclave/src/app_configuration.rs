@@ -3,13 +3,10 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use std::fs;
-use std::path::{Component, Path, PathBuf};
-
-use api_model::enclave::CcmBackendUrl;
+use crate::certificate::{read_root_certificates, CertificateResult};
+use crate::enclave::write_to_file;
+use crate::utils::net::{get_em_client, get_hyper_tls_connector, get_sdkms_client};
+use api_model::converter::CcmConfiguration;
 use em_client::models::{
     ApplicationConfigContents, ApplicationConfigExtra, ApplicationConfigSdkmsCredentials,
     RuntimeAppConfig,
@@ -18,10 +15,10 @@ use em_client::{ApplicationConfigApiMut, Sha256Hash};
 use log::{info, warn};
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use sdkms::api_model::Blob;
-
-use crate::certificate::{read_root_certificates, CertificateResult};
-use crate::enclave::write_to_file;
-use crate::utils::net::{get_em_client, get_hyper_tls_connector, get_sdkms_client};
+use std::collections::BTreeMap;
+use std::convert::TryFrom;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 
 // All of the paths below are purposefully made relative because they are joined with the path pointing to the chroot environment.
 pub const APPLICATION_CONFIG_DIR: &str = "opt/fortanix/enclave-os/app-config/rw";
@@ -45,7 +42,7 @@ const LOCATION_FILE: &str = "location.txt";
 
 pub(crate) fn setup_application_configuration<T>(
     em_app_credentials: &EmAppCredentials,
-    ccm_backend_url: &CcmBackendUrl,
+    ccm_config: &CcmConfiguration,
     api: T,
     fs_root: &Path,
     app_config_id: &Sha256Hash,
@@ -56,7 +53,7 @@ where
     info!("Requesting application configuration.");
 
     let app_config = api.runtime_config_api().get_runtime_configuration(
-        ccm_backend_url,
+        ccm_config,
         em_app_credentials,
         app_config_id,
     )?;
@@ -322,12 +319,12 @@ pub(crate) struct EmAppRuntimeConfiguration;
 impl RuntimeConfiguration for EmAppRuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
-        ccm_backend_url: &CcmBackendUrl,
+        ccm_config: &CcmConfiguration,
         credentials: &EmAppCredentials,
         expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String> {
         let connector = get_hyper_tls_connector(credentials)?;
-        let mut em_client = get_em_client(ccm_backend_url, connector)?;
+        let mut em_client = get_em_client(ccm_config, connector)?;
         em_client
             .get_runtime_application_config(&expected_hash)
             .map_err(|err| format!("app runtime config get failed with {}", err.message()))
@@ -337,7 +334,7 @@ impl RuntimeConfiguration for EmAppRuntimeConfiguration {
 pub(crate) trait RuntimeConfiguration {
     fn get_runtime_configuration(
         &self,
-        ccm_backend_url: &CcmBackendUrl,
+        ccm_config: &CcmConfiguration,
         credentials: &EmAppCredentials,
         expected_hash: &Sha256Hash,
     ) -> Result<RuntimeAppConfig, String>;
@@ -464,23 +461,21 @@ iy6KC991zzvaWY/Ys+q/84Afqa+0qJKQnPuy/7F5GkVdQA/lfbhi
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::convert::TryFrom;
-    use std::fs;
-    use std::path::Path;
-
-    use api_model::enclave::CcmBackendUrl;
     use em_client::models::{
         ApplicationConfigConnection, ApplicationConfigConnectionApplication,
         ApplicationConfigConnectionDataset, ApplicationConfigDatasetCredentials,
         ApplicationConfigExtra, ApplicationConfigSdkmsCredentials, RuntimeAppConfig,
     };
     use sdkms::api_model::Blob;
+    use std::collections::BTreeMap;
+    use std::convert::TryFrom;
+    use std::fs;
+    use std::path::Path;
 
     use crate::app_configuration::{
         normalize_path_and_make_relative, setup_app_configs, setup_datasets,
-        ApplicationConfiguration, ApplicationFiles, DataSetFiles, EmAppCredentials,
-        RuntimeConfiguration, SdkmsDataset, Sha256Hash,
+        ApplicationConfiguration, ApplicationFiles, CcmConfiguration, DataSetFiles,
+        EmAppCredentials, RuntimeConfiguration, SdkmsDataset, Sha256Hash,
     };
 
     const TEST_FOLDER: &'static str = "/tmp/salm-unit-test";
@@ -651,7 +646,7 @@ mod tests {
     impl RuntimeConfiguration for MockDataSet {
         fn get_runtime_configuration(
             &self,
-            _ccm_backend_url: &CcmBackendUrl,
+            _ccm_config: &CcmConfiguration,
             _credentials: &EmAppCredentials,
             expected_hash: &Sha256Hash,
         ) -> Result<RuntimeAppConfig, String> {
@@ -700,9 +695,8 @@ mod tests {
     }
 
     fn run_setup_runtime_configuration(json_data: &'static str) -> RuntimeAppConfig {
-        let backend_url = CcmBackendUrl {
-            host: String::new(),
-            port: 0,
+        let ccm_config = CcmConfiguration {
+            ccm_url: "".to_string(),
         };
 
         let credentials = EmAppCredentials::mock();
@@ -715,7 +709,7 @@ mod tests {
         });
 
         let result = api.get_runtime_configuration(
-            &backend_url,
+            &ccm_config,
             &credentials,
             &Sha256Hash::try_from(
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
