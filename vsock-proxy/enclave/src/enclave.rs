@@ -511,7 +511,10 @@ pub(crate) async fn setup_file_system<
 
     let encrypted_fs = api.setup(nbd_config, setup_config).await?;
 
-    let space = EncryptedVolume::get_available_encrypted_space().await?;
+    let space = match encrypted_fs {
+        Some(ref v) => v.get_available_encrypted_space().await?,
+        _ => enclaveos_encrypted_fs::utils::get_available_space("/").await?,
+    };
 
     parent_socket
         .write_lv(&SetupMessages::EncryptedSpaceAvailable(space))
@@ -614,7 +617,6 @@ impl<'a> FileSystemSetupApi<'a> for FileSystemSetupApiImpl {
 
         info!("Finished file system mount.");
 
-        EncryptedVolume::get_available_encrypted_space().await?;
         Ok(encrypted_fs)
     }
 }
