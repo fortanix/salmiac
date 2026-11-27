@@ -26,9 +26,8 @@ jobs:
 
       - name: Build docker images
         run: |
-          docker build --no-cache docker/enclave-base -t enclave-base
-          # Disabled due to required artifacts
-          # docker build --no-cache docker/enclave-base-gpu -t enclave-base-gpu
-          docker build --no-cache --build-context common-build-context=docker/common-build-context docker/nitro/parent-base -t parent-base-nitro
-          docker build --no-cache --build-context common-build-context=docker/common-build-context  docker/qemu/parent-base -t parent-base-qemu
-          docker rmi enclave-base parent-base-nitro parent-base-qemu
+          platforms=("nitro" "tdx")
+          for platform in "${platforms[@]}"; do
+            echo $platform
+            SALMIAC_PLATFORM="${platform}" SKIP_ENCLAVE_BASE_GPU=true ./build-base-images.sh
+          done
