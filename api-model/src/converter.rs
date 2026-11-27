@@ -245,7 +245,7 @@ pub struct CcmConfiguration {
 impl Default for CcmConfiguration {
     fn default() -> Self {
         CcmConfiguration {
-            ccm_url: "ccm.fortanix.com:443".to_string(),
+            ccm_url: "https://api.armor.fortanix.com:443".to_string(),
         }
     }
 }

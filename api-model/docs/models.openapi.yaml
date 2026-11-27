@@ -131,7 +131,7 @@ components:
       properties:
         "ccm_url":
           type: "string"
-          description: "CCM Endpoint, Eg: ccm.fortanix.com:443"
+          description: "CCM Endpoint along with a port, Eg: https://api.armor.fortanix.com:443"
     DSMConfiguration:
       type: "object"
       required:
